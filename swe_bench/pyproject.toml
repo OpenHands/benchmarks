@@ -1,5 +1,5 @@
 [project]
-name = "openhands-benchmarks-swe-bench"
+name = "openhands_benchmarks_swe_bench"
 version = "0.1.0"
 description = "OpenHands integration for SWE-Bench"
 readme = "README.md"
@@ -15,4 +15,8 @@ dependencies = [
     "toml",
     "tqdm",
     "unidiff>=0.7.5,<0.8.0",
+#    "utils-shared @ 'file://../utils/shared'",
 ]
+
+[tool.uv.sources]
+openhands-sdk = { path = "/home/juan-all-hands/v1/agent-sdk/openhands", editable = true }

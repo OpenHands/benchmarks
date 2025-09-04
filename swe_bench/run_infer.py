@@ -10,20 +10,19 @@ import toml
 from datasets import load_dataset
 from jinja2 import Environment, FileSystemLoader
 
-import openhands.agenthub
-from evaluation.benchmarks.swe_bench.binary_patch_utils import (
+#Commented for migration
+#import openhands.agenthub
+from swe_bench.binary_patch_utils import (
     remove_binary_diffs,
     remove_binary_files_from_git,
 )
-from evaluation.benchmarks.swe_bench.resource.mapping import (
-    get_instance_resource_factor,
-)
-from evaluation.benchmarks.swe_bench.resource.swt_bench_constants import (
+from swe_bench.resource.mapping import get_instance_resource_factor
+from swe_bench.resource.swt_bench_constants import (
     MAP_REPO_TO_INSTALL,
     MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE,
     MAP_VERSION_TO_INSTALL,
 )
-from evaluation.utils.shared import (
+from utils.shared import (
     EvalException,
     EvalMetadata,
     EvalOutput,
@@ -39,28 +38,41 @@ from evaluation.utils.shared import (
     run_evaluation,
     update_llm_config_for_completions_logging,
 )
-from openhands.controller.state.state import State
-from openhands.core.config import (
-    AgentConfig,
-    OpenHandsConfig,
-    get_evaluation_parser,
-    get_llm_config_arg,
-)
-from openhands.core.config.condenser_config import NoOpCondenserConfig
-from openhands.core.config.utils import get_condenser_config_arg
-from openhands.core.logger import openhands_logger as logger
-from openhands.core.main import create_runtime, run_controller
-from openhands.critic import AgentFinishedCritic
-from openhands.events.action import CmdRunAction, FileReadAction, MessageAction
-from openhands.events.observation import (
-    CmdOutputObservation,
-    ErrorObservation,
-    FileReadObservation,
-)
-from openhands.events.serialization.event import event_from_dict, event_to_dict
-from openhands.runtime.base import Runtime
-from openhands.utils.async_utils import call_async_from_sync
-from openhands.utils.shutdown_listener import sleep_if_should_continue
+#Commented for migration
+#from openhands.controller.state.state import State
+#Commented for migration
+#from openhands.core.config import (
+#    AgentConfig,
+#    OpenHandsConfig,
+#    get_evaluation_parser,
+#    get_llm_config_arg,
+#)
+#Commented for migration
+#from openhands.core.config.condenser_config import NoOpCondenserConfig
+#Commented for migration
+#from openhands.core.config.utils import get_condenser_config_arg
+#Commented for migration
+#from openhands.core.logger import openhands_logger as logger
+#Commented for migration
+#from openhands.core.main import create_runtime, run_controller
+#Commented for migration
+#from openhands.critic import AgentFinishedCritic
+#Commented for migration
+#from openhands.events.action import CmdRunAction, FileReadAction, MessageAction
+#Commented for migration
+#from openhands.events.observation import (
+#    CmdOutputObservation,
+#    ErrorObservation,
+#    FileReadObservation,
+#)
+#Commented for migration
+#from openhands.events.serialization.event import event_from_dict, event_to_dict
+#Commented for migration
+#from openhands.runtime.base import Runtime
+#Commented for migration
+#from openhands.utils.async_utils import call_async_from_sync
+#Commented for migration
+#from openhands.utils.shutdown_listener import sleep_if_should_continue
 
 USE_HINT_TEXT = os.environ.get('USE_HINT_TEXT', 'false').lower() == 'true'
 RUN_WITH_BROWSING = os.environ.get('RUN_WITH_BROWSING', 'false').lower() == 'true'
@@ -93,7 +105,7 @@ AGENT_CLS_TO_FAKE_USER_RESPONSE_FN = {
 }
 
 
-def _get_swebench_workspace_dir_name(instance: pd.Series) -> str:
+def _get_workspace_dir_name(instance: pd.Series) -> str:
     if DATASET_TYPE == 'SWE-bench-Live':
         return instance.instance_id
     else:
@@ -101,7 +113,7 @@ def _get_swebench_workspace_dir_name(instance: pd.Series) -> str:
 
 
 def get_instruction(instance: pd.Series, metadata: EvalMetadata) -> MessageAction:
-    workspace_dir_name = _get_swebench_workspace_dir_name(instance)
+    workspace_dir_name = _get_workspace_dir_name(instance)
     mode = metadata.details['mode']
     llm_model = metadata.llm_config.model
 
@@ -123,7 +135,7 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata) -> MessageActio
         template_name = 'swe_default.j2'
 
     # Set up Jinja2 environment
-    # Assuming templates are in 'evaluation/benchmarks/swe_bench/prompts' relative to this script
+    # Assuming templates are in 'swe_bench/prompts' relative to this script
     prompts_dir = os.path.join(os.path.dirname(__file__), 'prompts')
     env = Environment(loader=FileSystemLoader(prompts_dir))
     template = env.get_template(template_name)
@@ -170,16 +182,16 @@ logger.info(f'Default docker image prefix: {DEFAULT_DOCKER_IMAGE_PREFIX}')
 
 def get_instance_docker_image(
     instance_id: str,
-    swebench_official_image: bool = False,
+    official_image: bool = False,
 ) -> str:
-    if swebench_official_image:
+    if official_image:
         # Official SWE-Bench image
-        # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
+        # sweb.eval.x86_64.django_1776_django-11333:v1
         # SWE-bench-Live uses the same naming convention as SWE-Bench
         if DATASET_TYPE == 'SWE-bench-Live':
             docker_image_prefix = 'docker.io/starryzhang/'
         elif DATASET_TYPE == 'SWE-bench':
-            docker_image_prefix = 'docker.io/swebench/'
+            docker_image_prefix = 'docker.io/'
         repo, name = instance_id.split('__')
         image_name = f'{docker_image_prefix.rstrip("/")}/sweb.eval.x86_64.{repo}_1776_{name}:latest'.lower()
         logger.debug(f'Using official SWE-Bench image: {image_name}')
@@ -199,16 +211,16 @@ def get_config(
     metadata: EvalMetadata,
 ) -> OpenHandsConfig:
     # We use a different instance image for the each instance of swe-bench eval
-    use_swebench_official_image = DATASET_TYPE != 'SWE-Gym'
+    use_official_image = DATASET_TYPE != 'SWE-Gym'
 
     base_container_image = get_instance_docker_image(
         instance['instance_id'],
-        swebench_official_image=use_swebench_official_image,
+        official_image=use_swebench_official_image,
     )
     logger.info(
         f'Using instance container image: {base_container_image}. '
         f'Please make sure this image exists. '
-        f'Submit an issue on https://github.com/All-Hands-AI/OpenHands if you run into any issues.'
+        f'Submit an issue on https://github.com/All-Hands-AI/benchmarks if you run into any issues.'
     )
 
     sandbox_config = get_default_sandbox_config_for_eval()
@@ -227,7 +239,8 @@ def get_config(
         run_as_openhands=False,
         max_iterations=metadata.max_iterations,
         enable_browser=RUN_WITH_BROWSING,
-        runtime=os.environ.get('RUNTIME', 'docker'),
+        #Commented for migration
+        runtime='local' #os.environ.get('RUNTIME', 'docker'),
         sandbox=sandbox_config,
         # do not mount workspace
         workspace_base=None,
@@ -266,7 +279,7 @@ def initialize_runtime(
     logger.info('-' * 30)
     logger.info('BEGIN Runtime Initialization Fn')
     logger.info('-' * 30)
-    workspace_dir_name = _get_swebench_workspace_dir_name(instance)
+    workspace_dir_name = _get_workspace_dir_name(instance)
     obs: CmdOutputObservation
 
     # Set instance id and git configuration
@@ -435,7 +448,7 @@ def complete_runtime(
     logger.info('BEGIN Runtime Completion Fn')
     logger.info('-' * 30)
     obs: CmdOutputObservation
-    workspace_dir_name = _get_swebench_workspace_dir_name(instance)
+    workspace_dir_name = _get_workspace_dir_name(instance)
 
     action = CmdRunAction(command=f'cd /workspace/{workspace_dir_name}')
     action.set_hard_timeout(600)
@@ -630,7 +643,7 @@ def process_instance(
         message_action = get_instruction(instance, metadata)
 
         # Here's how you can run the agent (similar to the `main` function) and get the final task state
-        state: State | None = asyncio.run(
+        state: ConversationState | None = asyncio.run(
             run_controller(
                 config=config,
                 initial_user_action=message_action,
@@ -648,7 +661,7 @@ def process_instance(
         # ======= THIS IS SWE-Bench specific =======
         # Get git patch
         if DATASET_TYPE == 'SWE-bench-Live':
-            from evaluation.benchmarks.swe_bench.live_utils import (
+            from swe_bench.live_utils import (
                 complete_runtime as complete_runtime_fn,
             )
         else:
