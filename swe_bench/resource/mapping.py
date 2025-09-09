@@ -8,7 +8,8 @@ This file tracks the resource requirements of different instances.
 import json
 import os
 
-from openhands.core.logger import openhands_logger as logger
+from openhands.sdk.logger import get_logger
+logger = get_logger(__name__)
 
 CUR_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_RUNTIME_RESOURCE_FACTOR = int(

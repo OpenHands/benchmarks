@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-source "evaluation/utils/version_control.sh"
+source "utils/version_control.sh"
 
 MODEL_CONFIG=$1
 COMMIT_HASH=$2
@@ -61,7 +61,9 @@ fi
 export RUN_WITH_BROWSING=$RUN_WITH_BROWSING
 echo "RUN_WITH_BROWSING: $RUN_WITH_BROWSING"
 
-get_openhands_version
+#Commented for migration
+#get_openhands_version
+OPENHANDS_VERSION=v1
 
 echo "AGENT: $AGENT"
 echo "OPENHANDS_VERSION: $OPENHANDS_VERSION"
@@ -103,7 +105,7 @@ fi
 
 function run_eval() {
   local eval_note="${1}"
-  COMMAND="poetry run python evaluation/benchmarks/swe_bench/run_infer.py \
+  COMMAND="uv run --project swe_bench python -m swe_bench.run_infer \
     --agent-cls $AGENT \
     --llm-config $MODEL_CONFIG \
     --max-iterations $MAX_ITER \
@@ -114,6 +116,7 @@ function run_eval() {
     --mode $MODE"
 
 
+  echo "$COMMAND"
 
   if [ -n "$EVAL_LIMIT" ]; then
     echo "EVAL_LIMIT: $EVAL_LIMIT"

@@ -37,7 +37,6 @@ def get_evaluation_parser():
     parser.add_argument('--eval-n-limit', dest='eval_n_limit', type=int, default=int(os.environ.get('EVAL_N_LIMIT', '0')))
     parser.add_argument('--eval-note', dest='eval_note', type=str, default=os.environ.get('EVAL_NOTE', ''))
     parser.add_argument('--model', dest='model', type=str, default=os.environ.get('MODEL', 'claude-3-5-sonnet-latest'))
-    parser.add_argument('--llm-config', dest='llm_config', type=str, default=os.environ.get('LLM_CONFIG', None))
     # Additional legacy flags used elsewhere in run_infer
     parser.add_argument('--num-workers', dest='num_workers', type=int, default=int(os.environ.get('NUM_WORKERS', '1')))
     parser.add_argument('--continue-on-error', dest='continue_on_error', action='store_true')
@@ -113,11 +112,10 @@ class SandboxConfig:
         self.remote_runtime_resource_factor: int = getattr(self, 'remote_runtime_resource_factor', 1)
 
 
-class AgentConfig(BaseModel):
-    model_config = {"arbitrary_types_allowed": True, "extra": "allow"}
-    
+class AgentConfig:
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
 
 class OpenHandsConfig:
@@ -157,17 +155,7 @@ class ConversationState:
 
 
 def get_llm_config_arg(name: str) -> LLMConfig | None:
-    # Handle draft_editor case
-    if name == 'draft_editor':
-        return None
-    
-    # Create LLM config from model name
-    if name:
-        config = LLMConfig(model=name)
-        config.log_completions = False
-        config.modify_params = True
-        return config
-    
+    # no-op stub for draft_editor
     return None
 
 
@@ -280,34 +268,8 @@ def run_controller(*, config: OpenHandsConfig, initial_user_action: MessageActio
         logger.error(f"Failed to import OpenHands SDK: {e}")
         return ConversationState(history=[], last_error=str(e))
 
-    llm_cfg = config.llm_config
-    if llm_cfg is None:
-        import os
-        from pydantic import SecretStr
-        api_key = os.getenv("LITELLM_API_KEY")
-        assert api_key is not None, "LITELLM_API_KEY environment variable is not set."
-        llm = LLM(
-            model="litellm_proxy/anthropic/claude-sonnet-4-20250514",
-            base_url="https://llm-proxy.eval.all-hands.dev",
-            api_key=SecretStr(api_key),
-        )
-    else:
-        # Handle custom model names by mapping them to valid litellm models
-        model_name = getattr(llm_cfg, "model", "litellm_proxy/anthropic/claude-sonnet-4-20250514")
-        if model_name.startswith("llm.eval-"):
-            # Map custom evaluation models to a standard model
-            model_name = "litellm_proxy/anthropic/claude-sonnet-4-20250514"
-        
-        # Create new LLM with corrected model name but preserve other config
-        import os
-        from pydantic import SecretStr
-        api_key = getattr(llm_cfg, "api_key", None) or os.getenv("LITELLM_API_KEY")
-        assert api_key is not None, "LITELLM_API_KEY environment variable is not set."
-        llm = LLM(
-            model=model_name,
-            base_url="https://llm-proxy.eval.all-hands.dev",
-            api_key=SecretStr(api_key),
-        )
+    llm_cfg = config.llm_config or LLMConfig()
+    llm = LLM(config=llm_cfg)
 
     workspace_dir_name = None
     # best-effort parse workspace from action content; not strictly needed
@@ -327,15 +289,8 @@ def run_controller(*, config: OpenHandsConfig, initial_user_action: MessageActio
         except Exception:
             pass
 
-    # Extract text content from MessageEvent
-    text_content = ""
-    if hasattr(initial_user_action, "llm_message") and initial_user_action.llm_message:
-        for content_item in initial_user_action.llm_message.content:
-            if hasattr(content_item, "text"):
-                text_content += content_item.text
-
     conv = Conversation(agent=agent, callbacks=[_cb])
-    conv.send_message(Message(role='user', content=[TextContent(text=text_content)]))
+    conv.send_message(Message(role='user', content=[TextContent(text=initial_user_action.content)]))
     try:
         conv.run()
         return ConversationState(history=history, last_error=None)
@@ -361,6 +316,210 @@ def event_to_dict(event: Any) -> dict[str, Any]:
     # fallback
     return {'event': str(event)}
 
+# Compatibility classes and runtime for local mode (new SDK)
+class MessageAction:
+    def __init__(self, content: str, image_urls: list[str] | None = None):
+        self.content = content
+        self.image_urls = image_urls or []
+
+
+class CmdRunAction:
+    def __init__(self, command: str):
+        self.command = command
+        self._hard_timeout: int | None = None
+
+    def set_hard_timeout(self, seconds: int):
+        self._hard_timeout = seconds
+
+
+class FileReadAction:
+    def __init__(self, path: str):
+        self.path = path
+
+
+class CmdOutputObservation:
+    def __init__(self, content: str, exit_code: int = 0):
+        self.content = content
+        self.exit_code = exit_code
+
+    def __str__(self):
+        return f"CmdOutputObservation(exit_code={self.exit_code}, content={self.content[:120]!r}...)"
+
+
+class ErrorObservation:
+    def __init__(self, content: str, exit_code: int | None = None):
+        self.content = content
+        self.exit_code = exit_code if exit_code is not None else 1
+
+    def __str__(self):
+        return f"ErrorObservation(exit_code={self.exit_code}, content={self.content[:120]!r}...)"
+
+
+class FileReadObservation:
+    def __init__(self, content: str):
+        self.content = content
+
+    def __str__(self):
+        return f"FileReadObservation(len={len(self.content)})"
+
+
+class SandboxConfig:
+    def __init__(self, **kwargs):
+        # store arbitrary fields used by run_infer
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        # defaults expected later
+        self.base_container_image: str | None = getattr(self, 'base_container_image', None)
+        self.enable_auto_lint: bool = getattr(self, 'enable_auto_lint', False)
+        self.use_host_network: bool = getattr(self, 'use_host_network', False)
+        self.platform: str | None = getattr(self, 'platform', None)
+        self.remote_runtime_resource_factor: int = getattr(self, 'remote_runtime_resource_factor', 1)
+
+
+class AgentConfig:
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+class OpenHandsConfig:
+    def __init__(self, *, default_agent: str, run_as_openhands: bool, max_iterations: int, enable_browser: bool, runtime: str, sandbox: SandboxConfig, workspace_base=None, workspace_mount_path=None):
+        self.default_agent = default_agent
+        self.run_as_openhands = run_as_openhands
+        self.max_iterations = max_iterations
+        self.enable_browser = enable_browser
+        self.runtime = runtime
+        self.sandbox = sandbox
+        self.workspace_base = workspace_base
+        self.workspace_mount_path = workspace_mount_path
+        self.llm_config: LLMConfig | None = None
+        self.agent_config: AgentConfig | None = None
+
+    def set_llm_config(self, llm_config: LLMConfig | None, name: str | None = None):
+        if llm_config is not None:
+            self.llm_config = llm_config
+
+    def set_agent_config(self, agent_config: AgentConfig):
+        self.agent_config = agent_config
+
+
+class SimpleMetrics:
+    def __init__(self):
+        self._data: dict[str, Any] = {}
+
+    def get(self) -> dict[str, Any]:
+        return dict(self._data)
+
+
+class ConversationState:
+    def __init__(self, history: list[Any] | None = None, last_error: str | None = None):
+        self.history = history or []
+        self.last_error = last_error
+        self.metrics = SimpleMetrics()
+
+
+def get_llm_config_arg(name: str) -> LLMConfig | None:
+    # no-op stub for draft_editor
+    return None
+
+
+def sleep_if_should_continue(seconds: int):
+    time.sleep(seconds)
+
+
+def call_async_from_sync(func):
+    # Our connect is sync; if a coroutine function is passed, run it.
+    try:
+        result = func()
+        return result
+    except TypeError:
+        # If passed a coroutine object or function, try running it in a new loop
+        import asyncio as _asyncio
+        return _asyncio.run(func())
+
+
+class LocalRuntime:
+    def __init__(self, workspace_root: str | None = None):
+        self.root = workspace_root or tempfile.mkdtemp(prefix="local_runtime_")
+        self.workspace_root = os.path.join(self.root, "workspace")
+        self.swe_util_root = os.path.join(self.root, "swe_util")
+        os.makedirs(self.workspace_root, exist_ok=True)
+        os.makedirs(self.swe_util_root, exist_ok=True)
+        self.cwd = self.root
+
+    def map_path(self, path: str) -> str:
+        if path.startswith('/workspace'):
+            return path.replace('/workspace', self.workspace_root, 1)
+        if path.startswith('/swe_util'):
+            return path.replace('/swe_util', self.swe_util_root, 1)
+        if path.startswith('~'):
+            return os.path.join(self.root, path[2:] if path.startswith('~/') else path[1:])
+        return path
+
+    def rewrite_command(self, cmd: str) -> str:
+        cmd = cmd.replace('/workspace', self.workspace_root)
+        cmd = cmd.replace('/swe_util', self.swe_util_root)
+        return cmd
+
+    def connect(self):
+        return None
+
+    def close(self):
+        return None
+
+    def copy_to(self, src: str, dest: str):
+        dest_path = self.map_path(dest)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        import shutil
+        shutil.copy2(src, dest_path)
+
+    def run_action(self, action: Any) -> Any:
+        if isinstance(action, FileReadAction):
+            try:
+                p = action.path
+                if not os.path.isabs(p):
+                    p = os.path.join(self.cwd, p)
+                with open(p, 'r') as f:
+                    return FileReadObservation(content=f.read())
+            except Exception as e:
+                return ErrorObservation(content=str(e))
+        if isinstance(action, CmdRunAction):
+            cmd = action.command.strip()
+            # handle cd specially to maintain cwd across commands
+            if cmd.startswith('cd '):
+                path = cmd[3:].strip()
+                path = self.map_path(path)
+                os.makedirs(path, exist_ok=True)
+                self.cwd = path
+                return CmdOutputObservation(content='', exit_code=0)
+            # no-op commands
+            if cmd in ('C-c', 'C-z'):
+                return CmdOutputObservation(content='', exit_code=0)
+            if cmd.startswith('source '):
+                # ignore sourcing; assume env already fine
+                return CmdOutputObservation(content='', exit_code=0)
+            if cmd == 'which python':
+                # pretend testbed python
+                return CmdOutputObservation(content='/usr/bin/testbed/python', exit_code=0)
+            # rewrite mount paths
+            cmd = self.rewrite_command(cmd)
+            try:
+                import subprocess as _sp
+                completed = _sp.run(
+                    ['bash', '-lc', cmd],
+                    cwd=self.cwd,
+                    env={**os.environ, 'HOME': self.root},
+                    stdout=_sp.PIPE,
+                    stderr=_sp.STDOUT,
+                    text=True,
+                    timeout=getattr(action, '_hard_timeout', None),
+                )
+                return CmdOutputObservation(content=completed.stdout or '', exit_code=completed.returncode)
+            except Exception as e:
+                return ErrorObservation(content=str(e))
+        return ErrorObservation(content=f'Unsupported action type: {type(action).__name__}')
+
+
 def create_runtime(config: OpenHandsConfig) -> LocalRuntime:
     return LocalRuntime()
 
@@ -373,34 +532,8 @@ def run_controller(*, config: OpenHandsConfig, initial_user_action: MessageActio
         logger.error(f"Failed to import OpenHands SDK: {e}")
         return ConversationState(history=[], last_error=str(e))
 
-    llm_cfg = config.llm_config
-    if llm_cfg is None:
-        import os
-        from pydantic import SecretStr
-        api_key = os.getenv("LITELLM_API_KEY")
-        assert api_key is not None, "LITELLM_API_KEY environment variable is not set."
-        llm = LLM(
-            model="litellm_proxy/anthropic/claude-sonnet-4-20250514",
-            base_url="https://llm-proxy.eval.all-hands.dev",
-            api_key=SecretStr(api_key),
-        )
-    else:
-        # Handle custom model names by mapping them to valid litellm models
-        model_name = getattr(llm_cfg, "model", "litellm_proxy/anthropic/claude-sonnet-4-20250514")
-        if model_name.startswith("llm.eval-"):
-            # Map custom evaluation models to a standard model
-            model_name = "litellm_proxy/anthropic/claude-sonnet-4-20250514"
-        
-        # Create new LLM with corrected model name but preserve other config
-        import os
-        from pydantic import SecretStr
-        api_key = getattr(llm_cfg, "api_key", None) or os.getenv("LITELLM_API_KEY")
-        assert api_key is not None, "LITELLM_API_KEY environment variable is not set."
-        llm = LLM(
-            model=model_name,
-            base_url="https://llm-proxy.eval.all-hands.dev",
-            api_key=SecretStr(api_key),
-        )
+    llm_cfg = config.llm_config or LLMConfig()
+    llm = LLM(config=llm_cfg)
 
     workspace_dir_name = None
     # best-effort parse workspace from action content; not strictly needed
@@ -420,15 +553,8 @@ def run_controller(*, config: OpenHandsConfig, initial_user_action: MessageActio
         except Exception:
             pass
 
-    # Extract text content from MessageEvent
-    text_content = ""
-    if hasattr(initial_user_action, "llm_message") and initial_user_action.llm_message:
-        for content_item in initial_user_action.llm_message.content:
-            if hasattr(content_item, "text"):
-                text_content += content_item.text
-
     conv = Conversation(agent=agent, callbacks=[_cb])
-    conv.send_message(Message(role='user', content=[TextContent(text=text_content)]))
+    conv.send_message(Message(role='user', content=[TextContent(text=initial_user_action.content)]))
     try:
         conv.run()
         return ConversationState(history=history, last_error=None)
@@ -456,8 +582,7 @@ def event_to_dict(event: Any) -> dict[str, Any]:
 
 # SDK does not expose LLMConfig; alias LLM as LLMConfig for compatibility
 from openhands.sdk.llm import LLM as LLMConfig
-# Commented out to avoid conflict with local ConversationState definition
-# from openhands.sdk.conversation.state import ConversationState
+from openhands.sdk.conversation.state import ConversationState
 #Commented for migration
 #from openhands.core.config import SandboxConfig
 #Commented for migration
@@ -496,11 +621,10 @@ from openhands.sdk.llm import LLM as LLMConfig
 
 
 class EvalMetadata(BaseModel):
-    model_config = {"arbitrary_types_allowed": True}
-    
     agent_class: str
     llm_config: LLMConfig
-    agent_config: AgentConfig | None = None
+    #Commented for migration
+    #agent_config: AgentConfig | None = None
     max_iterations: int
     eval_output_dir: str
     start_time: str
@@ -508,7 +632,8 @@ class EvalMetadata(BaseModel):
     dataset: str | None = None
     data_split: str | None = None
     details: dict[str, Any] | None = None
-    condenser_config: NoOpCondenserConfig | None = None
+    #Commented for migration
+    #condenser_config: CondenserConfig | None = None
 
 
 class EvalOutput(BaseModel):
@@ -625,8 +750,10 @@ def make_metadata(
     eval_output_dir: str,
     data_split: str | None = None,
     details: dict[str, Any] | None = None,
-    agent_config: AgentConfig | None = None,
-    condenser_config: NoOpCondenserConfig | None = None,
+    #Commented for migration
+    #agent_config: AgentConfig | None = None,
+    #Commented for migration
+    #condenser_config: CondenserConfig | None = None,
 ) -> EvalMetadata:
     model_name = llm_config.model.split('/')[-1]
     model_path = model_name.replace(':', '_').replace('@', '-')
@@ -648,7 +775,6 @@ def make_metadata(
     metadata = EvalMetadata(
         agent_class=agent_class,
         llm_config=llm_config,
-        agent_config=agent_config,
         max_iterations=max_iterations,
         eval_output_dir=eval_output_path,
         start_time=time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -658,7 +784,6 @@ def make_metadata(
         dataset=dataset_name,
         data_split=data_split,
         details=details,
-        condenser_config=condenser_config,
     )
     metadata_json = metadata.model_dump_json()
     logger.info(f'Metadata: {metadata_json}')
@@ -1166,12 +1291,10 @@ def filter_dataset(
 
 
 # Missing classes and functions for migration compatibility
-class NoOpCondenserConfig(BaseModel):
+class NoOpCondenserConfig:
     """No-op condenser config for compatibility."""
-    model_config = {"arbitrary_types_allowed": True}
-    
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self):
+        pass
 
 
 def get_condenser_config_arg(name: str):

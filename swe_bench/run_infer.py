@@ -1,8 +1,16 @@
+from __future__ import annotations
 import asyncio
+
 import copy
 import json
 import os
+import sys
 import tempfile
+# Ensure OpenHands SDK is importable
+_SDK_DIR = os.path.expanduser('~/v1/agent-sdk')
+if _SDK_DIR not in sys.path:
+    sys.path.insert(0, _SDK_DIR)
+
 from typing import Any, Literal
 
 import pandas as pd
@@ -26,9 +34,25 @@ from utils.shared import (
     EvalException,
     EvalMetadata,
     EvalOutput,
+    MessageAction,
+    CmdRunAction,
+    CmdOutputObservation,
+    ErrorObservation,
+    FileReadAction,
+    FileReadObservation,
+    OpenHandsConfig,
+    AgentConfig,
+    LocalRuntime as Runtime,
+    create_runtime,
+    run_controller,
+    call_async_from_sync,
+    event_to_dict,
     assert_and_raise,
+    ConversationState,
+    ConversationState,
     check_maximum_retries_exceeded,
     codeact_user_response,
+    get_evaluation_parser,
     get_default_sandbox_config_for_eval,
     get_metrics,
     is_fatal_evaluation_error,
@@ -37,7 +61,14 @@ from utils.shared import (
     reset_logger_for_multiprocessing,
     run_evaluation,
     update_llm_config_for_completions_logging,
+    NoOpCondenserConfig,
+    get_condenser_config_arg,
+    AgentFinishedCritic,
+    get_llm_config_arg,
 )
+from openhands.sdk.logger import get_logger
+logger = get_logger('swe_bench_eval')
+
 #Commented for migration
 #from openhands.controller.state.state import State
 #Commented for migration
@@ -58,8 +89,9 @@ from utils.shared import (
 #Commented for migration
 #from openhands.critic import AgentFinishedCritic
 #Commented for migration
-#from openhands.events.action import CmdRunAction, FileReadAction, MessageAction
-#Commented for migration
+from openhands.sdk.event.llm_convertible import MessageEvent
+from openhands.sdk.llm import Message, TextContent, ImageContent
+
 #from openhands.events.observation import (
 #    CmdOutputObservation,
 #    ErrorObservation,
@@ -112,7 +144,7 @@ def _get_workspace_dir_name(instance: pd.Series) -> str:
         return f'{instance.repo}__{instance.version}'.replace('/', '__')
 
 
-def get_instruction(instance: pd.Series, metadata: EvalMetadata) -> MessageAction:
+def get_instruction(instance: pd.Series, metadata: EvalMetadata) -> MessageEvent:
     workspace_dir_name = _get_workspace_dir_name(instance)
     mode = metadata.details['mode']
     llm_model = metadata.llm_config.model
@@ -169,8 +201,10 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata) -> MessageActio
             'problem_statement is required in image_assets'
         )
         image_urls = assets['problem_statement']
-        return MessageAction(content=instruction, image_urls=image_urls)
-    return MessageAction(content=instruction)
+        msg = Message(role='user', content=[TextContent(text=instruction), ImageContent(image_urls=image_urls)])
+        return MessageEvent(source='user', llm_message=msg)
+    msg = Message(role='user', content=[TextContent(text=instruction)])
+    return MessageEvent(source='user', llm_message=msg)
 
 
 # TODO: migrate all swe-bench docker to ghcr.io/openhands
@@ -215,7 +249,7 @@ def get_config(
 
     base_container_image = get_instance_docker_image(
         instance['instance_id'],
-        official_image=use_swebench_official_image,
+        official_image=use_official_image,
     )
     logger.info(
         f'Using instance container image: {base_container_image}. '
@@ -240,7 +274,7 @@ def get_config(
         max_iterations=metadata.max_iterations,
         enable_browser=RUN_WITH_BROWSING,
         #Commented for migration
-        runtime='local' #os.environ.get('RUNTIME', 'docker'),
+        runtime='local', #os.environ.get('RUNTIME', 'docker'),
         sandbox=sandbox_config,
         # do not mount workspace
         workspace_base=None,
@@ -376,21 +410,32 @@ def initialize_runtime(
         f'Failed to cd to /workspace/{workspace_dir_name}: {str(obs)}',
     )
 
-    action = CmdRunAction(command='git reset --hard')
+    # Check if this is a git repository before running git commands
+    action = CmdRunAction(command='git rev-parse --git-dir')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to git reset --hard: {str(obs)}')
+    
+    if obs.exit_code == 0:
+        # Only run git commands if we're in a git repository
+        action = CmdRunAction(command='git reset --hard')
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(obs.exit_code == 0, f'Failed to git reset --hard: {str(obs)}')
 
-    action = CmdRunAction(
-        command='for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
-    )
-    action.set_hard_timeout(600)
-    logger.info(action, extra={'msg_type': 'ACTION'})
-    obs = runtime.run_action(action)
-    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to remove git remotes: {str(obs)}')
+        action = CmdRunAction(
+            command='for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
+        )
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(obs.exit_code == 0, f'Failed to remove git remotes: {str(obs)}')
+    else:
+        logger.info(f'Directory /workspace/{workspace_dir_name} is not a git repository, skipping git reset and remote removal')
 
     if metadata.details['mode'] == 'swt-ci':
         # set up repo
@@ -526,6 +571,18 @@ def complete_runtime(
                 f'Failed to remove git directory {git_dir}: {str(obs)}',
             )
 
+    # Check if this is a git repository before running git commands
+    action = CmdRunAction(command='git rev-parse --git-dir')
+    action.set_hard_timeout(600)
+    logger.info(action, extra={'msg_type': 'ACTION'})
+    obs = runtime.run_action(action)
+    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+    
+    if obs.exit_code != 0:
+        # Not a git repository, return empty patch
+        logger.info('Directory is not a git repository, returning empty git patch')
+        return {'git_patch': ''}
+
     # add all files
     action = CmdRunAction(command='git add -A')
     action.set_hard_timeout(600)
@@ -643,15 +700,13 @@ def process_instance(
         message_action = get_instruction(instance, metadata)
 
         # Here's how you can run the agent (similar to the `main` function) and get the final task state
-        state: ConversationState | None = asyncio.run(
-            run_controller(
-                config=config,
-                initial_user_action=message_action,
-                runtime=runtime,
-                fake_user_response_fn=AGENT_CLS_TO_FAKE_USER_RESPONSE_FN[
-                    metadata.agent_class
-                ],
-            )
+        state: ConversationState | None = run_controller(
+            config=config,
+            initial_user_action=message_action,
+            runtime=runtime,
+            fake_user_response_fn=AGENT_CLS_TO_FAKE_USER_RESPONSE_FN[
+                metadata.agent_class
+            ],
         )
 
         # if fatal error, throw EvalError to trigger re-run
@@ -682,8 +737,8 @@ def process_instance(
         'git_patch': git_patch,
     }
 
-    # If you are working on some simpler benchmark that only evaluates the final model output (e.g., in a MessageAction)
-    # You can simply get the LAST `MessageAction` from the returned `state.history` and parse it for evaluation.
+    # If you are working on some simpler benchmark that only evaluates the final model output (e.g., in a MessageEvent)
+    # You can simply get the LAST `MessageEvent` from the returned `state.history` and parse it for evaluation.
     if state is None:
         raise ValueError('State should not be None.')
 
@@ -692,10 +747,20 @@ def process_instance(
     metrics = get_metrics(state)
 
     # Save the output
-    instruction = message_action.content
-    if message_action.image_urls:
+    # Extract text content from MessageEvent
+    text_content = ""
+    image_urls = []
+    if hasattr(message_action, 'llm_message') and message_action.llm_message:
+        for content_item in message_action.llm_message.content:
+            if hasattr(content_item, 'text'):
+                text_content += content_item.text
+            elif hasattr(content_item, 'image_urls'):
+                image_urls.extend(content_item.image_urls)
+    
+    instruction = text_content
+    if image_urls:
         instruction += (
-            '\n\n<image_urls>' + '\n'.join(message_action.image_urls) + '</image_urls>'
+            '\n\n<image_urls>' + '\n'.join(image_urls) + '</image_urls>'
         )
     output = EvalOutput(
         instance_id=instance.instance_id,
@@ -822,7 +887,7 @@ if __name__ == '__main__':
         )
 
     details = {'mode': args.mode}
-    _agent_cls = openhands.agenthub.Agent.get_cls(args.agent_cls)
+    _agent_cls = None  # SDK path does not use agenthub; agents are handled internally
 
     dataset_descrption = (
         args.dataset.replace('/', '__') + '-' + args.split.replace('/', '__')
@@ -929,9 +994,7 @@ if __name__ == '__main__':
                 for line in f:
                     instance = json.loads(line)
                     try:
-                        history = [
-                            event_from_dict(event) for event in instance['history']
-                        ]
+                        history = instance['history']
                         critic_result = critic.evaluate(
                             history, instance['test_result'].get('git_patch', '')
                         )
