@@ -185,6 +185,17 @@ def _get_actual_workspace_root(runtime: Runtime) -> str:
     if hasattr(runtime, 'workspace_root'):
         workspace_root = runtime.workspace_root
         logger.info(f'Runtime workspace_root: {workspace_root}')
+        
+        # Check for path duplication and fix it
+        # Pattern: /tmp/local_runtime_xxx/tmp/local_runtime_xxx/workspace -> /tmp/local_runtime_xxx/workspace
+        import re
+        pattern = r'(/tmp/local_runtime_[^/]+)/tmp/local_runtime_[^/]+(/workspace)$'
+        match = re.match(pattern, workspace_root)
+        if match:
+            fixed_workspace_root = match.group(1) + match.group(2)
+            logger.info(f'Fixed duplicated workspace_root: {workspace_root} -> {fixed_workspace_root}')
+            workspace_root = fixed_workspace_root
+        
         # Cache the workspace root for future use
         _CACHED_WORKSPACE_ROOT = workspace_root
         return workspace_root
@@ -240,11 +251,24 @@ def _clone_repository(runtime: Runtime, instance: pd.Series, workspace_dir: str 
     logger.info(f'Repository will be cloned to: {actual_workspace_path}')
     
     # Clone the repository (git will create the repo directory automatically)
-    action = CmdRunAction(command=f'cd {actual_workspace_root} && git clone {repo_url} ')
+    # Clear cached workspace root to ensure we get the correct path
+    global _CACHED_WORKSPACE_ROOT
+    _CACHED_WORKSPACE_ROOT = None
+    
+    # Use relative path approach to avoid path duplication issues with runtime
+    workspace_root = _get_actual_workspace_root(runtime)
+    repo_name = _get_workspace_dir_name(instance)
+    # Try using relative path approach - don't use absolute paths at all
+    command_str = f'echo "Starting clone process" && pwd && echo "Directory contents before clone:" && ls -la && echo "Removing existing directory..." && rm -rf {repo_name} && echo "Cloning repository..." && git clone {repo_url} {repo_name} && echo "Directory contents after clone:" && ls -la {repo_name}'
+    logger.info(f'DEBUG: Command being sent to runtime: {command_str}')
+    action = CmdRunAction(command=command_str)
     action.set_hard_timeout(600)  # 10 minutes timeout for cloning
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+    logger.info(f'DEBUG: Clone command exit_code={obs.exit_code}, content_length={len(obs.content)}, content_preview={repr(obs.content[:200])}')
+    # Log the full output to see what actually happened during cloning
+    logger.info(f'FULL CLONE OUTPUT: {obs.content}')
     
     if obs.exit_code != 0:
         logger.error(f'Failed to clone repository {repo_url}: {obs.content}')
@@ -252,7 +276,7 @@ def _clone_repository(runtime: Runtime, instance: pd.Series, workspace_dir: str 
     
     # Checkout the base commit
     logger.info(f'Checking out base commit {base_commit}')
-    action = CmdRunAction(command=f'cd {actual_workspace_path} && git checkout {base_commit}')
+    action = CmdRunAction(command=f'cd {workspace_root}/{repo_name} && git checkout {base_commit}')
     action.set_hard_timeout(300)  # 5 minutes timeout for checkout
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
@@ -263,20 +287,21 @@ def _clone_repository(runtime: Runtime, instance: pd.Series, workspace_dir: str 
         return False
     
     # Verify that the workspace is accessible and contains repository files
-    # Use the container path for commands, not the host path
+    # Use cd command to avoid path duplication issues with runtime
     logger.info(f'Verifying cloned repository at {actual_workspace_path}')
-    action = CmdRunAction(command=f'ls -la {actual_workspace_path}')
+    action = CmdRunAction(command=f'echo "Verifying repository..." && pwd && echo "Current directory contents:" && ls -la && echo "Checking if {repo_name} exists..." && ls -la {repo_name} && echo "Entering {repo_name}..." && cd {repo_name} && echo "Current directory: $(pwd)" && echo "Repository contents:" && ls -la . && echo "=== Git status ===" && git status')
     action.set_hard_timeout(60)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+    logger.info(f'DEBUG: Verification command exit_code={obs.exit_code}, content_length={len(obs.content)}, content_preview={repr(obs.content[:200])}')
     
     if obs.exit_code != 0:
         logger.error(f'Workspace {actual_workspace_path} is not accessible: {obs.content}')
         return False
     
     # Verify it's a git repository
-    action = CmdRunAction(command=f'cd {actual_workspace_path} && git rev-parse --git-dir')
+    action = CmdRunAction(command=f'cd {workspace_root}/{repo_name} && git rev-parse --git-dir')
     action.set_hard_timeout(60)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
@@ -319,7 +344,7 @@ def _detect_actual_workspace_dir(runtime: Runtime, expected_workspace_dir: str, 
         if obs.exit_code == 0:
             logger.info(f'Workspace already contains a git repository')
             # Check if it's the correct repository
-            action = CmdRunAction(command=f'cd {actual_workspace_path} && git remote get-url origin')
+            action = CmdRunAction(command=f'cd {actual_workspace_root}/{expected_workspace_dir} && git remote get-url origin')
             action.set_hard_timeout(60)
             obs = runtime.run_action(action)
             if obs.exit_code == 0:
@@ -331,9 +356,17 @@ def _detect_actual_workspace_dir(runtime: Runtime, expected_workspace_dir: str, 
                 else:
                     logger.info(f'Workspace contains different repository: {current_repo_url}, expected: {expected_repo_url}')
                     # Clean workspace and clone the correct repository
-                    action = CmdRunAction(command=f'rm -rf {actual_workspace_path}')
+                    repo_name = _get_workspace_dir_name(instance)
+                    action = CmdRunAction(command=f'cd {_get_actual_workspace_root(runtime)} && rm -rf {repo_name}')
                     action.set_hard_timeout(60)
                     obs = runtime.run_action(action)
+            else:
+                logger.info(f'Failed to get remote URL (exit code: {obs.exit_code}): {obs.content.strip()}')
+                # Clean workspace and clone the correct repository
+                repo_name = _get_workspace_dir_name(instance)
+                action = CmdRunAction(command=f'cd {_get_actual_workspace_root(runtime)} && rm -rf {repo_name}')
+                action.set_hard_timeout(60)
+                obs = runtime.run_action(action)
     
     # Workspace doesn't contain the correct repository, clone it if allowed
     if instance is not None and allow_cloning:
@@ -619,23 +652,25 @@ def initialize_runtime(
         f'Failed to source /swe_util/{entry_script_path}: {str(obs)}',
     )
 
-    # Ensure the workspace contains the repository (clones if needed)
+    # Ensure the workspace contains the repository (cloning disabled)
     actual_workspace_dir = _detect_actual_workspace_dir(runtime, workspace_dir_name, instance, True)
     actual_workspace_path = _get_actual_workspace_path(runtime, instance)
     logger.info(f'Using workspace directory: {actual_workspace_path}')
     
-    action = CmdRunAction(command=f'cd {actual_workspace_path}')
+    # Use relative path approach to avoid path duplication issues with runtime
+    workspace_root = _get_actual_workspace_root(runtime)
+    action = CmdRunAction(command=f'cd {workspace_root}/{actual_workspace_dir}')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
     assert_and_raise(
         obs.exit_code == 0,
-        f'Failed to cd to {actual_workspace_path}: {str(obs)}',
+        f'Failed to cd to {workspace_root}/{actual_workspace_dir}: {str(obs)}',
     )
 
     # Check if this is a git repository before running git commands
-    action = CmdRunAction(command=f'cd {actual_workspace_path} && git rev-parse --git-dir')
+    action = CmdRunAction(command=f'cd {workspace_root}/{actual_workspace_dir} && git rev-parse --git-dir')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
@@ -643,7 +678,7 @@ def initialize_runtime(
     
     if obs.exit_code == 0:
         # Only run git commands if we're in a git repository
-        action = CmdRunAction(command=f'cd {actual_workspace_path} && git reset --hard')
+        action = CmdRunAction(command=f'cd {workspace_root}/{actual_workspace_dir} && git reset --hard')
         action.set_hard_timeout(600)
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
@@ -651,7 +686,7 @@ def initialize_runtime(
         assert_and_raise(obs.exit_code == 0, f'Failed to git reset --hard: {str(obs)}')
 
         action = CmdRunAction(
-            command=f'cd {actual_workspace_path} && for remote_name in $(git remote); do git remote remove "${{remote_name}}"; done'
+            command=f'cd {workspace_root}/{actual_workspace_dir} && for remote_name in $(git remote); do git remote remove "${{remote_name}}"; done'
         )
         action.set_hard_timeout(600)
         logger.info(action, extra={'msg_type': 'ACTION'})
@@ -973,7 +1008,7 @@ def process_instance(
     try:
         # Ensure workspace directory exists before generating instructions
         workspace_dir_name = _get_workspace_dir_name(instance)
-        actual_workspace_dir = _detect_actual_workspace_dir(runtime, workspace_dir_name, instance)
+        actual_workspace_dir = _detect_actual_workspace_dir(runtime, workspace_dir_name, instance, allow_cloning=False)
         actual_workspace_path = _get_actual_workspace_path(runtime, instance)
         logger.info(f'Pre-initialization: Using workspace directory {actual_workspace_path}')
         
