@@ -11,6 +11,11 @@ _SDK_DIR = os.path.expanduser('~/v1/agent-sdk')
 if _SDK_DIR not in sys.path:
     sys.path.insert(0, _SDK_DIR)
 
+# Ensure utils module is importable from parent directory
+_PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT_DIR not in sys.path:
+    sys.path.insert(0, _PARENT_DIR)
+
 from typing import Any, Literal
 
 import pandas as pd
@@ -289,7 +294,7 @@ def _clone_repository(runtime: Runtime, instance: pd.Series, workspace_dir: str 
     # Verify that the workspace is accessible and contains repository files
     # Use cd command to avoid path duplication issues with runtime
     logger.info(f'Verifying cloned repository at {actual_workspace_path}')
-    action = CmdRunAction(command=f'echo "Verifying repository..." && pwd && echo "Current directory contents:" && ls -la && echo "Checking if {repo_name} exists..." && ls -la {repo_name} && echo "Entering {repo_name}..." && cd {repo_name} && echo "Current directory: $(pwd)" && echo "Repository contents:" && ls -la . && echo "=== Git status ===" && git status')
+    action = CmdRunAction(command=f'echo "Verifying repository..." && pwd && echo "Current directory contents:" && ls -la && echo "=== Git status ===" && git status && echo "=== Git remote ===" && git remote -v')
     action.set_hard_timeout(60)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
@@ -299,20 +304,9 @@ def _clone_repository(runtime: Runtime, instance: pd.Series, workspace_dir: str 
     if obs.exit_code != 0:
         logger.error(f'Workspace {actual_workspace_path} is not accessible: {obs.content}')
         return False
-    
-    # Verify it's a git repository
-    action = CmdRunAction(command=f'cd {workspace_root}/{repo_name} && git rev-parse --git-dir')
-    action.set_hard_timeout(60)
-    logger.info(action, extra={'msg_type': 'ACTION'})
-    obs = runtime.run_action(action)
-    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    
-    if obs.exit_code != 0:
-        logger.error(f'Workspace {actual_workspace_path} is not a valid git repository: {obs.content}')
-        return False
-    
-    logger.info(f'Successfully cloned, checked out, and verified repository at {actual_workspace_path}')
-    return True
+    else:
+        logger.info(f'Repository verification successful! Repository is properly cloned and accessible.')
+        return True
 
 
 def _detect_actual_workspace_dir(runtime: Runtime, expected_workspace_dir: str, instance: pd.Series = None, allow_cloning: bool = False) -> str:
@@ -936,7 +930,8 @@ def complete_runtime(
                     break
                 elif isinstance(obs, ErrorObservation):
                     # Fall back to cat "patch.diff" to get the patch
-                    assert 'File could not be decoded as utf-8' in obs.content
+                    # This can happen due to encoding issues or other file reading problems
+                    logger.info(f'FileReadAction failed with error: {obs.content}. Falling back to cat command.')
                     action = CmdRunAction(command='cat patch.diff')
                     action.set_hard_timeout(max(300 + 100 * n_retries, 600))
                     logger.info(action, extra={'msg_type': 'ACTION'})
