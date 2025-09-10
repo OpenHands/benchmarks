@@ -252,7 +252,7 @@ def _clone_repository(runtime: Runtime, instance: pd.Series, workspace_dir: str 
     
     # Checkout the base commit
     logger.info(f'Checking out base commit {base_commit}')
-    action = CmdRunAction(command=f'cd {{actual_workspace_path}} && git checkout {base_commit}')
+    action = CmdRunAction(command=f'cd {actual_workspace_path} && git checkout {base_commit}')
     action.set_hard_timeout(300)  # 5 minutes timeout for checkout
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
