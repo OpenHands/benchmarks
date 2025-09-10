@@ -7,7 +7,13 @@ import os
 import sys
 import tempfile
 # Ensure OpenHands SDK is importable
-_SDK_DIR = os.path.expanduser('~/v1/agent-sdk')
+_SDK_DIR = os.environ.get('OPENHANDS_SDK')
+if not _SDK_DIR:
+    raise RuntimeError(
+        "OPENHANDS_SDK environment variable is not set. "
+        "Please set it to the path of your OpenHands SDK directory. "
+        "Example: export OPENHANDS_SDK=/path/to/agent-sdk"
+    )
 if _SDK_DIR not in sys.path:
     sys.path.insert(0, _SDK_DIR)
 
