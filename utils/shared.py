@@ -235,7 +235,15 @@ class LocalRuntime:
             cmd = action.command.strip()
             # handle cd specially to maintain cwd across commands
             if cmd.startswith('cd '):
-                path = cmd[3:].strip()
+                # Extract only the directory path, not any chained commands
+                cd_part = cmd[3:].strip()
+                # Split on && or ; to get only the directory path for cd
+                if '&&' in cd_part:
+                    path = cd_part.split('&&')[0].strip()
+                elif ';' in cd_part:
+                    path = cd_part.split(';')[0].strip()
+                else:
+                    path = cd_part
                 path = self.map_path(path)
                 os.makedirs(path, exist_ok=True)
                 self.cwd = path
