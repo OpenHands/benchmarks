@@ -54,7 +54,7 @@ AGENT_CLS_TO_FAKE_USER_RESPONSE_FN = {
 
 
 def _get_swebench_workspace_dir_name(instance: pd.Series) -> str:
-    return f'{instance.repo}__{instance.version}'.replace('/', '__')
+    return instance.instance_id
 
 
 def get_instruction(instance: pd.Series, metadata: EvalMetadata):
