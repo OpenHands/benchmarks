@@ -8,8 +8,6 @@ import sys
 import tempfile
 import subprocess
 import shutil
-import uuid
-from datetime import datetime
 from typing import Any, Literal
 
 import pandas as pd
@@ -29,7 +27,7 @@ if not _SDK_DIR:
 if _SDK_DIR not in sys.path:
     sys.path.insert(0, _SDK_DIR)
 
-# Import SDK components directly
+# Import SDK components
 from openhands.sdk import (
     LLM,
     Agent,
@@ -86,25 +84,10 @@ class EvalMetadata:
 
 class EvalOutput:
     """Output from evaluation."""
-    def __init__(self, instance_id, git_patch, instruction, metadata, history, error=None):
+    def __init__(self, instance_id, git_patch, error=None):
         self.instance_id = instance_id
         self.git_patch = git_patch
-        self.instruction = instruction
-        self.metadata = metadata
-        self.history = history
         self.error = error
-    
-    def to_dict(self):
-        """Convert to dictionary format matching example_.json structure."""
-        return {
-            "instance_id": self.instance_id,
-            "test_result": {
-                "git_patch": self.git_patch
-            },
-            "instruction": self.instruction,
-            "metadata": self.metadata,
-            "history": self.history
-        }
 
 class LLMConfig:
     """LLM configuration."""
@@ -115,76 +98,6 @@ class LLMConfig:
         self.temperature = temperature
         self.log_completions = True
         self.modify_params = False
-        # Additional fields to match example_.json structure
-        self.api_version = None
-        self.aws_access_key_id = None
-        self.aws_secret_access_key = None
-        self.aws_region_name = None
-        self.openrouter_site_url = None
-        self.openrouter_app_name = None
-        self.num_retries = None
-        self.retry_multiplier = None
-        self.retry_min_wait = None
-        self.retry_max_wait = None
-        self.timeout = None
-        self.max_message_chars = None
-        self.top_p = None
-        self.top_k = None
-        self.custom_llm_provider = None
-        self.max_input_tokens = None
-        self.max_output_tokens = None
-        self.input_cost_per_token = None
-        self.output_cost_per_token = None
-        self.ollama_base_url = None
-        self.drop_params = None
-        self.disable_vision = None
-        self.caching_prompt = None
-        self.log_completions_folder = None
-        self.custom_tokenizer = None
-        self.native_tool_calling = None
-        self.reasoning_effort = None
-        self.seed = None
-        self.safety_settings = None
-    
-    def to_dict(self):
-        """Convert to dictionary format."""
-        return {
-            "model": self.model,
-            "api_key": self.api_key,
-            "base_url": self.base_url,
-            "api_version": self.api_version,
-            "aws_access_key_id": self.aws_access_key_id,
-            "aws_secret_access_key": self.aws_secret_access_key,
-            "aws_region_name": self.aws_region_name,
-            "openrouter_site_url": self.openrouter_site_url,
-            "openrouter_app_name": self.openrouter_app_name,
-            "num_retries": self.num_retries,
-            "retry_multiplier": self.retry_multiplier,
-            "retry_min_wait": self.retry_min_wait,
-            "retry_max_wait": self.retry_max_wait,
-            "timeout": self.timeout,
-            "max_message_chars": self.max_message_chars,
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "top_k": self.top_k,
-            "custom_llm_provider": self.custom_llm_provider,
-            "max_input_tokens": self.max_input_tokens,
-            "max_output_tokens": self.max_output_tokens,
-            "input_cost_per_token": self.input_cost_per_token,
-            "output_cost_per_token": self.output_cost_per_token,
-            "ollama_base_url": self.ollama_base_url,
-            "drop_params": self.drop_params,
-            "modify_params": self.modify_params,
-            "disable_vision": self.disable_vision,
-            "caching_prompt": self.caching_prompt,
-            "log_completions": self.log_completions,
-            "log_completions_folder": self.log_completions_folder,
-            "custom_tokenizer": self.custom_tokenizer,
-            "native_tool_calling": self.native_tool_calling,
-            "reasoning_effort": self.reasoning_effort,
-            "seed": self.seed,
-            "safety_settings": self.safety_settings
-        }
 
 def set_dataset_type(dataset_name: str) -> str:
     """Set dataset type based on dataset name."""
@@ -410,12 +323,11 @@ def process_instance_simplified(instance: pd.Series, metadata: EvalMetadata) -> 
             if not api_key:
                 raise EvalException("LITELLM_API_KEY environment variable is not set")
             
-            llm_config = metadata.llm_config
             llm = LLM(
-                model=llm_config.model,
-                base_url=llm_config.base_url or "https://llm-proxy.eval.all-hands.dev",
+                model=metadata.llm_config.model,
+                base_url=metadata.llm_config.base_url or "https://llm-proxy.eval.all-hands.dev",
                 api_key=SecretStr(api_key),
-                temperature=getattr(llm_config, 'temperature', 0.0),
+                temperature=metadata.llm_config.temperature,
             )
             
             # Setup tools with the workspace
@@ -427,70 +339,8 @@ def process_instance_simplified(instance: pd.Series, metadata: EvalMetadata) -> 
             # Create agent
             agent = Agent(llm=llm, tools=tools)
             
-            # Collect full conversation history
-            conversation_history = []
-            
-            def conversation_callback(event: Event):
-                # Convert event to dictionary format matching example_.json structure
-                event_dict = {
-                    "id": getattr(event, 'id', str(uuid.uuid4())),
-                    "timestamp": getattr(event, 'timestamp', datetime.now().isoformat()),
-                    "source": getattr(event, 'source', 'agent'),
-                    "message": getattr(event, 'message', ''),
-                }
-                
-                # Add event-specific fields with proper serialization
-                if hasattr(event, 'action') and event.action:
-                    # Convert action object to dictionary
-                    action = event.action
-                    if hasattr(action, 'model_dump'):
-                        event_dict["action"] = action.model_dump()
-                    elif hasattr(action, 'dict'):
-                        event_dict["action"] = action.dict()
-                    else:
-                        # Fallback: convert to string representation
-                        event_dict["action"] = {
-                            "action": str(type(action).__name__),
-                            "args": getattr(action, 'args', {}),
-                            "content": getattr(action, 'content', ''),
-                        }
-                
-                if hasattr(event, 'args'):
-                    event_dict["args"] = event.args
-                if hasattr(event, 'observation') and event.observation:
-                    # Convert observation object to dictionary
-                    obs = event.observation
-                    if hasattr(obs, 'model_dump'):
-                        event_dict["observation"] = obs.model_dump()
-                    elif hasattr(obs, 'dict'):
-                        event_dict["observation"] = obs.dict()
-                    else:
-                        # Fallback: convert to string representation
-                        event_dict["observation"] = {
-                            "observation": str(type(obs).__name__),
-                            "content": getattr(obs, 'content', ''),
-                            "success": getattr(obs, 'success', True),
-                        }
-                
-                if hasattr(event, 'content'):
-                    event_dict["content"] = event.content
-                if hasattr(event, 'cause'):
-                    event_dict["cause"] = event.cause
-                if hasattr(event, 'extras'):
-                    event_dict["extras"] = event.extras
-                
-                # Add tool call metadata if available
-                if hasattr(event, 'tool_call_metadata'):
-                    event_dict["tool_call_metadata"] = event.tool_call_metadata
-                
-                # Add LLM metrics if available
-                if hasattr(event, 'llm_metrics'):
-                    event_dict["llm_metrics"] = event.llm_metrics
-                
-                conversation_history.append(event_dict)
-            
-            # Create conversation with callback
-            conversation = Conversation(agent=agent, callbacks=[conversation_callback])
+            # Create conversation
+            conversation = Conversation(agent=agent)
             
             # Get instruction
             instruction = get_instruction(instance, metadata, workspace_path)
@@ -517,52 +367,17 @@ def process_instance_simplified(instance: pd.Series, metadata: EvalMetadata) -> 
             conversation.send_message(message)
             conversation.run()
             
-            logger.info(f'Conversation completed with {len(conversation_history)} events')
-            
             # Get git patch
             git_patch = get_git_patch(workspace_path)
-            
-            # Create complete metadata structure
-            complete_metadata = {
-                "agent_class": metadata.agent_class,
-                "llm_config": metadata.llm_config.to_dict(),
-                "agent_config": metadata.agent_class,  # Same as agent_class for now
-                "max_iterations": metadata.max_iterations,
-                "eval_output_dir": metadata.eval_output_dir,
-                "start_time": datetime.now().isoformat(),
-                "git_commit": "unknown",  # Could be extracted from git if needed
-                "dataset": metadata.dataset_name,
-                "data_split": "test",  # Default, could be parameterized
-                "details": metadata.details,
-                "condenser_config": {
-                    "type": "none"  # Default, could be parameterized
-                }
-            }
             
             logger.info(f'Completed evaluation for instance {instance.instance_id}')
             logger.info(f'Git patch length: {len(git_patch)} characters')
             
-            return EvalOutput(instance.instance_id, git_patch, instruction, complete_metadata, conversation_history)
+            return EvalOutput(instance.instance_id, git_patch)
             
         except Exception as e:
             logger.error(f'Error processing instance {instance.instance_id}: {str(e)}')
-            # Create minimal metadata for error case
-            error_metadata = {
-                "agent_class": metadata.agent_class,
-                "llm_config": metadata.llm_config.to_dict(),
-                "agent_config": metadata.agent_class,
-                "max_iterations": metadata.max_iterations,
-                "eval_output_dir": metadata.eval_output_dir,
-                "start_time": datetime.now().isoformat(),
-                "git_commit": "unknown",
-                "dataset": metadata.dataset_name,
-                "data_split": "test",
-                "details": metadata.details,
-                "condenser_config": {
-                    "type": "none"
-                }
-            }
-            return EvalOutput(instance.instance_id, "", "Error occurred", error_metadata, [], error=str(e))
+            return EvalOutput(instance.instance_id, "", error=str(e))
 
 def get_evaluation_parser():
     """Get argument parser for evaluation."""
@@ -587,38 +402,6 @@ def make_metadata(llm_config, dataset_name, agent_class, max_iterations, eval_no
     """Create evaluation metadata."""
     return EvalMetadata(llm_config, dataset_name, agent_class, max_iterations, eval_note, eval_output_dir, details)
 
-def construct_eval_output_dir(base_dir, dataset_name, agent_class, model, max_iterations, eval_note):
-    """Construct the structured evaluation output directory path."""
-    # Format: eval_out/<dataset>-<split>/<agent_config>/<llm>_maxiter_<maxiter>_N_<version>-<hint>-<exp_name>-run_<run_number>
-    
-    # Extract model name (remove provider prefixes if any)
-    model_name = model.replace('claude-3-5-sonnet-latest', 'claude-sonnet-4-20250514')
-    
-    # Create agent config directory name
-    agent_config = agent_class
-    
-    # Create LLM config string
-    llm_config_str = f"{model_name}_maxiter_{max_iterations}"
-    
-    # Add version and note information
-    version = "v1"  # Default version
-    hint_status = "no-hint"  # Default hint status
-    
-    if eval_note:
-        llm_config_str += f"_N_{version}-{hint_status}-{eval_note}-run_1"
-    else:
-        llm_config_str += f"_N_{version}-{hint_status}-run_1"
-    
-    # Construct full path
-    eval_output_dir = os.path.join(
-        base_dir,
-        dataset_name,
-        agent_config,
-        llm_config_str
-    )
-    
-    return eval_output_dir
-
 def prepare_dataset(dataset: pd.DataFrame, output_file: str, n_limit: int) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
     if n_limit > 0:
@@ -627,78 +410,36 @@ def prepare_dataset(dataset: pd.DataFrame, output_file: str, n_limit: int) -> pd
 
 def run_evaluation_simplified(instances: pd.DataFrame, metadata: EvalMetadata, output_file: str):
     """Run evaluation on instances."""
-    output_dir = os.path.dirname(output_file)
-    if output_dir:  # Only create directory if dirname is not empty
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Create empty output file
-    with open(output_file, 'w') as f:
-        pass
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     results = []
     for idx, instance in instances.iterrows():
         try:
-            logger.info(f'Processing instance {instance.instance_id}')
             result = process_instance_simplified(instance, metadata)
             
-            # Save result using the complete format
-            result_dict = result.to_dict()
-            if result.error:
-                result_dict['error'] = result.error
+            # Save result
+            result_dict = {
+                'instance_id': result.instance_id,
+                'git_patch': result.git_patch,
+                'error': result.error,
+            }
             results.append(result_dict)
             
-            logger.info(f'Writing result for {instance.instance_id} to {output_file}')
-            logger.info(f'Result dict keys: {list(result_dict.keys())}')
-            git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
-            logger.info(f'Git patch length: {git_patch_len}')
-            
             # Write to output file
-            output_dir = os.path.dirname(output_file)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
             with open(output_file, 'a') as f:
-                json_line = json.dumps(result_dict) + '\n'
-                f.write(json_line)
-                f.flush()  # Ensure it's written immediately
-                logger.info(f'Successfully wrote {len(json_line)} characters to output file')
+                f.write(json.dumps(result_dict) + '\n')
                 
         except Exception as e:
             logger.error(f'Failed to process instance {instance.instance_id}: {str(e)}')
-            # Create error result in complete format
             error_result = {
                 'instance_id': instance.instance_id,
-                'test_result': {
-                    'git_patch': ''
-                },
-                'instruction': 'Error occurred',
-                'metadata': {
-                    'agent_class': metadata.agent_class,
-                    'llm_config': metadata.llm_config.to_dict(),
-                    'agent_config': metadata.agent_class,
-                    'max_iterations': metadata.max_iterations,
-                    'eval_output_dir': metadata.eval_output_dir,
-                    'start_time': datetime.now().isoformat(),
-                    'git_commit': 'unknown',
-                    'dataset': metadata.dataset_name,
-                    'data_split': 'test',
-                    'details': metadata.details,
-                    'condenser_config': {
-                        'type': 'none'
-                    }
-                },
-                'history': [],
+                'git_patch': '',
                 'error': str(e),
             }
             results.append(error_result)
             
-            output_dir = os.path.dirname(output_file)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
             with open(output_file, 'a') as f:
-                json_line = json.dumps(error_result) + '\n'
-                f.write(json_line)
-                f.flush()
-                logger.info(f'Successfully wrote error result to output file')
+                f.write(json.dumps(error_result) + '\n')
 
 if __name__ == '__main__':
     parser = get_evaluation_parser()
@@ -745,28 +486,16 @@ if __name__ == '__main__':
     details = {'mode': args.mode}
     dataset_description = args.dataset.replace('/', '__') + '-' + args.split.replace('/', '__')
     
-    # Construct proper structured output directory path
-    structured_output_dir = construct_eval_output_dir(
-        args.eval_output_dir,
-        dataset_description,
-        args.agent_cls,
-        args.model,
-        args.max_iterations,
-        args.eval_note
-    )
-    
     metadata = make_metadata(
         llm_config,
         dataset_description,
         args.agent_cls,
         args.max_iterations,
         args.eval_note,
-        structured_output_dir,
+        args.eval_output_dir,
         details=details,
     )
 
-    # Create output directory and file
-    os.makedirs(metadata.eval_output_dir, exist_ok=True)
     output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
     print(f'### OUTPUT FILE: {output_file} ###')
 

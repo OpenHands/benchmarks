@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-source "utils/version_control.sh"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../../utils/version_control.sh"
 
 MODEL_CONFIG=$1
 COMMIT_HASH=$2
@@ -113,6 +115,7 @@ function run_eval() {
     --eval-note $eval_note \
     --dataset $DATASET \
     --split $SPLIT \
+    --eval-output-dir /home/juan-all-hands/v1/eval_out \
     --mode $MODE"
 
 
