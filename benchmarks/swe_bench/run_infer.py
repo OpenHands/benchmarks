@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import tempfile
@@ -9,11 +10,11 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
+import modal
 import pandas as pd
 from datasets import load_dataset, Dataset
 from jinja2 import Environment, FileSystemLoader
 from pydantic import SecretStr
-
 
 from openhands.sdk import (
     LLM,
@@ -69,6 +70,56 @@ def _get_workspace_dir_name(instance: pd.Series) -> str:
     repo_name = instance.repo.split("/")[-1]
     return repo_name
 
+def get_instruction(
+    instance: pd.Series, metadata: EvalMetadata, workspace_path: str
+) -> str:
+    """Generate instruction for the agent."""
+    workspace_dir_name = _get_workspace_dir_name(instance)
+    assert metadata.details is not None
+    mode = metadata.details["mode"]
+    llm_model = metadata.llm_config.model
+
+    # Determine the template file based on mode and LLM
+    if mode.startswith("swt"):
+        template_name = "swt.j2"
+    elif mode == "swe":
+        if "claude" in llm_model:
+            template_name = "swe_default.j2"
+        elif "gpt-4.1" in llm_model:
+            template_name = "swe_gpt4.j2"
+        else:
+            template_name = "swe_default.j2"  # Default for 'swe' mode
+    else:
+        logger.error(f"Unexpected evaluation mode: {mode}. Falling back to default.")
+        template_name = "swe_default.j2"
+
+    # Set up Jinja2 environment
+    prompts_dir = os.path.join(os.path.dirname(__file__), "prompts")
+    env = Environment(loader=FileSystemLoader(prompts_dir))
+    template = env.get_template(template_name)
+
+    # Prepare context for rendering
+    context = {
+        "instance": instance,
+        "workspace_dir_name": workspace_dir_name,
+        "actual_workspace_path": workspace_path,
+        "metadata": metadata,
+    }
+
+    # Add specific context for swt-ci mode if needed
+    if mode == "swt-ci":
+        context["test_instructions"] = (
+            f"The following command can be used to run the tests: `{list(MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE[instance.repo].values())[0]}`. Make sure they fail in the expected way.\n"
+        )
+    else:
+        context["test_instructions"] = ""
+
+    # Render the instruction
+    instruction = template.render(context)
+    return instruction
+
+
+
 
 def setup_workspace(instance: pd.Series, workspace_root: str) -> str:
     """Setup workspace for the instance by cloning the repository."""
@@ -114,60 +165,6 @@ def setup_workspace(instance: pd.Series, workspace_root: str) -> str:
         raise EvalException(f"Failed to checkout base commit: {e.stderr}")
 
     return workspace_path
-
-
-def get_instruction(
-    instance: pd.Series, metadata: EvalMetadata, workspace_path: str
-) -> str:
-    """Generate instruction for the agent."""
-    workspace_dir_name = _get_workspace_dir_name(instance)
-    mode = metadata.details["mode"]
-    llm_model = metadata.llm_config.model
-
-    # Determine the template file based on mode and LLM
-    if mode.startswith("swt"):
-        template_name = "swt.j2"
-    elif mode == "swe":
-        if "claude" in llm_model:
-            template_name = "swe_default.j2"
-        elif "gpt-4.1" in llm_model:
-            template_name = "swe_gpt4.j2"
-        else:
-            template_name = "swe_default.j2"  # Default for 'swe' mode
-    else:
-        logger.error(f"Unexpected evaluation mode: {mode}. Falling back to default.")
-        template_name = "swe_default.j2"
-
-    # Set up Jinja2 environment
-    prompts_dir = os.path.join(os.path.dirname(__file__), "prompts")
-    env = Environment(loader=FileSystemLoader(prompts_dir))
-    template = env.get_template(template_name)
-
-    # Prepare context for rendering
-    context = {
-        "instance": instance,
-        "workspace_dir_name": workspace_dir_name,
-        "actual_workspace_path": workspace_path,
-        "metadata": metadata,
-    }
-
-    # Add specific context for swt-ci mode if needed
-    if mode == "swt-ci":
-        context["test_instructions"] = (
-            f"The following command can be used to run the tests: `{list(MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE[instance.repo].values())[0]}`. Make sure they fail in the expected way.\n"
-        )
-    else:
-        context["test_instructions"] = ""
-
-    # Render the instruction
-    instruction = template.render(context)
-
-    if RUN_WITH_BROWSING:
-        instruction += (
-            "<IMPORTANT!>\nYou SHOULD NEVER attempt to browse the web. </IMPORTANT!>\n"
-        )
-
-    return instruction
 
 
 def initialize_workspace(workspace_path: str, instance: pd.Series):
@@ -304,191 +301,84 @@ def get_git_patch(workspace_path: str) -> str:
 
 
 def process_instance_simplified(
-    instance: pd.Series, metadata: EvalMetadata
+    instance: pd.Series,
+    instruction: str,
+    metadata: EvalMetadata
 ) -> EvalOutput:
     """Process a single instance using the simplified SDK approach."""
     logger.info(f"Starting evaluation for instance {instance.instance_id}")
 
-    # Create temporary workspace
-    with tempfile.TemporaryDirectory() as temp_workspace:
-        try:
-            # Setup workspace
-            workspace_path = setup_workspace(instance, temp_workspace)
-            initialize_workspace(workspace_path, instance)
+    pathlib.Path("/workspace").mkdir(parents=True, exist_ok=True)
+    workspace_path = setup_workspace(instance, "/workspace")
+    initialize_workspace(workspace_path, instance)
 
-            # Configure LLM
-            api_key = os.getenv("LITELLM_API_KEY")
-            if not api_key:
-                raise EvalException("LITELLM_API_KEY environment variable is not set")
+    llm = metadata.llm
 
-            llm_config = metadata.llm_config
-            llm = LLM(
-                model=llm_config.model,
-                base_url=llm_config.base_url or "https://llm-proxy.eval.all-hands.dev",
-                api_key=SecretStr(api_key),
-                temperature=getattr(llm_config, "temperature", 0.0),
-            )
+    # Setup tools with the workspace
+    tools = [
+        BashTool.create(working_dir=workspace_path),
+        FileEditorTool.create(),
+    ]
 
-            # Setup tools with the workspace
-            tools: list[Tool] = [
-                BashTool(working_dir=workspace_path),
-                FileEditorTool(),
-            ]
+    # Create agent
+    agent = Agent(llm=llm, tools=tools)
 
-            # Create agent
-            agent = Agent(llm=llm, tools=tools)
 
-            # Collect full conversation history
-            conversation_history = []
+    # Create conversation with callback
+    conversation = Conversation(agent=agent)
 
-            def conversation_callback(event: Event):
-                # Convert event to dictionary format matching example_.json structure
-                event_dict = {
-                    "id": getattr(event, "id", str(uuid.uuid4())),
-                    "timestamp": getattr(
-                        event, "timestamp", datetime.now().isoformat()
-                    ),
-                    "source": getattr(event, "source", "agent"),
-                    "message": getattr(event, "message", ""),
-                }
 
-                # Add event-specific fields with proper serialization
-                if hasattr(event, "action") and event.action:
-                    # Convert action object to dictionary
-                    action = event.action
-                    if hasattr(action, "model_dump"):
-                        event_dict["action"] = action.model_dump()
-                    elif hasattr(action, "dict"):
-                        event_dict["action"] = action.dict()
-                    else:
-                        # Fallback: convert to string representation
-                        event_dict["action"] = {
-                            "action": str(type(action).__name__),
-                            "args": getattr(action, "args", {}),
-                            "content": getattr(action, "content", ""),
-                        }
+    # Handle multimodal content if present
+    if "image_assets" in instance:
+        assets = json.loads(instance["image_assets"])
+        assert "problem_statement" in assets, (
+            "problem_statement is required in image_assets"
+        )
+        image_urls = assets["problem_statement"]
+        message = Message(
+            role="user",
+            content=[
+                TextContent(text=instruction),
+                # TODO: will fix this in next version of SDK
+                # ImageContent(image_urls=image_urls),
+            ],
+        )
+    else:
+        message = Message(role="user", content=[TextContent(text=instruction)])
 
-                if hasattr(event, "args"):
-                    event_dict["args"] = event.args
-                if hasattr(event, "observation") and event.observation:
-                    # Convert observation object to dictionary
-                    obs = event.observation
-                    if hasattr(obs, "model_dump"):
-                        event_dict["observation"] = obs.model_dump()
-                    elif hasattr(obs, "dict"):
-                        event_dict["observation"] = obs.dict()
-                    else:
-                        # Fallback: convert to string representation
-                        event_dict["observation"] = {
-                            "observation": str(type(obs).__name__),
-                            "content": getattr(obs, "content", ""),
-                            "success": getattr(obs, "success", True),
-                        }
+    # Send message and run conversation
+    conversation.send_message(message)
+    conversation.run()
 
-                if hasattr(event, "content"):
-                    event_dict["content"] = event.content
-                if hasattr(event, "cause"):
-                    event_dict["cause"] = event.cause
-                if hasattr(event, "extras"):
-                    event_dict["extras"] = event.extras
+    history = list(conversation.state.events)
 
-                # Add tool call metadata if available
-                if hasattr(event, "tool_call_metadata"):
-                    event_dict["tool_call_metadata"] = event.tool_call_metadata
+    logger.info(
+        f"Conversation completed with {len(history)} events"
+    )
 
-                # Add LLM metrics if available
-                if hasattr(event, "llm_metrics"):
-                    event_dict["llm_metrics"] = event.llm_metrics
+    # Get git patch
+    git_patch = get_git_patch(workspace_path)
 
-                conversation_history.append(event_dict)
 
-            # Create conversation with callback
-            conversation = Conversation(agent=agent, callbacks=[conversation_callback])
+    logger.info(f"Completed evaluation for instance {instance.instance_id}")
+    logger.info(f"Git patch length: {len(git_patch)} characters")
 
-            # Get instruction
-            instruction = get_instruction(instance, metadata, workspace_path)
-
-            # Handle multimodal content if present
-            if "image_assets" in instance:
-                assets = json.loads(instance["image_assets"])
-                assert "problem_statement" in assets, (
-                    "problem_statement is required in image_assets"
-                )
-                image_urls = assets["problem_statement"]
-                message = Message(
-                    role="user",
-                    content=[
-                        TextContent(text=instruction),
-                        ImageContent(image_urls=image_urls),
-                    ],
-                )
-            else:
-                message = Message(role="user", content=[TextContent(text=instruction)])
-
-            # Send message and run conversation
-            conversation.send_message(message)
-            conversation.run()
-
-            logger.info(
-                f"Conversation completed with {len(conversation_history)} events"
-            )
-
-            # Get git patch
-            git_patch = get_git_patch(workspace_path)
-
-            # Create complete metadata structure
-            complete_metadata = {
-                "agent_class": metadata.agent_class,
-                "llm_config": metadata.llm_config.to_dict(),
-                "agent_config": metadata.agent_class,  # Same as agent_class for now
-                "max_iterations": metadata.max_iterations,
-                "eval_output_dir": metadata.eval_output_dir,
-                "start_time": datetime.now().isoformat(),
-                "git_commit": "unknown",  # Could be extracted from git if needed
-                "dataset": metadata.dataset_name,
-                "data_split": "test",  # Default, could be parameterized
-                "details": metadata.details,
-                "condenser_config": {
-                    "type": "none"  # Default, could be parameterized
-                },
-            }
-
-            logger.info(f"Completed evaluation for instance {instance.instance_id}")
-            logger.info(f"Git patch length: {len(git_patch)} characters")
-
-            return EvalOutput(
-                instance.instance_id,
-                git_patch,
-                instruction,
-                complete_metadata,
-                conversation_history,
-            )
-
-        except Exception as e:
-            logger.error(f"Error processing instance {instance.instance_id}: {str(e)}")
-            # Create minimal metadata for error case
-            error_metadata = {
-                "agent_class": metadata.agent_class,
-                "llm_config": metadata.llm_config.to_dict(),
-                "agent_config": metadata.agent_class,
-                "max_iterations": metadata.max_iterations,
-                "eval_output_dir": metadata.eval_output_dir,
-                "start_time": datetime.now().isoformat(),
-                "git_commit": "unknown",
-                "dataset": metadata.dataset_name,
-                "data_split": "test",
-                "details": metadata.details,
-                "condenser_config": {"type": "none"},
-            }
-            return EvalOutput(
-                instance.instance_id,
-                "",
-                "Error occurred",
-                error_metadata,
-                [],
-                error=str(e),
-            )
-
+    return EvalOutput(
+        instance_id=instance.instance_id,
+        test_result={
+            'git_patch': git_patch,
+        },
+        instruction=instruction,
+        metadata=EvalMetadata(
+            llm=metadata.llm,
+            max_iterations=metadata.max_iterations,
+            eval_output_dir=metadata.eval_output_dir,
+            dataset=metadata.dataset,
+            data_split=metadata.data_split,
+            details=metadata.details,
+        ),
+        history=history,
+    )
 
 def get_evaluation_parser():
     """Get argument parser for evaluation."""
@@ -622,67 +512,33 @@ def run_evaluation_simplified(
 
     results = []
     for idx, instance in instances.iterrows():
-        try:
-            logger.info(f"Processing instance {instance.instance_id}")
-            result = process_instance_simplified(instance, metadata)
+        logger.info(f"Processing instance {instance.instance_id}")
+        # Get instruction
+        instruction = get_instruction(instance, metadata, workspace_path)
+        result = process_instance_simplified(instance, metadata)
 
-            # Save result using the complete format
-            result_dict = result.to_dict()
-            if result.error:
-                result_dict["error"] = result.error
-            results.append(result_dict)
+        # Save result using the complete format
+        result_dict = result.to_dict()
+        if result.error:
+            result_dict["error"] = result.error
+        results.append(result_dict)
 
-            logger.info(f"Writing result for {instance.instance_id} to {output_file}")
-            logger.info(f"Result dict keys: {list(result_dict.keys())}")
-            git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
-            logger.info(f"Git patch length: {git_patch_len}")
+        logger.info(f"Writing result for {instance.instance_id} to {output_file}")
+        logger.info(f"Result dict keys: {list(result_dict.keys())}")
+        git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
+        logger.info(f"Git patch length: {git_patch_len}")
 
-            # Write to output file
-            output_dir = os.path.dirname(output_file)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            with open(output_file, "a") as f:
-                json_line = json.dumps(result_dict) + "\n"
-                f.write(json_line)
-                f.flush()  # Ensure it's written immediately
-                logger.info(
-                    f"Successfully wrote {len(json_line)} characters to output file"
-                )
-
-        except Exception as e:
-            logger.error(f"Failed to process instance {instance.instance_id}: {str(e)}")
-            # Create error result in complete format
-            error_result = {
-                "instance_id": instance.instance_id,
-                "test_result": {"git_patch": ""},
-                "instruction": "Error occurred",
-                "metadata": {
-                    "agent_class": metadata.agent_class,
-                    "llm_config": metadata.llm_config.to_dict(),
-                    "agent_config": metadata.agent_class,
-                    "max_iterations": metadata.max_iterations,
-                    "eval_output_dir": metadata.eval_output_dir,
-                    "start_time": datetime.now().isoformat(),
-                    "git_commit": "unknown",
-                    "dataset": metadata.dataset_name,
-                    "data_split": "test",
-                    "details": metadata.details,
-                    "condenser_config": {"type": "none"},
-                },
-                "history": [],
-                "error": str(e),
-            }
-            results.append(error_result)
-
-            output_dir = os.path.dirname(output_file)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            with open(output_file, "a") as f:
-                json_line = json.dumps(error_result) + "\n"
-                f.write(json_line)
-                f.flush()
-                logger.info("Successfully wrote error result to output file")
-
+        # Write to output file
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        with open(output_file, "a") as f:
+            json_line = json.dumps(result_dict) + "\n"
+            f.write(json_line)
+            f.flush()  # Ensure it's written immediately
+            logger.info(
+                f"Successfully wrote {len(json_line)} characters to output file"
+            )
 
 if __name__ == "__main__":
     parser = get_evaluation_parser()
@@ -714,7 +570,7 @@ if __name__ == "__main__":
     assert isinstance(dataset, Dataset)
     _df = dataset.to_pandas()
     assert isinstance(_df, pd.DataFrame)
-    
+
     swe_bench_tests = filter_dataset(_df, "instance_id")
     logger.info(
         f"Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks"
