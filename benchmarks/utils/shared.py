@@ -18,6 +18,10 @@ class EvalMetadata(BaseModel):
     # TODO: calvin is porting this over as a pydantic class
     # condenser_config: Condenser | None = None
     instruction_template_name: str | None = None
+    # New fields for refactoring
+    prompt_path: str | None = None
+    eval_n_limit: int | None = None
+    env_setup_commands: list[str] | None = None
 
 
 class EvalOutput(BaseModel):
