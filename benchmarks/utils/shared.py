@@ -13,8 +13,6 @@ class EvalMetadata(BaseModel):
     agent_config: Agent | None = None
     max_iterations: int
     eval_output_dir: str
-    start_time: str
-    git_commit: str
     dataset: str | None = None
     data_split: str | None = None
     details: dict[str, Any] | None = None

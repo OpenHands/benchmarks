@@ -4,30 +4,17 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import uuid
 from datetime import datetime
 from typing import Literal
 
 import pandas as pd
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from jinja2 import Environment, FileSystemLoader
 from pydantic import SecretStr
 
 
-# Ensure OpenHands SDK is importable
-_SDK_DIR = os.environ.get("OPENHANDS_SDK")
-if not _SDK_DIR:
-    raise RuntimeError(
-        "OPENHANDS_SDK environment variable is not set. "
-        "Please set it to the path of your OpenHands SDK directory. "
-        "Example: export OPENHANDS_SDK=/path/to/agent-sdk"
-    )
-if _SDK_DIR not in sys.path:
-    sys.path.insert(0, _SDK_DIR)
-
-# Import SDK components directly
 from openhands.sdk import (
     LLM,
     Agent,
@@ -44,161 +31,23 @@ from openhands.tools import (
     FileEditorTool,
 )
 
-# Import SWE-bench specific components
-from swe_bench.binary_patch_utils import (
+from benchmarks.swe_bench.binary_patch_utils import (
     remove_binary_diffs,
 )
-from swe_bench.resource.swt_bench_constants import (
+from benchmarks.swe_bench.resource.swt_bench_constants import (
     MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE,
 )
+from benchmarks.utils.shared import EvalMetadata, EvalOutput, EvalException
 
 
-logger = get_logger("swe_bench_eval")
-
-USE_HINT_TEXT = os.environ.get("USE_HINT_TEXT", "false").lower() == "true"
-RUN_WITH_BROWSING = os.environ.get("RUN_WITH_BROWSING", "false").lower() == "true"
-ENABLE_LLM_EDITOR = os.environ.get("ENABLE_LLM_EDITOR", "false").lower() == "true"
+logger = get_logger(__name__)
 BenchMode = Literal["swe", "swt", "swt-ci"]
 
 # Global variable to track dataset type
 DATASET_TYPE = "SWE-bench"
 
 
-class EvalException(Exception):
-    """Exception raised during evaluation."""
-
-    pass
-
-
-class EvalMetadata:
-    """Metadata for evaluation."""
-
-    def __init__(
-        self,
-        llm_config,
-        dataset_name,
-        agent_class,
-        max_iterations,
-        eval_note,
-        eval_output_dir,
-        details=None,
-    ):
-        self.llm_config = llm_config
-        self.dataset_name = dataset_name
-        self.agent_class = agent_class
-        self.max_iterations = max_iterations
-        self.eval_note = eval_note
-        self.eval_output_dir = eval_output_dir
-        self.details = details or {}
-
-
-class EvalOutput:
-    """Output from evaluation."""
-
-    def __init__(
-        self, instance_id, git_patch, instruction, metadata, history, error=None
-    ):
-        self.instance_id = instance_id
-        self.git_patch = git_patch
-        self.instruction = instruction
-        self.metadata = metadata
-        self.history = history
-        self.error = error
-
-    def to_dict(self):
-        """Convert to dictionary format matching example_.json structure."""
-        return {
-            "instance_id": self.instance_id,
-            "test_result": {"git_patch": self.git_patch},
-            "instruction": self.instruction,
-            "metadata": self.metadata,
-            "history": self.history,
-        }
-
-
-class LLMConfig:
-    """LLM configuration."""
-
-    def __init__(self, model, api_key, base_url=None, temperature=0):
-        self.model = model
-        self.api_key = api_key
-        self.base_url = base_url
-        self.temperature = temperature
-        self.log_completions = True
-        self.modify_params = False
-        # Additional fields to match example_.json structure
-        self.api_version = None
-        self.aws_access_key_id = None
-        self.aws_secret_access_key = None
-        self.aws_region_name = None
-        self.openrouter_site_url = None
-        self.openrouter_app_name = None
-        self.num_retries = None
-        self.retry_multiplier = None
-        self.retry_min_wait = None
-        self.retry_max_wait = None
-        self.timeout = None
-        self.max_message_chars = None
-        self.top_p = None
-        self.top_k = None
-        self.custom_llm_provider = None
-        self.max_input_tokens = None
-        self.max_output_tokens = None
-        self.input_cost_per_token = None
-        self.output_cost_per_token = None
-        self.ollama_base_url = None
-        self.drop_params = None
-        self.disable_vision = None
-        self.caching_prompt = None
-        self.log_completions_folder = None
-        self.custom_tokenizer = None
-        self.native_tool_calling = None
-        self.reasoning_effort = None
-        self.seed = None
-        self.safety_settings = None
-
-    def to_dict(self):
-        """Convert to dictionary format."""
-        return {
-            "model": self.model,
-            "api_key": self.api_key,
-            "base_url": self.base_url,
-            "api_version": self.api_version,
-            "aws_access_key_id": self.aws_access_key_id,
-            "aws_secret_access_key": self.aws_secret_access_key,
-            "aws_region_name": self.aws_region_name,
-            "openrouter_site_url": self.openrouter_site_url,
-            "openrouter_app_name": self.openrouter_app_name,
-            "num_retries": self.num_retries,
-            "retry_multiplier": self.retry_multiplier,
-            "retry_min_wait": self.retry_min_wait,
-            "retry_max_wait": self.retry_max_wait,
-            "timeout": self.timeout,
-            "max_message_chars": self.max_message_chars,
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "top_k": self.top_k,
-            "custom_llm_provider": self.custom_llm_provider,
-            "max_input_tokens": self.max_input_tokens,
-            "max_output_tokens": self.max_output_tokens,
-            "input_cost_per_token": self.input_cost_per_token,
-            "output_cost_per_token": self.output_cost_per_token,
-            "ollama_base_url": self.ollama_base_url,
-            "drop_params": self.drop_params,
-            "modify_params": self.modify_params,
-            "disable_vision": self.disable_vision,
-            "caching_prompt": self.caching_prompt,
-            "log_completions": self.log_completions,
-            "log_completions_folder": self.log_completions_folder,
-            "custom_tokenizer": self.custom_tokenizer,
-            "native_tool_calling": self.native_tool_calling,
-            "reasoning_effort": self.reasoning_effort,
-            "seed": self.seed,
-            "safety_settings": self.safety_settings,
-        }
-
-
-def set_dataset_type(dataset_name: str) -> str:
+def set_dataset_type(dataset_name: str):
     """Set dataset type based on dataset name."""
     global DATASET_TYPE
     name_lower = dataset_name.lower()
@@ -704,40 +553,36 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
 
 
 def make_metadata(
-    llm_config,
+    llm: LLM,
     dataset_name,
     agent_class,
     max_iterations,
-    eval_note,
     eval_output_dir,
     details=None,
 ):
     """Create evaluation metadata."""
     return EvalMetadata(
-        llm_config,
-        dataset_name,
-        agent_class,
-        max_iterations,
-        eval_note,
-        eval_output_dir,
-        details,
+        llm_config=llm,
+        data_split=dataset_name,
+        agent_class=agent_class,
+        max_iterations=max_iterations,
+        eval_output_dir=eval_output_dir,
+        details=details,
     )
 
 
 def construct_eval_output_dir(
-    base_dir, dataset_name, agent_class, model, max_iterations, eval_note
+    base_dir,
+    dataset_name,
+    model,
+    max_iterations,
+    eval_note
 ):
     """Construct the structured evaluation output directory path."""
     # Format: eval_out/<dataset>-<split>/<agent_config>/<llm>_maxiter_<maxiter>_N_<version>-<hint>-<exp_name>-run_<run_number>
 
-    # Extract model name (remove provider prefixes if any)
-    model_name = model.replace("claude-3-5-sonnet-latest", "claude-sonnet-4-20250514")
-
-    # Create agent config directory name
-    agent_config = agent_class
-
     # Create LLM config string
-    llm_config_str = f"{model_name}_maxiter_{max_iterations}"
+    llm_config_str = f"{model}_maxiter_{max_iterations}"
 
     # Add version and note information
     version = "v1"  # Default version
@@ -749,7 +594,7 @@ def construct_eval_output_dir(
         llm_config_str += f"_N_{version}-{hint_status}-run_1"
 
     # Construct full path
-    eval_output_dir = os.path.join(base_dir, dataset_name, agent_config, llm_config_str)
+    eval_output_dir = os.path.join(base_dir, dataset_name, llm_config_str)
 
     return eval_output_dir
 
@@ -866,22 +711,25 @@ if __name__ == "__main__":
     # Load dataset
     dataset = load_dataset(args.dataset, split=args.split)
     set_dataset_type(args.dataset)
-
-    swe_bench_tests = filter_dataset(dataset.to_pandas(), "instance_id")
+    assert isinstance(dataset, Dataset)
+    _df = dataset.to_pandas()
+    assert isinstance(_df, pd.DataFrame)
+    
+    swe_bench_tests = filter_dataset(_df, "instance_id")
     logger.info(
         f"Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks"
     )
 
-    # Create LLM config
-    llm_config = LLMConfig(
+    # Create LLM instance
+    api_key = os.getenv("LITELLM_API_KEY")
+    if not api_key:
+        raise ValueError("LITELLM_API_KEY environment variable is not set")
+    llm = LLM(
         model=args.model,
-        api_key=os.getenv("LITELLM_API_KEY"),
+        api_key=SecretStr(api_key),
         base_url="https://llm-proxy.eval.all-hands.dev",
         temperature=0,
     )
-
-    if not llm_config.api_key:
-        raise ValueError("LITELLM_API_KEY environment variable is not set")
 
     details = {"mode": args.mode}
     dataset_description = (
@@ -890,20 +738,18 @@ if __name__ == "__main__":
 
     # Construct proper structured output directory path
     structured_output_dir = construct_eval_output_dir(
-        args.eval_output_dir,
-        dataset_description,
-        args.agent_cls,
-        args.model,
-        args.max_iterations,
-        args.eval_note,
+        base_dir=args.eval_output_dir,
+        dataset_name=dataset_description,
+        model=llm.model,
+        max_iterations=args.max_iterations,
+        eval_note=args.eval_note,
     )
 
     metadata = make_metadata(
-        llm_config,
+        llm,
         dataset_description,
         args.agent_cls,
         args.max_iterations,
-        args.eval_note,
         structured_output_dir,
         details=details,
     )
