@@ -12,6 +12,7 @@ dependencies = [
     "unidiff>=0.7.5,<0.8.0",
     "openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
     "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools",
+    "modal>=1.1.4",
 ]
 
 [build-system]
