@@ -42,10 +42,10 @@ from openhands.tools import (
 )
 
 # Import SWE-bench specific components
-from swe_bench.binary_patch_utils import (
+from benchmarks.swe_bench.binary_patch_utils import (
     remove_binary_diffs,
 )
-from swe_bench.resource.swt_bench_constants import (
+from benchmarks.swe_bench.resource.swt_bench_constants import (
     MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE,
 )
 
@@ -394,8 +394,8 @@ def process_instance_simplified(
 
             # Setup tools with the workspace
             tools: list[Tool] = [
-                BashTool(working_dir=workspace_path),
-                FileEditorTool(),
+                BashTool.create(working_dir=workspace_path),
+                FileEditorTool.create(workspace_root=workspace_path),
             ]
 
             # Create agent
@@ -629,7 +629,7 @@ if __name__ == "__main__":
     )
 
     output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
-    print(f"### OUTPUT FILE: {output_file} ###")
+    logger.info(f"### OUTPUT FILE: {output_file} ###")
 
     # Prepare dataset
     instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)

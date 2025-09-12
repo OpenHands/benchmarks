@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import pathlib
 import shutil
 import subprocess
+import tempfile
 from typing import Literal
 
 import modal
@@ -71,7 +73,7 @@ def get_instruction(
     workspace_dir_name = _get_workspace_dir_name(instance)
     assert metadata.details is not None
     mode = metadata.details["mode"]
-    llm_model = metadata.llm_config.model
+    llm_model = metadata.llm.model
 
     # Determine the template file based on mode and LLM
     if mode.startswith("swt"):
@@ -314,15 +316,14 @@ image = (
 )
 
 
-@app.function()
 def process_instance_simplified(
     instance: pd.Series, instruction: str, metadata: EvalMetadata
 ) -> EvalOutput:
     """Process a single instance using the simplified SDK approach."""
     logger.info(f"Starting evaluation for instance {instance.instance_id}")
 
-    pathlib.Path("/workspace").mkdir(parents=True, exist_ok=True)
-    workspace_path = setup_workspace(instance, "/workspace")
+    temp_workspace = tempfile.mkdtemp()
+    workspace_path = setup_workspace(instance, temp_workspace)
     initialize_workspace(workspace_path, instance)
 
     llm = metadata.llm
@@ -330,7 +331,7 @@ def process_instance_simplified(
     # Setup tools with the workspace
     tools = [
         BashTool.create(working_dir=workspace_path),
-        FileEditorTool.create(),
+        FileEditorTool.create(workspace_root=workspace_path),
     ]
 
     # Create agent
@@ -461,7 +462,7 @@ def run_evaluation_simplified(
         # Get instruction
         workspace_path = os.path.join("/workspace", _get_workspace_dir_name(instance))
         instruction = get_instruction(instance, metadata, workspace_path)
-        result = process_instance_simplified.remote(instance, instruction, metadata)
+        result = process_instance_simplified(instance, instruction, metadata)
 
         # Save result using the complete format
         result_dict = result.model_dump()
@@ -487,15 +488,33 @@ def run_evaluation_simplified(
             )
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Run SWE-bench inference")
+    parser.add_argument("--agent-cls", type=str, default="CodeActAgent", help="Agent class to use")
+    parser.add_argument("--llm-config", type=str, required=True, help="LLM configuration")
+    parser.add_argument("--max-iterations", type=int, default=100, help="Maximum iterations")
+    parser.add_argument("--eval-num-workers", type=int, default=1, help="Number of evaluation workers")
+    parser.add_argument("--eval-note", type=str, default="initial", help="Evaluation note")
+    parser.add_argument("--dataset", type=str, default="princeton-nlp/SWE-bench", help="Dataset name")
+    parser.add_argument("--split", type=str, default="test", help="Dataset split")
+    parser.add_argument("--eval-output-dir", type=str, default="./eval_out", help="Evaluation output directory")
+    parser.add_argument("--mode", type=str, default="swe", choices=["swe", "swt", "swt-ci"], help="Benchmark mode")
+    parser.add_argument("--eval-n-limit", type=int, default=1, help="Limit number of instances to evaluate")
+    return parser.parse_args()
+
+
 def main():
-    DATASET = "princeton-nlp/SWE-bench"
-    SPLIT = "test"
-    MODE = "swe"  # "swe", "swt", or "swt-ci"
-    MODEL = "litellm-proxy/anthropic/claude-sonnet-4-20250514"
-    EVAL_OUTPUT_DIR = "./eval_out"
-    MAX_ITERATIONS = 100
-    EVAL_N_LIMIT = 1
-    EVAL_NOTE = "initial"
+    args = parse_args()
+    
+    DATASET = args.dataset
+    SPLIT = args.split
+    MODE = args.mode
+    MODEL = args.llm_config
+    EVAL_OUTPUT_DIR = args.eval_output_dir
+    MAX_ITERATIONS = args.max_iterations
+    EVAL_N_LIMIT = args.eval_n_limit
+    EVAL_NOTE = args.eval_note
 
     # Load dataset
     dataset = load_dataset(DATASET, split=SPLIT)
@@ -552,3 +571,7 @@ def main():
     run_evaluation_simplified(instances, metadata, output_file)
 
     logger.info("Evaluation completed!")
+
+
+if __name__ == "__main__":
+    main()
