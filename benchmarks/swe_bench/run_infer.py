@@ -300,6 +300,28 @@ def get_git_patch(workspace_path: str) -> str:
         return ""
 
 
+app = modal.App(name="swe-bench-eval")
+
+image = (
+    modal.Image.debian_slim()
+    .apt_install(
+        "git",
+        "curl",
+        "wget",
+        "unzip",
+        "python3-pip",
+        "build-essential",
+        "libssl-dev",
+        "libffi-dev",
+        "python3-dev",
+    )
+    .pip_install(
+        "git+openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
+        "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools"
+    )
+)
+
+@app.function()
 def process_instance_simplified(
     instance: pd.Series,
     instruction: str,
@@ -507,7 +529,7 @@ def run_evaluation_simplified(
         # Get instruction
         workspace_path = os.path.join("/workspace", _get_workspace_dir_name(instance))
         instruction = get_instruction(instance, metadata, workspace_path)
-        result = process_instance_simplified(instance, instruction, metadata)
+        result = process_instance_simplified.remote(instance, instruction, metadata)
 
         # Save result using the complete format
         result_dict = result.model_dump()
@@ -532,40 +554,26 @@ def run_evaluation_simplified(
                 f"Successfully wrote {len(json_line)} characters to output file"
             )
 
-if __name__ == "__main__":
-    parser = get_evaluation_parser()
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default="princeton-nlp/SWE-bench",
-        help="data set to evaluate on, either full-test or lite-test",
-    )
-    parser.add_argument(
-        "--split",
-        type=str,
-        default="test",
-        help="split to evaluate on",
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="swe",
-        choices=["swe", "swt", "swt-ci"],
-        help="mode to run the evaluation, either 'swe', 'swt', or 'swt-ci'",
-    )
-
-    args, _ = parser.parse_known_args()
+def main():
+    DATASET = "princeton-nlp/SWE-bench"
+    SPLIT = "test"
+    MODE = "swe"  # "swe", "swt", or "swt-ci"
+    MODEL = "litellm-proxy/anthropic/claude-sonnet-4-20250514"
+    EVAL_OUTPUT_DIR = "./eval_out"
+    MAX_ITERATIONS = 100
+    EVAL_N_LIMIT = 1
+    EVAL_NOTE = "initial"
 
     # Load dataset
-    dataset = load_dataset(args.dataset, split=args.split)
-    set_dataset_type(args.dataset)
+    dataset = load_dataset(DATASET, split=SPLIT)
+    set_dataset_type(DATASET)
     assert isinstance(dataset, Dataset)
     _df = dataset.to_pandas()
     assert isinstance(_df, pd.DataFrame)
 
     swe_bench_tests = filter_dataset(_df, "instance_id")
     logger.info(
-        f"Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks"
+        f"Loaded dataset {DATASET} with split {SPLIT}: {len(swe_bench_tests)} tasks"
     )
 
     # Create LLM instance
@@ -573,30 +581,30 @@ if __name__ == "__main__":
     if not api_key:
         raise ValueError("LITELLM_API_KEY environment variable is not set")
     llm = LLM(
-        model=args.model,
+        model=MODEL,
         api_key=SecretStr(api_key),
         base_url="https://llm-proxy.eval.all-hands.dev",
         temperature=0,
     )
 
-    details = {"mode": args.mode}
+    details = {"mode": MODE}
     dataset_description = (
-        args.dataset.replace("/", "__") + "-" + args.split.replace("/", "__")
+        DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__")
     )
 
     # Construct proper structured output directory path
     structured_output_dir = construct_eval_output_dir(
-        base_dir=args.eval_output_dir,
+        base_dir=EVAL_OUTPUT_DIR,
         dataset_name=dataset_description,
         model=llm.model,
-        max_iterations=args.max_iterations,
-        eval_note=args.eval_note,
+        max_iterations=MAX_ITERATIONS,
+        eval_note=EVAL_NOTE,
     )
 
     metadata = make_metadata(
         llm,
         dataset_description,
-        args.max_iterations,
+        MAX_ITERATIONS,
         structured_output_dir,
         details=details,
     )
@@ -607,7 +615,7 @@ if __name__ == "__main__":
     print(f"### OUTPUT FILE: {output_file} ###")
 
     # Prepare dataset
-    instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
+    instances = prepare_dataset(swe_bench_tests, output_file, EVAL_N_LIMIT)
 
     # Run evaluation
     run_evaluation_simplified(instances, metadata, output_file)
