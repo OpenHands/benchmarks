@@ -8,8 +8,7 @@ logger = get_logger(__name__)
 
 
 class EvalMetadata(BaseModel):
-    agent_class: str
-    llm_config: LLM
+    llm: LLM
     agent_config: Agent | None = None
     max_iterations: int
     eval_output_dir: str
