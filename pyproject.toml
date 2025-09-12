@@ -44,6 +44,7 @@ indent-style = "space"
 select = ["E", "F", "I"]
 
 [tool.ruff.lint.isort]
+known-first-party = ["benchmarks", "openhands"]
 combine-as-imports = true
 force-single-line = false
 lines-after-imports = 2
