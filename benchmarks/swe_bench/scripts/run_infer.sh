@@ -63,9 +63,8 @@ fi
 export RUN_WITH_BROWSING=$RUN_WITH_BROWSING
 echo "RUN_WITH_BROWSING: $RUN_WITH_BROWSING"
 
-#Commented for migration
-#get_openhands_version
-OPENHANDS_VERSION=v1
+# Get version from OPENHANDS_SDK directory
+get_openhands_version
 
 echo "AGENT: $AGENT"
 echo "OPENHANDS_VERSION: $OPENHANDS_VERSION"
