@@ -323,7 +323,6 @@ def process_instance_simplified(
     # Create agent
     agent = Agent(llm=llm, tools=tools)
 
-
     # Create conversation with callback
     conversation = Conversation(agent=agent)
 
@@ -386,12 +385,6 @@ def get_evaluation_parser():
 
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument(
-        "--agent-cls",
-        dest="agent_cls",
-        type=str,
-        default=os.environ.get("AGENT_CLS", "CodeActAgent"),
-    )
-    parser.add_argument(
         "--max-iterations",
         dest="max_iterations",
         type=int,
@@ -445,16 +438,14 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
 def make_metadata(
     llm: LLM,
     dataset_name,
-    agent_class,
     max_iterations,
     eval_output_dir,
     details=None,
 ):
     """Create evaluation metadata."""
     return EvalMetadata(
-        llm_config=llm,
+        llm=llm,
         data_split=dataset_name,
-        agent_class=agent_class,
         max_iterations=max_iterations,
         eval_output_dir=eval_output_dir,
         details=details,
@@ -514,11 +505,12 @@ def run_evaluation_simplified(
     for idx, instance in instances.iterrows():
         logger.info(f"Processing instance {instance.instance_id}")
         # Get instruction
+        workspace_path = os.path.join("/workspace", _get_workspace_dir_name(instance))
         instruction = get_instruction(instance, metadata, workspace_path)
-        result = process_instance_simplified(instance, metadata)
+        result = process_instance_simplified(instance, instruction, metadata)
 
         # Save result using the complete format
-        result_dict = result.to_dict()
+        result_dict = result.model_dump()
         if result.error:
             result_dict["error"] = result.error
         results.append(result_dict)
@@ -604,7 +596,6 @@ if __name__ == "__main__":
     metadata = make_metadata(
         llm,
         dataset_description,
-        args.agent_cls,
         args.max_iterations,
         structured_output_dir,
         details=details,
