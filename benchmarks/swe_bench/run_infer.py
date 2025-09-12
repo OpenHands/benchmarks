@@ -5,32 +5,13 @@ import os
 import pathlib
 import shutil
 import subprocess
-import tempfile
-import uuid
-from datetime import datetime
 from typing import Literal
 
 import modal
 import pandas as pd
-from datasets import load_dataset, Dataset
+from datasets import Dataset, load_dataset
 from jinja2 import Environment, FileSystemLoader
 from pydantic import SecretStr
-
-from openhands.sdk import (
-    LLM,
-    Agent,
-    Conversation,
-    Event,
-    ImageContent,
-    Message,
-    TextContent,
-    Tool,
-    get_logger,
-)
-from openhands.tools import (
-    BashTool,
-    FileEditorTool,
-)
 
 from benchmarks.swe_bench.binary_patch_utils import (
     remove_binary_diffs,
@@ -38,7 +19,19 @@ from benchmarks.swe_bench.binary_patch_utils import (
 from benchmarks.swe_bench.resource.swt_bench_constants import (
     MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE,
 )
-from benchmarks.utils.shared import EvalMetadata, EvalOutput, EvalException
+from benchmarks.utils.shared import EvalException, EvalMetadata, EvalOutput
+from openhands.sdk import (
+    LLM,
+    Agent,
+    Conversation,
+    Message,
+    TextContent,
+    get_logger,
+)
+from openhands.tools import (
+    BashTool,
+    FileEditorTool,
+)
 
 
 logger = get_logger(__name__)
@@ -69,6 +62,7 @@ def _get_workspace_dir_name(instance: pd.Series) -> str:
     """Extract repo name from instance.repo (e.g., "django/django" -> "django")"""
     repo_name = instance.repo.split("/")[-1]
     return repo_name
+
 
 def get_instruction(
     instance: pd.Series, metadata: EvalMetadata, workspace_path: str
@@ -117,8 +111,6 @@ def get_instruction(
     # Render the instruction
     instruction = template.render(context)
     return instruction
-
-
 
 
 def setup_workspace(instance: pd.Series, workspace_root: str) -> str:
@@ -317,15 +309,14 @@ image = (
     )
     .pip_install(
         "git+openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
-        "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools"
+        "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools",
     )
 )
 
+
 @app.function()
 def process_instance_simplified(
-    instance: pd.Series,
-    instruction: str,
-    metadata: EvalMetadata
+    instance: pd.Series, instruction: str, metadata: EvalMetadata
 ) -> EvalOutput:
     """Process a single instance using the simplified SDK approach."""
     logger.info(f"Starting evaluation for instance {instance.instance_id}")
@@ -347,7 +338,6 @@ def process_instance_simplified(
 
     # Create conversation with callback
     conversation = Conversation(agent=agent)
-
 
     # Handle multimodal content if present
     if "image_assets" in instance:
@@ -373,13 +363,10 @@ def process_instance_simplified(
 
     history = list(conversation.state.events)
 
-    logger.info(
-        f"Conversation completed with {len(history)} events"
-    )
+    logger.info(f"Conversation completed with {len(history)} events")
 
     # Get git patch
     git_patch = get_git_patch(workspace_path)
-
 
     logger.info(f"Completed evaluation for instance {instance.instance_id}")
     logger.info(f"Git patch length: {len(git_patch)} characters")
@@ -387,7 +374,7 @@ def process_instance_simplified(
     return EvalOutput(
         instance_id=instance.instance_id,
         test_result={
-            'git_patch': git_patch,
+            "git_patch": git_patch,
         },
         instruction=instruction,
         metadata=EvalMetadata(
@@ -400,55 +387,6 @@ def process_instance_simplified(
         ),
         history=history,
     )
-
-def get_evaluation_parser():
-    """Get argument parser for evaluation."""
-    import argparse
-
-    parser = argparse.ArgumentParser(add_help=True)
-    parser.add_argument(
-        "--max-iterations",
-        dest="max_iterations",
-        type=int,
-        default=int(os.environ.get("MAX_ITERATIONS", "50")),
-    )
-    parser.add_argument(
-        "--eval-output-dir",
-        dest="eval_output_dir",
-        type=str,
-        default=os.environ.get("EVAL_OUTPUT_DIR", "./eval_out"),
-    )
-    parser.add_argument(
-        "--eval-num-workers",
-        dest="eval_num_workers",
-        type=int,
-        default=int(os.environ.get("EVAL_NUM_WORKERS", "1")),
-    )
-    parser.add_argument(
-        "--eval-n-limit",
-        dest="eval_n_limit",
-        type=int,
-        default=int(os.environ.get("EVAL_N_LIMIT", "0")),
-    )
-    parser.add_argument(
-        "--eval-note",
-        dest="eval_note",
-        type=str,
-        default=os.environ.get("EVAL_NOTE", ""),
-    )
-    parser.add_argument(
-        "--model",
-        dest="model",
-        type=str,
-        default=os.environ.get("MODEL", "claude-3-5-sonnet-latest"),
-    )
-    parser.add_argument(
-        "--llm-config",
-        dest="llm_config",
-        type=str,
-        default=os.environ.get("LLM_CONFIG", None),
-    )
-    return parser
 
 
 def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
@@ -474,13 +412,7 @@ def make_metadata(
     )
 
 
-def construct_eval_output_dir(
-    base_dir,
-    dataset_name,
-    model,
-    max_iterations,
-    eval_note
-):
+def construct_eval_output_dir(base_dir, dataset_name, model, max_iterations, eval_note):
     """Construct the structured evaluation output directory path."""
     # Format: eval_out/<dataset>-<split>/<agent_config>/<llm>_maxiter_<maxiter>_N_<version>-<hint>-<exp_name>-run_<run_number>
 
@@ -554,6 +486,7 @@ def run_evaluation_simplified(
                 f"Successfully wrote {len(json_line)} characters to output file"
             )
 
+
 def main():
     DATASET = "princeton-nlp/SWE-bench"
     SPLIT = "test"
@@ -588,9 +521,7 @@ def main():
     )
 
     details = {"mode": MODE}
-    dataset_description = (
-        DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__")
-    )
+    dataset_description = DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__")
 
     # Construct proper structured output directory path
     structured_output_dir = construct_eval_output_dir(
