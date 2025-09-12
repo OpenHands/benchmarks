@@ -1,23 +1,32 @@
-# UV workspace configuration
-[tool.uv.workspace]
-members = ["openhands/core", "openhands/tools"]
-
-# Workspace sources for intra-repo dependencies
-[tool.uv.sources]
-openhands-sdk = { workspace = true }
-openhands-tools = { workspace = true }
+[project]
+name = "openhands-benchmarks"
+version = "0.1.0"
+description = "OpenHands Benchmarks"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+"datasets",
+"pandas",
+"toml",
+"tqdm",
+"unidiff>=0.7.5,<0.8.0",
+  "openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
+  "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools",
+]
 
 [dependency-groups]
 dev = [
     "pre-commit>=4.3.0",
-    "pyright>=1.1.404",
+    "psutil>=7.0.0",
+    "pyright>=1.1.405",
     "ruff>=0.12.10",
+    "pycodestyle>=2.12.0",
 ]
 
 # Ruff configuration
 [tool.ruff]
 target-version = "py312"
-line-length = 500
+line-length = 88
 
 [tool.ruff.format]
 quote-style = "double"
@@ -27,7 +36,6 @@ indent-style = "space"
 select = ["E", "F", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["benchmarks"]
 combine-as-imports = true
 force-single-line = false
 lines-after-imports = 2
