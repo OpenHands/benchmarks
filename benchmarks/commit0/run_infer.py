@@ -1,89 +1,77 @@
+from __future__ import annotations
+
 import os
 
-import openhands.agenthub
-from benchmarks.utils.commit0_evaluation import (
-    commit0_setup,
-    process_instance,
-)
-from benchmarks.utils.shared import (
-    make_metadata,
-    prepare_dataset,
+from pydantic import SecretStr
+
+from benchmarks.utils.args_parser import parse_args
+from benchmarks.utils.run_evaluation import (
     run_evaluation,
+    make_metadata,
+    construct_eval_output_dir,
 )
-from commit0.harness.constants import SPLIT
-from datasets import load_dataset
-from openhands.core.config import (
-    get_evaluation_parser,
-    get_llm_config_arg,
+from openhands.sdk import (
+    LLM,
+    get_logger,
 )
-from openhands.core.logger import openhands_logger as logger
 
 
-if __name__ == '__main__':
-    parser = get_evaluation_parser()
-    parser.add_argument(
-        '--dataset',
-        type=str,
-        default='wentingzhao/commit0_combined',
-        help='dataset to evaluate on, only test split exists for this HF dataset',
+logger = get_logger(__name__)
+
+
+def main():
+    default_prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "default.j2")
+    args = parse_args(default_prompt_path)
+    
+    DATASET = args.dataset
+    SPLIT = args.split
+    MODEL = args.llm_config
+    EVAL_OUTPUT_DIR = args.eval_output_dir
+    MAX_ITERATIONS = args.max_iterations
+    EVAL_N_LIMIT = args.eval_n_limit
+    EVAL_NOTE = args.eval_note
+    PROMPT_PATH = args.prompt_path
+
+    # Create LLM instance
+    api_key = os.getenv("LITELLM_API_KEY")
+    if not api_key:
+        raise ValueError("LITELLM_API_KEY environment variable is not set")
+    llm = LLM(
+        model=MODEL,
+        api_key=SecretStr(api_key),
+        base_url="https://llm-proxy.eval.all-hands.dev",
+        temperature=0,
     )
-    parser.add_argument(
-        '--split',
-        type=str,
-        default='test',
-        help='this is the HF dataset split',
+
+    dataset_description = DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__")
+
+    # Construct proper structured output directory path
+    structured_output_dir = construct_eval_output_dir(
+        base_dir=EVAL_OUTPUT_DIR,
+        dataset_name=dataset_description,
+        model=llm.model,
+        max_iterations=MAX_ITERATIONS,
+        eval_note=EVAL_NOTE,
     )
-    parser.add_argument(
-        '--repo-split',
-        type=str,
-        default='lite',
-        help='all, lite, or each repo name',
-    )
-    args, _ = parser.parse_known_args()
 
-    # NOTE: It is preferable to load datasets from huggingface datasets and perform post-processing
-    # so we don't need to manage file uploading to OpenHands's repo
-    dataset = load_dataset(args.dataset, split=args.split)
-
-    commit0_datasets = commit0_setup(dataset.to_pandas(), args.repo_split)
-
-    logger.info(f'Loaded dataset {args.dataset} with reposplit {args.repo_split}')
-
-    llm_config = None
-    if args.llm_config:
-        llm_config = get_llm_config_arg(args.llm_config)
-        llm_config.log_completions = True
-        # modify_params must be False for evaluation purpose, for reproducibility and accurancy of results
-        llm_config.modify_params = False
-
-    if llm_config is None:
-        raise ValueError(f'Could not find LLM config: --llm_config {args.llm_config}')
-
-    details = {}
-    _agent_cls = openhands.agenthub.Agent.get_cls(args.agent_cls)
-
-    dataset_descrption = (
-        args.dataset.replace('/', '__') + '-' + args.repo_split.replace('/', '__')
-    )
     metadata = make_metadata(
-        llm_config,
-        dataset_descrption,
-        args.agent_cls,
-        args.max_iterations,
-        args.eval_note,
-        args.eval_output_dir,
-        details=details,
+        llm,
+        dataset_description,
+        MAX_ITERATIONS,
+        structured_output_dir,
+        details={},
+        dataset=DATASET,
+        data_split=SPLIT,
+        prompt_path=PROMPT_PATH,
+        eval_n_limit=EVAL_N_LIMIT,
+        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
     )
 
-    output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
+    # Run evaluation
+    run_evaluation(metadata)
 
-    instances = prepare_dataset(commit0_datasets, output_file, args.eval_n_limit)
+    logger.info("Evaluation completed!")
 
-    run_evaluation(
-        instances,
-        metadata,
-        output_file,
-        args.eval_num_workers,
-        process_instance,
-        timeout_seconds=120 * 60,  # 2 hour PER instance should be more than enough
-    )
+
+if __name__ == "__main__":
+    main()

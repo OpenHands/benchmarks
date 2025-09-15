@@ -1,28 +1,13 @@
-<uploaded_files>
-/workspace/{{ workspace_dir_name }}
-</uploaded_files>
-I've uploaded a python code repository in the directory {{ workspace_dir_name }}. Here is your task:
+You are a software developer working on a repository. Your task is to implement the requested changes to make the failing tests pass.
 
-Here is your task:
+Repository: {{ instance.repo }}
+Working directory: {{ workspace_dir_name }}
 
-  You need to complete the implementations for all functions (i.e., those with pass
-  statements) and pass the unit tests.
+{{ instance.problem_statement }}
 
-  Do not change the names of existing functions or classes, as they may be referenced
-  from other code like unit tests, etc.
+Please implement the necessary changes to fix the failing tests. Make sure to:
+1. Understand the problem from the failing tests
+2. Implement the required functionality
+3. Ensure all tests pass
 
-  When you generate code, you must maintain the original formatting of the function
-  stubs (such as whitespaces), otherwise we will not able to search/replace blocks
-  for code modifications, and therefore you will receive a score of 0 for your generated
-  code.
-
-Here is the command to run the unit tests:
-<test_command>
-{{ test_cmd }} {{ test_dir }}
-</test_command>
-
-Make a local git commit for each agent step for all code changes. If there is not change in current step, do not make a commit.
-{% if run_with_browsing %}
-<IMPORTANT!>
-You SHOULD NEVER attempt to browse the web. </IMPORTANT!>
-{% endif %}
+You have access to the repository files and can make changes as needed.
