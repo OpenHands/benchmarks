@@ -202,7 +202,7 @@ def run_evaluation(metadata: EvalMetadata):
         result = process_instance_simplified(instance, instruction, metadata)
 
         # Save result using the complete format
-        result_dict = result.model_dump()
+        result_dict = result.model_dump(mode='json')
         if result.error:
             result_dict["error"] = result.error
         results.append(result_dict)
