@@ -1,0 +1,142 @@
+I have access to a python code repository in the directory {{ actual_workspace_path }}. You can explore and modify files using the available tools. Consider the following issue description:
+
+<issue_description>
+{{ instance.problem_statement }}
+</issue_description>
+
+TASK: Implement minimal changes to non-test files in {{ actual_workspace_path }} to satisfy the issue requirements.
+
+PREREQUISITES:
+✓ Test files already modified (DO NOT modify tests)
+✓ Python environment setup complete (DO NOT install packages)
+✓ Base commit: {{ instance.base_commit }}
+
+## TOOL REFERENCE TABLE
+| Tool | Purpose | Key Parameters |
+|------|---------|----------------|
+| str_replace_editor | View/edit files | command, path, old_str, new_str |
+| execute_bash | Run commands | command, timeout |
+| think | Document reasoning | thought |
+
+## WORKFLOW DECISION TREE
+
+### 1. PROBLEM ANALYSIS
+├── Read issue_description completely
+├── Extract technical details:
+│   ├── Error messages → Note exact text
+│   ├── Method/class names → Note exact spelling
+│   ├── File paths → Note exact paths
+│   └── Stack traces → Note line numbers
+├── Identify reproduction steps
+└── **VERIFY**: Can you clearly state the problem? 
+    ├── YES → Continue to step 2
+    └── NO → Re-read issue_description
+
+### 2. ENVIRONMENT SETUP
+├── Check if README exists: `str_replace_editor view {{ actual_workspace_path }}/README.md`
+├── **DECISION**: Does README exist?
+│   ├── YES → Follow README setup instructions
+│   └── NO → Look for setup files (setup.py, requirements.txt, pyproject.toml)
+├── Run basic test command to verify environment
+└── **VERIFY**: Do tests run without import errors?
+    ├── YES → Continue to step 3
+    └── NO → Fix environment issues first
+
+### 3. CODE EXPLORATION
+├── Search for error messages: `execute_bash grep -r "exact_error_message" {{ actual_workspace_path }}`
+├── Search for method names: `execute_bash grep -r "method_name" {{ actual_workspace_path }}`
+├── Search for class names: `execute_bash grep -r "class_name" {{ actual_workspace_path }}`
+├── **DECISION**: Found relevant files?
+│   ├── YES → List top 3 most relevant files
+│   └── NO → Expand search with related keywords
+└── **VERIFY**: Can you identify the likely bug location?
+    ├── YES → Continue to step 4
+    └── NO → Expand exploration scope
+
+### 4. REPRODUCTION SCRIPT
+├── Create test script: `str_replace_editor create {{ actual_workspace_path }}/reproduce_issue.py`
+├── Script must include:
+│   ├── Import statements from issue
+│   ├── Exact code that triggers the bug
+│   └── Expected vs actual behavior check
+├── Run script: `execute_bash cd {{ actual_workspace_path }} && python reproduce_issue.py`
+└── **VERIFY**: Does script reproduce the issue?
+    ├── YES → Continue to step 5
+    └── NO → Modify script until it reproduces the issue
+
+### 5. ROOT CAUSE ANALYSIS
+├── Examine the failing code location
+├── **DECISION**: What type of issue is this?
+│   ├── Logic error → Check conditional statements
+│   ├── Type error → Check variable types and conversions
+│   ├── Import error → Check module paths and dependencies
+│   ├── API change → Check method signatures
+│   └── Configuration → Check settings and defaults
+├── Identify the exact line causing the issue
+└── **VERIFY**: Can you explain why the current code fails?
+    ├── YES → Continue to step 6
+    └── NO → Investigate deeper with debugging
+
+### 6. SOLUTION IMPLEMENTATION
+├── **CRITICAL CHECK**: Will this change break existing functionality?
+│   ├── YES → Find more targeted solution
+│   └── NO → Proceed with implementation
+├── Make minimal change using `str_replace_editor str_replace`
+├── **VERIFY**: Change applied correctly?
+│   ├── YES → Continue to step 7
+│   └── NO → Fix the str_replace operation
+└── **RECHECK**: Run reproduction script immediately after each change
+
+### 7. VERIFICATION WORKFLOW
+├── Test fix: `execute_bash cd {{ actual_workspace_path }} && python reproduce_issue.py`
+├── **DECISION**: Does reproduction script pass?
+│   ├── YES → Run related tests
+│   └── NO → Return to step 6, revise solution
+├── Run existing tests: `execute_bash cd {{ actual_workspace_path }} && python -m pytest path/to/related/tests -v`
+├── **DECISION**: Do all tests pass?
+│   ├── YES → Continue to step 8
+│   └── NO → Fix failing tests or revise solution
+└── **VERIFY**: Test edge cases in reproduction script
+
+### 8. FINAL VALIDATION
+├── Re-read original issue_description
+├── **CHECKLIST**:
+│   ├── ✓ Original issue resolved?
+│   ├── ✓ No new test failures?
+│   ├── ✓ Minimal changes made?
+│   └── ✓ Edge cases handled?
+├── Clean up: `execute_bash rm {{ actual_workspace_path }}/reproduce_issue.py`
+└── **COMPLETE**: Summarize changes made
+
+## COMMON AI MISTAKES TO AVOID
+❌ Making changes without reproducing the issue first
+❌ Modifying test files (explicitly forbidden)
+❌ Installing packages (environment already setup)
+❌ Making broad changes instead of targeted fixes
+❌ Not verifying each change immediately
+❌ Assuming file locations without checking
+❌ Using approximate grep patterns instead of exact matches
+
+## ERROR HANDLING PATTERNS
+| Error Type | Next Action |
+|------------|-------------|
+| File not found | Use `find` command to locate |
+| Import error | Check module structure with `ls` |
+| Test failure | Examine test output for specific failure |
+| Grep no results | Try broader search terms |
+| str_replace failed | Check exact string matching |
+
+## VERIFICATION COMMANDS
+After each major step, run:
+```bash
+# Verify reproduction
+cd {{ actual_workspace_path }} && python reproduce_issue.py
+
+# Verify tests still pass
+cd {{ actual_workspace_path }} && python -m pytest -x
+
+# Verify file changes
+git diff --name-only
+```
+
+**REMEMBER**: Each step must be verified before proceeding. If any verification fails, resolve the issue before continuing to the next step.
