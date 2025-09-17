@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import json
 import os
 
 from pydantic import SecretStr
 
 from benchmarks.utils.args_parser import parse_args
+from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.runtime import Runtime
 from benchmarks.utils.run_evaluation import (
-    run_evaluation,
     make_metadata,
     construct_eval_output_dir,
+    get_instruction,
+    process_instance_simplified,
 )
 from openhands.sdk import (
     LLM,
@@ -67,8 +71,77 @@ def main():
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
     )
 
-    # Run evaluation
-    run_evaluation(metadata)
+    # Global variables for runtime methods
+    global instances, output_file, results
+    instances = None
+    output_file = None
+    results = []
+
+    def initialize_runtime():
+        """Initialize the runtime and retrieve instances to process."""
+        global instances, output_file
+        output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
+        
+        # Prepare output file
+        output_dir = os.path.dirname(output_file)
+        if output_dir:  # Only create directory if dirname is not empty
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Create empty output file
+        with open(output_file, "w") as f:
+            pass
+        
+        # Retrieve instances to process
+        instances = get_dataset(metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit)
+        print(f"### OUTPUT FILE: {output_file} ###")
+        return instances
+
+    def process_instance(instance):
+        """Process a single instance."""
+        global results, output_file
+        logger.info(f"Processing instance {instance.instance_id}")
+        
+        # Get instruction
+        workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
+        instruction = get_instruction(instance, metadata, workspace_path, metadata.prompt_path)
+        result = process_instance_simplified(instance, instruction, metadata)
+
+        # Save result using the complete format
+        result_dict = result.model_dump(mode='json')
+        if result.error:
+            result_dict["error"] = result.error
+        results.append(result_dict)
+
+        logger.info(f"Writing result for {instance.instance_id} to {output_file}")
+        logger.info(f"Result dict keys: {list(result_dict.keys())}")
+        git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
+        logger.info(f"Git patch length: {git_patch_len}")
+
+        # Write to output file
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        with open(output_file, "a") as f:
+            json_line = json.dumps(result_dict) + "\n"
+            f.write(json_line)
+            f.flush()  # Ensure it's written immediately
+            logger.info(
+                f"Successfully wrote {len(json_line)} characters to output file"
+            )
+
+    def complete_runtime():
+        """Complete the runtime - any cleanup if needed."""
+        logger.info("Runtime completed successfully!")
+
+    # Create and run the Runtime
+    runtime = Runtime(
+        metadata=metadata,
+        initialize_runtime=initialize_runtime,
+        process_instance=process_instance,
+        complete_runtime=complete_runtime,
+    )
+
+    runtime.run()
 
     logger.info("Evaluation completed!")
 
