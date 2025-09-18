@@ -14,7 +14,7 @@ from benchmarks.multi_swe_bench.resource.mapping import (
 )
 from benchmarks.utils.dataset import filter_dataset, prepare_dataset
 from benchmarks.utils.runtime import Runtime as BenchmarkRuntime
-from benchmarks.utils.run_evaluation import get_instruction, make_metadata, run_evaluation
+from benchmarks.utils.run_evaluation import make_metadata, run_evaluation
 from benchmarks.utils.shared import EvalException, EvalMetadata, EvalOutput
 from openhands.controller.state.state import State
 from openhands.core.config import (
@@ -47,11 +47,12 @@ def codeact_user_response(state: State) -> str:
     """
     Provide automated user response for CodeActAgent during evaluation.
     
-    This function is called when the agent requests user input during automated evaluation.
-    For SWE-bench evaluation, we typically want the agent to proceed without user intervention.
+    This function is called when the agent requests user input during automated
+    evaluation. For SWE-bench evaluation, we typically want the agent to proceed
+    without user intervention.
     """
     # Return a generic response that encourages the agent to continue
-    return "Please continue with your task. You have all the information you need to proceed."
+    return "Please continue with your task. You have all the information you need."
 
 
 AGENT_CLS_TO_FAKE_USER_RESPONSE_FN = {

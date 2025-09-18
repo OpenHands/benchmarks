@@ -34,7 +34,7 @@ class Runtime:
 
         Args:
             metadata: EvalMetadata object containing runtime metadata
-            initialize_runtime: Function to initialize the runtime and return instances to process
+            initialize_runtime: Function to initialize the runtime and return instances
             process_instance: Function to process each instance
             complete_runtime: Function to complete the runtime (called once at end)
         """
