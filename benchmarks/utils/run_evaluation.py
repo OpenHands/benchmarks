@@ -8,7 +8,11 @@ import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.git_tools import setup_workspace, get_git_patch, initialize_workspace
+from benchmarks.utils.git_tools import (
+    get_git_patch,
+    initialize_workspace,
+    setup_workspace,
+)
 from benchmarks.utils.shared import EvalMetadata, EvalOutput
 from openhands.sdk import (
     LLM,
@@ -62,8 +66,12 @@ def process_instance_simplified(
     logger.info(f"Starting evaluation for instance {instance.instance_id}")
 
     temp_workspace = tempfile.mkdtemp()
-    workspace_path = setup_workspace(instance.repo, instance.base_commit, temp_workspace)
-    initialize_workspace(workspace_path, instance.instance_id, metadata.env_setup_commands)
+    workspace_path = setup_workspace(
+        instance.repo, instance.base_commit, temp_workspace
+    )
+    initialize_workspace(
+        workspace_path, instance.instance_id, metadata.env_setup_commands
+    )
 
     llm = metadata.llm
 
@@ -182,9 +190,11 @@ def run_evaluation(metadata: EvalMetadata):
     """Run evaluation on instances."""
     output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
     # Load and prepare dataset
-    instances = get_dataset(metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit)
+    instances = get_dataset(
+        metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
+    )
     print(f"### OUTPUT FILE: {output_file} ###")
-    
+
     output_dir = os.path.dirname(output_file)
     if output_dir:  # Only create directory if dirname is not empty
         os.makedirs(output_dir, exist_ok=True)
@@ -198,11 +208,13 @@ def run_evaluation(metadata: EvalMetadata):
         logger.info(f"Processing instance {instance.instance_id}")
         # Get instruction
         workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
-        instruction = get_instruction(instance, metadata, workspace_path, metadata.prompt_path)
+        instruction = get_instruction(
+            instance, metadata, workspace_path, metadata.prompt_path
+        )
         result = process_instance_simplified(instance, instruction, metadata)
 
         # Save result using the complete format
-        result_dict = result.model_dump(mode='json')
+        result_dict = result.model_dump(mode="json")
         if result.error:
             result_dict["error"] = result.error
         results.append(result_dict)
