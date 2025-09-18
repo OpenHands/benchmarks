@@ -3,25 +3,23 @@
 import os
 import shutil
 import subprocess
-from typing import Any
-
-
-from openhands.sdk import get_logger
 
 from benchmarks.utils.binary_patch_utils import remove_binary_diffs
 from benchmarks.utils.shared import EvalException
+from openhands.sdk import get_logger
+
 
 logger = get_logger(__name__)
 
 
 def setup_workspace(repo_name: str, base_commit: str, workspace_root: str) -> str:
     """Setup workspace by cloning the repository.
-    
+
     Args:
         repo_name: Repository name (e.g., "django/django")
         base_commit: Git commit hash to checkout
         workspace_root: Root directory for workspace
-        
+
     Returns:
         Path to the workspace directory
     """
@@ -132,7 +130,11 @@ def get_git_patch(workspace_path: str) -> str:
         return ""
 
 
-def initialize_workspace(workspace_path: str, instance_id: str, custom_env_setup_commands: list[str] | None = None):
+def initialize_workspace(
+    workspace_path: str,
+    instance_id: str,
+    custom_env_setup_commands: list[str] | None = None,
+):
     """Initialize the workspace with necessary setup."""
     logger.info("-" * 30)
     logger.info("BEGIN Workspace Initialization")
@@ -144,7 +146,7 @@ def initialize_workspace(workspace_path: str, instance_id: str, custom_env_setup
         'git config --global core.pager ""',
         "git config --global diff.binary false",
     ]
-    
+
     # Append custom environment setup commands if provided
     if custom_env_setup_commands:
         env_setup_commands.extend(custom_env_setup_commands)

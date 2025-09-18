@@ -99,7 +99,8 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata):
             '<uploaded_files>\n'
             f'/workspace/{workspace_dir_name}\n'
             '</uploaded_files>\n'
-            f"I've uploaded a Java code repository in the directory {workspace_dir_name}. Consider the following issue description:\n\n"
+            f"I've uploaded a Java code repository in the directory "
+            f"{workspace_dir_name}. Consider the following issue description:\n\n"
             f'<issue_description>\n'
             f'{instance.problem_statement}\n'
             '</issue_description>\n\n'
@@ -124,7 +125,8 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata):
             '<uploaded_files>\n'
             f'/workspace/{workspace_dir_name}\n'
             '</uploaded_files>\n'
-            f"I've uploaded a Go code repository in the directory {workspace_dir_name}. Consider the following issue description:\n\n"
+            f"I've uploaded a Go code repository in the directory "
+            f"{workspace_dir_name}. Consider the following issue description:\n\n"
             f'<issue_description>\n'
             f'{instance.problem_statement}\n'
             '</issue_description>\n\n'
@@ -149,7 +151,8 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata):
             '<uploaded_files>\n'
             f'/workspace/{workspace_dir_name}\n'
             '</uploaded_files>\n'
-            f"I've uploaded a C code repository in the directory {workspace_dir_name}. Consider the following issue description:\n\n"
+            f"I've uploaded a C code repository in the directory "
+            f"{workspace_dir_name}. Consider the following issue description:\n\n"
             f'<issue_description>\n'
             f'{instance.problem_statement}\n'
             '</issue_description>\n\n'
@@ -385,16 +388,14 @@ def initialize_runtime(
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(
-        obs.exit_code == 0, f'Failed to export SWE_INSTANCE_ID: {str(obs)}'
-    )
+    assert obs.exit_code == 0, f'Failed to export SWE_INSTANCE_ID: {str(obs)}'
     # pdb.set_trace()
     action = CmdRunAction(command="""export USER=$(whoami); echo USER=${USER} """)
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to export USER: {str(obs)}')
+    assert obs.exit_code == 0, f'Failed to export USER: {str(obs)}'
 
     if USE_INSTANCE_IMAGE:
         # inject the init script
@@ -406,10 +407,7 @@ def initialize_runtime(
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-        assert_and_raise(
-            obs.exit_code == 0,
-            f'Failed to create /swe_util/eval_data/instances: {str(obs)}',
-        )
+        assert obs.exit_code == 0, f'Failed to create /swe_util/eval_data/instances: {str(obs)}'
 
         swe_instance_json_name = 'swe-bench-instance.json'
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -435,7 +433,7 @@ def initialize_runtime(
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-        assert_and_raise(obs.exit_code == 0, f'Failed to cat ~/.bashrc: {str(obs)}')
+        assert obs.exit_code == 0, f'Failed to cat ~/.bashrc: {str(obs)}'
 
         action = CmdRunAction(command='source ~/.bashrc')
         action.set_hard_timeout(600)
@@ -443,45 +441,36 @@ def initialize_runtime(
         obs = runtime.run_action(action)
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
         if isinstance(obs, ErrorObservation):
-            logger.error(f'Failed to source ~/.bashrc: {str(obs)}')
-        assert_and_raise(obs.exit_code == 0, f'Failed to source ~/.bashrc: {str(obs)}')
+            logger.error(f'Failed to source ~/.bashrc: {str(obs)}'))
+        assert obs.exit_code == 0, f'Failed to source ~/.bashrc: {str(obs)}'
 
         action = CmdRunAction(command='source /swe_util/instance_swe_entry.sh')
         action.set_hard_timeout(600)
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-        assert_and_raise(
-            obs.exit_code == 0,
-            f'Failed to source /swe_util/instance_swe_entry.sh: {str(obs)}',
-        )
+        assert obs.exit_code == 0, f'Failed to source /swe_util/instance_swe_entry.sh: {str(obs)}'
     else:
         action = CmdRunAction(command='source /swe_util/swe_entry.sh')
         action.set_hard_timeout(1800)
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-        assert_and_raise(
-            obs.exit_code == 0,
-            f'Failed to source /swe_util/swe_entry.sh: {str(obs)}',
-        )
+        assert obs.exit_code == 0, f'Failed to source /swe_util/swe_entry.sh: {str(obs)}'
 
     action = CmdRunAction(command=f'cd /workspace/{workspace_dir_name}')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(
-        obs.exit_code == 0,
-        f'Failed to cd to /workspace/{workspace_dir_name}: {str(obs)}',
-    )
+    assert obs.exit_code == 0, f'Failed to cd to /workspace/{workspace_dir_name}: {str(obs)}'
 
     action = CmdRunAction(command='git reset --hard')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to git reset --hard: {str(obs)}')
+    assert obs.exit_code == 0, f'Failed to git reset --hard: {str(obs)}'
 
     action = CmdRunAction(
         command='for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
@@ -490,14 +479,14 @@ def initialize_runtime(
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to remove git remotes: {str(obs)}')
+    assert obs.exit_code == 0, f'Failed to remove git remotes: {str(obs)}'
     ##TODO:这里看看需不需要判断其他语言的环境
     # action = CmdRunAction(command='which python')
     # action.set_hard_timeout(600)
     # logger.info(action, extra={'msg_type': 'ACTION'})
     # obs = runtime.run_action(action)
     # logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    # assert_and_raise(
+    # assert 
     #     obs.exit_code == 0 and 'testbed' in obs.content,
     #     f'Expected to find python interpreter from testbed, but got: {str(obs)}',
     # )
@@ -544,7 +533,7 @@ def complete_runtime(
         obs = runtime.run_action(action)
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
 
-    assert_and_raise(
+    assert 
         isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
         f'Failed to cd to /workspace/{workspace_dir_name}: {str(obs)}',
     )
@@ -554,20 +543,14 @@ def complete_runtime(
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(
-        isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
-        f'Failed to git config --global core.pager "": {str(obs)}',
-    )
+    assert isinstance(obs, CmdOutputObservation) and obs.exit_code == 0, f'Failed to git config --global core.pager "": {str(obs)}'
 
     action = CmdRunAction(command='git add -A')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(
-        isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
-        f'Failed to git add -A: {str(obs)}',
-    )
+    assert isinstance(obs, CmdOutputObservation) and obs.exit_code == 0, f'Failed to git add -A: {str(obs)}'
 
     ##删除二进制文件
     action = CmdRunAction(
@@ -584,10 +567,7 @@ def complete_runtime(
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(
-        isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
-        f'Failed to remove binary files: {str(obs)}',
-    )
+    assert isinstance(obs, CmdOutputObservation) and obs.exit_code == 0, f'Failed to remove binary files: {str(obs)}'
 
     # pdb.set_trace()
 
@@ -613,7 +593,7 @@ def complete_runtime(
             logger.error(f'Error occurred: {obs.content}. Retrying...')
             sleep_if_should_continue(10)
         else:
-            assert_and_raise(False, f'Unexpected observation type: {str(obs)}')
+            assert False, f'Unexpected observation type: {str(obs)}'
 
     action = FileReadAction(path='patch.diff')
     action.set_hard_timeout(max(300 + 100 * n_retries, 600))
@@ -622,7 +602,7 @@ def complete_runtime(
     git_patch = obs.content
     # pdb.set_trace()
 
-    assert_and_raise(git_patch is not None, 'Failed to get git diff (None)')
+    assert git_patch is not None, 'Failed to get git diff (None)'
 
     logger.info('-' * 30)
     logger.info('END Runtime Completion Fn')

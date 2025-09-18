@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pandas as pd
 from datasets import Dataset, load_dataset
+
 from openhands.sdk import get_logger
+
 
 logger = get_logger(__name__)
 
@@ -24,7 +26,9 @@ def prepare_dataset(
     return dataset
 
 
-def get_dataset(dataset_name: str, split: str, output_file: str, eval_n_limit: int) -> pd.DataFrame:
+def get_dataset(
+    dataset_name: str, split: str, output_file: str, eval_n_limit: int
+) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Load dataset
     dataset = load_dataset(dataset_name, split=split)

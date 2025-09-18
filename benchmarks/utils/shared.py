@@ -1,7 +1,8 @@
 from typing import Any
 
-from openhands.sdk import LLM, Agent, Event, get_logger
 from pydantic import BaseModel
+
+from openhands.sdk import LLM, Agent, Event, get_logger
 
 
 logger = get_logger(__name__)

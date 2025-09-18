@@ -7,13 +7,13 @@ from pydantic import SecretStr
 
 from benchmarks.utils.args_parser import parse_args
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.runtime import Runtime
 from benchmarks.utils.run_evaluation import (
-    make_metadata,
     construct_eval_output_dir,
     get_instruction,
+    make_metadata,
     process_instance_simplified,
 )
+from benchmarks.utils.runtime import Runtime
 from openhands.sdk import (
     LLM,
     get_logger,
@@ -24,15 +24,17 @@ logger = get_logger(__name__)
 
 
 def main():
-    default_prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "default.j2")
+    default_prompt_path = os.path.join(
+        os.path.dirname(__file__), "prompts", "default.j2"
+    )
     args = parse_args(default_prompt_path)
-    
+
     # SWT-specific defaults
-    if not hasattr(args, 'dataset') or not args.dataset:
+    if not hasattr(args, "dataset") or not args.dataset:
         args.dataset = "princeton-nlp/SWE-bench"
-    if not hasattr(args, 'split') or not args.split:
+    if not hasattr(args, "split") or not args.split:
         args.split = "test"
-    
+
     DATASET = args.dataset
     SPLIT = args.split
     MODEL = args.llm_config
@@ -53,7 +55,9 @@ def main():
         temperature=0,
     )
 
-    dataset_description = DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__") + "-swt"
+    dataset_description = (
+        DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__") + "-swt"
+    )
 
     # Construct proper structured output directory path
     structured_output_dir = construct_eval_output_dir(
@@ -87,18 +91,20 @@ def main():
         """Initialize the runtime and retrieve instances to process."""
         global instances, output_file
         output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
-        
+
         # Prepare output file
         output_dir = os.path.dirname(output_file)
         if output_dir:  # Only create directory if dirname is not empty
             os.makedirs(output_dir, exist_ok=True)
-        
+
         # Create empty output file
         with open(output_file, "w") as f:
             pass
-        
+
         # Retrieve instances to process
-        instances = get_dataset(metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit)
+        instances = get_dataset(
+            metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
+        )
         print(f"### OUTPUT FILE: {output_file} ###")
         return instances
 
@@ -106,14 +112,16 @@ def main():
         """Process a single instance."""
         global results, output_file
         logger.info(f"Processing instance {instance.instance_id}")
-        
+
         # Get instruction
         workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
-        instruction = get_instruction(instance, metadata, workspace_path, metadata.prompt_path)
+        instruction = get_instruction(
+            instance, metadata, workspace_path, metadata.prompt_path
+        )
         result = process_instance_simplified(instance, instruction, metadata)
 
         # Save result using the complete format
-        result_dict = result.model_dump(mode='json')
+        result_dict = result.model_dump(mode="json")
         if result.error:
             result_dict["error"] = result.error
         results.append(result_dict)
