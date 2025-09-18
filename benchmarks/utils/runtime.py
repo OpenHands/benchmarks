@@ -5,6 +5,7 @@ Runtime class for orchestrating instance processing workflows.
 from __future__ import annotations
 
 from typing import Any, Callable, List
+import pandas as pd
 
 from benchmarks.utils.shared import EvalMetadata
 from openhands.sdk import get_logger
@@ -24,7 +25,7 @@ class Runtime:
     def __init__(
         self,
         metadata: EvalMetadata,
-        initialize_runtime: Callable[[], List[Any]],
+        initialize_runtime: Callable[[], pd.DataFrame],
         process_instance: Callable[[Any], None],
         complete_runtime: Callable[[], None],
     ):

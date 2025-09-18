@@ -141,6 +141,8 @@ def get_config(
     sandbox_config.use_host_network = False
     # Add platform to the sandbox config to solve issue 4401
     sandbox_config.platform = 'linux/amd64'
+    if metadata.dataset is None:
+        raise ValueError("Dataset is required")
     sandbox_config.remote_runtime_resource_factor = get_instance_resource_factor(
         dataset_name=metadata.dataset,
         instance_id=instance['instance_id'],
