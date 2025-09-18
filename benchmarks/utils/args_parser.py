@@ -5,14 +5,11 @@ Argument parsing utilities for SWE-bench benchmarks.
 import argparse
 
 
-def parse_args(default_prompt_path: str):
-    """Parse command line arguments.
-
-    Args:
-        default_prompt_path: Default path to the prompt template file
+def get_parser():
+    """Create and return argument parser.
 
     Returns:
-        Parsed arguments namespace
+        ArgumentParser instance
     """
     parser = argparse.ArgumentParser(description="Run SWE-bench inference")
     parser.add_argument(
@@ -41,15 +38,9 @@ def parse_args(default_prompt_path: str):
         help="Evaluation output directory",
     )
     parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=default_prompt_path,
-        help="Path to prompt template file",
-    )
-    parser.add_argument(
         "--eval-n-limit",
         type=int,
         default=1,
         help="Limit number of instances to evaluate",
     )
-    return parser.parse_args()
+    return parser

@@ -5,7 +5,7 @@ import os
 
 from pydantic import SecretStr
 
-from benchmarks.utils.args_parser import parse_args
+from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.run_evaluation import (
     construct_eval_output_dir,
@@ -27,7 +27,14 @@ def main():
     default_prompt_path = os.path.join(
         os.path.dirname(__file__), "prompts", "default.j2"
     )
-    args = parse_args(default_prompt_path)
+    parser = get_parser()
+    parser.add_argument(
+        "--prompt-path",
+        type=str,
+        default=default_prompt_path,
+        help="Path to prompt template file",
+    )
+    args = parser.parse_args()
 
     # SWE-rebench-specific defaults
     if not hasattr(args, "dataset") or not args.dataset:
