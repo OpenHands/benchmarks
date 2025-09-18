@@ -109,6 +109,12 @@ def main():
             pass
 
         # Retrieve instances to process
+        if metadata.dataset is None:
+            raise ValueError("Dataset is required")
+        if metadata.data_split is None:
+            raise ValueError("Data split is required")
+        if metadata.eval_n_limit is None:
+            raise ValueError("Eval n limit is required")
         instances = get_dataset(
             metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
         )
@@ -122,6 +128,8 @@ def main():
 
         # Get instruction
         workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
+        if metadata.prompt_path is None:
+            raise ValueError("Prompt path is required")
         instruction = get_instruction(
             instance, metadata, workspace_path, metadata.prompt_path
         )
@@ -139,6 +147,8 @@ def main():
         logger.info(f"Git patch length: {git_patch_len}")
 
         # Write to output file
+        if output_file is None:
+            raise ValueError("Output file is required")
         output_dir = os.path.dirname(output_file)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
