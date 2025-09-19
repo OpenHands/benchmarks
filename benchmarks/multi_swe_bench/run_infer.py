@@ -396,7 +396,8 @@ def complete_runtime(
         command="""
         for file in $(git status --porcelain | grep -E "^(M| M|\\?\\?|A| A)" \\
                       | cut -c4-); do
-            if [ -f "$file" ] && (file "$file" | grep -q "executable" || git check-attr binary "$file" | grep -q "binary: set"); then
+            if [ -f "$file" ] && (file "$file" | grep -q "executable" \\
+                                   || git check-attr binary "$file" | grep -q "binary: set"); then
                 git rm -f "$file" 2>/dev/null || rm -f "$file"
                 echo "Removed: $file"
             fi
@@ -416,9 +417,8 @@ def complete_runtime(
     n_retries = 0
     git_patch = None
     while n_retries < 5:
-        action = CmdRunAction(
-            command=f"git diff --no-color --cached {instance['base_commit']} > patch.diff"
-        )
+        cmd = f"git diff --no-color --cached {instance['base_commit']} > patch.diff"
+        action = CmdRunAction(command=cmd)
         action.set_hard_timeout(max(300 + 100 * n_retries, 600))
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
@@ -460,7 +460,7 @@ def process_instance(
 ) -> EvalOutput:
     config = get_config(instance, metadata)
 
-    # Setup the logger properly, so you can run multi-processing to parallelize the evaluation
+    # Setup the logger properly, so you can run multi-processing to parallelize
     if reset_logger:
         log_dir = os.path.join(metadata.eval_output_dir, "infer_logs")
         reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
