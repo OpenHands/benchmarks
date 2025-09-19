@@ -93,7 +93,6 @@ def process_instance_simplified(
         assert "problem_statement" in assets, (
             "problem_statement is required in image_assets"
         )
-        image_urls = assets["problem_statement"]
         message = Message(
             role="user",
             content=[
@@ -165,7 +164,8 @@ def make_metadata(
 
 def construct_eval_output_dir(base_dir, dataset_name, model, max_iterations, eval_note):
     """Construct the structured evaluation output directory path."""
-    # Format: eval_out/<dataset>-<split>/<agent_config>/<llm>_maxiter_<maxiter>_N_<version>-<hint>-<exp_name>-run_<run_number>
+    # Format: eval_out/<dataset>-<split>/<agent_config>/
+    # <llm>_maxiter_<maxiter>_N_<version>-<hint>-<exp_name>-run_<run_number>
 
     # Create LLM config string
     llm_config_str = f"{model}_maxiter_{max_iterations}"

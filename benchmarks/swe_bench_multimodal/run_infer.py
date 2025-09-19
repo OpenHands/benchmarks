@@ -105,7 +105,7 @@ def main():
             os.makedirs(output_dir, exist_ok=True)
 
         # Create empty output file
-        with open(output_file, "w") as f:
+        with open(output_file, "w"):
             pass
 
         # Retrieve instances to process
