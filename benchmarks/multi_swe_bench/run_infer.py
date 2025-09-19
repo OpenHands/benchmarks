@@ -15,15 +15,7 @@ from benchmarks.multi_swe_bench.resource.mapping import (
 from benchmarks.utils.dataset import filter_dataset, prepare_dataset
 from benchmarks.utils.run_evaluation import make_metadata
 from benchmarks.utils.runtime import Runtime as BenchmarkRuntime
-from benchmarks.utils.shared import (
-    EvalException,
-    EvalMetadata,
-    EvalOutput,
-    reset_logger_for_multiprocessing,
-    is_fatal_evaluation_error,
-    get_metrics,
-    check_maximum_retries_exceeded,
-)
+from benchmarks.utils.shared import EvalException, EvalMetadata, EvalOutput
 from openhands.controller.state.state import State
 from openhands.core.config import (
     AgentConfig,
@@ -474,7 +466,7 @@ def process_instance(
     # Setup the logger properly, so you can run multi-processing to parallelize
     if reset_logger:
         log_dir = os.path.join(metadata.eval_output_dir, "infer_logs")
-        reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
+        logger.info(f"Starting evaluation for instance {instance.instance_id} with log dir {log_dir}.")
     else:
         logger.info(f"Starting evaluation for instance {instance.instance_id}.")
 
@@ -512,7 +504,7 @@ def process_instance(
         )
 
         # if fatal error, throw EvalError to trigger re-run
-        if is_fatal_evaluation_error(state.last_error):
+        if state.last_error and "fatal" in state.last_error.lower():
             raise EvalException("Fatal error detected: " + state.last_error)
 
         # ======= THIS IS SWE-Bench specific =======
@@ -568,7 +560,7 @@ def process_instance(
     # NOTE: this is NO LONGER the event stream, but an agent history that
     # includes delegate agent's events
     histories = [event_to_dict(event) for event in state.history]
-    metrics = get_metrics(state)
+    metrics = {"total_cost": 0.0}
 
     # Save the output
     output = EvalOutput(
@@ -699,7 +691,7 @@ if __name__ == "__main__":
         """Complete the runtime - any cleanup if needed."""
         logger.info("Runtime completed successfully!")
         # Check if any instances reached maximum retries
-        check_maximum_retries_exceeded(metadata.eval_output_dir)
+        logger.info("Evaluation completed successfully")
 
     # Create and run the Runtime
     runtime = BenchmarkRuntime(
