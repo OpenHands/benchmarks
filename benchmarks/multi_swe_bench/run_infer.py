@@ -309,9 +309,8 @@ def initialize_runtime(
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
     assert obs.exit_code == 0, f"Failed to git reset --hard: {str(obs)}"
 
-    action = CmdRunAction(
-        command='for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
-    )
+    cmd = 'for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
+    action = CmdRunAction(command=cmd)
     action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
@@ -335,7 +334,7 @@ def initialize_runtime(
 
 def complete_runtime(
     runtime: Runtime,
-    instance: pd.Series,  # this argument is not required, but it is used to get the workspace_dir_name
+    instance: pd.Series,  # used to get the workspace_dir_name
 ) -> dict[str, Any]:
     """Complete the runtime for the agent.
 
@@ -395,7 +394,8 @@ def complete_runtime(
     # 删除二进制文件
     action = CmdRunAction(
         command="""
-        for file in $(git status --porcelain | grep -E "^(M| M|\\?\\?|A| A)" | cut -c4-); do
+        for file in $(git status --porcelain | grep -E "^(M| M|\\?\\?|A| A)" \\
+                      | cut -c4-); do
             if [ -f "$file" ] && (file "$file" | grep -q "executable" || git check-attr binary "$file" | grep -q "binary: set"); then
                 git rm -f "$file" 2>/dev/null || rm -f "$file"
                 echo "Removed: $file"
