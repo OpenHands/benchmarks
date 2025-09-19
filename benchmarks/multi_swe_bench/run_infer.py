@@ -309,7 +309,9 @@ def initialize_runtime(
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
     assert obs.exit_code == 0, f"Failed to git reset --hard: {str(obs)}"
 
-    cmd = 'for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
+    cmd = (
+        'for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
+    )
     action = CmdRunAction(command=cmd)
     action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
@@ -397,7 +399,8 @@ def complete_runtime(
         for file in $(git status --porcelain | grep -E "^(M| M|\\?\\?|A| A)" \\
                       | cut -c4-); do
             if [ -f "$file" ] && (file "$file" | grep -q "executable" \\
-                                   || git check-attr binary "$file" | grep -q "binary: set"); then
+                                   || git check-attr binary "$file" \\
+                                      | grep -q "binary: set"); then
                 git rm -f "$file" 2>/dev/null || rm -f "$file"
                 echo "Removed: $file"
             fi
@@ -474,7 +477,9 @@ def process_instance(
             8,
         )
         logger.warning(
-            f"This is the {runtime_failure_count + 1}th attempt for instance {instance.instance_id}, setting resource factor to {config.sandbox.remote_runtime_resource_factor}"
+            f"This is the {runtime_failure_count + 1}th attempt for instance "
+            f"{instance.instance_id}, setting resource factor to "
+            f"{config.sandbox.remote_runtime_resource_factor}"
         )
     # pdb.set_trace()
     runtime = create_runtime(config)
@@ -485,7 +490,8 @@ def process_instance(
 
         instruction = get_instruction(instance, metadata)
 
-        # Here's how you can run the agent (similar to the `main` function) and get the final task state
+        # Here's how you can run the agent (similar to the `main` function)
+        # and get the final task state
         state: State | None = asyncio.run(
             run_controller(
                 config=config,
@@ -506,7 +512,8 @@ def process_instance(
         return_val = complete_runtime(runtime, instance)
         git_patch = return_val["git_patch"]
         logger.info(
-            f"Got git diff for instance {instance.instance_id}:\n--------\n{git_patch}\n--------"
+            f"Got git diff for instance {instance.instance_id}:\n"
+            f"--------\n{git_patch}\n--------"
         )
     finally:
         runtime.close()
@@ -543,12 +550,15 @@ def process_instance(
         "git_patch": git_patch,
     }
 
-    # If you are working on some simpler benchmark that only evaluates the final model output (e.g., in a MessageAction)
-    # You can simply get the LAST `MessageAction` from the returned `state.history` and parse it for evaluation.
+    # If you are working on some simpler benchmark that only evaluates the final
+    # model output (e.g., in a MessageAction)
+    # You can simply get the LAST `MessageAction` from the returned
+    # `state.history` and parse it for evaluation.
     if state is None:
         raise ValueError("State should not be None.")
 
-    # NOTE: this is NO LONGER the event stream, but an agent history that includes delegate agent's events
+    # NOTE: this is NO LONGER the event stream, but an agent history that
+    # includes delegate agent's events
     histories = [event_to_dict(event) for event in state.history]
     metrics = get_metrics(state)
 
@@ -583,7 +593,8 @@ if __name__ == "__main__":
     )
     args, _ = parser.parse_known_args()
 
-    # NOTE: It is preferable to load datasets from huggingface datasets and perform post-processing
+    # NOTE: It is preferable to load datasets from huggingface datasets
+    # and perform post-processing
     # so we don't need to manage file uploading to OpenHands's repo
     # dataset = load_dataset(args.dataset, split=args.split)
     # dataset = load_dataset(args.dataset)
@@ -593,14 +604,16 @@ if __name__ == "__main__":
         dataset.to_pandas(), "instance_id", os.path.dirname(os.path.abspath(__file__))
     )
     logger.info(
-        f"Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks"
+        f"Loaded dataset {args.dataset} with split {args.split}: "
+        f"{len(swe_bench_tests)} tasks"
     )
 
     llm_config = None
     if args.llm_config:
         llm_config = get_llm_config_arg(args.llm_config)
         llm_config.log_completions = True
-        # modify_params must be False for evaluation purpose, for reproducibility and accurancy of results
+        # modify_params must be False for evaluation purpose, for
+        # reproducibility and accurancy of results
         llm_config.modify_params = False
 
     if llm_config is None:
