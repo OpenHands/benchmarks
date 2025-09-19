@@ -4,7 +4,8 @@ Runtime class for orchestrating instance processing workflows.
 
 from __future__ import annotations
 
-from typing import Any, Callable, List
+from typing import Any, Callable
+
 import pandas as pd
 
 from benchmarks.utils.shared import EvalMetadata
