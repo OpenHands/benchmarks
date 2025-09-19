@@ -15,7 +15,15 @@ from benchmarks.multi_swe_bench.resource.mapping import (
 from benchmarks.utils.dataset import filter_dataset, prepare_dataset
 from benchmarks.utils.run_evaluation import make_metadata
 from benchmarks.utils.runtime import Runtime as BenchmarkRuntime
-from benchmarks.utils.shared import EvalException, EvalMetadata, EvalOutput
+from benchmarks.utils.shared import (
+    EvalException,
+    EvalMetadata,
+    EvalOutput,
+    reset_logger_for_multiprocessing,
+    is_fatal_evaluation_error,
+    get_metrics,
+    check_maximum_retries_exceeded,
+)
 from openhands.controller.state.state import State
 from openhands.core.config import (
     AgentConfig,
@@ -210,7 +218,7 @@ def initialize_runtime(
         f"echo 'export SWE_INSTANCE_ID={instance['instance_id']}' >> ~/.bashrc",
         "echo 'export PIP_CACHE_DIR=~/.cache/pip' >> ~/.bashrc",
         "echo \"alias git='git --no-pager'\" >> ~/.bashrc",
-        f"echo 'export REPO_NAME={REPO_NAME}' >> ~/.bashrc"
+        f"echo 'export REPO_NAME={REPO_NAME}' >> ~/.bashrc",
     ]
     action = CmdRunAction(command=" && ".join(cmd_parts))
     action.set_hard_timeout(600)
@@ -658,7 +666,7 @@ if __name__ == "__main__":
             os.makedirs(output_dir, exist_ok=True)
 
         # Create empty output file
-        with open(output_file, "w") as f:
+        with open(output_file, "w"):
             pass
 
         # Retrieve instances to process
