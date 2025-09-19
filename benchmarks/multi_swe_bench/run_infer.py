@@ -71,6 +71,18 @@ def get_default_sandbox_config_for_eval():
     return SandboxConfig()
 
 
+def get_openhands_config_for_eval(metadata, enable_browser, runtime, sandbox_config):
+    """Get OpenHands configuration for evaluation."""
+    config = OpenHandsConfig()
+    config.sandbox = sandbox_config
+    return config
+
+
+def update_llm_config_for_completions_logging(llm_config, output_dir, instance_id):
+    """Update LLM config for completions logging."""
+    return llm_config
+
+
 def get_instruction(instance: pd.Series, metadata: EvalMetadata):
     """Get instruction using utils get_instruction with language prompts."""
     workspace_dir_name = _get_swebench_workspace_dir_name(instance)
@@ -102,7 +114,7 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata):
 #         )  # to comply with docker image naming convention
 #         return (DOCKER_IMAGE_PREFIX.rstrip('/') + '/' + image_name).lower()
 #     else:
-#         return image_name.lower() ##加载本地的
+#         return image_name.lower()  # 加载本地的
 def get_instance_docker_image(instance: pd.Series):
     if LANGUAGE == "python":
         image_name = "sweb.eval.x86_64." + instance["instance_id"]
@@ -194,9 +206,13 @@ def initialize_runtime(
 
     REPO_NAME = instance["repo"].split("/")[-1]
     # Set instance id
-    action = CmdRunAction(
-        command=f"""echo 'export SWE_INSTANCE_ID={instance["instance_id"]}' >> ~/.bashrc && echo 'export PIP_CACHE_DIR=~/.cache/pip' >> ~/.bashrc && echo "alias git='git --no-pager'" >> ~/.bashrc && echo 'export REPO_NAME={REPO_NAME}' >> ~/.bashrc"""
-    )
+    cmd_parts = [
+        f"echo 'export SWE_INSTANCE_ID={instance['instance_id']}' >> ~/.bashrc",
+        "echo 'export PIP_CACHE_DIR=~/.cache/pip' >> ~/.bashrc",
+        "echo \"alias git='git --no-pager'\" >> ~/.bashrc",
+        f"echo 'export REPO_NAME={REPO_NAME}' >> ~/.bashrc"
+    ]
+    action = CmdRunAction(command=" && ".join(cmd_parts))
     action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
@@ -226,7 +242,7 @@ def initialize_runtime(
 
         swe_instance_json_name = "swe-bench-instance.json"
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Construct the full path for the desired file name within the temporary directory
+            # Construct the full path for the desired file name within temp dir
             temp_file_path = os.path.join(temp_dir, swe_instance_json_name)
             # Write to the file with the desired name within the temporary directory
             with open(temp_file_path, "w") as f:
@@ -301,7 +317,7 @@ def initialize_runtime(
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
     assert obs.exit_code == 0, f"Failed to remove git remotes: {str(obs)}"
-    ##TODO:这里看看需不需要判断其他语言的环境
+    # TODO:这里看看需不需要判断其他语言的环境
     # action = CmdRunAction(command='which python')
     # action.set_hard_timeout(600)
     # logger.info(action, extra={'msg_type': 'ACTION'})
@@ -376,7 +392,7 @@ def complete_runtime(
         f"Failed to git add -A: {str(obs)}"
     )
 
-    ##删除二进制文件
+    # 删除二进制文件
     action = CmdRunAction(
         command="""
         for file in $(git status --porcelain | grep -E "^(M| M|\\?\\?|A| A)" | cut -c4-); do
@@ -499,7 +515,7 @@ def process_instance(
     # ======= Attempt to evaluate the agent's edits =======
     # we use eval_infer.sh to evaluate the agent's edits, not here
     # because the agent may alter the environment / testcases
-    ###remove binary diffs
+    # remove binary diffs
     def remove_binary_diffs(patch_text):
         lines = patch_text.splitlines()
         cleaned_lines = []
