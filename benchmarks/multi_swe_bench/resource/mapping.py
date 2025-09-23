@@ -28,7 +28,7 @@ def get_resource_mapping(dataset_name: str) -> dict[str, float]:
         file_path = os.path.join(CUR_DIR, f"{dataset_name}.json")
         if not os.path.exists(file_path):
             logger.info(f"Resource mapping for {dataset_name} not found.")
-            return None
+            return {}
 
         with open(file_path, "r") as f:
             _global_resource_mapping[dataset_name] = json.load(f)
