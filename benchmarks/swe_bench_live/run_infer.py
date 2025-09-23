@@ -97,7 +97,7 @@ def main():
     def initialize_runtime():
         """Initialize the runtime and retrieve instances to process."""
         global instances, output_file
-        output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
+        output_file = os.path.join(metadata.eval_output_dir or ".", "output.jsonl")
 
         # Prepare output file
         output_dir = os.path.dirname(output_file)
