@@ -10,8 +10,8 @@ dependencies = [
     "toml",
     "tqdm",
     "unidiff>=0.7.5,<0.8.0",
-    "openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
-    "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools",
+    "openhands-sdk",
+    "openhands-tools",
     "modal>=1.1.4",
 ]
 
@@ -50,4 +50,6 @@ combine-as-imports = true
 force-single-line = false
 lines-after-imports = 2
 
-
+[tool.uv.sources]
+openhands-sdk = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/sdk", rev = "49cbde95efb52b9e3d2f62cd04b9c632cfae37e3" }
+openhands-tools = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/tools", rev = "49cbde95efb52b9e3d2f62cd04b9c632cfae37e3" }
