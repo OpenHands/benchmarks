@@ -102,7 +102,7 @@ def main():
 
         # Retrieve instances to process
         instances = get_dataset(
-            metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
+            metadata.dataset or "", metadata.data_split or "", output_file, metadata.eval_n_limit or 0
         )
         print(f"### OUTPUT FILE: {output_file} ###")
         return instances
@@ -115,7 +115,7 @@ def main():
         # Get instruction
         workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
         instruction = get_instruction(
-            instance, metadata, workspace_path, metadata.prompt_path
+            instance, metadata, workspace_path, metadata.prompt_path or ""
         )
         result = process_instance_simplified(instance, instruction, metadata)
 
