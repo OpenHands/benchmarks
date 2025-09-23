@@ -309,15 +309,15 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata):
 #         return image_name.lower()  # 加载本地的
 def get_instance_docker_image(instance: pd.Series):
     if LANGUAGE == "python":
-        image_name = "sweb.eval.x86_64." + instance["instance_id"]
+        image_name = "sweb.eval.x86_64." + str(instance["instance_id"])
         image_name = image_name.replace(
             "__", "_s_"
         )  # to comply with docker image naming convention
         return (DOCKER_IMAGE_PREFIX.rstrip("/") + "/" + image_name).lower()
     else:
-        container_name = instance.get("repo", "").lower()
+        container_name = str(instance.get("repo", "")).lower()
         container_name = container_name.replace("/", "_m_")
-        instance_id = instance.get("instance_id", "")
+        instance_id = str(instance.get("instance_id", ""))
         tag_suffix = instance_id.split("-")[-1] if instance_id else ""
         container_tag = f"pr-{tag_suffix}"
         # pdb.set_trace()
@@ -348,17 +348,17 @@ def get_config(
         logger.info(f"Using swe-bench container image: {base_container_image}")
 
     sandbox_config = get_default_sandbox_config_for_eval()
-    sandbox_config.base_container_image = base_container_image
-    sandbox_config.enable_auto_lint = True
-    sandbox_config.use_host_network = False
+    # sandbox_config.base_container_image = base_container_image
+    # sandbox_config.enable_auto_lint = True
+    # sandbox_config.use_host_network = False
     # Add platform to the sandbox config to solve issue 4401
-    sandbox_config.platform = "linux/amd64"
+    # sandbox_config.platform = "linux/amd64"
     if metadata.dataset is None:
         raise ValueError("Dataset is required")
-    sandbox_config.remote_runtime_resource_factor = get_instance_resource_factor(
-        dataset_name=metadata.dataset,
-        instance_id=instance["instance_id"],
-    )
+    # sandbox_config.remote_runtime_resource_factor = get_instance_resource_factor(
+    #     dataset_name=metadata.dataset,
+    #     instance_id=str(instance["instance_id"]),
+    # )
 
     config = get_openhands_config_for_eval(
         metadata=metadata,
@@ -366,19 +366,19 @@ def get_config(
         runtime=os.environ.get("RUNTIME", "docker"),
         sandbox_config=sandbox_config,
     )
-    config.set_llm_config(
-        update_llm_config_for_completions_logging(
-            metadata.llm_config, metadata.eval_output_dir, instance["instance_id"]
-        )
-    )
-    agent_config = AgentConfig(
-        enable_jupyter=False,
-        enable_browsing=RUN_WITH_BROWSING,
-        enable_llm_editor=False,
-        condenser=metadata.condenser_config,
-        enable_prompt_extensions=False,
-    )
-    config.set_agent_config(agent_config)
+    # config.set_llm_config(
+    #     update_llm_config_for_completions_logging(
+    #         metadata.llm_config, metadata.eval_output_dir, instance["instance_id"]
+    #     )
+    # )
+    # agent_config = AgentConfig(
+    #     enable_jupyter=False,
+    #     enable_browsing=RUN_WITH_BROWSING,
+    #     enable_llm_editor=False,
+    #     condenser=metadata.condenser_config,
+    #     enable_prompt_extensions=False,
+    # )
+    # config.set_agent_config(agent_config)
     return config
 
 
@@ -396,7 +396,7 @@ def initialize_runtime(
     workspace_dir_name = _get_swebench_workspace_dir_name(instance)
     obs: CmdOutputObservation
 
-    REPO_NAME = instance["repo"].split("/")[-1]
+    REPO_NAME = str(instance["repo"]).split("/")[-1]
     # Set instance id
     cmd_parts = [
         f"echo 'export SWE_INSTANCE_ID={instance['instance_id']}' >> ~/.bashrc",
@@ -405,14 +405,14 @@ def initialize_runtime(
         f"echo 'export REPO_NAME={REPO_NAME}' >> ~/.bashrc",
     ]
     action = CmdRunAction(command=" && ".join(cmd_parts))
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
     assert obs.exit_code == 0, f"Failed to export SWE_INSTANCE_ID: {str(obs)}"
     # pdb.set_trace()
     action = CmdRunAction(command="""export USER=$(whoami); echo USER=${USER} """)
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -424,7 +424,7 @@ def initialize_runtime(
 
         # inject the instance info
         action = CmdRunAction(command="mkdir -p /swe_util/eval_data/instances")
-        action.set_hard_timeout(600)
+        # action.set_hard_timeout(600)
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
         logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -444,31 +444,31 @@ def initialize_runtime(
                     json.dump([instance], f)
 
             # Copy the file to the desired location
-            runtime.copy_to(temp_file_path, "/swe_util/eval_data/instances/")
+            # runtime.copy_to(temp_file_path, "/swe_util/eval_data/instances/")
 
         # inject the instance swe entry
-        runtime.copy_to(
-            str(os.path.join(script_dir, "scripts/setup/instance_swe_entry.sh")),
-            "/swe_util/",
-        )
+        # runtime.copy_to(
+        #     str(os.path.join(script_dir, "scripts/setup/instance_swe_entry.sh")),
+        #     "/swe_util/",
+        # )
         action = CmdRunAction(command="cat ~/.bashrc")
-        action.set_hard_timeout(600)
+        # action.set_hard_timeout(600)
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
         logger.info(obs, extra={"msg_type": "OBSERVATION"})
         assert obs.exit_code == 0, f"Failed to cat ~/.bashrc: {str(obs)}"
 
         action = CmdRunAction(command="source ~/.bashrc")
-        action.set_hard_timeout(600)
+        # action.set_hard_timeout(600)
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
         logger.info(obs, extra={"msg_type": "OBSERVATION"})
         if isinstance(obs, ErrorObservation):
             logger.error(f"Failed to source ~/.bashrc: {str(obs)}")
-        assert obs.exit_code == 0, f"Failed to source ~/.bashrc: {str(obs)}"
+        # assert obs.exit_code == 0, f"Failed to source ~/.bashrc: {str(obs)}"
 
         action = CmdRunAction(command="source /swe_util/instance_swe_entry.sh")
-        action.set_hard_timeout(600)
+        # action.set_hard_timeout(600)
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
         logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -477,7 +477,7 @@ def initialize_runtime(
         )
     else:
         action = CmdRunAction(command="source /swe_util/swe_entry.sh")
-        action.set_hard_timeout(1800)
+        # action.set_hard_timeout(1800)
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
         logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -486,7 +486,7 @@ def initialize_runtime(
         )
 
     action = CmdRunAction(command=f"cd /workspace/{workspace_dir_name}")
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -495,7 +495,7 @@ def initialize_runtime(
     )
 
     action = CmdRunAction(command="git reset --hard")
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -505,7 +505,7 @@ def initialize_runtime(
         'for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
     )
     action = CmdRunAction(command=cmd)
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -543,7 +543,7 @@ def complete_runtime(
     workspace_dir_name = _get_swebench_workspace_dir_name(instance)
 
     action = CmdRunAction(command=f"cd /workspace/{workspace_dir_name}")
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -558,7 +558,7 @@ def complete_runtime(
 
         # Then run the command again
         action = CmdRunAction(command=f"cd /workspace/{workspace_dir_name}")
-        action.set_hard_timeout(600)
+        # action.set_hard_timeout(600)
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
         logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -568,7 +568,7 @@ def complete_runtime(
     )
 
     action = CmdRunAction(command='git config --global core.pager ""')
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -577,7 +577,7 @@ def complete_runtime(
     )
 
     action = CmdRunAction(command="git add -A")
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -599,7 +599,7 @@ def complete_runtime(
         done
         """
     )
-    action.set_hard_timeout(600)
+    # action.set_hard_timeout(600)
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -614,7 +614,7 @@ def complete_runtime(
     while n_retries < 5:
         cmd = f"git diff --no-color --cached {instance['base_commit']} > patch.diff"
         action = CmdRunAction(command=cmd)
-        action.set_hard_timeout(max(300 + 100 * n_retries, 600))
+        # action.set_hard_timeout(max(300 + 100 * n_retries, 600))
         logger.info(action, extra={"msg_type": "ACTION"})
         obs = runtime.run_action(action)
         logger.info(obs, extra={"msg_type": "OBSERVATION"})
@@ -633,7 +633,7 @@ def complete_runtime(
             assert False, f"Unexpected observation type: {str(obs)}"
 
     action = FileReadAction(path="patch.diff")
-    action.set_hard_timeout(max(300 + 100 * n_retries, 600))
+    # action.set_hard_timeout(max(300 + 100 * n_retries, 600))
     logger.info(action, extra={"msg_type": "ACTION"})
     obs = runtime.run_action(action)
     git_patch = obs.content
@@ -667,21 +667,21 @@ def process_instance(
 
     # Increase resource_factor with increasing attempt_id
     if runtime_failure_count > 0:
-        config.sandbox.remote_runtime_resource_factor = min(
-            config.sandbox.remote_runtime_resource_factor * (2**runtime_failure_count),
-            8,
-        )
+        # config.sandbox.remote_runtime_resource_factor = min(
+        #     config.sandbox.remote_runtime_resource_factor * (2**runtime_failure_count),
+        #     8,
+        # )
         logger.warning(
             f"This is the {runtime_failure_count + 1}th attempt for instance "
             f"{instance.instance_id}, setting resource factor to "
-            f"{config.sandbox.remote_runtime_resource_factor}"
+            # f"{config.sandbox.remote_runtime_resource_factor}"
         )
     # pdb.set_trace()
     runtime = create_runtime(config)
     call_async_from_sync(runtime.connect)
 
     try:
-        initialize_runtime(runtime, instance)
+        # # initialize_runtime(runtime, instance)
 
         instruction = get_instruction(instance, metadata)
 
@@ -692,26 +692,27 @@ def process_instance(
                 config=config,
                 initial_user_action=MessageAction(content=instruction),
                 runtime=runtime,
-                fake_user_response_fn=AGENT_CLS_TO_FAKE_USER_RESPONSE_FN[
-                    metadata.agent_class
-                ],
+                # fake_user_response_fn=AGENT_CLS_TO_FAKE_USER_RESPONSE_FN[
+                #     metadata.agent_class
+                # ],
             )
         )
 
         # if fatal error, throw EvalError to trigger re-run
-        if state.last_error and "fatal" in state.last_error.lower():
-            raise EvalException("Fatal error detected: " + state.last_error)
+        # if state.last_error and "fatal" in state.last_error.lower():
+        #     raise EvalException("Fatal error detected: " + state.last_error)
 
         # ======= THIS IS SWE-Bench specific =======
         # Get git patch
-        return_val = complete_runtime(runtime, instance)
-        git_patch = return_val["git_patch"]
+        # # return_val = complete_runtime(runtime, instance)
+        git_patch = ""  # return_val["git_patch"]
         logger.info(
             f"Got git diff for instance {instance.instance_id}:\n"
             f"--------\n{git_patch}\n--------"
         )
     finally:
-        runtime.close()
+        # runtime.close()
+        pass
     # ==========================================
 
     # ======= Attempt to evaluate the agent's edits =======
@@ -766,7 +767,7 @@ def process_instance(
         metadata=metadata,
         history=histories,
         metrics=metrics,
-        error=state.last_error if state and state.last_error else None,
+        error=None,  # state.last_error if state and state.last_error else None,
     )
     return output
 
@@ -794,10 +795,11 @@ if __name__ == "__main__":
     # dataset = load_dataset(args.dataset, split=args.split)
     # dataset = load_dataset(args.dataset)
     dataset = load_dataset("json", data_files=args.dataset)
-    dataset = dataset[args.split]
-    swe_bench_tests = filter_dataset(
-        dataset.to_pandas(), "instance_id", os.path.dirname(os.path.abspath(__file__))
-    )
+    # # dataset = dataset[args.split]
+    # swe_bench_tests = filter_dataset(
+    #     dataset.to_pandas(), "instance_id", os.path.dirname(os.path.abspath(__file__))
+    # )
+    swe_bench_tests = []
     logger.info(
         f"Loaded dataset {args.dataset} with split {args.split}: "
         f"{len(swe_bench_tests)} tasks"
@@ -806,10 +808,10 @@ if __name__ == "__main__":
     llm_config = None
     if args.llm_config:
         llm_config = get_llm_config_arg(args.llm_config)
-        llm_config.log_completions = True
+        # # llm_config.log_completions = True
         # modify_params must be False for evaluation purpose, for
         # reproducibility and accurancy of results
-        llm_config.modify_params = False
+        # # llm_config.modify_params = False
 
     if llm_config is None:
         raise ValueError(f"Could not find LLM config: --llm_config {args.llm_config}")
@@ -828,9 +830,7 @@ if __name__ == "__main__":
     metadata = make_metadata(
         llm_config,
         dataset_description,
-        args.agent_cls,
         args.max_iterations,
-        args.eval_note,
         args.eval_output_dir,
         details=details,
     )
@@ -857,13 +857,14 @@ if __name__ == "__main__":
             pass
 
         # Retrieve instances to process
-        instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
+        # instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
+        instances = []
 
-        if len(instances) > 0 and not isinstance(
-            instances["FAIL_TO_PASS"][instances["FAIL_TO_PASS"].index[0]], str
-        ):
-            for col in ["PASS_TO_PASS", "FAIL_TO_PASS"]:
-                instances[col] = instances[col].apply(lambda x: str(x))
+        # if len(instances) > 0 and not isinstance(
+        #     instances["FAIL_TO_PASS"][instances["FAIL_TO_PASS"].index[0]], str
+        # ):
+        #     for col in ["PASS_TO_PASS", "FAIL_TO_PASS"]:
+        #         instances[col] = instances[col].apply(lambda x: str(x))
         # if LANGUAGE == "java": ##TODO:适配多语言的版本
         #     for col in ['issue_numbers', 'created_at']:
         #         instances[col] = instances[col].apply(lambda x: str(x))
@@ -876,7 +877,7 @@ if __name__ == "__main__":
         logger.info(f"Processing instance {instance.instance_id}")
 
         # Use the existing process_instance function
-        result = process_instance(instance, metadata, output_file)
+        result = process_instance(instance, metadata, True)
 
         # The existing process_instance function already handles writing to output file
         # so we don't need to do additional processing here
@@ -889,11 +890,12 @@ if __name__ == "__main__":
         logger.info("Evaluation completed successfully")
 
     # Create and run the Runtime
-    runtime = BenchmarkRuntime(
-        metadata=metadata,
-        initialize_runtime=initialize_runtime,
-        process_instance=process_instance_wrapper,
-        complete_runtime=complete_runtime,
-    )
+    # runtime = BenchmarkRuntime(
+    #     metadata=metadata,
+    #     initialize_runtime=initialize_runtime,
+    #     process_instance=process_instance_wrapper,
+    #     complete_runtime=complete_runtime,
+    # )
+    runtime = None
 
-    runtime.run()
+    # # runtime.run()

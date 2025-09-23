@@ -22,10 +22,10 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
-from openhands.tools import (
-    BashTool,
-    FileEditorTool,
-)
+# from openhands.tools import (
+#     BashTool,
+#     FileEditorTool,
+# )
 
 
 logger = get_logger(__name__)
@@ -76,20 +76,20 @@ def process_instance_simplified(
     llm = metadata.llm
 
     # Setup tools with the workspace
-    tools = [
-        BashTool.create(working_dir=workspace_path),
-        FileEditorTool.create(workspace_root=workspace_path),
-    ]
+    # tools = [
+    #     BashTool.create(working_dir=workspace_path),
+    #     FileEditorTool.create(workspace_root=workspace_path),
+    # ]
 
     # Create agent
-    agent = Agent(llm=llm, tools=tools)
+    agent = Agent(llm=llm)  # tools=tools
 
     # Create conversation with callback
     conversation = Conversation(agent=agent)
 
     # Handle multimodal content if present
     if "image_assets" in instance:
-        assets = json.loads(instance["image_assets"])
+        assets = json.loads(str(instance["image_assets"]))
         assert "problem_statement" in assets, (
             "problem_statement is required in image_assets"
         )
@@ -190,6 +190,9 @@ def run_evaluation(metadata: EvalMetadata):
     """Run evaluation on instances."""
     output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
     # Load and prepare dataset
+    assert metadata.dataset is not None, "Dataset name is required but not provided"
+    assert metadata.data_split is not None, "Data split is required but not provided"
+    assert metadata.eval_n_limit is not None, "Eval n limit is required but not provided"
     instances = get_dataset(
         metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
     )
@@ -208,6 +211,7 @@ def run_evaluation(metadata: EvalMetadata):
         logger.info(f"Processing instance {instance.instance_id}")
         # Get instruction
         workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
+        assert metadata.prompt_path is not None, "Prompt path is required but not provided"
         instruction = get_instruction(
             instance, metadata, workspace_path, metadata.prompt_path
         )
