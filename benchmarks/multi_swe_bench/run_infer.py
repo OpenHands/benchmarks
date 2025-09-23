@@ -9,13 +9,8 @@ import pandas as pd
 from datasets import load_dataset
 
 # import openhands.agenthub  # Not available in SDK
-from benchmarks.multi_swe_bench.resource.mapping import (
-    get_instance_resource_factor,
-)
-from benchmarks.utils.dataset import filter_dataset, prepare_dataset
 from benchmarks.utils.run_evaluation import make_metadata
-from benchmarks.utils.runtime import Runtime as BenchmarkRuntime
-from benchmarks.utils.shared import EvalException, EvalMetadata, EvalOutput
+from benchmarks.utils.shared import EvalMetadata, EvalOutput
 
 # from openhands.controller.state.state import State  # Not available in SDK
 # from openhands.core.config import (  # Not available in SDK
@@ -27,6 +22,7 @@ from benchmarks.utils.shared import EvalException, EvalMetadata, EvalOutput
 # )
 from openhands.sdk import get_logger
 
+
 # from openhands.core.main import create_runtime, run_controller  # Not available in SDK
 # from openhands.events.action import CmdRunAction, FileReadAction, MessageAction  # N/A
 # from openhands.events.observation import CmdOutputObservation, ErrorObservation  # N/A
@@ -35,9 +31,9 @@ from openhands.sdk import get_logger
 # from openhands.utils.async_utils import call_async_from_sync  # Not available in SDK
 # from openhands.utils.shutdown_listener import sleep_if_should_continue  # N/A
 # SDK equivalents
-from openhands.tools import (
-    ExecuteBashObservation,
-)
+# from openhands.tools import (
+#     ExecuteBashObservation,
+# )
 
 
 logger = get_logger(__name__)
@@ -110,8 +106,11 @@ class Runtime:
 
     def run_action(self, action):
         # Simplified implementation - just return a success observation
-        return ExecuteBashObservation(
-            content="Command executed successfully", exit_code=0, command_id=-1
+        # return ExecuteBashObservation(
+        #     content="Command executed successfully", exit_code=0, command_id=-1
+        # )
+        return CmdOutputObservation(
+            content="Command executed successfully", exit_code=0
         )
 
 
@@ -420,7 +419,7 @@ def initialize_runtime(
 
     if USE_INSTANCE_IMAGE:
         # inject the init script
-        script_dir = os.path.dirname(__file__)
+        # # script_dir = os.path.dirname(__file__)
 
         # inject the instance info
         action = CmdRunAction(command="mkdir -p /swe_util/eval_data/instances")
@@ -668,7 +667,9 @@ def process_instance(
     # Increase resource_factor with increasing attempt_id
     if runtime_failure_count > 0:
         # config.sandbox.remote_runtime_resource_factor = min(
-        #     config.sandbox.remote_runtime_resource_factor * (2**runtime_failure_count),
+        #     config.sandbox.remote_runtime_resource_factor * (
+        #         2**runtime_failure_count
+        #     ),
         #     8,
         # )
         logger.warning(
@@ -827,8 +828,13 @@ if __name__ == "__main__":
             args.dataset.replace("/", "__") + "-" + args.split.replace("/", "__")
         )
 
+    # Create LLM object from config dict
+    from openhands.sdk import LLM
+
+    llm = LLM(model=llm_config.get("model", "gpt-4"))
+
     metadata = make_metadata(
-        llm_config,
+        llm,
         dataset_description,
         args.max_iterations,
         args.eval_output_dir,
@@ -841,7 +847,7 @@ if __name__ == "__main__":
     output_file = None
     results = []
 
-    def initialize_runtime():
+    def initialize_runtime_local():
         """Initialize the runtime and retrieve instances to process."""
         global instances, output_file
         output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
@@ -883,7 +889,7 @@ if __name__ == "__main__":
         # so we don't need to do additional processing here
         return result
 
-    def complete_runtime():
+    def complete_runtime_local():
         """Complete the runtime - any cleanup if needed."""
         logger.info("Runtime completed successfully!")
         # Check if any instances reached maximum retries
