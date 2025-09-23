@@ -139,6 +139,7 @@ def main():
         logger.info(f"Git patch length: {git_patch_len}")
 
         # Write to output file
+        assert output_file is not None
         output_dir = os.path.dirname(output_file)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
