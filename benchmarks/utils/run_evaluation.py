@@ -22,6 +22,8 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
+
+
 # from openhands.tools import (
 #     BashTool,
 #     FileEditorTool,
@@ -192,7 +194,9 @@ def run_evaluation(metadata: EvalMetadata):
     # Load and prepare dataset
     assert metadata.dataset is not None, "Dataset name is required but not provided"
     assert metadata.data_split is not None, "Data split is required but not provided"
-    assert metadata.eval_n_limit is not None, "Eval n limit is required but not provided"
+    assert metadata.eval_n_limit is not None, (
+        "Eval n limit is required but not provided"
+    )
     instances = get_dataset(
         metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
     )
@@ -211,7 +215,9 @@ def run_evaluation(metadata: EvalMetadata):
         logger.info(f"Processing instance {instance.instance_id}")
         # Get instruction
         workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
-        assert metadata.prompt_path is not None, "Prompt path is required but not provided"
+        assert metadata.prompt_path is not None, (
+            "Prompt path is required but not provided"
+        )
         instruction = get_instruction(
             instance, metadata, workspace_path, metadata.prompt_path
         )
