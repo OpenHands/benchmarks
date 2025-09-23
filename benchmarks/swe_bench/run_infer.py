@@ -102,7 +102,10 @@ def main():
 
         # Retrieve instances to process
         instances = get_dataset(
-            metadata.dataset or "", metadata.data_split or "", output_file, metadata.eval_n_limit or 0
+            metadata.dataset or "",
+            metadata.data_split or "",
+            output_file,
+            metadata.eval_n_limit or 0,
         )
         print(f"### OUTPUT FILE: {output_file} ###")
         return instances
