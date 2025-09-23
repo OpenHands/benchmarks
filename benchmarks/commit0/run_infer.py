@@ -101,12 +101,9 @@ def main():
             pass
 
         # Retrieve instances to process
-        if metadata.dataset is None:
-            raise ValueError("Dataset name is required but not provided")
-        if metadata.data_split is None:
-            raise ValueError("Data split is required but not provided")
-        if metadata.eval_n_limit is None:
-            raise ValueError("Eval n limit is required but not provided")
+        assert metadata.dataset is not None, "Dataset name is required but not provided"
+        assert metadata.data_split is not None, "Data split is required but not provided"
+        assert metadata.eval_n_limit is not None, "Eval n limit is required but not provided"
 
         instances = get_dataset(
             metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
@@ -121,8 +118,7 @@ def main():
 
         # Get instruction
         workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
-        if metadata.prompt_path is None:
-            raise ValueError("Prompt path is required but not provided")
+        assert metadata.prompt_path is not None, "Prompt path is required but not provided"
         instruction = get_instruction(
             instance, metadata, workspace_path, metadata.prompt_path
         )
@@ -138,8 +134,7 @@ def main():
         logger.info(f"Result dict keys: {list(result_dict.keys())}")
 
         # Write to output file
-        if output_file is None:
-            raise ValueError("Output file is not initialized")
+        assert output_file is not None, "Output file is not initialized"
         output_dir = os.path.dirname(output_file)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
