@@ -210,6 +210,7 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
                 agent=agent,
                 host=server_url,
                 visualize=False,
+                stuck_detection=False,  # Disable stuck detection to avoid FileNotFoundError in remote runtime
             )
             
             from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
