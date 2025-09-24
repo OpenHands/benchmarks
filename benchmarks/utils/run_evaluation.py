@@ -78,16 +78,9 @@ def process_instance_simplified(
         workspace_path, instance.instance_id, metadata.env_setup_commands
     )
 
-    # Copy repository to agent-sdk's expected workspace location using unique temp directory
-    import shutil
-    import uuid
-    agent_workspace = tempfile.mkdtemp(prefix="agent_workspace_")
-    repo_name = instance.repo.split("/")[-1]  # Extract repo name from "owner/repo"
-    agent_repo_path = os.path.join(agent_workspace, repo_name)
-    
-    # Copy the repository content to agent workspace
-    shutil.copytree(workspace_path, agent_repo_path)
-    logger.info(f"Copied repository from {workspace_path} to {agent_repo_path}")
+    # Use the original workspace directly - no need to copy
+    agent_repo_path = workspace_path
+    logger.info(f"Using workspace directly at {agent_repo_path}")
 
     # Update instruction to include workspace information
     workspace_info = f"\n\nIMPORTANT: The repository is located at {agent_repo_path}. Use this path when working with files and running commands."
@@ -95,9 +88,9 @@ def process_instance_simplified(
 
     llm = metadata.llm
 
-    # Setup tools - pass the agent workspace path to command tool
+    # Setup tools - pass the workspace path to command tool
     register_tool("FileEditorTool", FileEditorTool)
-    register_tool("CommandTool", lambda: create_command_tool(agent_repo_path))
+    register_tool("CommandTool", lambda: create_command_tool(workspace_path))
     
     tools = [
         ToolSpec(name="FileEditorTool"),
@@ -135,16 +128,8 @@ def process_instance_simplified(
 
     logger.info(f"Conversation completed with {len(history)} events")
 
-    # Copy changes back from agent workspace to original workspace
-    if os.path.exists(agent_repo_path):
-        # Remove original workspace content and copy back from agent workspace
-        shutil.rmtree(workspace_path)
-        shutil.copytree(agent_repo_path, workspace_path)
-        logger.info(f"Copied changes back from {agent_repo_path} to {workspace_path}")
-        
-        # Clean up entire agent workspace (including parent temp directory)
-        shutil.rmtree(agent_workspace)
-        logger.info(f"Cleaned up agent workspace {agent_workspace}")
+    # No need to copy changes back since we're using the original workspace directly
+    logger.info(f"Agent worked directly in workspace {agent_repo_path} - no cleanup needed")
 
     # Get git patch
     git_patch = get_git_patch(workspace_path)
