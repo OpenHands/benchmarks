@@ -7,7 +7,7 @@ import tempfile
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.utils.dataset import get_dataset
+
 from benchmarks.utils.git_tools import (
     get_git_patch,
     initialize_workspace,
@@ -64,12 +64,8 @@ def get_instruction(
     return instruction
 
 
-def process_instance_simplified(
-    instance: pd.Series, instruction: str, metadata: EvalMetadata
-) -> EvalOutput:
-    """Process a single instance using the simplified SDK approach."""
-    logger.info(f"Starting evaluation for instance {instance.instance_id}")
-
+def create_workspace_for_instance(instance: pd.Series, metadata: EvalMetadata) -> str:
+    """Create workspace for an instance and return the path."""
     temp_workspace = tempfile.mkdtemp()
     workspace_path = setup_workspace(
         instance.repo, instance.base_commit, temp_workspace
@@ -77,6 +73,19 @@ def process_instance_simplified(
     initialize_workspace(
         workspace_path, instance.instance_id, metadata.env_setup_commands
     )
+    return workspace_path
+
+
+def process_instance_simplified(
+    instance: pd.Series, instruction: str, metadata: EvalMetadata, workspace_path: str = None
+) -> EvalOutput:
+    """Process a single instance using the simplified SDK approach."""
+    logger.info(f"Starting evaluation for instance {instance.instance_id}")
+
+    if workspace_path is None:
+        workspace_path = create_workspace_for_instance(instance, metadata)
+    
+    temp_workspace = os.path.dirname(workspace_path)
 
     # Use the original workspace directly - no need to copy
     agent_repo_path = workspace_path
@@ -203,62 +212,3 @@ def construct_eval_output_dir(base_dir, dataset_name, model, max_iterations, eva
     os.makedirs(eval_output_dir, exist_ok=True)
 
     return eval_output_dir
-
-
-def run_evaluation(metadata: EvalMetadata):
-    """Run evaluation on instances."""
-    output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
-    # Load and prepare dataset
-    assert metadata.dataset is not None, "Dataset name is required but not provided"
-    assert metadata.data_split is not None, "Data split is required but not provided"
-    assert metadata.eval_n_limit is not None, (
-        "Eval n limit is required but not provided"
-    )
-    instances = get_dataset(
-        metadata.dataset, metadata.data_split, output_file, metadata.eval_n_limit
-    )
-    print(f"### OUTPUT FILE: {output_file} ###")
-
-    output_dir = os.path.dirname(output_file)
-    if output_dir:  # Only create directory if dirname is not empty
-        os.makedirs(output_dir, exist_ok=True)
-
-    # Create empty output file
-    with open(output_file, "w") as f:
-        pass
-
-    results = []
-    for idx, instance in instances.iterrows():
-        logger.info(f"Processing instance {instance.instance_id}")
-        # Get instruction
-        workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
-        assert metadata.prompt_path is not None, (
-            "Prompt path is required but not provided"
-        )
-        instruction = get_instruction(
-            instance, metadata, workspace_path, metadata.prompt_path
-        )
-        result = process_instance_simplified(instance, instruction, metadata)
-
-        # Save result using the complete format
-        result_dict = result.model_dump(mode="json")
-        if result.error:
-            result_dict["error"] = result.error
-        results.append(result_dict)
-
-        logger.info(f"Writing result for {instance.instance_id} to {output_file}")
-        logger.info(f"Result dict keys: {list(result_dict.keys())}")
-        git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
-        logger.info(f"Git patch length: {git_patch_len}")
-
-        # Write to output file
-        output_dir = os.path.dirname(output_file)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        with open(output_file, "a") as f:
-            json_line = json.dumps(result_dict) + "\n"
-            f.write(json_line)
-            f.flush()  # Ensure it's written immediately
-            logger.info(
-                f"Successfully wrote {len(json_line)} characters to output file"
-            )
