@@ -9,6 +9,7 @@ from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.run_evaluation import (
     construct_eval_output_dir,
+    create_workspace_for_instance,
     get_instruction,
     make_metadata,
     process_instance_simplified,
@@ -126,14 +127,16 @@ def main():
         global results, output_file
         logger.info(f"Processing rebench instance {instance.instance_id}")
 
-        # Get instruction
-        workspace_path = os.path.join("/workspace", instance.repo.split("/")[-1])
+        # Create workspace and get actual path
+
+
+        workspace_path = create_workspace_for_instance(instance, metadata)
         if metadata.prompt_path is None:
             raise ValueError("Prompt path is required")
         instruction = get_instruction(
             instance, metadata, workspace_path, metadata.prompt_path
         )
-        result = process_instance_simplified(instance, instruction, metadata)
+        result = process_instance_simplified(instance, instruction, metadata, workspace_path)
 
         # Save result using the complete format
         result_dict = result.model_dump(mode="json")
