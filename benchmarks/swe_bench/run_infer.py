@@ -102,6 +102,7 @@ def run_local_mode(args, llm, metadata):
         initialize_runtime=initialize_runtime,
         process_instance=process_instance,
         complete_runtime=complete_runtime,
+        num_workers=args.eval_num_workers,
     )
 
     runtime.run()
@@ -168,7 +169,7 @@ def main():
     runtime_mode = os.getenv("RUNTIME", "local").lower()
     
     if runtime_mode == "remote":
-        run_remote_evaluation(llm, metadata)
+        run_remote_evaluation(llm, metadata, args.eval_num_workers)
     else:
         run_local_mode(args, llm, metadata)
 
