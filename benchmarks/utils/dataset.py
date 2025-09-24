@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
+import os
 import pandas as pd
+import toml
 from datasets import Dataset, load_dataset
 
 from openhands.sdk import get_logger
@@ -11,9 +14,67 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
-    """Filter dataset based on environment variables."""
-    # This is a simplified version - you may need to add more filtering logic
+def filter_dataset(dataset: pd.DataFrame, filter_column: str, config_path: str = None) -> pd.DataFrame:
+    """Filter dataset based on config.toml selected_ids and environment variables."""
+    
+    # If config_path is not provided, try to determine it from the calling context
+    if config_path is None:
+        frame = inspect.currentframe()
+        try:
+            # Go up the call stack to find the benchmark directory
+            caller_frame = frame.f_back
+            while caller_frame:
+                caller_file = caller_frame.f_code.co_filename
+                
+                # Look for benchmark directory in the path
+                if '/benchmarks/' in caller_file and (
+                    'run_infer.py' in caller_file or 
+                    'test_config_filtering.py' in caller_file or
+                    'test_auto_detection.py' in caller_file or
+                    caller_file.endswith('.py')
+                ):
+                    # Extract benchmark directory from path
+                    # e.g., /path/to/benchmarks/swe_bench/run_infer.py -> swe_bench
+                    path_parts = caller_file.split('/')
+                    benchmarks_idx = path_parts.index('benchmarks')
+                    if benchmarks_idx + 1 < len(path_parts):
+                        benchmark_dir = path_parts[benchmarks_idx + 1]
+                        config_path = os.path.join(
+                            os.path.dirname(caller_file), 'config.toml'
+                        )
+                        break
+                caller_frame = caller_frame.f_back
+        finally:
+            del frame
+    
+    # Try to read config.toml if we found a path
+    if config_path and os.path.exists(config_path):
+        try:
+            config = toml.load(config_path)
+            selected_ids = config.get('selected_ids', [])
+            
+            if selected_ids:
+                logger.info(f"Filtering dataset by {len(selected_ids)} selected_ids from {config_path}")
+                # Filter by selected instance IDs first
+                if filter_column in dataset.columns:
+                    original_size = len(dataset)
+                    dataset = dataset[dataset[filter_column].isin(selected_ids)]
+                    logger.info(f"Dataset filtered from {original_size} to {len(dataset)} instances matching selected_ids")
+                else:
+                    logger.warning(f"Filter column '{filter_column}' not found in dataset")
+            else:
+                logger.info(f"No selected_ids found in {config_path}, using full dataset")
+                
+        except Exception as e:
+            logger.warning(f"Failed to read config.toml from {config_path}: {e}")
+    elif config_path:
+        logger.info(f"No config.toml found at {config_path}, using full dataset")
+    else:
+        logger.info("No config.toml path determined, using full dataset")
+    
+    # Apply any additional environment variable based filtering here
+    # (placeholder for future enhancements)
+    
     return dataset
 
 

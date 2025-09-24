@@ -1,0 +1,10 @@
+# Configuration file for benchmark
+# 
+# selected_ids: List of specific instance IDs to evaluate
+# If empty or commented out, all instances will be used (subject to eval_n_limit)
+# 
+# Example:
+# selected_ids = ["django__django-11239", "sympy__sympy-21596", "sphinx-doc__sphinx-9229"]
+
+# Uncomment and modify the line below to filter by specific instance IDs
+# selected_ids = []
