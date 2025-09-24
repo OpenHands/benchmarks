@@ -75,7 +75,7 @@ class Runtime:
             try:
                 from benchmarks.utils.agent_server import ManagedAPIServer
                 agent_server = ManagedAPIServer(port=server_port)
-                agent_server.start()
+                agent_server.__enter__()  # Start the server using context manager protocol
                 logger.info(f"Worker {worker_id} started agent server on port {server_port}")
             except Exception as e:
                 logger.error(f"Worker {worker_id} failed to start agent server: {e}")
@@ -107,7 +107,7 @@ class Runtime:
             # Cleanup: Stop agent server for this worker
             if agent_server:
                 try:
-                    agent_server.stop()
+                    agent_server.__exit__(None, None, None)  # Stop the server using context manager protocol
                     logger.info(f"Worker {worker_id} stopped agent server")
                 except Exception as e:
                     logger.error(f"Worker {worker_id} error stopping agent server: {e}")
