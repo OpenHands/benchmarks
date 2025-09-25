@@ -1,1 +1,0 @@
-{"kind": "ObservationEvent", "id": "ea706b4a-ceab-432a-9732-74ab117ba35a", "timestamp": "2025-09-25T11:23:45.162476", "source": "environment", "tool_name": "think", "tool_call_id": "toolu_01CWcuP2Abz2GjY9RnyaUTEo", "observation": {"kind": "ThinkObservation", "content": "Your thought has been logged."}, "action_id": "95f1586a-c274-41a8-b45b-e0de095dd7c2"}
