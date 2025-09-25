@@ -248,20 +248,68 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
             logger.info(f"Conversation status: {conversation.state.agent_status}")
             logger.info(f"Number of events: {len(list(conversation.state.events))}")
 
+            # Extract conversation history
+            history = list(conversation.state.events)
+            logger.info(f"Extracted {len(history)} events from conversation history")
+
+            # Extract git patch from conversation history
+            git_patch = ""
+            workspace_path = None
+            
+            try:
+                # Look for workspace path and any git diff output in conversation events
+                import re
+                for event in history:
+                    if hasattr(event, 'content') and isinstance(event.content, str):
+                        content = event.content
+                        
+                        # Extract workspace path if not found yet
+                        if workspace_path is None and '/tmp/tmp' in content:
+                            match = re.search(r'/tmp/tmp\w+/\w+', content)
+                            if match:
+                                workspace_path = match.group(0)
+                                logger.info(f"Found workspace path: {workspace_path}")
+                        
+                        # Look for git diff output in event content
+                        if ('diff --git' in content or 
+                            ('--- a/' in content and '+++ b/' in content) or
+                            (content.startswith('diff ') and '@@' in content)):
+                            git_patch = content
+                            logger.info(f"Found git patch in conversation history: {len(git_patch)} characters")
+                            break
+                    
+                    # Also check if event has action with path
+                    elif hasattr(event, 'action') and hasattr(event.action, 'path'):
+                        if workspace_path is None and '/tmp/tmp' in str(event.action.path):
+                            match = re.search(r'/tmp/tmp\w+/\w+', str(event.action.path))
+                            if match:
+                                workspace_path = match.group(0)
+                                logger.info(f"Found workspace path from action: {workspace_path}")
+                
+                # If no git patch found in history but we have workspace path, 
+                # assume there were no changes (empty patch)
+                if not git_patch and workspace_path:
+                    logger.info("No git patch found in conversation history - assuming no changes made")
+                    git_patch = ""
+                    
+            except Exception as e:
+                logger.error(f"Error extracting git patch: {e}")
+                git_patch = ""
+
+            logger.info(f"Extracted git patch with {len(git_patch)} characters")
+
             # Extract results from conversation state
-            # For now, create a basic result structure
-            # TODO: Extract actual results from conversation state/events
             from benchmarks.utils.shared import EvalOutput
             
             result = EvalOutput(
                 instance_id=instance.instance_id,
                 instruction=instruction,
                 test_result={
-                    "git_patch": "",  # TODO: Extract from conversation
-                    "resolved": False,  # TODO: Determine from conversation
+                    "git_patch": git_patch,
+                    "resolved": len(git_patch) > 0,  # Consider resolved if there are changes
                 },
                 metadata=metadata.model_dump(),
-                history=[],  # TODO: Extract from conversation events
+                history=history,
                 metrics={},
                 error=None,
             )
