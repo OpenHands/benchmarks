@@ -216,9 +216,37 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
             from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
             assert isinstance(conversation, RemoteConversation)
 
-            # Send message and run
+            # Send message and run with event streaming
+            logger.info(f"Sending instruction to conversation: {instruction[:100]}...")
             conversation.send_message(instruction)
-            conversation.run()
+            
+            # Add callback to log events as they happen
+            def log_event(event):
+                event_type = type(event).__name__
+                event_content = getattr(event, 'message', getattr(event, 'content', getattr(event, 'action', str(event))))
+                logger.info(f"Event: {event_type} - {str(event_content)[:100]}")
+            
+            # Start WebSocket client for event streaming
+            from openhands.sdk.conversation.impl.remote_conversation import WebSocketCallbackClient
+            # Extract port from the conversation's client base URL
+            base_url = str(conversation._client.base_url)
+            ws_client = WebSocketCallbackClient(
+                host=base_url,
+                conversation_id=str(conversation._id),
+                callbacks=[log_event]
+            )
+            ws_client.start()
+            
+            logger.info("Starting conversation.run()...")
+            try:
+                conversation.run()
+                logger.info("Conversation.run() completed")
+            finally:
+                ws_client.stop()
+            
+            # Check conversation state
+            logger.info(f"Conversation status: {conversation.state.agent_status}")
+            logger.info(f"Number of events: {len(list(conversation.state.events))}")
 
             # Extract results from conversation state
             # For now, create a basic result structure
