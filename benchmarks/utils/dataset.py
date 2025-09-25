@@ -77,16 +77,25 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str, config_path: str =
 
 
 def prepare_dataset(
-    dataset: pd.DataFrame, output_file: str, n_limit: int
+    dataset: pd.DataFrame, output_file: str, n_limit: int, completed_instances: set = None
 ) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
+    
+    # Filter out completed instances
+    if completed_instances:
+        original_size = len(dataset)
+        dataset = dataset[~dataset['instance_id'].isin(completed_instances)]
+        logger.info(f"Filtered out {original_size - len(dataset)} completed instances, {len(dataset)} remaining")
+    
+    # Apply limit after filtering completed instances
     if n_limit > 0:
         dataset = dataset.head(n_limit)
+        
     return dataset
 
 
 def get_dataset(
-    dataset_name: str, split: str, output_file: str, eval_n_limit: int
+    dataset_name: str, split: str, output_file: str, eval_n_limit: int, completed_instances: set = None
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Load dataset
@@ -102,6 +111,6 @@ def get_dataset(
         f"{len(swe_bench_tests)} tasks"
     )
 
-    # Prepare dataset (apply n_limit if specified)
-    instances = prepare_dataset(swe_bench_tests, output_file, eval_n_limit)
+    # Prepare dataset (apply n_limit if specified and filter completed)
+    instances = prepare_dataset(swe_bench_tests, output_file, eval_n_limit, completed_instances)
     return instances
