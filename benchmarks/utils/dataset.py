@@ -26,23 +26,21 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str, config_path: str =
             while caller_frame:
                 caller_file = caller_frame.f_code.co_filename
                 
-                # Look for benchmark directory in the path
-                if '/benchmarks/' in caller_file and (
-                    'run_infer.py' in caller_file or 
-                    'test_config_filtering.py' in caller_file or
-                    'test_auto_detection.py' in caller_file or
-                    caller_file.endswith('.py')
-                ):
+                # Look for benchmark directory in the path - prioritize run_infer.py
+                if '/benchmarks/' in caller_file and 'run_infer.py' in caller_file:
                     # Extract benchmark directory from path
                     # e.g., /path/to/benchmarks/swe_bench/run_infer.py -> swe_bench
                     path_parts = caller_file.split('/')
-                    benchmarks_idx = path_parts.index('benchmarks')
-                    if benchmarks_idx + 1 < len(path_parts):
-                        benchmark_dir = path_parts[benchmarks_idx + 1]
-                        config_path = os.path.join(
-                            os.path.dirname(caller_file), 'config.toml'
-                        )
-                        break
+                    try:
+                        benchmarks_idx = path_parts.index('benchmarks')
+                        if benchmarks_idx + 1 < len(path_parts):
+                            benchmark_dir = path_parts[benchmarks_idx + 1]
+                            config_path = os.path.join(
+                                os.path.dirname(caller_file), 'config.toml'
+                            )
+                            break
+                    except ValueError:
+                        pass  # 'benchmarks' not found in path
                 caller_frame = caller_frame.f_back
         finally:
             del frame
