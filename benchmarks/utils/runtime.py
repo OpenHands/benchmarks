@@ -54,6 +54,25 @@ class Runtime:
         self.instance_queue = queue.Queue()
         self.workers = []
         self.is_remote_mode = os.getenv("RUNTIME", "local").lower() == "remote"
+        
+        # Progress tracking
+        self.total_instances = 0
+        self.completed_count = 0
+        self.progress_lock = threading.Lock()
+
+    def _print_progress_bar(self) -> None:
+        """Print a progress bar showing completion status."""
+        if self.total_instances == 0:
+            return
+        
+        percentage = (self.completed_count / self.total_instances) * 100
+        bar_length = 50
+        filled_length = int(bar_length * self.completed_count // self.total_instances)
+        
+        bar = '█' * filled_length + '▌' * (1 if filled_length < bar_length and self.completed_count < self.total_instances else 0)
+        bar = bar.ljust(bar_length)
+        
+        print(f"\rProgress: {percentage:.1f}%|{bar}| {self.completed_count}/{self.total_instances}", end='', flush=True)
 
     def _worker_loop(self, worker_id: int, server_port: int = None) -> None:
         """
@@ -98,6 +117,11 @@ class Runtime:
                     finally:
                         # Mark task as done
                         self.instance_queue.task_done()
+                        
+                        # Update progress
+                        with self.progress_lock:
+                            self.completed_count += 1
+                            self._print_progress_bar()
                         
                 except queue.Empty:
                     # No more instances to process
@@ -166,6 +190,10 @@ class Runtime:
             logger.info("Initializing runtime and retrieving instances")
             instances = self.initialize_runtime()
             logger.info(f"Retrieved {len(instances)} instances to process")
+            
+            # Initialize progress tracking
+            self.total_instances = len(instances)
+            self.completed_count = 0
 
             if self.num_workers == 1:
                 # Single worker mode - use original sequential processing
@@ -186,6 +214,10 @@ class Runtime:
                         )
                         # Continue with next instance rather than failing completely
                         continue
+                    finally:
+                        # Update progress
+                        self.completed_count += 1
+                        self._print_progress_bar()
             else:
                 # Multi-worker mode - use parallel processing
                 logger.info(f"Using parallel processing with {self.num_workers} workers")
@@ -210,6 +242,8 @@ class Runtime:
 
         finally:
             # Always complete the runtime, even if there were errors
+            if self.total_instances > 0:
+                print()  # Add newline after progress bar
             logger.info("Completing runtime")
             try:
                 self.complete_runtime()
