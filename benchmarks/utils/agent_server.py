@@ -4,6 +4,7 @@ Agent server utilities for remote runtime execution.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -25,6 +26,26 @@ from openhands.sdk.preset.default import get_default_agent
 
 
 logger = get_logger(__name__)
+
+
+def read_completed_instances(output_file: str) -> set:
+    """Read completed instance IDs from existing output file."""
+    completed_instances = set()
+    if os.path.exists(output_file):
+        try:
+            with open(output_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            result = json.loads(line)
+                            if "instance_id" in result:
+                                completed_instances.add(result["instance_id"])
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            logger.warning(f"Error reading existing results from {output_file}: {e}")
+    return completed_instances
 
 
 def _stream_output(stream, prefix, target_stream):
@@ -174,16 +195,24 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-        # Create empty output file
-        with open(output_file, "w"):
-            pass
+        # Read existing completed instances instead of overwriting
+        completed_instances = read_completed_instances(output_file)
+        if completed_instances:
+            logger.info(f"Found {len(completed_instances)} already completed instances")
+        else:
+            logger.info("No existing results found, starting fresh")
+            # Create empty output file only if it doesn't exist
+            if not os.path.exists(output_file):
+                with open(output_file, "w"):
+                    pass
 
-        # Retrieve instances to process
+        # Retrieve instances to process, excluding completed ones
         instances = get_dataset(
             metadata.dataset or "",
             metadata.data_split or "",
             output_file,
             metadata.eval_n_limit or 0,
+            completed_instances,
         )
         print(f"### OUTPUT FILE: {output_file} ###")
         return instances
