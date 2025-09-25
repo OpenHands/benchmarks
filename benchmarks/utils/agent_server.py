@@ -249,8 +249,47 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
             logger.info(f"Number of events: {len(list(conversation.state.events))}")
 
             # Extract conversation history
-            history = list(conversation.state.events)
-            logger.info(f"Extracted {len(history)} events from conversation history")
+            logger.info(f"DEBUG: Conversation type: {type(conversation)}")
+            logger.info(f"DEBUG: Conversation state type: {type(conversation.state)}")
+            logger.info(f"DEBUG: Has events attribute: {hasattr(conversation.state, 'events')}")
+            
+            try:
+                # For remote conversations, try to force a sync first
+                if hasattr(conversation.state, 'events') and hasattr(conversation.state.events, '_do_full_sync'):
+                    logger.info("DEBUG: Forcing full sync for remote events...")
+                    conversation.state.events._do_full_sync()
+                
+                history = list(conversation.state.events)
+                logger.info(f"Extracted {len(history)} events from conversation history")
+                
+                # Log some details about the events
+                if history:
+                    logger.info(f"DEBUG: First event type: {type(history[0])}")
+                    logger.info(f"DEBUG: Last event type: {type(history[-1])}")
+                else:
+                    logger.warning("DEBUG: No events found in conversation.state.events")
+                    
+            except Exception as e:
+                logger.error(f"Error extracting conversation history: {e}")
+                logger.info(f"DEBUG: Trying alternative history extraction methods...")
+                
+                # Try alternative methods to get conversation history
+                history = []
+                if hasattr(conversation, '_events'):
+                    history = list(conversation._events)
+                    logger.info(f"Found {len(history)} events in conversation._events")
+                elif hasattr(conversation, 'events'):
+                    history = list(conversation.events)
+                    logger.info(f"Found {len(history)} events in conversation.events")
+                elif hasattr(conversation.state, '_events'):
+                    history = list(conversation.state._events)
+                    logger.info(f"Found {len(history)} events in conversation.state._events")
+                else:
+                    logger.error("No events found in conversation object")
+                    # Try to inspect the conversation object
+                    logger.info(f"DEBUG: Conversation attributes: {dir(conversation)}")
+                    logger.info(f"DEBUG: Conversation state attributes: {dir(conversation.state)}")
+                    history = []
 
             # Extract git patch from conversation history
             git_patch = ""
@@ -259,27 +298,49 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
             try:
                 # Look for workspace path and any git diff output in conversation events
                 import re
-                for event in history:
-                    if hasattr(event, 'content') and isinstance(event.content, str):
-                        content = event.content
-                        
-                        # Extract workspace path if not found yet
-                        if workspace_path is None and '/tmp/tmp' in content:
-                            match = re.search(r'/tmp/tmp\w+/\w+', content)
-                            if match:
-                                workspace_path = match.group(0)
-                                logger.info(f"Found workspace path: {workspace_path}")
-                        
-                        # Look for git diff output in event content
-                        if ('diff --git' in content or 
-                            ('--- a/' in content and '+++ b/' in content) or
-                            (content.startswith('diff ') and '@@' in content)):
-                            git_patch = content
-                            logger.info(f"Found git patch in conversation history: {len(git_patch)} characters")
-                            break
+                logger.info(f"DEBUG: Analyzing {len(history)} events for git patches...")
+                
+                for i, event in enumerate(history):
+                    event_type = type(event).__name__
+                    logger.info(f"DEBUG: Event {i}: {event_type}")
+                    
+                    # Check different event attributes for content
+                    content_sources = []
+                    if hasattr(event, 'content'):
+                        content_sources.append(('content', event.content))
+                    if hasattr(event, 'observation'):
+                        content_sources.append(('observation', event.observation))
+                    if hasattr(event, 'action') and hasattr(event.action, 'content'):
+                        content_sources.append(('action.content', event.action.content))
+                    if hasattr(event, 'action') and hasattr(event.action, 'command'):
+                        content_sources.append(('action.command', event.action.command))
+                    
+                    for source_name, content in content_sources:
+                        if isinstance(content, str) and content:
+                            logger.info(f"DEBUG: Event {i} {source_name} length: {len(content)}")
+                            
+                            # Extract workspace path if not found yet
+                            if workspace_path is None and '/tmp/tmp' in content:
+                                match = re.search(r'/tmp/tmp\w+/\w+', content)
+                                if match:
+                                    workspace_path = match.group(0)
+                                    logger.info(f"Found workspace path: {workspace_path}")
+                            
+                            # Look for git diff output in event content
+                            if ('diff --git' in content or 
+                                ('--- a/' in content and '+++ b/' in content) or
+                                (content.startswith('diff ') and '@@' in content)):
+                                git_patch = content
+                                logger.info(f"Found git patch in {source_name}: {len(git_patch)} characters")
+                                logger.info(f"Git patch preview: {git_patch[:200]}...")
+                                break
+                            
+                            # Also look for git commands that might produce diffs
+                            if 'git diff' in content.lower():
+                                logger.info(f"Found 'git diff' command in {source_name}: {content[:100]}...")
                     
                     # Also check if event has action with path
-                    elif hasattr(event, 'action') and hasattr(event.action, 'path'):
+                    if hasattr(event, 'action') and hasattr(event.action, 'path'):
                         if workspace_path is None and '/tmp/tmp' in str(event.action.path):
                             match = re.search(r'/tmp/tmp\w+/\w+', str(event.action.path))
                             if match:
@@ -299,7 +360,10 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
             logger.info(f"Extracted git patch with {len(git_patch)} characters")
 
             # Extract results from conversation state
+            logger.info("Starting result extraction from conversation state")
             from benchmarks.utils.shared import EvalOutput
+            
+            logger.info(f"Creating EvalOutput with: instance_id={instance.instance_id}, history_events={len(history)}, git_patch_length={len(git_patch)}")
             
             result = EvalOutput(
                 instance_id=instance.instance_id,
@@ -319,6 +383,8 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
 
             logger.info(f"Writing result for {instance.instance_id} to {output_file}")
             logger.info(f"Result dict keys: {list(result_dict.keys())}")
+            logger.info(f"Result dict git_patch length: {len(result_dict.get('test_result', {}).get('git_patch', ''))}")
+            logger.info(f"Result dict history length: {len(result_dict.get('history', []))}")
 
             # Write to output file (thread-safe)
             import json
@@ -335,6 +401,9 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
                     logger.info(
                         f"Successfully wrote {len(json_line)} characters to output file"
                     )
+
+            logger.info(f"Completed processing instance {instance.instance_id}")
+            return result
 
         except Exception as e:
             logger.error(f"Error processing instance {instance.instance_id}: {e}")

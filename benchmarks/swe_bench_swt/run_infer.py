@@ -23,6 +23,25 @@ from openhands.sdk import (
 
 logger = get_logger(__name__)
 
+def read_completed_instances(output_file: str) -> set:
+    """Read completed instance IDs from existing output file."""
+    completed = set()
+    if not os.path.exists(output_file):
+        return completed
+        
+    try:
+        with open(output_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    result = json.loads(line)
+                    if 'instance_id' in result:
+                        completed.add(result['instance_id'])
+    except Exception as e:
+        logger.warning(f"Error reading existing output file {output_file}: {e}")
+    return completed
+
+
 
 def main():
     default_prompt_path = os.path.join(
@@ -104,11 +123,17 @@ def main():
         output_dir = os.path.dirname(output_file)
         if output_dir:  # Only create directory if dirname is not empty
             os.makedirs(output_dir, exist_ok=True)
-
-        # Create empty output file
-        with open(output_file, "w"):
-            pass
-
+        
+        # Read existing completed instances instead of overwriting
+        completed_instances = read_completed_instances(output_file)
+        if completed_instances:
+            logger.info(f"Found {len(completed_instances)} already completed instances")
+        else:
+            logger.info("No existing results found, starting fresh")
+            # Create empty output file only if it doesn't exist
+            if not os.path.exists(output_file):
+                with open(output_file, "w"):
+                    pass
         # Retrieve instances to process
         if metadata.dataset is None:
             raise ValueError("Dataset is required")
@@ -122,7 +147,7 @@ def main():
         print(f"### OUTPUT FILE: {output_file} ###")
         return instances
 
-    def process_instance(instance):
+    def process_instance(instance, completed_instances):
         """Process a single instance."""
         global results, output_file
         logger.info(f"Processing instance {instance.instance_id}")

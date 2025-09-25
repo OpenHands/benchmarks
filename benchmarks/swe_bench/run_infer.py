@@ -22,6 +22,25 @@ from openhands.sdk import LLM, get_logger
 logger = get_logger(__name__)
 
 
+def read_completed_instances(output_file: str) -> set:
+    """Read completed instance IDs from existing output file."""
+    completed = set()
+    if not os.path.exists(output_file):
+        return completed
+        
+    try:
+        with open(output_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    result = json.loads(line)
+                    if 'instance_id' in result:
+                        completed.add(result['instance_id'])
+    except Exception as e:
+        logger.warning(f"Error reading existing output file {output_file}: {e}")
+    return completed
+
+
 def run_local_mode(args, llm, metadata):
     """Run evaluation using local runtime mode (original behavior)."""
     logger.info("Running in LOCAL mode")
@@ -37,21 +56,29 @@ def run_local_mode(args, llm, metadata):
         global instances, output_file
         output_file = os.path.join(metadata.eval_output_dir or ".", "output.jsonl")
 
-        # Prepare output file
+        # Prepare output file directory
         output_dir = os.path.dirname(output_file)
         if output_dir:  # Only create directory if dirname is not empty
             os.makedirs(output_dir, exist_ok=True)
 
-        # Create empty output file
-        with open(output_file, "w"):
-            pass
+        # Read existing completed instances instead of overwriting
+        completed_instances = read_completed_instances(output_file)
+        if completed_instances:
+            logger.info(f"Found {len(completed_instances)} already completed instances")
+        else:
+            logger.info("No existing results found, starting fresh")
+            # Create empty output file only if it doesn't exist
+            if not os.path.exists(output_file):
+                with open(output_file, "w"):
+                    pass
 
-        # Retrieve instances to process
+        # Retrieve instances to process, excluding completed ones
         instances = get_dataset(
             metadata.dataset or "",
             metadata.data_split or "",
             output_file,
             metadata.eval_n_limit or 0,
+            completed_instances,
         )
         print(f"### OUTPUT FILE: {output_file} ###")
         return instances
