@@ -215,7 +215,3 @@ workspace/
 # IDE and editor directories
 .openhands/
 .vscode/
-
-# IDE and editor directories
-.openhands/
-.vscode/
