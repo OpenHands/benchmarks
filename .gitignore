@@ -211,3 +211,11 @@ swe_bench/config.toml
 
 # Workspace directory
 workspace/
+
+# IDE and editor directories
+.openhands/
+.vscode/
+
+# IDE and editor directories
+.openhands/
+.vscode/
