@@ -208,3 +208,6 @@ __marimo__/
 
 #config.toml
 swe_bench/config.toml
+
+# Workspace directory
+workspace/
