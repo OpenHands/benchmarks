@@ -5,6 +5,7 @@ Runtime class for orchestrating instance processing workflows.
 from __future__ import annotations
 
 import os
+import platform
 import queue
 import threading
 from typing import Any, Callable
@@ -33,6 +34,7 @@ class Runtime:
         process_instance: Callable[[Any], None],
         complete_runtime: Callable[[], None],
         num_workers: int = 1,
+        get_instance_docker_image: Callable[[Any], str] = None,
     ):
         """
         Initialize the Runtime with metadata and processing methods.
@@ -43,12 +45,18 @@ class Runtime:
             process_instance: Function to process each instance
             complete_runtime: Function to complete the runtime (called once at end)
             num_workers: Number of worker threads to use for parallel processing
+            get_instance_docker_image: Function to get Docker image for each instance (remote mode only)
         """
         self.metadata = metadata
         self.initialize_runtime = initialize_runtime
         self.process_instance = process_instance
         self.complete_runtime = complete_runtime
         self.num_workers = num_workers
+        self._get_instance_docker_image = get_instance_docker_image
+        
+        # Runtime mode detection
+        self.runtime_mode = self._detect_runtime_mode()
+        self.is_sandbox_mode = self.runtime_mode == 'remote'
         
         # Worker pool management
         self.instance_queue = queue.Queue()
@@ -74,30 +82,93 @@ class Runtime:
         
         print(f"\rProgress: {percentage:.1f}%|{bar}| {self.completed_count}/{self.total_instances}", end='', flush=True)
 
+    def _detect_runtime_mode(self) -> str:
+        """Detect runtime mode based on environment and configuration."""
+        if self._get_instance_docker_image is not None:
+            return 'remote'
+        elif os.getenv("RUNTIME", "local").lower() == "remote":
+            return 'remote_no_sandbox'
+        else:
+            return 'local'
+
+    def get_instance_docker_image(self, instance: Any) -> str:
+        """
+        Get the Docker image to use for a specific instance.
+        
+        Args:
+            instance: The instance data as a pandas Series
+            
+        Returns:
+            Docker image name to use for this instance
+        """
+        if self._get_instance_docker_image:
+            return self._get_instance_docker_image(instance)
+        
+        # Default fallback logic
+        return self._get_default_docker_image(instance)
+    
+    def _get_default_docker_image(self, instance: Any) -> str:
+        """Default logic for determining Docker image based on instance."""
+        # Check if instance has specific requirements
+        if hasattr(instance, 'language') or (hasattr(instance, '__contains__') and 'language' in instance):
+            language = getattr(instance, 'language', instance.get('language', '') if hasattr(instance, 'get') else '').lower()
+            if language == 'python':
+                return "python:3.12-slim"
+            elif language == 'javascript' or language == 'node':
+                return "node:18-slim"
+            elif language == 'java':
+                return "openjdk:17-slim"
+        
+        # Check for specific frameworks or dependencies
+        if hasattr(instance, 'repo_name') or (hasattr(instance, '__contains__') and 'repo_name' in instance):
+            repo_name = getattr(instance, 'repo_name', instance.get('repo_name', '') if hasattr(instance, 'get') else '').lower()
+            if 'django' in repo_name or 'flask' in repo_name:
+                return "python:3.12-slim"
+            elif 'react' in repo_name or 'vue' in repo_name:
+                return "nikolaik/python-nodejs:python3.12-nodejs22"
+        
+        # Check if instance specifies its own Docker image
+        if hasattr(instance, 'docker_image') and instance.docker_image:
+            return instance.docker_image
+        
+        if hasattr(instance, '__contains__') and 'docker_image' in instance and instance['docker_image']:
+            return instance['docker_image']
+        
+        # Default general-purpose image
+        return os.getenv("SANDBOX_BASE_IMAGE", "nikolaik/python-nodejs:python3.12-nodejs22")
+
     def _worker_loop(self, worker_id: int, server_port: int = None) -> None:
         """
         Worker loop that processes instances from the queue.
         
         Args:
             worker_id: Unique identifier for this worker
-            server_port: Port for agent server (remote mode only)
+            server_port: Port for agent server (remote_no_sandbox/remote mode only)
         """
-        logger.info(f"Worker {worker_id} starting (remote_mode={self.is_remote_mode}, port={server_port})")
+        logger.info(f"Worker {worker_id} starting (mode={self.runtime_mode}, port={server_port})")
         
-        # Set server_port on current thread for remote mode
-        if self.is_remote_mode and server_port:
+        # Set server_port on current thread for remote_no_sandbox/remote mode
+        if (self.is_remote_mode or self.is_sandbox_mode) and server_port:
             threading.current_thread().server_port = server_port
         
-        # For remote mode, we need to import and start the agent server
+        # Start appropriate agent server based on runtime mode
         agent_server = None
-        if self.is_remote_mode and server_port:
+        if self.is_sandbox_mode and server_port:
+            try:
+                from openhands.sdk.sandbox import DockerSandboxedAgentServer
+                # For remote mode, we'll start servers per instance in the processing loop
+                logger.info(f"Worker {worker_id} ready for remote mode on port {server_port}")
+            except ImportError as e:
+                logger.error(f"Worker {worker_id} failed to import DockerSandboxedAgentServer: {e}")
+                return
+        elif self.is_remote_mode and server_port:
             try:
                 from benchmarks.utils.agent_server import ManagedAPIServer
                 agent_server = ManagedAPIServer(port=server_port)
                 agent_server.__enter__()  # Start the server using context manager protocol
-                logger.info(f"Worker {worker_id} started agent server on port {server_port}")
+                logger.info(f"Worker {worker_id} started remote_no_sandbox agent server on port {server_port}")
             except Exception as e:
-                logger.error(f"Worker {worker_id} failed to start agent server: {e}")
+                logger.error(f"Worker {worker_id} failed to start remote_no_sandbox agent server: {e}")
                 return
         
         try:
@@ -108,6 +179,16 @@ class Runtime:
                     
                     logger.info(f"Worker {worker_id} processing instance {instance.instance_id}")
                     
+                    # For sandbox mode, start a per-instance server
+                    instance_server = None
+                    if self.is_sandbox_mode and server_port:
+                        try:
+                            instance_server = self._start_sandbox_server_for_instance(instance, server_port)
+                            logger.info(f"Worker {worker_id} started sandbox server for instance {instance.instance_id}")
+                        except Exception as e:
+                            logger.error(f"Worker {worker_id} failed to start sandbox server for instance {instance.instance_id}: {e}")
+                            continue
+                    
                     try:
                         # Process the instance using the provided callback
                         self.process_instance(instance)
@@ -115,6 +196,14 @@ class Runtime:
                     except Exception as e:
                         logger.error(f"Worker {worker_id} error processing instance {instance.instance_id}: {e}")
                     finally:
+                        # Cleanup per-instance sandbox server
+                        if instance_server:
+                            try:
+                                instance_server.__exit__(None, None, None)
+                                logger.info(f"Worker {worker_id} stopped sandbox server for instance {instance.instance_id}")
+                            except Exception as e:
+                                logger.error(f"Worker {worker_id} error stopping sandbox server for instance {instance.instance_id}: {e}")
+                        
                         # Mark task as done
                         self.instance_queue.task_done()
                         
@@ -138,6 +227,38 @@ class Runtime:
         
         logger.info(f"Worker {worker_id} finished")
 
+    def _start_sandbox_server_for_instance(self, instance: Any, base_port: int):
+        """
+        Start a sandboxed agent server for a specific instance.
+        
+        Args:
+            instance: The instance data
+            base_port: Base port number for the server
+            
+        Returns:
+            DockerSandboxedAgentServer instance
+        """
+        from openhands.sdk.sandbox import DockerSandboxedAgentServer
+        
+        # Get the Docker image for this instance
+        docker_image = self.get_instance_docker_image(instance)
+        
+        # Note: DockerSandboxedAgentServer will create its own container name
+        
+        # Start the sandboxed server with the evaluation image
+        # This builds the OpenHands agent server on top of the evaluation environment
+        # Note: This requires the OpenHands source code with build.sh script
+        # TODO: Either provide OpenHands source or use pre-built evaluation+agent images
+        server = DockerSandboxedAgentServer(
+            base_image=docker_image,
+            host_port=base_port,
+        )
+        
+        # Start the server using context manager protocol
+        server.__enter__()
+        
+        return server
+
     def _start_workers(self) -> list[threading.Thread]:
         """
         Start worker threads for parallel processing.
@@ -148,7 +269,7 @@ class Runtime:
         workers = []
         
         for worker_id in range(self.num_workers):
-            if self.is_remote_mode:
+            if self.is_remote_mode or self.is_sandbox_mode:
                 # Each worker gets its own agent server port
                 server_port = 8001 + worker_id
                 worker = threading.Thread(
@@ -183,7 +304,7 @@ class Runtime:
         """
         logger.info("Starting runtime execution")
         logger.info(f"Runtime metadata: {self.metadata}")
-        logger.info(f"Using {self.num_workers} workers in {'remote' if self.is_remote_mode else 'local'} mode")
+        logger.info(f"Using {self.num_workers} workers in {'remote_no_sandbox' if self.is_remote_mode else 'local'} mode")
 
         try:
             # Initialize the runtime and retrieve all instances to process
