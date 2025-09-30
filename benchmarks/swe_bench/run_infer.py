@@ -41,6 +41,18 @@ def read_completed_instances(output_file: str) -> set:
     return completed
 
 
+def get_instance_docker_image(instance):
+    """Get Docker image name for a specific instance."""
+    # OpenHands version of the image
+    docker_image_prefix = os.getenv("EVAL_DOCKER_IMAGE_PREFIX", "")
+    instance_id = instance.instance_id
+    image_name = 'sweb.eval.x86_64.' + instance_id
+    image_name = image_name.replace(
+        '__', '_1776_'
+    )  # to comply with docker image naming convention
+    return (docker_image_prefix.rstrip('/') + '/' + image_name).lower()
+
+
 def run_local_mode(args, llm, metadata):
     """Run evaluation using local runtime mode (original behavior)."""
     logger.info("Running in LOCAL mode")
@@ -166,6 +178,7 @@ def main():
         api_key=SecretStr(api_key),
         base_url="https://llm-proxy.eval.all-hands.dev",
         temperature=0,
+        service_id="litellm_proxy",
     )
 
     dataset_description = DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__")

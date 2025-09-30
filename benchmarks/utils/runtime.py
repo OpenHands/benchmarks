@@ -61,7 +61,6 @@ class Runtime:
         # Worker pool management
         self.instance_queue = queue.Queue()
         self.workers = []
-        self.is_remote_mode = os.getenv("RUNTIME", "local").lower() == "remote"
         
         # Progress tracking
         self.total_instances = 0
@@ -84,10 +83,8 @@ class Runtime:
 
     def _detect_runtime_mode(self) -> str:
         """Detect runtime mode based on environment and configuration."""
-        if self._get_instance_docker_image is not None:
-            return 'remote'
-        elif os.getenv("RUNTIME", "local").lower() == "remote":
-            return 'remote_no_sandbox'
+        if os.getenv("RUNTIME", "local").lower() == "remote":
+            return 'remote'  # RUNTIME=remote always means sandboxed mode
         else:
             return 'local'
 
@@ -143,12 +140,12 @@ class Runtime:
         
         Args:
             worker_id: Unique identifier for this worker
-            server_port: Port for agent server (remote_no_sandbox/remote mode only)
+            server_port: Port for agent server (remote mode only)
         """
         logger.info(f"Worker {worker_id} starting (mode={self.runtime_mode}, port={server_port})")
         
-        # Set server_port on current thread for remote_no_sandbox/remote mode
-        if (self.is_remote_mode or self.is_sandbox_mode) and server_port:
+        # Set server_port on current thread for remote mode
+        if self.is_sandbox_mode and server_port:
             threading.current_thread().server_port = server_port
         
         # Start appropriate agent server based on runtime mode
@@ -160,15 +157,6 @@ class Runtime:
                 logger.info(f"Worker {worker_id} ready for remote mode on port {server_port}")
             except ImportError as e:
                 logger.error(f"Worker {worker_id} failed to import DockerSandboxedAgentServer: {e}")
-                return
-        elif self.is_remote_mode and server_port:
-            try:
-                from benchmarks.utils.agent_server import ManagedAPIServer
-                agent_server = ManagedAPIServer(port=server_port)
-                agent_server.__enter__()  # Start the server using context manager protocol
-                logger.info(f"Worker {worker_id} started remote_no_sandbox agent server on port {server_port}")
-            except Exception as e:
-                logger.error(f"Worker {worker_id} failed to start remote_no_sandbox agent server: {e}")
                 return
         
         try:
@@ -269,7 +257,7 @@ class Runtime:
         workers = []
         
         for worker_id in range(self.num_workers):
-            if self.is_remote_mode or self.is_sandbox_mode:
+            if self.is_sandbox_mode:
                 # Each worker gets its own agent server port
                 server_port = 8001 + worker_id
                 worker = threading.Thread(
@@ -304,7 +292,7 @@ class Runtime:
         """
         logger.info("Starting runtime execution")
         logger.info(f"Runtime metadata: {self.metadata}")
-        logger.info(f"Using {self.num_workers} workers in {'remote_no_sandbox' if self.is_remote_mode else 'local'} mode")
+        logger.info(f"Using {self.num_workers} workers in {'remote' if self.is_sandbox_mode else 'local'} mode")
 
         try:
             # Initialize the runtime and retrieve all instances to process
