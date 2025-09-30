@@ -233,7 +233,7 @@ def read_completed_instances(output_file: str) -> set:
             logger.warning(f"Error reading existing results from {output_file}: {e}")
     return completed_instances
 
-def write_output_to_file(result, ouput_file):
+def write_output_to_file(instance, process_instance, result, output_file):
     # Save result using the complete format
     result_dict = result.model_dump(mode="json")
 
