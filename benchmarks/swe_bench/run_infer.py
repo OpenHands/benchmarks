@@ -15,7 +15,6 @@ from openhands.tools.preset.default import get_default_agent
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.run_evaluation import (
     get_instruction,
-    process_instance_simplified,
     read_completed_instances,
     write_output_to_file
 )
