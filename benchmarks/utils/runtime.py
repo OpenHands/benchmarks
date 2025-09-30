@@ -84,14 +84,14 @@ class Runtime:
 
     def _detect_runtime_mode(self) -> str:
         """Detect runtime mode based on environment and configuration."""
-        runtime_env = os.getenv("RUNTIME", "local")
+        runtime_env = os.getenv("RUNTIME", "remote")
         logger.info(f"DEBUG: RUNTIME environment variable = '{runtime_env}'")
         if runtime_env.lower() == "remote":
             logger.info(f"DEBUG: Detected runtime mode: 'remote' (sandbox mode)")
             return 'remote'  # RUNTIME=remote always means sandboxed mode
         else:
-            logger.info(f"DEBUG: Detected runtime mode: 'local'")
-            return 'local'
+            logger.error(f"DEBUG: Local runtime mode is not supported")
+            raise ValueError(f"Local runtime mode is not supported. RUNTIME environment variable is set to '{runtime_env}', but only 'remote' mode is allowed.")
 
     def get_instance_docker_image(self, instance: Any) -> str:
         """
