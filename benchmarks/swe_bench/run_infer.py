@@ -106,6 +106,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> No
                 host=server_url,
                 visualize=False,
                 stuck_detection=False,  # Disable stuck detection to avoid FileNotFoundError in remote runtime
+                max_iteration_per_run=metadata.max_iterations,
             )
             
             from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
