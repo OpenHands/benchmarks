@@ -206,7 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-#config.toml
+config.toml
 swe_bench/config.toml
 
 # Workspace directory
