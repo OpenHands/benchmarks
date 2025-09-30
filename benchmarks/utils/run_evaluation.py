@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
@@ -212,3 +213,48 @@ def construct_eval_output_dir(base_dir, dataset_name, model, max_iterations, eva
     os.makedirs(eval_output_dir, exist_ok=True)
 
     return eval_output_dir
+
+def read_completed_instances(output_file: str) -> set:
+    """Read completed instance IDs from existing output file."""
+    completed_instances = set()
+    if os.path.exists(output_file):
+        try:
+            with open(output_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            result = json.loads(line)
+                            if "instance_id" in result:
+                                completed_instances.add(result["instance_id"])
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            logger.warning(f"Error reading existing results from {output_file}: {e}")
+    return completed_instances
+
+def write_output_to_file(result, ouput_file):
+    # Save result using the complete format
+    result_dict = result.model_dump(mode="json")
+
+    logger.info(f"Writing result for {instance.instance_id} to {output_file}")
+    logger.info(f"Result dict keys: {list(result_dict.keys())}")
+    logger.info(f"Result dict git_patch length: {len(result_dict.get('test_result', {}).get('git_patch', ''))}")
+    logger.info(f"Result dict history length: {len(result_dict.get('history', []))}")
+
+    # Write to output file (thread-safe)
+    import json
+    
+    # Use a lock to ensure thread-safe file writing
+    if not hasattr(process_instance, '_file_lock'):
+        process_instance._file_lock = threading.Lock()
+    
+    with process_instance._file_lock:
+        with open(output_file, "a") as f:
+            json_line = json.dumps(result_dict) + "\n"
+            f.write(json_line)
+            f.flush()  # Ensure it's written immediately
+            logger.info(
+                f"Successfully wrote {len(json_line)} characters to output file"
+            )
+
