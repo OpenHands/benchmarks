@@ -185,7 +185,6 @@ def run_remote_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1
         # Create agent
         agent = get_default_agent(
             llm=llm_instance,
-            working_dir=str(Path.cwd()),
             cli_mode=True,  # Disable browser tools for simplicity
         )
 
