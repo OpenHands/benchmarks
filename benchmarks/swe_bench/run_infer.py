@@ -1,150 +1,19 @@
 from __future__ import annotations
 
-import json
 import os
 
 from pydantic import SecretStr
 
 from benchmarks.utils.agent_server import run_remote_evaluation
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.run_evaluation import (
     construct_eval_output_dir,
-    create_workspace_for_instance,
-    get_instruction,
     make_metadata,
-    process_instance_simplified,
 )
-from benchmarks.utils.runtime import Runtime
 from openhands.sdk import LLM, get_logger
 
 
 logger = get_logger(__name__)
-
-
-def read_completed_instances(output_file: str) -> set:
-    """Read completed instance IDs from existing output file."""
-    completed = set()
-    if not os.path.exists(output_file):
-        return completed
-        
-    try:
-        with open(output_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    result = json.loads(line)
-                    if 'instance_id' in result:
-                        completed.add(result['instance_id'])
-    except Exception as e:
-        logger.warning(f"Error reading existing output file {output_file}: {e}")
-    return completed
-
-
-def get_instance_docker_image(instance):
-    """Get Docker image name for a specific instance."""
-    # OpenHands version of the image
-    docker_image_prefix = os.getenv("EVAL_DOCKER_IMAGE_PREFIX", "")
-    instance_id = instance.instance_id
-    image_name = 'sweb.eval.x86_64.' + instance_id
-    image_name = image_name.replace(
-        '__', '_1776_'
-    )  # to comply with docker image naming convention
-    return (docker_image_prefix.rstrip('/') + '/' + image_name).lower()
-
-
-def run_local_mode(args, llm, metadata):
-    """Run evaluation using local runtime mode (original behavior)."""
-    logger.info("Running in LOCAL mode")
-    
-    # Global variables for runtime methods
-    global instances, output_file, results
-    instances = None
-    output_file = None
-    results = []
-
-    def initialize_runtime():
-        """Initialize the runtime and retrieve instances to process."""
-        global instances, output_file
-        output_file = os.path.join(metadata.eval_output_dir or ".", "output.jsonl")
-
-        # Prepare output file directory
-        output_dir = os.path.dirname(output_file)
-        if output_dir:  # Only create directory if dirname is not empty
-            os.makedirs(output_dir, exist_ok=True)
-
-        # Read existing completed instances instead of overwriting
-        completed_instances = read_completed_instances(output_file)
-        if completed_instances:
-            logger.info(f"Found {len(completed_instances)} already completed instances")
-        else:
-            logger.info("No existing results found, starting fresh")
-            # Create empty output file only if it doesn't exist
-            if not os.path.exists(output_file):
-                with open(output_file, "w"):
-                    pass
-
-        # Retrieve instances to process, excluding completed ones
-        instances = get_dataset(
-            metadata.dataset or "",
-            metadata.data_split or "",
-            output_file,
-            metadata.eval_n_limit or 0,
-            completed_instances,
-        )
-        print(f"### OUTPUT FILE: {output_file} ###")
-        return instances
-
-    def process_instance(instance):
-        """Process a single instance."""
-        global results, output_file
-        logger.info(f"Processing instance {instance.instance_id}")
-
-        # Create workspace and get actual path
-        workspace_path = create_workspace_for_instance(instance, metadata)
-        instruction = get_instruction(
-            instance, metadata, workspace_path, metadata.prompt_path or ""
-        )
-        result = process_instance_simplified(instance, instruction, metadata, workspace_path)
-
-        # Save result using the complete format
-        result_dict = result.model_dump(mode="json")
-        if result.error:
-            result_dict["error"] = result.error
-        results.append(result_dict)
-
-        logger.info(f"Writing result for {instance.instance_id} to {output_file}")
-        logger.info(f"Result dict keys: {list(result_dict.keys())}")
-        git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
-        logger.info(f"Git patch length: {git_patch_len}")
-
-        # Write to output file
-        assert output_file is not None
-        output_dir = os.path.dirname(output_file)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        with open(output_file, "a") as f:
-            json_line = json.dumps(result_dict) + "\n"
-            f.write(json_line)
-            f.flush()  # Ensure it's written immediately
-            logger.info(
-                f"Successfully wrote {len(json_line)} characters to output file"
-            )
-
-    def complete_runtime():
-        """Complete the runtime - any cleanup if needed."""
-        logger.info("Runtime completed successfully!")
-
-    # Create and run the Runtime
-    runtime = Runtime(
-        metadata=metadata,
-        initialize_runtime=initialize_runtime,
-        process_instance=process_instance,
-        complete_runtime=complete_runtime,
-        num_workers=args.eval_num_workers,
-    )
-
-    runtime.run()
 
 
 def main():
