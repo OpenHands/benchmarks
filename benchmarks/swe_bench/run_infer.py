@@ -158,7 +158,6 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 instruction=instruction,
                 test_result={
                     "git_patch": git_patch,
-                    "resolved": len(git_patch) > 0,  # Consider resolved if there are changes
                 },
                 metadata=metadata.model_dump(),
                 history=history,
