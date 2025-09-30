@@ -205,13 +205,8 @@ def main():
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
     )
 
-    # Check RUNTIME environment variable to determine mode
-    runtime_mode = os.getenv("RUNTIME", "local").lower()
-    
-    if runtime_mode == "remote":
-        run_remote_evaluation(llm, metadata, args.eval_num_workers)
-    else:
-        run_local_mode(args, llm, metadata)
+    # Always use remote evaluation
+    run_remote_evaluation(llm, metadata, args.eval_num_workers)
 
     logger.info("Evaluation completed!")
 

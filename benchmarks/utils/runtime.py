@@ -57,6 +57,7 @@ class Runtime:
         # Runtime mode detection
         self.runtime_mode = self._detect_runtime_mode()
         self.is_sandbox_mode = self.runtime_mode == 'remote'
+        logger.info(f"DEBUG: Runtime initialized with runtime_mode='{self.runtime_mode}', is_sandbox_mode={self.is_sandbox_mode}")
         
         # Worker pool management
         self.instance_queue = queue.Queue()
@@ -83,9 +84,13 @@ class Runtime:
 
     def _detect_runtime_mode(self) -> str:
         """Detect runtime mode based on environment and configuration."""
-        if os.getenv("RUNTIME", "local").lower() == "remote":
+        runtime_env = os.getenv("RUNTIME", "local")
+        logger.info(f"DEBUG: RUNTIME environment variable = '{runtime_env}'")
+        if runtime_env.lower() == "remote":
+            logger.info(f"DEBUG: Detected runtime mode: 'remote' (sandbox mode)")
             return 'remote'  # RUNTIME=remote always means sandboxed mode
         else:
+            logger.info(f"DEBUG: Detected runtime mode: 'local'")
             return 'local'
 
     def get_instance_docker_image(self, instance: Any) -> str:
@@ -170,11 +175,17 @@ class Runtime:
                     # For sandbox mode, start a per-instance server
                     instance_server = None
                     if self.is_sandbox_mode and server_port:
+                        logger.info(f"DEBUG: Worker {worker_id} attempting to start sandbox server for instance {instance.instance_id} on port {server_port}")
+                        logger.info(f"DEBUG: is_sandbox_mode={self.is_sandbox_mode}, server_port={server_port}")
                         try:
+                            logger.info(f"DEBUG: Calling _start_sandbox_server_for_instance...")
                             instance_server = self._start_sandbox_server_for_instance(instance, server_port)
                             logger.info(f"Worker {worker_id} started sandbox server for instance {instance.instance_id}")
                         except Exception as e:
                             logger.error(f"Worker {worker_id} failed to start sandbox server for instance {instance.instance_id}: {e}")
+                            logger.error(f"DEBUG: Full exception details: {type(e).__name__}: {str(e)}")
+                            import traceback
+                            logger.error(f"DEBUG: Traceback: {traceback.format_exc()}")
                             continue
                     
                     try:
@@ -226,10 +237,14 @@ class Runtime:
         Returns:
             DockerSandboxedAgentServer instance
         """
+        logger.info(f"DEBUG: _start_sandbox_server_for_instance called with instance={getattr(instance, 'instance_id', 'unknown')}, base_port={base_port}")
+        
         from openhands.sdk.sandbox import DockerSandboxedAgentServer
+        logger.info(f"DEBUG: Successfully imported DockerSandboxedAgentServer")
         
         # Get the Docker image for this instance
         docker_image = self.get_instance_docker_image(instance)
+        logger.info(f"DEBUG: Got docker_image={docker_image} for instance")
         
         # Note: DockerSandboxedAgentServer will create its own container name
         
@@ -237,13 +252,23 @@ class Runtime:
         # This builds the OpenHands agent server on top of the evaluation environment
         # Note: This requires the OpenHands source code with build.sh script
         # TODO: Either provide OpenHands source or use pre-built evaluation+agent images
+        logger.info(f"DEBUG: Creating DockerSandboxedAgentServer with base_image={docker_image}, host_port={base_port}")
         server = DockerSandboxedAgentServer(
             base_image=docker_image,
             host_port=base_port,
         )
+        logger.info(f"DEBUG: DockerSandboxedAgentServer created successfully")
         
         # Start the server using context manager protocol
-        server.__enter__()
+        logger.info(f"DEBUG: Calling server.__enter__() to start the Docker container...")
+        try:
+            server.__enter__()
+            logger.info(f"DEBUG: server.__enter__() completed successfully!")
+        except Exception as e:
+            logger.error(f"DEBUG: server.__enter__() failed: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f"DEBUG: server.__enter__() traceback: {traceback.format_exc()}")
+            raise
         
         return server
 
@@ -304,50 +329,26 @@ class Runtime:
             self.total_instances = len(instances)
             self.completed_count = 0
 
-            if self.num_workers == 1:
-                # Single worker mode - use original sequential processing
-                logger.info("Using sequential processing (single worker)")
-                for i, (_, instance) in enumerate(instances.iterrows()):
-                    logger.info(f"Processing instance {i + 1}/{len(instances)}")
-
-                    try:
-                        # Process the instance
-                        self.process_instance(instance)
-                        logger.info(
-                            f"Successfully completed instance {i + 1}/{len(instances)}"
-                        )
-
-                    except Exception as e:
-                        logger.error(
-                            f"Error processing instance {i + 1}/{len(instances)}: {e}"
-                        )
-                        # Continue with next instance rather than failing completely
-                        continue
-                    finally:
-                        # Update progress
-                        self.completed_count += 1
-                        self._print_progress_bar()
-            else:
-                # Multi-worker mode - use parallel processing
-                logger.info(f"Using parallel processing with {self.num_workers} workers")
-                
-                # Add all instances to the queue
-                for _, instance in instances.iterrows():
-                    self.instance_queue.put(instance)
-                
-                # Start worker threads
-                workers = self._start_workers()
-                
-                # Wait for all instances to be processed
-                logger.info("Waiting for all instances to be processed...")
-                self.instance_queue.join()
-                
-                # Wait for all workers to finish
-                logger.info("Waiting for all workers to finish...")
-                for worker in workers:
-                    worker.join()
-                
-                logger.info("All workers completed")
+            # Always use worker pool processing (even for single worker)
+            logger.info(f"Using parallel processing with {self.num_workers} workers")
+            
+            # Add all instances to the queue
+            for _, instance in instances.iterrows():
+                self.instance_queue.put(instance)
+            
+            # Start worker threads
+            workers = self._start_workers()
+            
+            # Wait for all instances to be processed
+            logger.info("Waiting for all instances to be processed...")
+            self.instance_queue.join()
+            
+            # Wait for all workers to finish
+            logger.info("Waiting for all workers to finish...")
+            for worker in workers:
+                worker.join()
+            
+            logger.info("All workers completed")
 
         finally:
             # Always complete the runtime, even if there were errors
