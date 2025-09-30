@@ -28,7 +28,7 @@ from openhands.sdk.conversation.impl.remote_conversation import RemoteConversati
 logger = get_logger(__name__)
 
 
-def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> None:
+def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Runtime:
     """
     Run evaluation using remote runtime mode (agent server).
     
