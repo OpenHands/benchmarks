@@ -141,23 +141,9 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 event_content = getattr(event, 'message', getattr(event, 'content', getattr(event, 'action', str(event))))
                 logger.info(f"Event: {event_type} - {str(event_content)[:100]}")
             
-            # Start WebSocket client for event streaming
-            from openhands.sdk.conversation.impl.remote_conversation import WebSocketCallbackClient
-            # Extract port from the conversation's client base URL
-            base_url = str(conversation._client.base_url)
-            ws_client = WebSocketCallbackClient(
-                host=base_url,
-                conversation_id=str(conversation._id),
-                callbacks=[log_event]
-            )
-            ws_client.start()
-            
             logger.info("Starting conversation.run()...")
-            try:
-                conversation.run()
-                logger.info("Conversation.run() completed")
-            finally:
-                ws_client.stop()
+            conversation.run()
+            logger.info("Conversation.run() completed")
             
             history = get_history(conversation)
             git_patch = get_git_patch_from_history(history)
