@@ -115,10 +115,6 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
 
         try:
             workspace = Workspace(host=server_url)
-            result = workspace.execute_command(
-                "echo 'Hello from sandboxed environment!' && pwd"
-            )
-            logger.info(f"Result of command execution: {result}")
             conversation = Conversation(
                 agent=agent,
                 visualize=False,
@@ -151,9 +147,29 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             logger.info("Starting conversation.run()...")
             conversation.run()
             logger.info("Conversation.run() completed")
-
             history = get_history(conversation)
-            git_patch = get_git_patch_from_history(history)
+
+            result = workspace.execute_command(
+                (
+                    f"cd {instance.repo_path} ; "
+                    "git config --global core.pager '' > /dev/null 2>&1 ; "
+                    "git add -A > /dev/null 2>&1 ; "
+                    f"git diff --no-color --cached {instance['base_commit']}"
+                )
+            )
+            logger.info(f"Result of patch command execution: {result}")
+            exit_code = result["exit_code"]
+            git_patch = ""
+            if result["exit_code"] != 0:
+                stderr = result["stderr"]
+                logger.info(f"Command failed with exit code {exit_code}: {stderr}")
+            else:
+                git_patch = result["stdout"]
+
+            if not git_patch:
+                logger.info("git_patch empty searching history.")
+                git_patch = get_git_patch_from_history(history)
+                logger.info(f"Result of patch from history: {git_patch}")
 
             logger.info(f"Extracted git patch with {len(git_patch)} characters")
 
