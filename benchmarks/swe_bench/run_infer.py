@@ -48,8 +48,8 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     results = []
     agent = None
     llm_instance = llm
-    def initialize_runtime():
-        """Initialize the runtime and return instances to process."""
+    def initialize_dataset_run():
+        """Initialize the dataset run and return instances to process."""
         global instances, output_file, agent
         
         # Create agent
@@ -194,16 +194,16 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             logger.debug(f'Using official SWE-Bench image: {image_name}')
             return image_name
 
-    def complete_runtime():
-        """Complete the runtime - any cleanup if needed."""
+    def complete_dataset_run():
+        """Complete the dataset run - any cleanup if needed."""
         logger.info("Remote evaluation completed!")
 
     # Create and run the Runtime
     runtime = Runtime(
         metadata=metadata,
-        initialize_runtime=initialize_runtime,
+        initialize_runtime=initialize_dataset_run,
         process_instance=process_instance,
-        complete_runtime=complete_runtime,
+        complete_runtime=complete_dataset_run,
         num_workers=num_workers,
         get_instance_docker_image=get_instance_docker_image,
     )
