@@ -299,7 +299,7 @@ class Runtime:
         for worker_id in range(self.num_workers):
             if self.is_sandbox_mode:
                 # Each worker gets its own agent server port
-                server_port = Runtime._find_free_port(8001 + worker_id)
+                server_port = Runtime._find_free_port(8001 + worker_id*10)
                 worker = threading.Thread(
                     target=self._worker_loop,
                     args=(worker_id, server_port),
