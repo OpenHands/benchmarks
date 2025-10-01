@@ -98,14 +98,21 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         worker_port = getattr(threading.current_thread(), 'server_port', 8001)
         server_url = f"http://localhost:{worker_port}"
         
+        workspace = none
         conversation = None
         
         try:
+            workspace = Workspace(host=server.base_url)
+            result = workspace.execute_command(
+                "echo 'Hello from sandboxed environment!' && pwd"
+            )
+            logger.info(f"Result of command execution: {result}")
             # Create RemoteConversation (server should already be running from worker setup)
             conversation = Conversation(
                 agent=agent,
-                host=server_url,
                 visualize=False,
+                workspace=workspace,
+                callbacks=[event_callback],
                 stuck_detection=False,  # Disable stuck detection to avoid FileNotFoundError in remote runtime
                 max_iteration_per_run=metadata.max_iterations,
             )
