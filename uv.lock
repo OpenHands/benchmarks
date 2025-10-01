@@ -758,7 +758,7 @@ wheels = [
 [[package]]
 name = "openhands-agent-server"
 version = "1.0.0"
-source = { directory = "../agent-sdk/openhands/agent_server" }
+source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=main#f862662dc0a7ae3e26295290464f20bb7e84844e" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
@@ -768,18 +768,6 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "uvicorn" },
     { name = "websockets" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiosqlite", specifier = ">=0.19" },
-    { name = "alembic", specifier = ">=1.13" },
-    { name = "docker", specifier = ">=7.1,<8" },
-    { name = "fastapi", specifier = ">=0.104" },
-    { name = "pydantic", specifier = ">=2" },
-    { name = "sqlalchemy", specifier = ">=2" },
-    { name = "uvicorn", specifier = ">=0.31.1" },
-    { name = "websockets", specifier = ">=12" },
 ]
 
 [[package]]
@@ -809,7 +797,7 @@ dev = [
 requires-dist = [
     { name = "datasets" },
     { name = "modal", specifier = ">=1.1.4" },
-    { name = "openhands-agent-server", directory = "../agent-sdk/openhands/agent_server" },
+    { name = "openhands-agent-server", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=main" },
     { name = "pandas" },
     { name = "toml" },
     { name = "tqdm" },
