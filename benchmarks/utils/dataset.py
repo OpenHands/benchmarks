@@ -1,5 +1,3 @@
-"""Dataset utilities for SWE-bench evaluation."""
-
 from __future__ import annotations
 
 import inspect
@@ -37,7 +35,6 @@ def filter_dataset(
                     try:
                         benchmarks_idx = path_parts.index("benchmarks")
                         if benchmarks_idx + 1 < len(path_parts):
-                            benchmark_dir = path_parts[benchmarks_idx + 1]
                             config_path = os.path.join(
                                 os.path.dirname(caller_file), "config.toml"
                             )
@@ -56,14 +53,14 @@ def filter_dataset(
 
             if selected_ids:
                 logger.info(
-                    f"Filtering dataset by {len(selected_ids)} selected_ids from {config_path}"
+                    f"Filtering by {len(selected_ids)} selected_ids from {config_path}"
                 )
                 # Filter by selected instance IDs first
                 if filter_column in dataset.columns:
                     original_size = len(dataset)
                     dataset = dataset[dataset[filter_column].isin(selected_ids)]
                     logger.info(
-                        f"Dataset filtered from {original_size} to {len(dataset)} instances matching selected_ids"
+                        f"Filtered {original_size} to {len(dataset)} selected_ids"
                     )
                 else:
                     logger.warning(
@@ -99,9 +96,8 @@ def prepare_dataset(
     if completed_instances:
         original_size = len(dataset)
         dataset = dataset[~dataset["instance_id"].isin(completed_instances)]
-        logger.info(
-            f"Filtered out {original_size - len(dataset)} completed instances, {len(dataset)} remaining"
-        )
+        logger.info(f"Filtered out {original_size - len(dataset)} completed instances")
+        logger.info(f"{len(dataset)} instances remaining")
 
     # Apply limit after filtering completed instances
     if n_limit > 0:

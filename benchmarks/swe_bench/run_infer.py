@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Any
 
+import pandas as pd
 from pydantic import SecretStr
 
 from benchmarks.utils.args_parser import get_parser
@@ -116,13 +117,12 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 "echo 'Hello from sandboxed environment!' && pwd"
             )
             logger.info(f"Result of command execution: {result}")
-            # Create RemoteConversation (server should already be running from worker setup)
             conversation = Conversation(
                 agent=agent,
                 visualize=False,
                 workspace=workspace,
                 callbacks=[event_callback],
-                stuck_detection=False,  # Disable stuck detection to avoid FileNotFoundError in remote runtime
+                stuck_detection=False,
                 max_iteration_per_run=metadata.max_iterations,
             )
 
@@ -159,9 +159,9 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             logger.info("Starting result extraction from conversation state")
             from benchmarks.utils.shared import EvalOutput
 
-            logger.info(
-                f"Creating EvalOutput with: instance_id={instance.instance_id}, history_events={len(history)}, git_patch_length={len(git_patch)}"
-            )
+            logger.info(f"Creating EvalOutput with: instance_id={instance.instance_id}")
+            logger.info(f"Creating EvalOutput with: history_events={len(history)}")
+            logger.info(f"Creating EvalOutput with: git_patch_length={len(git_patch)}")
 
             result = EvalOutput(
                 instance_id=instance.instance_id,
@@ -197,7 +197,8 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         # SWE-bench-Live uses the same naming convention as SWE-Bench
         docker_image_prefix = "docker.io/swebench/"
         repo, name = instance["instance_id"].split("__")
-        image_name = f"{docker_image_prefix.rstrip('/')}/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
+        prefix = docker_image_prefix.rstrip("/")
+        image_name = f"{prefix}/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
         logger.debug(f"Using official SWE-Bench image: {image_name}")
         return image_name
 

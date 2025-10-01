@@ -23,7 +23,7 @@ class ExecuteCommandAction(ActionBase):
     command: str = Field(description="Command to execute")
     working_dir: str | None = Field(
         default=None,
-        description="Working directory for command execution (defaults to workspace root)",
+        description="Working directory for command execution",
     )
     timeout: int = Field(
         default=30, description="Timeout in seconds for command execution"
@@ -77,7 +77,7 @@ class CommandExecutor(ToolExecutor[ExecuteCommandAction, ExecuteCommandObservati
             return ExecuteCommandObservation(
                 command=action.command,
                 exit_code=1,
-                stderr=f"Working directory {working_dir} is outside workspace {self.workspace_root}",
+                stderr=f"workin_dir {working_dir} is outside {self.workspace_root}",
                 timeout_occurred=False,
             )
 
@@ -112,7 +112,7 @@ def create_command_tool(workspace_root: str = "/workspace"):
     return Tool(
         name="execute_command",
         description="""Execute commands in the runtime workspace.
-        
+
 This tool allows you to run shell commands within the workspace environment.
 Use this for:
 - Running tests and build commands

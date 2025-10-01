@@ -105,7 +105,7 @@ def get_git_patch_from_history(history):
                     ):
                         git_patch = content
                         logger.info(
-                            f"Found git patch in {source_name}: {len(git_patch)} characters"
+                            f"Found git patch {source_name}: {len(git_patch)} chars"
                         )
                         logger.info(f"Git patch preview: {git_patch[:200]}...")
                         break
@@ -113,7 +113,7 @@ def get_git_patch_from_history(history):
                     # Also look for git commands that might produce diffs
                     if "git diff" in content.lower():
                         logger.info(
-                            f"Found 'git diff' command in {source_name}: {content[:100]}..."
+                            f"Found 'git diff' in {source_name}: {content[:100]}..."
                         )
 
             # Also check if event has action with path
