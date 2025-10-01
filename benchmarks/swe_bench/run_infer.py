@@ -1,28 +1,26 @@
 from __future__ import annotations
 
 import os
-import time
 import threading
+import time
+from typing import Any
 
 from pydantic import SecretStr
 
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.run_evaluation import (
-    construct_eval_output_dir,
-    make_metadata,
-)
-from openhands.sdk import LLM, get_logger
-from openhands.tools.preset.default import get_default_agent
+from benchmarks.utils.conversation_tools import get_git_patch_from_history, get_history
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.run_evaluation import (
+    construct_eval_output_dir,
     get_instruction,
+    make_metadata,
     read_completed_instances,
-    write_output_to_file
+    write_output_to_file,
 )
-from benchmarks.utils.conversation_tools import get_history, get_git_patch_from_history
 from benchmarks.utils.runtime import Runtime
-from openhands.sdk import Conversation, Workspace, get_logger
-from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
+from benchmarks.utils.shared import EvalMetadata
+from openhands.sdk import LLM, Conversation, Workspace, get_logger
+from openhands.tools.preset.default import get_default_agent
 
 
 logger = get_logger(__name__)
@@ -31,7 +29,7 @@ logger = get_logger(__name__)
 def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Runtime:
     """
     Run evaluation using remote runtime mode (agent server).
-    
+
     Args:
         llm: LLM instance to use for evaluation
         metadata: EvalMetadata object containing evaluation configuration
@@ -39,8 +37,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     """
     logger.info("Running evaluation in REMOTE mode")
     logger.info(f"Using {num_workers} workers for parallel processing")
-    
-    
+
     # Global variables for runtime methods
     global instances, output_file, results, agent, llm_instance
     instances = None
@@ -48,10 +45,11 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     results = []
     agent = None
     llm_instance = llm
+
     def initialize_dataset_run():
         """Initialize the dataset run and return instances to process."""
         global instances, output_file, agent
-        
+
         # Create agent
         agent = get_default_agent(
             llm=llm_instance,
@@ -96,12 +94,12 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         )
 
         # Get the worker's server port (this will be set by the worker)
-        worker_port = getattr(threading.current_thread(), 'server_port', 8001)
+        worker_port = getattr(threading.current_thread(), "server_port", 8001)
         server_url = f"http://localhost:{worker_port}"
-        
+
         workspace = None
         conversation = None
-        
+
         # Set up callback collection, like example 22
         received_events: list = []
         last_event_time = {"ts": time.time()}
@@ -127,35 +125,44 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 stuck_detection=False,  # Disable stuck detection to avoid FileNotFoundError in remote runtime
                 max_iteration_per_run=metadata.max_iterations,
             )
-            
-            from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
+
+            from openhands.sdk.conversation.impl.remote_conversation import (
+                RemoteConversation,
+            )
+
             assert isinstance(conversation, RemoteConversation)
 
             # Send message and run with event streaming
             logger.info(f"Sending instruction to conversation: {instruction[:100]}...")
             conversation.send_message(instruction)
-            
+
             # Add callback to log events as they happen
             def log_event(event):
                 event_type = type(event).__name__
-                event_content = getattr(event, 'message', getattr(event, 'content', getattr(event, 'action', str(event))))
+                event_content = getattr(
+                    event,
+                    "message",
+                    getattr(event, "content", getattr(event, "action", str(event))),
+                )
                 logger.info(f"Event: {event_type} - {str(event_content)[:100]}")
-            
+
             logger.info("Starting conversation.run()...")
             conversation.run()
             logger.info("Conversation.run() completed")
-            
+
             history = get_history(conversation)
             git_patch = get_git_patch_from_history(history)
-            
+
             logger.info(f"Extracted git patch with {len(git_patch)} characters")
 
             # Extract results from conversation state
             logger.info("Starting result extraction from conversation state")
             from benchmarks.utils.shared import EvalOutput
-            
-            logger.info(f"Creating EvalOutput with: instance_id={instance.instance_id}, history_events={len(history)}, git_patch_length={len(git_patch)}")
-            
+
+            logger.info(
+                f"Creating EvalOutput with: instance_id={instance.instance_id}, history_events={len(history)}, git_patch_length={len(git_patch)}"
+            )
+
             result = EvalOutput(
                 instance_id=instance.instance_id,
                 instruction=instruction,
@@ -185,14 +192,14 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     def get_instance_docker_image(
         instance: pd.Series,
     ) -> str:
-            # Official SWE-Bench image
-            # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
-            # SWE-bench-Live uses the same naming convention as SWE-Bench
-            docker_image_prefix = 'docker.io/swebench/'
-            repo, name = instance['instance_id'].split('__')
-            image_name = f'{docker_image_prefix.rstrip("/")}/sweb.eval.x86_64.{repo}_1776_{name}:latest'.lower()
-            logger.debug(f'Using official SWE-Bench image: {image_name}')
-            return image_name
+        # Official SWE-Bench image
+        # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
+        # SWE-bench-Live uses the same naming convention as SWE-Bench
+        docker_image_prefix = "docker.io/swebench/"
+        repo, name = instance["instance_id"].split("__")
+        image_name = f"{docker_image_prefix.rstrip('/')}/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
+        logger.debug(f"Using official SWE-Bench image: {image_name}")
+        return image_name
 
     def complete_dataset_run():
         """Complete the dataset run - any cleanup if needed."""
@@ -209,6 +216,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     )
 
     return runtime
+
 
 def main():
     default_prompt_path = os.path.join(
@@ -270,7 +278,7 @@ def main():
 
     # Always use remote evaluation
     runtime = create_runtime(llm, metadata, args.eval_num_workers)
-    
+
     runtime.run()
 
     logger.info("Evaluation completed!")

@@ -2,30 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import threading
 
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
-
-from benchmarks.utils.git_tools import (
-    get_git_patch,
-    initialize_workspace,
-    setup_workspace,
-)
-from benchmarks.utils.shared import EvalMetadata, EvalOutput
-from benchmarks.utils.command_tool import create_command_tool
+from benchmarks.utils.shared import EvalMetadata
 from openhands.sdk import (
     LLM,
-    Agent,
-    Conversation,
-    Message,
-    TextContent,
     get_logger,
 )
-from openhands.sdk.tool import ToolSpec, register_tool
-from openhands.tools.str_replace_editor import FileEditorTool
 
 
 # from openhands.tools import (
@@ -114,6 +100,7 @@ def construct_eval_output_dir(base_dir, dataset_name, model, max_iterations, eva
 
     return eval_output_dir
 
+
 def read_completed_instances(output_file: str) -> set:
     """Read completed instance IDs from existing output file."""
     completed_instances = set()
@@ -133,22 +120,25 @@ def read_completed_instances(output_file: str) -> set:
             logger.warning(f"Error reading existing results from {output_file}: {e}")
     return completed_instances
 
+
 def write_output_to_file(instance, process_instance, result, output_file):
     # Save result using the complete format
     result_dict = result.model_dump(mode="json")
 
     logger.info(f"Writing result for {instance.instance_id} to {output_file}")
     logger.info(f"Result dict keys: {list(result_dict.keys())}")
-    logger.info(f"Result dict git_patch length: {len(result_dict.get('test_result', {}).get('git_patch', ''))}")
+    logger.info(
+        f"Result dict git_patch length: {len(result_dict.get('test_result', {}).get('git_patch', ''))}"
+    )
     logger.info(f"Result dict history length: {len(result_dict.get('history', []))}")
 
     # Write to output file (thread-safe)
     import json
-    
+
     # Use a lock to ensure thread-safe file writing
-    if not hasattr(process_instance, '_file_lock'):
+    if not hasattr(process_instance, "_file_lock"):
         process_instance._file_lock = threading.Lock()
-    
+
     with process_instance._file_lock:
         with open(output_file, "a") as f:
             json_line = json.dumps(result_dict) + "\n"
@@ -157,4 +147,3 @@ def write_output_to_file(instance, process_instance, result, output_file):
             logger.info(
                 f"Successfully wrote {len(json_line)} characters to output file"
             )
-
