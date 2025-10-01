@@ -82,6 +82,8 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             metadata.eval_n_limit or 0,
             completed_instances,
         )
+        # Add repo_path column by extracting repo name from org/repo format
+        instances["repo_path"] = "/testbed/" + instances["repo"].str.split("/").str[1]
         print(f"### OUTPUT FILE: {output_file} ###")
         return instances
 
