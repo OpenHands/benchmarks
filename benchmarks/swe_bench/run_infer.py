@@ -98,7 +98,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         worker_port = getattr(threading.current_thread(), 'server_port', 8001)
         server_url = f"http://localhost:{worker_port}"
         
-        workspace = none
+        workspace = None
         conversation = None
         
         try:
