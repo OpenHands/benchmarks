@@ -182,6 +182,18 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             if conversation:
                 conversation.close()
 
+    def get_instance_docker_image(
+        instance: pd.Series,
+    ) -> str:
+            # Official SWE-Bench image
+            # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
+            # SWE-bench-Live uses the same naming convention as SWE-Bench
+            docker_image_prefix = 'docker.io/swebench/'
+            repo, name = instance['instance_id'].split('__')
+            image_name = f'{docker_image_prefix.rstrip("/")}/sweb.eval.x86_64.{repo}_1776_{name}:latest'.lower()
+            logger.debug(f'Using official SWE-Bench image: {image_name}')
+            return image_name
+
     def complete_runtime():
         """Complete the runtime - any cleanup if needed."""
         logger.info("Remote evaluation completed!")
@@ -193,6 +205,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         process_instance=process_instance,
         complete_runtime=complete_runtime,
         num_workers=num_workers,
+        get_instance_docker_image=get_instance_docker_image,
     )
 
     return runtime
