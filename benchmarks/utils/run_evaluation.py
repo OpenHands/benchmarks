@@ -127,9 +127,8 @@ def write_output_to_file(instance, process_instance, result, output_file):
 
     logger.info(f"Writing result for {instance.instance_id} to {output_file}")
     logger.info(f"Result dict keys: {list(result_dict.keys())}")
-    logger.info(
-        f"Result dict git_patch length: {len(result_dict.get('test_result', {}).get('git_patch', ''))}"
-    )
+    git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
+    logger.info(f"Result dict git_patch length: {git_patch_len}")
     logger.info(f"Result dict history length: {len(result_dict.get('history', []))}")
 
     # Write to output file (thread-safe)

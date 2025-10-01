@@ -45,7 +45,7 @@ class Runtime:
             process_instance: Function to process each instance
             complete_runtime: Function to complete the runtime (called once at end)
             num_workers: Number of worker threads to use for parallel processing
-            get_instance_docker_image: Function to get Docker image for each instance (remote mode only)
+            get_instance_docker_image: Function to get Docker image for each instance
         """
         self.metadata = metadata
         self.initialize_runtime = initialize_runtime
@@ -57,9 +57,8 @@ class Runtime:
         # Runtime mode detection
         self.runtime_mode = self._detect_runtime_mode()
         self.is_sandbox_mode = self.runtime_mode == "remote"
-        logger.info(
-            f"DEBUG: Runtime initialized with runtime_mode='{self.runtime_mode}', is_sandbox_mode={self.is_sandbox_mode}"
-        )
+        logger.info(f"Runtime initialized with runtime_mode='{self.runtime_mode}'")
+        logger.info(f"Runtime initialized with is_sandbox_mode={self.is_sandbox_mode}")
 
         # Worker pool management
         self.instance_queue = queue.Queue()
@@ -88,7 +87,7 @@ class Runtime:
         bar = bar.ljust(bar_length)
 
         print(
-            f"\rProgress: {percentage:.1f}%|{bar}| {self.completed_count}/{self.total_instances}",
+            f"\r{percentage:.1f}%|{bar}| {self.completed_count}/{self.total_instances}",
             end="",
             flush=True,
         )
@@ -96,14 +95,14 @@ class Runtime:
     def _detect_runtime_mode(self) -> str:
         """Detect runtime mode based on environment and configuration."""
         runtime_env = os.getenv("RUNTIME", "remote")
-        logger.info(f"DEBUG: RUNTIME environment variable = '{runtime_env}'")
+        logger.info(f"RUNTIME environment variable = '{runtime_env}'")
         if runtime_env.lower() == "remote":
-            logger.info("DEBUG: Detected runtime mode: 'remote' (sandbox mode)")
+            logger.info("Detected runtime mode: 'remote' (sandbox mode)")
             return "remote"  # RUNTIME=remote always means sandboxed mode
         else:
-            logger.error("DEBUG: Local runtime mode is not supported")
+            logger.error("Local runtime mode is not supported")
             raise ValueError(
-                f"Local runtime mode is not supported. RUNTIME environment variable is set to '{runtime_env}', but only 'remote' mode is allowed."
+                f"RUNTIME is set to '{runtime_env}', but only 'remote' mode is allowed."
             )
 
     def get_instance_docker_image(self, instance: Any) -> str:
@@ -178,9 +177,8 @@ class Runtime:
             worker_id: Unique identifier for this worker
             server_port: Port for agent server (remote mode only)
         """
-        logger.info(
-            f"Worker {worker_id} starting (mode={self.runtime_mode}, port={server_port})"
-        )
+        logger.info(f"Worker {worker_id} starting mode={self.runtime_mode}")
+        logger.info(f"Worker {worker_id} starting port={server_port}")
 
         # Set server_port on current thread for remote mode
         if self.is_sandbox_mode and server_port:
@@ -190,15 +188,13 @@ class Runtime:
         agent_server = None
         if self.is_sandbox_mode and server_port:
             try:
-                from openhands.sdk.sandbox import DockerSandboxedAgentServer
-
-                # For remote mode, we'll start servers per instance in the processing loop
+                # For remote mode, we start servers per instance in the processing loop
                 logger.info(
                     f"Worker {worker_id} ready for remote mode on port {server_port}"
                 )
             except ImportError as e:
                 logger.error(
-                    f"Worker {worker_id} failed to import DockerSandboxedAgentServer: {e}"
+                    f"Worker {worker_id} failed import DockerSandboxedAgentServer: {e}"
                 )
                 return
 
@@ -207,64 +203,52 @@ class Runtime:
                 try:
                     # Get instance from queue with timeout
                     instance = self.instance_queue.get(timeout=1)
+                    instance_id = instance.instance_id
 
-                    logger.info(
-                        f"Worker {worker_id} processing instance {instance.instance_id}"
-                    )
+                    logger.info(f"Worker {worker_id} processing instance {instance_id}")
 
                     # For sandbox mode, start a per-instance server
                     instance_server = None
                     if self.is_sandbox_mode and server_port:
                         logger.info(
-                            f"DEBUG: Worker {worker_id} attempting to start sandbox server for instance {instance.instance_id} on port {server_port}"
+                            f"Worker {worker_id} starting server for {instance_id}"
                         )
-                        logger.info(
-                            f"DEBUG: is_sandbox_mode={self.is_sandbox_mode}, server_port={server_port}"
-                        )
+                        logger.info(f"is_sandbox_mode={self.is_sandbox_mode}")
+                        logger.info(f"server_port={server_port}")
                         try:
-                            logger.info(
-                                "DEBUG: Calling _start_sandbox_server_for_instance..."
-                            )
+                            logger.info("Calling _start_sandbox_server_for_instance...")
                             instance_server = self._start_sandbox_server_for_instance(
                                 instance, server_port
                             )
-                            logger.info(
-                                f"Worker {worker_id} started sandbox server for instance {instance.instance_id}"
-                            )
+                            logger.info(f"Worker {worker_id} started for {instance_id}")
                         except Exception as e:
                             logger.error(
-                                f"Worker {worker_id} failed to start sandbox server for instance {instance.instance_id}: {e}"
+                                f"Worker {worker_id} failed to start {instance_id}"
                             )
                             logger.error(
-                                f"DEBUG: Full exception details: {type(e).__name__}: {str(e)}"
+                                f"Full exception details: {type(e).__name__}: {str(e)}"
                             )
                             import traceback
 
-                            logger.error(f"DEBUG: Traceback: {traceback.format_exc()}")
+                            logger.error(f"Traceback: {traceback.format_exc()}")
                             continue
 
                     try:
                         # Process the instance using the provided callback
                         self.process_instance(instance)
-                        logger.info(
-                            f"Worker {worker_id} completed instance {instance.instance_id}"
-                        )
+                        logger.info(f"Worker {worker_id} completed {instance_id}")
                     except Exception as e:
-                        logger.error(
-                            f"Worker {worker_id} error processing instance {instance.instance_id}: {e}"
-                        )
+                        logger.error(f"Worker {worker_id} error processing instance")
+                        logger.error(f"{instance_id}: {e}")
                     finally:
                         # Cleanup per-instance sandbox server
                         if instance_server:
                             try:
                                 instance_server.__exit__(None, None, None)
-                                logger.info(
-                                    f"Worker {worker_id} stopped sandbox server for instance {instance.instance_id}"
-                                )
+                                logger.info(f"Worker {worker_id} stopped {instance_id}")
                             except Exception as e:
-                                logger.error(
-                                    f"Worker {worker_id} error stopping sandbox server for instance {instance.instance_id}: {e}"
-                                )
+                                logger.error(f"Error stopping {worker_id}")
+                                logger.error(f"{instance_id}: {e}")
 
                         # Mark task as done
                         self.instance_queue.task_done()
@@ -303,16 +287,17 @@ class Runtime:
             DockerSandboxedAgentServer instance
         """
         logger.info(
-            f"DEBUG: _start_sandbox_server_for_instance called with instance={getattr(instance, 'instance_id', 'unknown')}, base_port={base_port}"
+            f"Start sandbox with instance={getattr(instance, 'instance_id', 'unknown')}"
         )
+        logger.info(f"Start sandbox with base_port={base_port}")
 
         from openhands.sdk.sandbox import DockerSandboxedAgentServer
 
-        logger.info("DEBUG: Successfully imported DockerSandboxedAgentServer")
+        logger.info("Successfully imported DockerSandboxedAgentServer")
 
         # Get the Docker image for this instance
         docker_image = self.get_instance_docker_image(instance)
-        logger.info(f"DEBUG: Got docker_image={docker_image} for instance")
+        logger.info(f"Got docker_image={docker_image} for instance")
 
         # Note: DockerSandboxedAgentServer will create its own container name
 
@@ -321,30 +306,25 @@ class Runtime:
         # Note: This requires the OpenHands source code with build.sh script
         # TODO: Either provide OpenHands source or use pre-built evaluation+agent images
         logger.info(
-            f"DEBUG: Creating DockerSandboxedAgentServer with base_image={docker_image}, host_port={base_port}"
+            f"Creating DockerSandboxedAgentServer with base_image={docker_image}"
         )
+        logger.info(f"Creating DockerSandboxedAgentServer with host_port={base_port}")
         server = DockerSandboxedAgentServer(
             base_image=docker_image,
             host_port=base_port,
         )
-        logger.info("DEBUG: DockerSandboxedAgentServer created successfully")
+        logger.info("DockerSandboxedAgentServer created successfully")
 
         # Start the server using context manager protocol
-        logger.info(
-            "DEBUG: Calling server.__enter__() to start the Docker container..."
-        )
+        logger.info("Calling server.__enter__() to start the Docker container...")
         try:
             server.__enter__()
-            logger.info("DEBUG: server.__enter__() completed successfully!")
+            logger.info("server.__enter__() completed successfully!")
         except Exception as e:
-            logger.error(
-                f"DEBUG: server.__enter__() failed: {type(e).__name__}: {str(e)}"
-            )
+            logger.error(f"server.__enter__() failed: {type(e).__name__}: {str(e)}")
             import traceback
 
-            logger.error(
-                f"DEBUG: server.__enter__() traceback: {traceback.format_exc()}"
-            )
+            logger.error(f"server.__enter__() traceback: {traceback.format_exc()}")
             raise
 
         return server
@@ -410,9 +390,8 @@ class Runtime:
         """
         logger.info("Starting runtime execution")
         logger.info(f"Runtime metadata: {self.metadata}")
-        logger.info(
-            f"Using {self.num_workers} workers in {'remote' if self.is_sandbox_mode else 'local'} mode"
-        )
+        logger.info(f"Using {self.num_workers} workers")
+        logger.info(f"Using {'remote' if self.is_sandbox_mode else 'local'} mode")
 
         try:
             # Initialize the runtime and retrieve all instances to process
