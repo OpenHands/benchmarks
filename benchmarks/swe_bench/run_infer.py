@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 import threading
 
 from pydantic import SecretStr
@@ -20,7 +21,7 @@ from benchmarks.utils.run_evaluation import (
 )
 from benchmarks.utils.conversation_tools import get_history, get_git_patch_from_history
 from benchmarks.utils.runtime import Runtime
-from openhands.sdk import Conversation, get_logger
+from openhands.sdk import Conversation, Workspace, get_logger
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
 
 
@@ -101,8 +102,18 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         workspace = None
         conversation = None
         
+        # Set up callback collection, like example 22
+        received_events: list = []
+        last_event_time = {"ts": time.time()}
+
+        def event_callback(event) -> None:
+            event_type = type(event).__name__
+            logger.info(f"🔔 Callback received event: {event_type}\n{event}")
+            received_events.append(event)
+            last_event_time["ts"] = time.time()
+
         try:
-            workspace = Workspace(host=server.base_url)
+            workspace = Workspace(host=server_url)
             result = workspace.execute_command(
                 "echo 'Hello from sandboxed environment!' && pwd"
             )
