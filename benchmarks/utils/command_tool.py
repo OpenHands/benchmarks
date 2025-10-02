@@ -12,12 +12,13 @@ from collections.abc import Sequence
 
 from pydantic import Field
 
+from openhands.core.schema import ActionType, ObservationType
 from openhands.sdk import ImageContent, TextContent
-from openhands.sdk.tool import ActionBase, ObservationBase, ToolExecutor
+from openhands.sdk.tool import ToolExecutor
 from openhands.tools.execute_bash import BashExecutor, ExecuteBashAction
 
 
-class ExecuteCommandAction(ActionBase):
+class ExecuteCommandAction(ActionType):
     """Action to execute a command in the runtime workspace."""
 
     command: str = Field(description="Command to execute")
@@ -30,7 +31,7 @@ class ExecuteCommandAction(ActionBase):
     )
 
 
-class ExecuteCommandObservation(ObservationBase):
+class ExecuteCommandObservation(ObservationType):
     """Observation containing command execution results."""
 
     command: str = Field(description="The command that was executed")
