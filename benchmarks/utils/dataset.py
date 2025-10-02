@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import os
+from typing import Optional
 
 import pandas as pd
 import toml
@@ -14,7 +15,7 @@ logger = get_logger(__name__)
 
 
 def filter_dataset(
-    dataset: pd.DataFrame, filter_column: str, config_path: str = None
+    dataset: pd.DataFrame, filter_column: str, config_path: Optional[str] = None
 ) -> pd.DataFrame:
     """Filter dataset based on config.toml selected_ids and environment variables."""
 
@@ -23,7 +24,7 @@ def filter_dataset(
         frame = inspect.currentframe()
         try:
             # Go up the call stack to find the benchmark directory
-            caller_frame = frame.f_back
+            caller_frame = frame.f_back if frame else None
             while caller_frame:
                 caller_file = caller_frame.f_code.co_filename
 
@@ -58,7 +59,8 @@ def filter_dataset(
                 # Filter by selected instance IDs first
                 if filter_column in dataset.columns:
                     original_size = len(dataset)
-                    dataset = dataset[dataset[filter_column].isin(selected_ids)]
+                    # pandas boolean should return a DataFrame
+                    dataset = dataset[dataset[filter_column].isin(selected_ids)]  # type: ignore
                     logger.info(
                         f"Filtered {original_size} to {len(dataset)} selected_ids"
                     )
@@ -88,14 +90,15 @@ def prepare_dataset(
     dataset: pd.DataFrame,
     output_file: str,
     n_limit: int,
-    completed_instances: set = None,
+    completed_instances: Optional[set] = None,
 ) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
 
     # Filter out completed instances
     if completed_instances:
         original_size = len(dataset)
-        dataset = dataset[~dataset["instance_id"].isin(completed_instances)]
+        # pandas boolean should return a DataFrame
+        dataset = dataset[~dataset["instance_id"].isin(completed_instances)]  # type: ignore
         logger.info(f"Filtered out {original_size - len(dataset)} completed instances")
         logger.info(f"{len(dataset)} instances remaining")
 
