@@ -20,7 +20,8 @@ from benchmarks.utils.run_evaluation import (
 )
 from benchmarks.utils.runtime import Runtime
 from benchmarks.utils.shared import EvalMetadata
-from openhands.sdk import LLM, Conversation, Workspace, get_logger
+from openhands.sdk import LLM, RemoteWorkspace, Workspace, get_logger
+from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
 from openhands.tools.preset.default import get_default_agent
 
 
@@ -100,7 +101,6 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         worker_port = getattr(threading.current_thread(), "server_port", 8001)
         server_url = f"http://localhost:{worker_port}"
 
-        workspace = None
         conversation = None
 
         # Set up callback collection, like example 22
@@ -114,18 +114,12 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             last_event_time["ts"] = time.time()
 
         try:
-            workspace = Workspace(host=server_url)
-            conversation = Conversation(
+            workspace: RemoteWorkspace = Workspace(host=server_url)
+            conversation = RemoteConversation(
                 agent=agent,
-                visualize=False,
                 workspace=workspace,
                 callbacks=[event_callback],
-                stuck_detection=False,
                 max_iteration_per_run=metadata.max_iterations,
-            )
-
-            from openhands.sdk.conversation.impl.remote_conversation import (
-                RemoteConversation,
             )
 
             assert isinstance(conversation, RemoteConversation)
