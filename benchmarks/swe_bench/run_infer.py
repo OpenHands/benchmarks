@@ -20,9 +20,9 @@ from benchmarks.utils.run_evaluation import (
 )
 from benchmarks.utils.runtime import Runtime
 from benchmarks.utils.shared import EvalMetadata
-from openhands.sdk import LLM, RemoteWorkspace, Workspace, get_logger
+from openhands.sdk import LLM, Agent, RemoteWorkspace, Workspace, get_logger
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
-from openhands.tools.preset.default import get_default_agent
+from openhands.tools.preset.default import get_default_tools
 
 
 logger = get_logger(__name__)
@@ -40,53 +40,57 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     logger.info("Running evaluation in REMOTE mode")
     logger.info(f"Using {num_workers} workers for parallel processing")
 
-    # Global variables for runtime methods
-    global instances, output_file, results, agent, llm_instance
-    instances = None
-    output_file = None
-    results = []
-    agent = None
-    llm_instance = llm
+    # Shared state using closure variables instead of globals
+    runtime_state = {
+        "instances": None,
+        "output_file": None,
+        "results": [],
+        "agent": None,
+        "llm_instance": llm,
+    }
 
     def initialize_dataset_run():
         """Initialize the dataset run and return instances to process."""
-        global instances, output_file, agent
-
         # Create agent
-        agent = get_default_agent(
-            llm=llm_instance,
-            cli_mode=True,  # Disable browser tools for simplicity
+        runtime_state["agent"] = Agent(
+            llm=runtime_state["llm_instance"],
+            tools=get_default_tools(enable_browser=False),  # Disable browser tools
+            # Remove or modify mcp_config to exclude fetch server
+            mcp_config={"mcpServers": {}},
         )
-
         # Prepare output file
-        output_file = os.path.join(metadata.eval_output_dir or ".", "output.jsonl")
-        output_dir = os.path.dirname(output_file)
+        runtime_state["output_file"] = os.path.join(
+            metadata.eval_output_dir or ".", "output.jsonl"
+        )
+        output_dir = os.path.dirname(runtime_state["output_file"])
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
         # Read existing completed instances instead of overwriting
-        completed_instances = read_completed_instances(output_file)
+        completed_instances = read_completed_instances(runtime_state["output_file"])
         if completed_instances:
             logger.info(f"Found {len(completed_instances)} already completed instances")
         else:
             logger.info("No existing results found, starting fresh")
             # Create empty output file only if it doesn't exist
-            if not os.path.exists(output_file):
-                with open(output_file, "w"):
+            if not os.path.exists(runtime_state["output_file"]):
+                with open(runtime_state["output_file"], "w"):
                     pass
 
         # Retrieve instances to process, excluding completed ones
-        instances = get_dataset(
+        runtime_state["instances"] = get_dataset(
             metadata.dataset or "",
             metadata.data_split or "",
-            output_file,
+            runtime_state["output_file"],
             metadata.eval_n_limit or 0,
             completed_instances,
         )
         # Add repo_path column by extracting repo name from org/repo format
-        instances["repo_path"] = "/testbed/" + instances["repo"].str.split("/").str[1]
-        print(f"### OUTPUT FILE: {output_file} ###")
-        return instances
+        runtime_state["instances"]["repo_path"] = (
+            "/testbed/" + runtime_state["instances"]["repo"].str.split("/").str[1]
+        )
+        print(f"### OUTPUT FILE: {runtime_state['output_file']} ###")
+        return runtime_state["instances"]
 
     def process_instance(instance):
         """Process a single instance using remote conversation."""
@@ -114,11 +118,11 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             last_event_time["ts"] = time.time()
 
         try:
-            if agent is None:
+            if runtime_state["agent"] is None:
                 raise ValueError("Agent cannot be None")
             workspace: RemoteWorkspace = Workspace(host=server_url)
             conversation = RemoteConversation(
-                agent=agent,
+                agent=runtime_state["agent"],
                 workspace=workspace,
                 callbacks=[event_callback],
                 max_iteration_per_run=metadata.max_iterations,
@@ -207,7 +211,9 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 error=None,
             )
 
-            write_output_to_file(instance, process_instance, result, output_file)
+            write_output_to_file(
+                instance, process_instance, result, runtime_state["output_file"]
+            )
 
             logger.info(f"Completed processing instance {instance.instance_id}")
 
