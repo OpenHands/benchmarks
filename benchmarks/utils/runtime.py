@@ -231,6 +231,7 @@ class Runtime:
                             import traceback
 
                             logger.error(f"Traceback: {traceback.format_exc()}")
+                            self.instance_queue.task_done()
                             continue
 
                     try:
@@ -334,7 +335,7 @@ class Runtime:
         """Find the first available port starting from start_port."""
         port = start_port
         logger.info("start_port type=%s value=%s", type(start_port), start_port)
-        while port < start_port + 100:  # Try 100 ports max
+        while port < start_port + 1000:  # Try 100 ports max
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.bind(("localhost", port))
@@ -357,7 +358,7 @@ class Runtime:
         for worker_id in range(self.num_workers):
             if self.is_sandbox_mode:
                 # Each worker gets its own agent server port
-                server_port = Runtime._find_free_port(8001 + worker_id * 10)
+                server_port = Runtime._find_free_port(8001 + worker_id * 1000)
                 worker = threading.Thread(
                     target=self._worker_loop,
                     args=(worker_id, server_port),
