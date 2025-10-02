@@ -114,6 +114,8 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             last_event_time["ts"] = time.time()
 
         try:
+            if agent is None:
+                raise ValueError("Agent cannot be None")
             workspace: RemoteWorkspace = Workspace(host=server_url)
             conversation = RemoteConversation(
                 agent=agent,
@@ -199,7 +201,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 test_result={
                     "git_patch": git_patch,
                 },
-                metadata=metadata.model_dump(),
+                metadata=metadata,
                 history=history,
                 metrics={},
                 error=None,
@@ -208,7 +210,6 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             write_output_to_file(instance, process_instance, result, output_file)
 
             logger.info(f"Completed processing instance {instance.instance_id}")
-            return result
 
         except Exception as e:
             logger.error(f"Error processing instance {instance.instance_id}: {e}")
@@ -226,7 +227,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
         # SWE-bench-Live uses the same naming convention as SWE-Bench
         docker_image_prefix = "docker.io/swebench/"
-        repo, name = instance["instance_id"].split("__")
+        repo, name = str(instance["instance_id"]).split("__")
         prefix = docker_image_prefix.rstrip("/")
         image_name = f"{prefix}/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
         logger.debug(f"Using official SWE-Bench image: {image_name}")
