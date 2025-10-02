@@ -143,27 +143,45 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             logger.info("Conversation.run() completed")
             history = get_history(conversation)
 
-            result = workspace.execute_command(
-                (
-                    f"cd {instance.repo_path} ; "
-                    "git config --global core.pager '' > /dev/null 2>&1 ; "
-                    "git add -A > /dev/null 2>&1 ; "
-                    f"git diff --no-color --cached {instance['base_commit']}"
-                )
-            )
-            logger.info(f"Result of patch command execution: {result}")
-            exit_code = result["exit_code"]
+            # Retry git patch extraction up to 5 times before falling back to history
             git_patch = ""
-            if result["exit_code"] != 0:
-                stderr = result["stderr"]
-                logger.info(f"Command failed with exit code {exit_code}: {stderr}")
-            else:
-                git_patch = result["stdout"]
+            max_retries = 5
+            for attempt in range(max_retries):
+                logger.info(f"Git patch extraction attempt {attempt + 1}/{max_retries}")
+                result = workspace.execute_command(
+                    (
+                        f"cd {instance.repo_path} ; "
+                        "git config --global core.pager '' > /dev/null 2>&1 ; "
+                        "git add -A > /dev/null 2>&1 ; "
+                        f"git diff --no-color --cached {instance['base_commit']}"
+                    )
+                )
+                logger.info(
+                    f"Patch command execution (attempt {attempt + 1}): {result}"
+                )
+                exit_code = result["exit_code"]
+
+                if result["exit_code"] != 0:
+                    stderr = result["stderr"]
+                    logger.info(f"Command failed with exit code {exit_code}: {stderr}")
+                else:
+                    git_patch = result["stdout"]
+                    if git_patch:
+                        logger.info(
+                            f"Successfully extracted git patch on attempt {attempt + 1}"
+                        )
+                        break
+                    else:
+                        logger.info(f"Git patch empty on attempt {attempt + 1}")
+
+                # Wait a bit before retrying (except on last attempt)
+                if attempt < max_retries - 1:
+                    time.sleep(1)
 
             if not git_patch:
-                logger.info("git_patch empty searching history.")
+                logger.info("git_patch empty after all retries, searching history.")
                 git_patch = get_git_patch_from_history(history)
-                logger.info(f"Result of patch from history: {git_patch}")
+                logger.info(f"Patch from history: {git_patch}")
 
             logger.info(f"Extracted git patch with {len(git_patch)} characters")
 
