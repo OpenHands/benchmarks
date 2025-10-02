@@ -33,8 +33,8 @@ class Runtime:
         initialize_runtime: Callable[[], pd.DataFrame],
         process_instance: Callable[[Any], None],
         complete_runtime: Callable[[], None],
+        get_instance_docker_image: Callable[[Any], str],
         num_workers: int = 1,
-        get_instance_docker_image: Callable[[Any], str] = None,
     ):
         """
         Initialize the Runtime with metadata and processing methods.
@@ -52,7 +52,7 @@ class Runtime:
         self.process_instance = process_instance
         self.complete_runtime = complete_runtime
         self.num_workers = num_workers
-        self._get_instance_docker_image = get_instance_docker_image
+        self.get_instance_docker_image = get_instance_docker_image
 
         # Runtime mode detection
         self.runtime_mode = self._detect_runtime_mode()
@@ -104,70 +104,6 @@ class Runtime:
             raise ValueError(
                 f"RUNTIME is set to '{runtime_env}', but only 'remote' mode is allowed."
             )
-
-    def get_instance_docker_image(self, instance: Any) -> str:
-        """
-        Get the Docker image to use for a specific instance.
-
-        Args:
-            instance: The instance data as a pandas Series
-
-        Returns:
-            Docker image name to use for this instance
-        """
-        if self._get_instance_docker_image:
-            return self._get_instance_docker_image(instance)
-
-        # Default fallback logic
-        return self._get_default_docker_image(instance)
-
-    def _get_default_docker_image(self, instance: Any) -> str:
-        """Default logic for determining Docker image based on instance."""
-        # Check if instance has specific requirements
-        if hasattr(instance, "language") or (
-            hasattr(instance, "__contains__") and "language" in instance
-        ):
-            language = getattr(
-                instance,
-                "language",
-                instance.get("language", "") if hasattr(instance, "get") else "",
-            ).lower()
-            if language == "python":
-                return "python:3.12-slim"
-            elif language == "javascript" or language == "node":
-                return "node:18-slim"
-            elif language == "java":
-                return "openjdk:17-slim"
-
-        # Check for specific frameworks or dependencies
-        if hasattr(instance, "repo_name") or (
-            hasattr(instance, "__contains__") and "repo_name" in instance
-        ):
-            repo_name = getattr(
-                instance,
-                "repo_name",
-                instance.get("repo_name", "") if hasattr(instance, "get") else "",
-            ).lower()
-            if "django" in repo_name or "flask" in repo_name:
-                return "python:3.12-slim"
-            elif "react" in repo_name or "vue" in repo_name:
-                return "nikolaik/python-nodejs:python3.12-nodejs22"
-
-        # Check if instance specifies its own Docker image
-        if hasattr(instance, "docker_image") and instance.docker_image:
-            return instance.docker_image
-
-        if (
-            hasattr(instance, "__contains__")
-            and "docker_image" in instance
-            and instance["docker_image"]
-        ):
-            return instance["docker_image"]
-
-        # Default general-purpose image
-        return os.getenv(
-            "SANDBOX_BASE_IMAGE", "nikolaik/python-nodejs:python3.12-nodejs22"
-        )
 
     def _worker_loop(self, worker_id: int) -> None:
         """
