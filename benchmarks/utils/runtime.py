@@ -204,9 +204,14 @@ class Runtime:
                     server_port = None
                     if self.is_sandbox_mode:
                         server_port = Runtime._find_free_port(8001 + worker_id * 1000)
-                        threading.current_thread().server_port = server_port  # Set for process_instance()
+                        threading.current_thread().server_port = (
+                            server_port  # Set for process_instance()
+                        )
                         logger.info(
-                            f"Worker {worker_id} starting server for {instance_id} on port {server_port}"
+                            (
+                                f"Worker {worker_id} starting server"
+                                f"for {instance_id} on port {server_port}"
+                            )
                         )
                         logger.info(f"is_sandbox_mode={self.is_sandbox_mode}")
                         try:
@@ -254,8 +259,8 @@ class Runtime:
                             self._print_progress_bar()
 
                         # Clean up thread port
-                        if hasattr(threading.current_thread(), 'server_port'):
-                            delattr(threading.current_thread(), 'server_port')
+                        if hasattr(threading.current_thread(), "server_port"):
+                            delattr(threading.current_thread(), "server_port")
 
                 except queue.Empty:
                     # No more instances to process
