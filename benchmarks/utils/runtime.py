@@ -204,9 +204,7 @@ class Runtime:
                     server_port = None
                     if self.is_sandbox_mode:
                         server_port = Runtime._find_free_port(8001 + worker_id * 1000)
-                        threading.current_thread().server_port = (
-                            server_port  # Set for process_instance()
-                        )
+                        setattr(threading.current_thread(), "server_port", server_port)
                         logger.info(
                             (
                                 f"Worker {worker_id} starting server"
