@@ -169,29 +169,21 @@ class Runtime:
             "SANDBOX_BASE_IMAGE", "nikolaik/python-nodejs:python3.12-nodejs22"
         )
 
-    def _worker_loop(self, worker_id: int, server_port: int = None) -> None:
+    def _worker_loop(self, worker_id: int) -> None:
         """
         Worker loop that processes instances from the queue.
 
         Args:
             worker_id: Unique identifier for this worker
-            server_port: Port for agent server (remote mode only)
         """
         logger.info(f"Worker {worker_id} starting mode={self.runtime_mode}")
-        logger.info(f"Worker {worker_id} starting port={server_port}")
-
-        # Set server_port on current thread for remote mode
-        if self.is_sandbox_mode and server_port:
-            threading.current_thread().server_port = server_port
 
         # Start appropriate agent server based on runtime mode
         agent_server = None
-        if self.is_sandbox_mode and server_port:
+        if self.is_sandbox_mode:
             try:
                 # For remote mode, we start servers per instance in the processing loop
-                logger.info(
-                    f"Worker {worker_id} ready for remote mode on port {server_port}"
-                )
+                logger.info(f"Worker {worker_id} ready for remote mode")
             except ImportError as e:
                 logger.error(
                     f"Worker {worker_id} failed import DockerSandboxedAgentServer: {e}"
@@ -207,14 +199,16 @@ class Runtime:
 
                     logger.info(f"Worker {worker_id} processing instance {instance_id}")
 
-                    # For sandbox mode, start a per-instance server
+                    # For sandbox mode, get fresh port and start a per-instance server
                     instance_server = None
-                    if self.is_sandbox_mode and server_port:
+                    server_port = None
+                    if self.is_sandbox_mode:
+                        server_port = Runtime._find_free_port(8001 + worker_id * 1000)
+                        threading.current_thread().server_port = server_port  # Set for process_instance()
                         logger.info(
-                            f"Worker {worker_id} starting server for {instance_id}"
+                            f"Worker {worker_id} starting server for {instance_id} on port {server_port}"
                         )
                         logger.info(f"is_sandbox_mode={self.is_sandbox_mode}")
-                        logger.info(f"server_port={server_port}")
                         try:
                             logger.info("Calling _start_sandbox_server_for_instance...")
                             instance_server = self._start_sandbox_server_for_instance(
@@ -258,6 +252,10 @@ class Runtime:
                         with self.progress_lock:
                             self.completed_count += 1
                             self._print_progress_bar()
+
+                        # Clean up thread port
+                        if hasattr(threading.current_thread(), 'server_port'):
+                            delattr(threading.current_thread(), 'server_port')
 
                 except queue.Empty:
                     # No more instances to process
@@ -356,21 +354,11 @@ class Runtime:
         workers = []
 
         for worker_id in range(self.num_workers):
-            if self.is_sandbox_mode:
-                # Each worker gets its own agent server port
-                server_port = Runtime._find_free_port(8001 + worker_id * 1000)
-                worker = threading.Thread(
-                    target=self._worker_loop,
-                    args=(worker_id, server_port),
-                    name=f"Worker-{worker_id}",
-                )
-            else:
-                # Local mode worker
-                worker = threading.Thread(
-                    target=self._worker_loop,
-                    args=(worker_id, None),
-                    name=f"Worker-{worker_id}",
-                )
+            worker = threading.Thread(
+                target=self._worker_loop,
+                args=(worker_id,),  # Remove server_port parameter
+                name=f"Worker-{worker_id}",
+            )
 
             workers.append(worker)
             worker.start()
