@@ -47,6 +47,13 @@ class Runtime:
             num_workers: Number of worker threads to use for parallel processing
             get_instance_docker_image: Function to get Docker image for each instance
         """
+        # Check required environment variables
+        if not os.getenv("AGENT_SDK_PATH"):
+            raise RuntimeError(
+                "AGENT_SDK_PATH environment variable is required but not set. "
+                "Please set it to the path of your OpenHands Agent SDK installation."
+            )
+
         self.metadata = metadata
         self.initialize_runtime = initialize_runtime
         self.process_instance = process_instance
