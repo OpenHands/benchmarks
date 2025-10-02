@@ -55,8 +55,6 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         runtime_state["agent"] = Agent(
             llm=runtime_state["llm_instance"],
             tools=get_default_tools(enable_browser=False),  # Disable browser tools
-            # Remove or modify mcp_config to exclude fetch server
-            mcp_config={"mcpServers": {}},
         )
         # Prepare output file
         runtime_state["output_file"] = os.path.join(
