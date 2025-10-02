@@ -114,7 +114,7 @@ def get_dataset(
     split: str,
     output_file: str,
     eval_n_limit: int,
-    completed_instances: set = None,
+    completed_instances: Optional[set] = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Load dataset
