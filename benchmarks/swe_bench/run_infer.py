@@ -39,6 +39,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     """
     logger.info("Running evaluation in REMOTE mode")
     logger.info(f"Using {num_workers} workers for parallel processing")
+    workspace_path = "/workspace"
 
     # Shared state using closure variables instead of globals
     runtime_state = {
@@ -85,7 +86,10 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         )
         # Add repo_path column by extracting repo name from org/repo format
         runtime_state["instances"]["repo_path"] = (
-            "/testbed/" + runtime_state["instances"]["repo"].str.split("/").str[1]
+            runtime_state["instances"]["repo"]
+            .str.split("/")
+            .str[1]
+            .apply(lambda name: os.path.join(workspace_path, name))
         )
         print(f"### OUTPUT FILE: {runtime_state['output_file']} ###")
         return runtime_state["instances"]
@@ -94,7 +98,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         """Process a single instance using remote conversation."""
         logger.info(f"Processing instance: {instance.instance_id}")
 
-        workspace_path = "/workspace"
+        # Get instruction
         instruction = get_instruction(
             instance, metadata, workspace_path, metadata.prompt_path or ""
         )
@@ -119,14 +123,33 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             if runtime_state["agent"] is None:
                 raise ValueError("Agent cannot be None")
             workspace: RemoteWorkspace = Workspace(host=server_url)
-            conversation = RemoteConversation(
-                agent=runtime_state["agent"],
-                workspace=workspace,
-                callbacks=[event_callback],
-                max_iteration_per_run=metadata.max_iterations,
-            )
 
-            assert isinstance(conversation, RemoteConversation)
+            # Clone repository
+            repo_clone_output = workspace.execute_command(f"""
+                mkdir -p {workspace_path} ;
+                git clone https://github.com/{instance.repo} {instance.repo_path} > /dev/null 2>&1 ;
+                cd {instance.repo_path} ;
+                git branch | grep -v "main" | xargs git branch -D > /dev/null 2>&1 ;
+                git reset --hard {instance.base_commit} ;
+            """)
+
+            if repo_clone_output["exit_code"] != 0:
+                stderr = repo_clone_output["stderr"]
+                stdout = repo_clone_output["stdout"]
+                logger.info(f"Cloning repository failed with exit code {exit_code}: {stderr}")
+                logger.info(f"Cloning repository failed with stdout: {stdout}")
+            else:
+                stdout = repo_clone_output["stdout"]
+                logger.info(f"Cloning repository succeeded with stdout: {stdout}")
+
+                conversation = RemoteConversation(
+                    agent=runtime_state["agent"],
+                    workspace=workspace,
+                    callbacks=[event_callback],
+                    max_iteration_per_run=metadata.max_iterations,
+                )
+
+                assert isinstance(conversation, RemoteConversation)
 
             # Send message and run with event streaming
             logger.info(f"Sending instruction to conversation: {instruction[:100]}...")
@@ -157,7 +180,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                         f"cd {instance.repo_path} ; "
                         "git config --global core.pager '' > /dev/null 2>&1 ; "
                         "git add -A > /dev/null 2>&1 ; "
-                        f"git diff --no-color --cached {instance['base_commit']}"
+                        f"git --no-pager diff --cached {instance.base_commit}"
                     )
                 )
                 logger.info(
@@ -167,7 +190,9 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
 
                 if result["exit_code"] != 0:
                     stderr = result["stderr"]
+                    stdout = result["stdout"]
                     logger.info(f"Command failed with exit code {exit_code}: {stderr}")
+                    logger.info(f"Command failed with stdout: {stdout}")
                 else:
                     git_patch = result["stdout"]
                     if git_patch:
