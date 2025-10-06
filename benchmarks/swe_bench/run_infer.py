@@ -124,10 +124,11 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 raise ValueError("Agent cannot be None")
             workspace: RemoteWorkspace = Workspace(host=server_url)
 
+            repo_url = f"https://github.com/{instance.repo}"
             # Clone repository
             repo_clone_output = workspace.execute_command(f"""
                 mkdir -p {workspace_path} ;
-                git clone https://github.com/{instance.repo} {instance.repo_path} > /dev/null 2>&1 ;
+                git clone {repo_url} {instance.repo_path} > /dev/null 2>&1 ;
                 cd {instance.repo_path} ;
                 git branch | grep -v "main" | xargs git branch -D > /dev/null 2>&1 ;
                 git reset --hard {instance.base_commit} ;
@@ -136,8 +137,11 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             if repo_clone_output["exit_code"] != 0:
                 stderr = repo_clone_output["stderr"]
                 stdout = repo_clone_output["stdout"]
-                logger.info(f"Cloning repository failed with exit code {exit_code}: {stderr}")
-                logger.info(f"Cloning repository failed with stdout: {stdout}")
+                logger.info(
+                    f"Cloning failed with {repo_clone_output['exit_code']}: {stderr}"
+                )
+                logger.info(f"Cloning failed with stdout: {stdout}")
+                raise ValueError("Cloning failed")
             else:
                 stdout = repo_clone_output["stdout"]
                 logger.info(f"Cloning repository succeeded with stdout: {stdout}")
