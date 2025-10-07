@@ -61,16 +61,6 @@ class Evaluation:
         self.num_workers = num_workers
         self.get_instance_docker_image = get_instance_docker_image
 
-        # Evaluation mode detection
-        self.evaluation_mode = self._detect_evaluation_mode()
-        self.is_sandbox_mode = self.evaluation_mode == "remote"
-        logger.info(
-            f"Evaluation initialized with evaluation_mode='{self.evaluation_mode}'"
-        )
-        logger.info(
-            f"Evaluation initialized with is_sandbox_mode={self.is_sandbox_mode}"
-        )
-
         # Worker pool management
         self.instance_queue = queue.Queue()
         self.workers = []
@@ -103,19 +93,6 @@ class Evaluation:
             flush=True,
         )
 
-    def _detect_evaluation_mode(self) -> str:
-        """Detect evaluation mode based on environment and configuration."""
-        evaluation_env = os.getenv("RUNTIME", "remote")
-        logger.info(f"RUNTIME environment variable = '{evaluation_env}'")
-        if evaluation_env.lower() == "remote":
-            logger.info("Detected evaluation mode: 'remote' (sandbox mode)")
-            return "remote"  # RUNTIME=remote always means sandboxed mode
-        else:
-            logger.error("Local evaluation mode is not supported")
-            raise ValueError(
-                f"RUNTIME is set to '{evaluation_env}', only 'remote' mode is allowed."
-            )
-
     def _worker_loop(self, worker_id: int) -> None:
         """
         Worker loop that processes instances from the queue.
@@ -123,19 +100,10 @@ class Evaluation:
         Args:
             worker_id: Unique identifier for this worker
         """
-        logger.info(f"Worker {worker_id} starting mode={self.evaluation_mode}")
+        logger.info(f"Worker {worker_id} starting...")
 
-        # Start appropriate agent server based on evaluation mode
+        # Start agent server 
         agent_server = None
-        if self.is_sandbox_mode:
-            try:
-                # For remote mode, we start servers per instance in the processing loop
-                logger.info(f"Worker {worker_id} ready for remote mode")
-            except ImportError as e:
-                logger.error(
-                    f"Worker {worker_id} failed import DockerSandboxedAgentServer: {e}"
-                )
-                return
 
         try:
             while True:
@@ -146,39 +114,37 @@ class Evaluation:
 
                     logger.info(f"Worker {worker_id} processing instance {instance_id}")
 
-                    # For sandbox mode, get fresh port and start a per-instance server
+                    # Get fresh port and start a per-instance server
                     instance_server = None
                     server_port = None
-                    if self.is_sandbox_mode:
-                        server_port = Evaluation._find_free_port(
-                            8001 + worker_id * 1000
+                    server_port = Evaluation._find_free_port(
+                        8001 + worker_id * 1000
+                    )
+                    setattr(threading.current_thread(), "server_port", server_port)
+                    logger.info(
+                        (
+                            f"Worker {worker_id} starting server"
+                            f"for {instance_id} on port {server_port}"
                         )
-                        setattr(threading.current_thread(), "server_port", server_port)
-                        logger.info(
-                            (
-                                f"Worker {worker_id} starting server"
-                                f"for {instance_id} on port {server_port}"
-                            )
+                    )
+                    try:
+                        logger.info("Calling _start_sandbox_server_for_instance...")
+                        instance_server = self._start_sandbox_server_for_instance(
+                            instance, server_port
                         )
-                        logger.info(f"is_sandbox_mode={self.is_sandbox_mode}")
-                        try:
-                            logger.info("Calling _start_sandbox_server_for_instance...")
-                            instance_server = self._start_sandbox_server_for_instance(
-                                instance, server_port
-                            )
-                            logger.info(f"Worker {worker_id} started for {instance_id}")
-                        except Exception as e:
-                            logger.error(
-                                f"Worker {worker_id} failed to start {instance_id}"
-                            )
-                            logger.error(
-                                f"Full exception details: {type(e).__name__}: {str(e)}"
-                            )
-                            import traceback
+                        logger.info(f"Worker {worker_id} started for {instance_id}")
+                    except Exception as e:
+                        logger.error(
+                            f"Worker {worker_id} failed to start {instance_id}"
+                        )
+                        logger.error(
+                            f"Full exception details: {type(e).__name__}: {str(e)}"
+                        )
+                        import traceback
 
-                            logger.error(f"Traceback: {traceback.format_exc()}")
-                            self.instance_queue.task_done()
-                            continue
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        self.instance_queue.task_done()
+                        continue
 
                     try:
                         # Process the instance using the provided callback
@@ -332,7 +298,6 @@ class Evaluation:
         logger.info("Starting evaluation execution")
         logger.info(f"Evaluation metadata: {self.metadata}")
         logger.info(f"Using {self.num_workers} workers")
-        logger.info(f"Using {'remote' if self.is_sandbox_mode else 'local'} mode")
 
         try:
             # Initialize the evaluation and retrieve all instances to process
