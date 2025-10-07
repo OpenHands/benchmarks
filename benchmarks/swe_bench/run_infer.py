@@ -11,6 +11,7 @@ from pydantic import SecretStr
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.conversation_tools import get_git_patch_from_history, get_history
 from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_instruction,
@@ -18,7 +19,6 @@ from benchmarks.utils.evaluation_utils import (
     read_completed_instances,
     write_output_to_file,
 )
-from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.shared import EvalMetadata
 from openhands.sdk import LLM, Agent, RemoteWorkspace, Workspace, get_logger
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
@@ -30,14 +30,14 @@ logger = get_logger(__name__)
 
 def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
     """
-    Run evaluation using remote evaluation mode (agent server).
+    Run evaluation using agent server.
 
     Args:
         llm: LLM instance to use for evaluation
         metadata: EvalMetadata object containing evaluation configuration
         num_workers: Number of worker threads to use for parallel processing
     """
-    logger.info("Running evaluation in REMOTE mode")
+    logger.info("Running evaluation")
     logger.info(f"Using {num_workers} workers for parallel processing")
     workspace_path = "/workspace"
 
@@ -132,7 +132,7 @@ def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
                 cd {instance.repo_path} ;
                 git branch | grep -v "main" | xargs git branch -D > /dev/null 2>&1 ;
                 git reset --hard {instance.base_commit} ;
-            """)
+            """, timeout=90)
 
             if repo_clone_output["exit_code"] != 0:
                 stderr = repo_clone_output["stderr"]
