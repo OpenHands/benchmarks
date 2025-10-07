@@ -1,5 +1,5 @@
 """
-Runtime class for orchestrating instance processing workflows.
+Evaluation class for orchestrating instance processing workflows.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-class Runtime:
+class Evaluation:
     """
-    Runtime class that orchestrates the processing of instances.
+    Evaluation class that orchestrates the processing of instances.
 
     This class receives metadata and callback methods for processing instances,
     and provides a run method that coordinates the entire workflow.
@@ -30,20 +30,20 @@ class Runtime:
     def __init__(
         self,
         metadata: EvalMetadata,
-        initialize_runtime: Callable[[], pd.DataFrame],
+        initialize_dataset_run: Callable[[], pd.DataFrame],
         process_instance: Callable[[Any], None],
-        complete_runtime: Callable[[], None],
+        complete_dataset_run: Callable[[], None],
         get_instance_docker_image: Callable[[Any], str],
         num_workers: int = 1,
     ):
         """
-        Initialize the Runtime with metadata and processing methods.
+        Initialize the Evaluation with metadata and processing methods.
 
         Args:
-            metadata: EvalMetadata object containing runtime metadata
-            initialize_runtime: Function to initialize the runtime and return instances
+            metadata: EvalMetadata object containing evaluation metadata
+            initialize_dataset_run: Function to initialize dataset and return instances
             process_instance: Function to process each instance
-            complete_runtime: Function to complete the runtime (called once at end)
+            complete_dataset_run: Function to complete the dataset evaluation
             num_workers: Number of worker threads to use for parallel processing
             get_instance_docker_image: Function to get Docker image for each instance
         """
@@ -55,17 +55,21 @@ class Runtime:
             )
 
         self.metadata = metadata
-        self.initialize_runtime = initialize_runtime
+        self.initialize_dataset_run = initialize_dataset_run
         self.process_instance = process_instance
-        self.complete_runtime = complete_runtime
+        self.complete_dataset_run = complete_dataset_run
         self.num_workers = num_workers
         self.get_instance_docker_image = get_instance_docker_image
 
-        # Runtime mode detection
-        self.runtime_mode = self._detect_runtime_mode()
-        self.is_sandbox_mode = self.runtime_mode == "remote"
-        logger.info(f"Runtime initialized with runtime_mode='{self.runtime_mode}'")
-        logger.info(f"Runtime initialized with is_sandbox_mode={self.is_sandbox_mode}")
+        # Evaluation mode detection
+        self.evaluation_mode = self._detect_evaluation_mode()
+        self.is_sandbox_mode = self.evaluation_mode == "remote"
+        logger.info(
+            f"Evaluation initialized with evaluation_mode='{self.evaluation_mode}'"
+        )
+        logger.info(
+            f"Evaluation initialized with is_sandbox_mode={self.is_sandbox_mode}"
+        )
 
         # Worker pool management
         self.instance_queue = queue.Queue()
@@ -99,17 +103,17 @@ class Runtime:
             flush=True,
         )
 
-    def _detect_runtime_mode(self) -> str:
-        """Detect runtime mode based on environment and configuration."""
-        runtime_env = os.getenv("RUNTIME", "remote")
-        logger.info(f"RUNTIME environment variable = '{runtime_env}'")
-        if runtime_env.lower() == "remote":
-            logger.info("Detected runtime mode: 'remote' (sandbox mode)")
+    def _detect_evaluation_mode(self) -> str:
+        """Detect evaluation mode based on environment and configuration."""
+        evaluation_env = os.getenv("RUNTIME", "remote")
+        logger.info(f"RUNTIME environment variable = '{evaluation_env}'")
+        if evaluation_env.lower() == "remote":
+            logger.info("Detected evaluation mode: 'remote' (sandbox mode)")
             return "remote"  # RUNTIME=remote always means sandboxed mode
         else:
-            logger.error("Local runtime mode is not supported")
+            logger.error("Local evaluation mode is not supported")
             raise ValueError(
-                f"RUNTIME is set to '{runtime_env}', but only 'remote' mode is allowed."
+                f"RUNTIME is set to '{evaluation_env}', only 'remote' mode is allowed."
             )
 
     def _worker_loop(self, worker_id: int) -> None:
@@ -119,9 +123,9 @@ class Runtime:
         Args:
             worker_id: Unique identifier for this worker
         """
-        logger.info(f"Worker {worker_id} starting mode={self.runtime_mode}")
+        logger.info(f"Worker {worker_id} starting mode={self.evaluation_mode}")
 
-        # Start appropriate agent server based on runtime mode
+        # Start appropriate agent server based on evaluation mode
         agent_server = None
         if self.is_sandbox_mode:
             try:
@@ -146,7 +150,9 @@ class Runtime:
                     instance_server = None
                     server_port = None
                     if self.is_sandbox_mode:
-                        server_port = Runtime._find_free_port(8001 + worker_id * 1000)
+                        server_port = Evaluation._find_free_port(
+                            8001 + worker_id * 1000
+                        )
                         setattr(threading.current_thread(), "server_port", server_port)
                         logger.info(
                             (
@@ -317,21 +323,21 @@ class Runtime:
         Run the complete instance processing workflow using worker pool.
 
         This method:
-        1. Initializes the runtime and retrieves all instances to process
+        1. Initializes the evaluation and retrieves all instances to process
         2. Starts worker threads for parallel processing
         3. Distributes instances to workers via queue
         4. Waits for all workers to complete
-        5. Completes the runtime
+        5. Completes the evaluation
         """
-        logger.info("Starting runtime execution")
-        logger.info(f"Runtime metadata: {self.metadata}")
+        logger.info("Starting evaluation execution")
+        logger.info(f"Evaluation metadata: {self.metadata}")
         logger.info(f"Using {self.num_workers} workers")
         logger.info(f"Using {'remote' if self.is_sandbox_mode else 'local'} mode")
 
         try:
-            # Initialize the runtime and retrieve all instances to process
-            logger.info("Initializing runtime and retrieving instances")
-            instances = self.initialize_runtime()
+            # Initialize the evaluation and retrieve all instances to process
+            logger.info("Initializing evaluation and retrieving instances")
+            instances = self.initialize_dataset_run()
             logger.info(f"Retrieved {len(instances)} instances to process")
 
             # Initialize progress tracking
@@ -360,13 +366,13 @@ class Runtime:
             logger.info("All workers completed")
 
         finally:
-            # Always complete the runtime, even if there were errors
+            # Always complete the evaluation, even if there were errors
             if self.total_instances > 0:
                 print()  # Add newline after progress bar
-            logger.info("Completing runtime")
+            logger.info("Completing evaluation")
             try:
-                self.complete_runtime()
+                self.complete_dataset_run()
             except Exception as e:
-                logger.error(f"Error completing runtime: {e}")
+                logger.error(f"Error completing evaluation: {e}")
 
-        logger.info("Runtime execution completed")
+        logger.info("Evaluation execution completed")

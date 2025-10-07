@@ -11,14 +11,14 @@ from pydantic import SecretStr
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.conversation_tools import get_git_patch_from_history, get_history
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.run_evaluation import (
+from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_instruction,
     make_metadata,
     read_completed_instances,
     write_output_to_file,
 )
-from benchmarks.utils.runtime import Runtime
+from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.shared import EvalMetadata
 from openhands.sdk import LLM, Agent, RemoteWorkspace, Workspace, get_logger
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
@@ -28,9 +28,9 @@ from openhands.tools.preset.default import get_default_tools
 logger = get_logger(__name__)
 
 
-def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Runtime:
+def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
     """
-    Run evaluation using remote runtime mode (agent server).
+    Run evaluation using remote evaluation mode (agent server).
 
     Args:
         llm: LLM instance to use for evaluation
@@ -42,7 +42,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     workspace_path = "/workspace"
 
     # Shared state using closure variables instead of globals
-    runtime_state = {
+    evaluation_state = {
         "instances": None,
         "output_file": None,
         "results": [],
@@ -53,46 +53,46 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
     def initialize_dataset_run():
         """Initialize the dataset run and return instances to process."""
         # Create agent
-        runtime_state["agent"] = Agent(
-            llm=runtime_state["llm_instance"],
+        evaluation_state["agent"] = Agent(
+            llm=evaluation_state["llm_instance"],
             tools=get_default_tools(enable_browser=False),  # Disable browser tools
         )
         # Prepare output file
-        runtime_state["output_file"] = os.path.join(
+        evaluation_state["output_file"] = os.path.join(
             metadata.eval_output_dir or ".", "output.jsonl"
         )
-        output_dir = os.path.dirname(runtime_state["output_file"])
+        output_dir = os.path.dirname(evaluation_state["output_file"])
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
         # Read existing completed instances instead of overwriting
-        completed_instances = read_completed_instances(runtime_state["output_file"])
+        completed_instances = read_completed_instances(evaluation_state["output_file"])
         if completed_instances:
             logger.info(f"Found {len(completed_instances)} already completed instances")
         else:
             logger.info("No existing results found, starting fresh")
             # Create empty output file only if it doesn't exist
-            if not os.path.exists(runtime_state["output_file"]):
-                with open(runtime_state["output_file"], "w"):
+            if not os.path.exists(evaluation_state["output_file"]):
+                with open(evaluation_state["output_file"], "w"):
                     pass
 
         # Retrieve instances to process, excluding completed ones
-        runtime_state["instances"] = get_dataset(
+        evaluation_state["instances"] = get_dataset(
             metadata.dataset or "",
             metadata.data_split or "",
-            runtime_state["output_file"],
+            evaluation_state["output_file"],
             metadata.eval_n_limit or 0,
             completed_instances,
         )
         # Add repo_path column by extracting repo name from org/repo format
-        runtime_state["instances"]["repo_path"] = (
-            runtime_state["instances"]["repo"]
+        evaluation_state["instances"]["repo_path"] = (
+            evaluation_state["instances"]["repo"]
             .str.split("/")
             .str[1]
             .apply(lambda name: os.path.join(workspace_path, name))
         )
-        print(f"### OUTPUT FILE: {runtime_state['output_file']} ###")
-        return runtime_state["instances"]
+        print(f"### OUTPUT FILE: {evaluation_state['output_file']} ###")
+        return evaluation_state["instances"]
 
     def process_instance(instance):
         """Process a single instance using remote conversation."""
@@ -120,7 +120,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             last_event_time["ts"] = time.time()
 
         try:
-            if runtime_state["agent"] is None:
+            if evaluation_state["agent"] is None:
                 raise ValueError("Agent cannot be None")
             workspace: RemoteWorkspace = Workspace(host=server_url)
 
@@ -147,7 +147,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
                 logger.info(f"Cloning repository succeeded with stdout: {stdout}")
 
                 conversation = RemoteConversation(
-                    agent=runtime_state["agent"],
+                    agent=evaluation_state["agent"],
                     workspace=workspace,
                     callbacks=[event_callback],
                     max_iteration_per_run=metadata.max_iterations,
@@ -239,7 +239,7 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
             )
 
             write_output_to_file(
-                instance, process_instance, result, runtime_state["output_file"]
+                instance, process_instance, result, evaluation_state["output_file"]
             )
 
             logger.info(f"Completed processing instance {instance.instance_id}")
@@ -270,17 +270,17 @@ def create_runtime(llm: Any, metadata: EvalMetadata, num_workers: int = 1) -> Ru
         """Complete the dataset run - any cleanup if needed."""
         logger.info("Remote evaluation completed!")
 
-    # Create and run the Runtime
-    runtime = Runtime(
+    # Create and run the Evaluation
+    evaluation = Evaluation(
         metadata=metadata,
-        initialize_runtime=initialize_dataset_run,
+        initialize_dataset_run=initialize_dataset_run,
         process_instance=process_instance,
-        complete_runtime=complete_dataset_run,
+        complete_dataset_run=complete_dataset_run,
         num_workers=num_workers,
         get_instance_docker_image=get_instance_docker_image,
     )
 
-    return runtime
+    evaluation.run()
 
 
 def main():
@@ -342,9 +342,7 @@ def main():
     )
 
     # Always use remote evaluation
-    runtime = create_runtime(llm, metadata, args.eval_num_workers)
-
-    runtime.run()
+    run_evaluation(llm, metadata, args.eval_num_workers)
 
     logger.info("Evaluation completed!")
 
