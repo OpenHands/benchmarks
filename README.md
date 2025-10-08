@@ -1,6 +1,6 @@
 # OpenHands Benchmarks Migration
 
-⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure from [OpenHands](https://github.com/All-Hands-AI/OpenHands/) to work with the [OpenHands Agent SDK](https://github.com/All-Hands-AI/agent-sdk).
+⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure from [OpenHands](https://github.com/OpenHands/OpenHands/) to work with the [OpenHands Agent SDK](https://github.com/OpenHands/agent-sdk).
 
 ## Current Status
 
@@ -62,6 +62,6 @@ During this migration period, please:
 
 ## Links
 
-- **Original OpenHands**: https://github.com/All-Hands-AI/OpenHands/
-- **Agent SDK**: https://github.com/All-Hands-AI/agent-sdk
+- **Original OpenHands**: https://github.com/OpenHands/OpenHands/
+- **Agent SDK**: https://github.com/OpenHands/agent-sdk
 - **SWE-Bench**: https://www.swebench.com/

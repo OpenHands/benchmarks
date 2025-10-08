@@ -1272,8 +1272,8 @@ dev = [
 requires-dist = [
     { name = "datasets" },
     { name = "modal", specifier = ">=1.1.4" },
-    { name = "openhands-sdk", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fsdk" },
-    { name = "openhands-tools", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools" },
+    { name = "openhands-sdk", git = "https://github.com/OpenHands/agent-sdk.git?subdirectory=openhands%2Fsdk" },
+    { name = "openhands-tools", git = "https://github.com/OpenHands/agent-sdk.git?subdirectory=openhands%2Ftools" },
     { name = "pandas" },
     { name = "toml" },
     { name = "tqdm" },
@@ -1292,7 +1292,7 @@ dev = [
 [[package]]
 name = "openhands-sdk"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fsdk#b3ddfb3468c22a37fbb87d96323914d23bacb4ed" }
+source = { git = "https://github.com/OpenHands/agent-sdk.git?subdirectory=openhands%2Fsdk#b3ddfb3468c22a37fbb87d96323914d23bacb4ed" }
 dependencies = [
     { name = "fastmcp" },
     { name = "litellm" },
@@ -1305,7 +1305,7 @@ dependencies = [
 [[package]]
 name = "openhands-tools"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools#b3ddfb3468c22a37fbb87d96323914d23bacb4ed" }
+source = { git = "https://github.com/OpenHands/agent-sdk.git?subdirectory=openhands%2Ftools#b3ddfb3468c22a37fbb87d96323914d23bacb4ed" }
 dependencies = [
     { name = "bashlex" },
     { name = "binaryornot" },

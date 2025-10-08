@@ -308,8 +308,8 @@ image = (
         "python3-dev",
     )
     .pip_install(
-        "git+openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
-        "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools",
+        "git+openhands-sdk @ git+https://github.com/OpenHands/agent-sdk.git#subdirectory=openhands/sdk",
+        "openhands-tools @ git+https://github.com/OpenHands/agent-sdk.git#subdirectory=openhands/tools",
     )
 )
 

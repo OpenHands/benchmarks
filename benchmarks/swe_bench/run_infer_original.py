@@ -491,7 +491,7 @@ def get_config(
     logger.info(
         f"Using instance container image: {base_container_image}. "
         f"Please make sure this image exists. "
-        f"Submit an issue on https://github.com/All-Hands-AI/benchmarks if you run into any issues."
+        f"Submit an issue on https://github.com/OpenHands/benchmarks if you run into any issues."
     )
 
     sandbox_config = get_default_sandbox_config_for_eval()
