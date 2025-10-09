@@ -8,10 +8,10 @@ import os
 import queue
 import socket
 import threading
-from typing import Any, Callable
+from abc import ABC, abstractmethod
+from typing import Any
 
-import pandas as pd
-
+from benchmarks.utils.instance import Instance
 from benchmarks.utils.shared import EvalMetadata
 from openhands.sdk import get_logger
 from openhands.workspace import DockerWorkspace
@@ -20,33 +20,25 @@ from openhands.workspace import DockerWorkspace
 logger = get_logger(__name__)
 
 
-class Evaluation:
+class Evaluation(ABC):
     """
-    Evaluation class that orchestrates the processing of instances.
+    Abstract base class for evaluation that orchestrates the processing of instances.
 
-    This class receives metadata and callback methods for processing instances,
-    and provides a run method that coordinates the entire workflow.
+    This class provides the framework for running evaluations with different benchmarks.
+    Subclasses must implement abstract methods to define benchmark-specific behavior.
     """
 
     def __init__(
         self,
         metadata: EvalMetadata,
-        initialize_dataset_run: Callable[[], pd.DataFrame],
-        process_instance: Callable[[Any, Any], None],
-        complete_dataset_run: Callable[[], None],
-        get_instance_docker_image: Callable[[Any], str],
         num_workers: int = 1,
     ):
         """
-        Initialize the Evaluation with metadata and processing methods.
+        Initialize the Evaluation with metadata and configuration.
 
         Args:
             metadata: EvalMetadata object containing evaluation metadata
-            initialize_dataset_run: Function to initialize dataset and return instances
-            process_instance(instance, workspace): Function to process each instance
-            complete_dataset_run: Function to complete the dataset evaluation
             num_workers: Number of worker threads to use for parallel processing
-            get_instance_docker_image: Function to get Docker image for each instance
         """
         # Check required environment variables
         if not os.getenv("AGENT_SDK_PATH"):
@@ -60,11 +52,7 @@ class Evaluation:
             )
 
         self.metadata = metadata
-        self.initialize_dataset_run = initialize_dataset_run
-        self.process_instance = process_instance
-        self.complete_dataset_run = complete_dataset_run
         self.num_workers = num_workers
-        self.get_instance_docker_image = get_instance_docker_image
 
         # Worker pool management
         self.instance_queue = queue.Queue()
@@ -74,6 +62,60 @@ class Evaluation:
         self.total_instances = 0
         self.completed_count = 0
         self.progress_lock = threading.Lock()
+
+    @abstractmethod
+    def setup_data(self) -> list[Instance]:
+        """
+        Load and prepare benchmark data.
+
+        Returns:
+            List of Instance objects to process
+        """
+        pass
+
+    @abstractmethod
+    def before_eval(self, workspace: DockerWorkspace) -> None:
+        """
+        Setup environment before evaluation starts.
+
+        Args:
+            workspace: Docker workspace for environment setup
+        """
+        pass
+
+    @abstractmethod
+    def process_instance(self, instance: Instance, workspace: DockerWorkspace) -> None:
+        """
+        Process a single instance.
+
+        Args:
+            instance: Instance to process
+            workspace: Docker workspace for processing
+        """
+        pass
+
+    @abstractmethod
+    def on_evaluation_completion(self, workspace: DockerWorkspace) -> None:
+        """
+        Cleanup and finalization after all instances are processed.
+
+        Args:
+            workspace: Docker workspace for cleanup
+        """
+        pass
+
+    @abstractmethod
+    def get_instance_docker_image(self, instance: Instance) -> str:
+        """
+        Get the Docker image for a specific instance.
+
+        Args:
+            instance: Instance to get Docker image for
+
+        Returns:
+            Docker image name/tag
+        """
+        pass
 
     def _print_progress_bar(self) -> None:
         """Print a progress bar showing completion status."""
@@ -115,7 +157,7 @@ class Evaluation:
                 try:
                     # Get instance from queue with timeout
                     instance = self.instance_queue.get(timeout=1)
-                    instance_id = instance.instance_id
+                    instance_id = instance.id
 
                     logger.info(f"Worker {worker_id} processing instance {instance_id}")
 
@@ -206,9 +248,7 @@ class Evaluation:
         Returns:
             DockerWorkspace instance
         """
-        logger.info(
-            f"Start workspace instance={getattr(instance, 'instance_id', 'unknown')}"
-        )
+        logger.info(f"Start workspace instance={getattr(instance, 'id', 'unknown')}")
         logger.info(f"Start workspace with base_port={base_port}")
 
         # Get the Docker image for this instance
@@ -295,7 +335,7 @@ class Evaluation:
         try:
             # Initialize the evaluation and retrieve all instances to process
             logger.info("Initializing evaluation and retrieving instances")
-            instances = self.initialize_dataset_run()
+            instances = self.setup_data()
             logger.info(f"Retrieved {len(instances)} instances to process")
 
             # Initialize progress tracking
@@ -306,7 +346,7 @@ class Evaluation:
             logger.info(f"Using parallel processing with {self.num_workers} workers")
 
             # Add all instances to the queue
-            for _, instance in instances.iterrows():
+            for instance in instances:
                 self.instance_queue.put(instance)
 
             # Start worker threads
@@ -329,7 +369,7 @@ class Evaluation:
                 print()  # Add newline after progress bar
             logger.info("Completing evaluation")
             try:
-                self.complete_dataset_run()
+                self.on_evaluation_completion(None)  # TODO: Pass workspace if needed
             except Exception as e:
                 logger.error(f"Error completing evaluation: {e}")
 
