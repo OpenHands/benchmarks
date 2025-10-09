@@ -15,13 +15,6 @@ def get_history(conversation):
     logger.debug("Has events attribute: {hasattr(conversation.state, 'events')}")
 
     try:
-        # For remote conversations, try to force a sync first
-        if hasattr(conversation.state, "events") and hasattr(
-            conversation.state.events, "_do_full_sync"
-        ):
-            logger.debug("Forcing full sync for remote events...")
-            conversation.state.events._do_full_sync()
-
         history = list(conversation.state.events)
         logger.info(f"Extracted {len(history)} events from conversation history")
 
