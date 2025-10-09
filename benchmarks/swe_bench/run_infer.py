@@ -16,8 +16,7 @@ from benchmarks.utils.evaluation_utils import (
     read_completed_instances,
     write_output_to_file,
 )
-from benchmarks.utils.instance import Instance
-from benchmarks.utils.shared import EvalMetadata
+from benchmarks.utils.models import EvalMetadata, EvalOutput, EvalInstance
 from openhands.sdk import LLM, Agent, get_logger, Workspace
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
 from openhands.tools.preset.default import get_default_tools

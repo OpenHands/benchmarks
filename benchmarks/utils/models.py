@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from openhands.sdk import LLM, Agent, get_logger
 
@@ -25,6 +25,18 @@ class EvalMetadata(BaseModel):
     env_setup_commands: list[str] | None = None
 
 
+class EvalInstance(BaseModel):
+    """
+    Represents a single evaluation instance.
+
+    This class provides a structured way to represent instances across different
+    benchmarks while maintaining flexibility through the generic data field.
+    """
+
+    id: str = Field(..., description="Mandatory unique identifier")
+    data: dict[str, Any] = Field(..., description="Generic data field for benchmark-specific content")
+
+
 class EvalOutput(BaseModel):
     # NOTE: User-specified
     instance_id: str
@@ -42,11 +54,3 @@ class EvalOutput(BaseModel):
 
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
-
-
-class EvalException(Exception):
-    pass
-
-
-class EvalTimeoutException(Exception):
-    pass
