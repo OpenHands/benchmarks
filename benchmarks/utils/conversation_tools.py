@@ -1,4 +1,4 @@
-
+from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
@@ -71,7 +71,7 @@ def get_git_patch_from_history(history):
 
         for i, event in enumerate(history):
             event_type = type(event).__name__
-            logger.debug("Event {i}: {event_type}")
+            logger.debug(f"Event {i}: {event_type}")
 
             # Check different event attributes for content
             content_sources = []
