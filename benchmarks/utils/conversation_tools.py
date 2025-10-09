@@ -1,4 +1,4 @@
-from openhands.sdk import get_logger
+
 
 
 logger = get_logger(__name__)
@@ -10,9 +10,9 @@ def get_history(conversation):
     logger.info(f"Number of events: {len(list(conversation.state.events))}")
 
     # Extract conversation history
-    logger.info(f"DEBUG: Conversation type: {type(conversation)}")
-    logger.info(f"DEBUG: Conversation state type: {type(conversation.state)}")
-    logger.info(f"DEBUG: Has events attribute: {hasattr(conversation.state, 'events')}")
+    logger.debug("Conversation type: {type(conversation)}")
+    logger.debug("Conversation state type: {type(conversation.state)}")
+    logger.debug("Has events attribute: {hasattr(conversation.state, 'events')}")
 
     try:
         # For remote conversations, try to force a sync first
@@ -27,8 +27,8 @@ def get_history(conversation):
 
         # Log some details about the events
         if history:
-            logger.info(f"DEBUG: First event type: {type(history[0])}")
-            logger.info(f"DEBUG: Last event type: {type(history[-1])}")
+            logger.debug("First event type: {type(history[0])}")
+            logger.debug("Last event type: {type(history[-1])}")
         else:
             logger.warning("DEBUG: No events found in conversation.state.events")
 
@@ -50,7 +50,7 @@ def get_history(conversation):
         else:
             logger.error("No events found in conversation object")
             # Try to inspect the conversation object
-            logger.info(f"DEBUG: Conversation attributes: {dir(conversation)}")
+            logger.debug("Conversation attributes: {dir(conversation)}")
             logger.info(
                 f"DEBUG: Conversation state attributes: {dir(conversation.state)}"
             )
@@ -67,11 +67,11 @@ def get_git_patch_from_history(history):
         # Look for workspace path and any git diff output in conversation events
         import re
 
-        logger.info(f"DEBUG: Analyzing {len(history)} events for git patches...")
+        logger.debug("Analyzing {len(history)} events for git patches...")
 
         for i, event in enumerate(history):
             event_type = type(event).__name__
-            logger.info(f"DEBUG: Event {i}: {event_type}")
+            logger.debug("Event {i}: {event_type}")
 
             # Check different event attributes for content
             content_sources = []
