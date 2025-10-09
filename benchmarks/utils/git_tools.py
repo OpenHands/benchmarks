@@ -5,7 +5,7 @@ import shutil
 import subprocess
 
 from benchmarks.utils.binary_patch_utils import remove_binary_diffs
-from benchmarks.utils.shared import EvalException
+from benchmarks.utils.exceptions import EvalException
 from openhands.sdk import get_logger
 
 
