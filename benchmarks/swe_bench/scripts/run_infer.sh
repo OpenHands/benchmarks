@@ -106,7 +106,7 @@ fi
 
 function run_eval() {
   local eval_note="${1}"
-  COMMAND="uv run --project swe_bench python -m swe_bench.run_infer \
+  COMMAND="uv run python -m benchmarks.swe_bench.run_infer \
     --agent-cls $AGENT \
     --llm-config $MODEL_CONFIG \
     --max-iterations $MAX_ITER \
@@ -114,8 +114,7 @@ function run_eval() {
     --eval-note $eval_note \
     --dataset $DATASET \
     --split $SPLIT \
-    --eval-output-dir /home/juan-all-hands/v1/eval_out \
-    --mode $MODE"
+    --eval-output-dir /home/juan-all-hands/v1/eval_out"
 
 
   echo "$COMMAND"

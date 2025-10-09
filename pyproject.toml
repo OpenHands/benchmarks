@@ -6,12 +6,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "datasets",
+    "jinja2",
     "pandas",
     "toml",
     "tqdm",
+    "openhands-tools",
     "unidiff>=0.7.5,<0.8.0",
-    "openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
-    "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools",
+    "openhands-agent-server",
+    "openhands-workspace",
     "modal>=1.1.4",
 ]
 
@@ -50,4 +52,8 @@ combine-as-imports = true
 force-single-line = false
 lines-after-imports = 2
 
-
+[tool.uv.sources]
+openhands-sdk = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/sdk", rev = "main" }
+openhands-tools = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/tools", rev = "main" }
+openhands-workspace = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/workspace", rev = "main" }
+openhands-agent-server = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/agent_server", rev = "main" }
