@@ -19,7 +19,7 @@ def get_history(conversation):
         if hasattr(conversation.state, "events") and hasattr(
             conversation.state.events, "_do_full_sync"
         ):
-            logger.info("DEBUG: Forcing full sync for remote events...")
+            logger.debug("Forcing full sync for remote events...")
             conversation.state.events._do_full_sync()
 
         history = list(conversation.state.events)
@@ -30,11 +30,11 @@ def get_history(conversation):
             logger.debug("First event type: {type(history[0])}")
             logger.debug("Last event type: {type(history[-1])}")
         else:
-            logger.warning("DEBUG: No events found in conversation.state.events")
+            logger.debug("No events found in conversation.state.events")
 
     except Exception as e:
         logger.error(f"Error extracting conversation history: {e}")
-        logger.info("DEBUG: Trying alternative history extraction methods...")
+        logger.debug("Trying alternative history extraction methods...")
 
         # Try alternative methods to get conversation history
         history = []
@@ -51,8 +51,8 @@ def get_history(conversation):
             logger.error("No events found in conversation object")
             # Try to inspect the conversation object
             logger.debug("Conversation attributes: {dir(conversation)}")
-            logger.info(
-                f"DEBUG: Conversation state attributes: {dir(conversation.state)}"
+            logger.debug(
+                f"Conversation state attributes: {dir(conversation.state)}"
             )
             history = []
     return history
@@ -86,8 +86,8 @@ def get_git_patch_from_history(history):
 
             for source_name, content in content_sources:
                 if isinstance(content, str) and content:
-                    logger.info(
-                        f"DEBUG: Event {i} {source_name} length: {len(content)}"
+                    logger.debug(
+                        f"Event {i} {source_name} length: {len(content)}"
                     )
 
                     # Extract workspace path if not found yet
