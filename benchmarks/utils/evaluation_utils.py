@@ -7,17 +7,12 @@ import threading
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.utils.shared import EvalMetadata
+from benchmarks.utils.models import EvalMetadata
 from openhands.sdk import (
     LLM,
     get_logger,
 )
 
-
-# from openhands.tools import (
-#     BashTool,
-#     FileEditorTool,
-# )
 
 
 logger = get_logger(__name__)
@@ -50,31 +45,6 @@ def get_instruction(
     instruction = template.render(context)
     return instruction
 
-
-def make_metadata(
-    llm: LLM,
-    dataset_name,
-    max_iterations,
-    eval_output_dir,
-    details=None,
-    dataset=None,
-    data_split=None,
-    prompt_path=None,
-    eval_n_limit=None,
-    env_setup_commands=None,
-):
-    """Create evaluation metadata."""
-    return EvalMetadata(
-        llm=llm,
-        data_split=data_split or dataset_name,
-        max_iterations=max_iterations,
-        eval_output_dir=eval_output_dir,
-        details=details,
-        dataset=dataset,
-        prompt_path=prompt_path,
-        eval_n_limit=eval_n_limit,
-        env_setup_commands=env_setup_commands,
-    )
 
 
 def construct_eval_output_dir(base_dir, dataset_name, model, max_iterations, eval_note):

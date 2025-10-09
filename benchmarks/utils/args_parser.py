@@ -28,7 +28,7 @@ def get_parser():
         "--eval-note", type=str, default="initial", help="Evaluation note"
     )
     parser.add_argument(
-        "--dataset", type=str, default="princeton-nlp/SWE-bench", help="Dataset name"
+        "--dataset", type=str, default="princeton-nlp/SWE-bench-Verified", help="Dataset name"
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
