@@ -32,7 +32,7 @@ class Evaluation:
         self,
         metadata: EvalMetadata,
         initialize_dataset_run: Callable[[], pd.DataFrame],
-        process_instance: Callable[[Any], None],
+        process_instance: Callable[[Any, Any], None],
         complete_dataset_run: Callable[[], None],
         get_instance_docker_image: Callable[[Any], str],
         num_workers: int = 1,
@@ -43,7 +43,7 @@ class Evaluation:
         Args:
             metadata: EvalMetadata object containing evaluation metadata
             initialize_dataset_run: Function to initialize dataset and return instances
-            process_instance: Function to process each instance
+            process_instance(instance, workspace): Function to process each instance
             complete_dataset_run: Function to complete the dataset evaluation
             num_workers: Number of worker threads to use for parallel processing
             get_instance_docker_image: Function to get Docker image for each instance
