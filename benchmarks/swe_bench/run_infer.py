@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import threading
 import time
 from typing import Any
 
@@ -20,7 +19,7 @@ from benchmarks.utils.evaluation_utils import (
     write_output_to_file,
 )
 from benchmarks.utils.shared import EvalMetadata
-from openhands.sdk import LLM, Agent, RemoteWorkspace, Workspace, get_logger
+from openhands.sdk import LLM, Agent, get_logger
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
 from openhands.tools.preset.default import get_default_tools
 
@@ -94,7 +93,7 @@ def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
         print(f"### OUTPUT FILE: {evaluation_state['output_file']} ###")
         return evaluation_state["instances"]
 
-    def process_instance(instance):
+    def process_instance(instance, workspace):
         """Process a single instance using remote conversation."""
         logger.info(f"Processing instance: {instance.instance_id}")
 
@@ -102,10 +101,6 @@ def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
         instruction = get_instruction(
             instance, metadata, workspace_path, metadata.prompt_path or ""
         )
-
-        # Get the worker's server port (this will be set by the worker)
-        worker_port = getattr(threading.current_thread(), "server_port", 8001)
-        server_url = f"http://localhost:{worker_port}"
 
         conversation = None
 
@@ -122,28 +117,30 @@ def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
         try:
             if evaluation_state["agent"] is None:
                 raise ValueError("Agent cannot be None")
-            workspace: RemoteWorkspace = Workspace(host=server_url)
 
             repo_url = f"https://github.com/{instance.repo}"
             # Clone repository
-            repo_clone_output = workspace.execute_command(f"""
+            repo_clone_output = workspace.execute_command(
+                f"""
                 mkdir -p {workspace_path} ;
                 git clone {repo_url} {instance.repo_path} > /dev/null 2>&1 ;
                 cd {instance.repo_path} ;
                 git branch | grep -v "main" | xargs git branch -D > /dev/null 2>&1 ;
                 git reset --hard {instance.base_commit} ;
-            """, timeout=90)
+            """,
+                timeout=90,
+            )
 
-            if repo_clone_output["exit_code"] != 0:
-                stderr = repo_clone_output["stderr"]
-                stdout = repo_clone_output["stdout"]
+            if repo_clone_output.exit_code != 0:
+                stderr = repo_clone_output.stderr
+                stdout = repo_clone_output.stdout
                 logger.info(
-                    f"Cloning failed with {repo_clone_output['exit_code']}: {stderr}"
+                    f"Cloning failed with {repo_clone_output.exit_code}: {stderr}"
                 )
                 logger.info(f"Cloning failed with stdout: {stdout}")
                 raise ValueError("Cloning failed")
             else:
-                stdout = repo_clone_output["stdout"]
+                stdout = repo_clone_output.stdout
                 logger.info(f"Cloning repository succeeded with stdout: {stdout}")
 
                 conversation = RemoteConversation(
@@ -190,15 +187,15 @@ def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
                 logger.info(
                     f"Patch command execution (attempt {attempt + 1}): {result}"
                 )
-                exit_code = result["exit_code"]
+                exit_code = result.exit_code
 
-                if result["exit_code"] != 0:
-                    stderr = result["stderr"]
-                    stdout = result["stdout"]
+                if result.exit_code != 0:
+                    stderr = result.stderr
+                    stdout = result.stdout
                     logger.info(f"Command failed with exit code {exit_code}: {stderr}")
                     logger.info(f"Command failed with stdout: {stdout}")
                 else:
-                    git_patch = result["stdout"]
+                    git_patch = result.stdout
                     if git_patch:
                         logger.info(
                             f"Successfully extracted git patch on attempt {attempt + 1}"
@@ -306,9 +303,9 @@ def main():
     PROMPT_PATH = args.prompt_path
 
     # Create LLM instance
-    api_key = os.getenv("LITELLM_API_KEY")
+    api_key = os.getenv("LLM_API_KEY")
     if not api_key:
-        raise ValueError("LITELLM_API_KEY environment variable is not set")
+        raise ValueError("LLM_API_KEY environment variable is not set")
     llm = LLM(
         model=MODEL,
         api_key=SecretStr(api_key),

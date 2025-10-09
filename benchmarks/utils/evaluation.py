@@ -14,6 +14,7 @@ import pandas as pd
 
 from benchmarks.utils.shared import EvalMetadata
 from openhands.sdk import get_logger
+from openhands.workspace import DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -52,6 +53,10 @@ class Evaluation:
             raise RuntimeError(
                 "AGENT_SDK_PATH environment variable is required but not set. "
                 "Please set it to the path of your OpenHands Agent SDK installation."
+            )
+        if not os.getenv("LLM_API_KEY"):
+            raise RuntimeError(
+                "LLM_API_KEY environment variable is required but not set."
             )
 
         self.metadata = metadata
@@ -102,7 +107,7 @@ class Evaluation:
         """
         logger.info(f"Worker {worker_id} starting...")
 
-        # Start agent server 
+        # Start workspace
         agent_server = None
 
         try:
@@ -114,22 +119,20 @@ class Evaluation:
 
                     logger.info(f"Worker {worker_id} processing instance {instance_id}")
 
-                    # Get fresh port and start a per-instance server
-                    instance_server = None
+                    # Get fresh port and start a per-instance workspace
+                    instance_workspace = None
                     server_port = None
-                    server_port = Evaluation._find_free_port(
-                        8001 + worker_id * 1000
-                    )
+                    server_port = Evaluation._find_free_port(8001 + worker_id * 1000)
                     setattr(threading.current_thread(), "server_port", server_port)
                     logger.info(
                         (
-                            f"Worker {worker_id} starting server"
+                            f"Worker {worker_id} starting workspace"
                             f"for {instance_id} on port {server_port}"
                         )
                     )
                     try:
-                        logger.info("Calling _start_sandbox_server_for_instance...")
-                        instance_server = self._start_sandbox_server_for_instance(
+                        logger.info("Calling _start_workspace_for_instance...")
+                        instance_workspace = self._start_workspace_for_instance(
                             instance, server_port
                         )
                         logger.info(f"Worker {worker_id} started for {instance_id}")
@@ -148,16 +151,16 @@ class Evaluation:
 
                     try:
                         # Process the instance using the provided callback
-                        self.process_instance(instance)
+                        self.process_instance(instance, instance_workspace)
                         logger.info(f"Worker {worker_id} completed {instance_id}")
                     except Exception as e:
                         logger.error(f"Worker {worker_id} error processing instance")
                         logger.error(f"{instance_id}: {e}")
                     finally:
-                        # Cleanup per-instance sandbox server
-                        if instance_server:
+                        # Cleanup per-instance workspace
+                        if instance_workspace:
                             try:
-                                instance_server.__exit__(None, None, None)
+                                instance_workspace.__exit__(None, None, None)
                                 logger.info(f"Worker {worker_id} stopped {instance_id}")
                             except Exception as e:
                                 logger.error(f"Error stopping {worker_id}")
@@ -180,71 +183,61 @@ class Evaluation:
                     break
 
         finally:
-            # Cleanup: Stop agent server for this worker
+            # Cleanup: Stop workspace for this worker
             if agent_server:
                 try:
                     agent_server.__exit__(
                         None, None, None
-                    )  # Stop the server using context manager protocol
-                    logger.info(f"Worker {worker_id} stopped agent server")
+                    )  # Stop the workspace using context manager protocol
+                    logger.info(f"Worker {worker_id} stopped workspace")
                 except Exception as e:
-                    logger.error(f"Worker {worker_id} error stopping agent server: {e}")
+                    logger.error(f"Worker {worker_id} error stopping workspace: {e}")
 
         logger.info(f"Worker {worker_id} finished")
 
-    def _start_sandbox_server_for_instance(self, instance: Any, base_port: int):
+    def _start_workspace_for_instance(self, instance: Any, base_port: int):
         """
-        Start a sandboxed agent server for a specific instance.
+        Start a Docker workspace for a specific instance.
 
         Args:
             instance: The instance data
-            base_port: Base port number for the server
+            base_port: Base port number for the workspace
 
         Returns:
-            DockerSandboxedAgentServer instance
+            DockerWorkspace instance
         """
         logger.info(
-            f"Start sandbox with instance={getattr(instance, 'instance_id', 'unknown')}"
+            f"Start workspace instance={getattr(instance, 'instance_id', 'unknown')}"
         )
-        logger.info(f"Start sandbox with base_port={base_port}")
-
-        from openhands.sdk.sandbox import DockerSandboxedAgentServer
-
-        logger.info("Successfully imported DockerSandboxedAgentServer")
+        logger.info(f"Start workspace with base_port={base_port}")
 
         # Get the Docker image for this instance
         docker_image = self.get_instance_docker_image(instance)
         logger.info(f"Got docker_image={docker_image} for instance")
 
-        # Note: DockerSandboxedAgentServer will create its own container name
-
-        # Start the sandboxed server with the evaluation image
-        # This builds the OpenHands agent server on top of the evaluation environment
-        # Note: This requires the OpenHands source code with build.sh script
-        # TODO: Either provide OpenHands source or use pre-built evaluation+agent images
-        logger.info(
-            f"Creating DockerSandboxedAgentServer with base_image={docker_image}"
-        )
-        logger.info(f"Creating DockerSandboxedAgentServer with host_port={base_port}")
-        server = DockerSandboxedAgentServer(
+        # Create and start DockerWorkspace
+        logger.info(f"Creating DockerWorkspace with base_image={docker_image}")
+        logger.info(f"Creating DockerWorkspace with host_port={base_port}")
+        workspace = DockerWorkspace(
             base_image=docker_image,
             host_port=base_port,
+            forward_env=["LLM_API_KEY"],
         )
-        logger.info("DockerSandboxedAgentServer created successfully")
+        logger.info("DockerWorkspace created successfully")
 
-        # Start the server using context manager protocol
-        logger.info("Calling server.__enter__() to start the Docker container...")
+        # Start the workspace using context manager protocol
+        logger.info("Calling workspace.__enter__() to start the Docker container...")
         try:
-            server.__enter__()
-            logger.info("server.__enter__() completed successfully!")
+            workspace.__enter__()
+            logger.info("workspace.__enter__() completed successfully!")
         except Exception as e:
-            logger.error(f"server.__enter__() failed: {type(e).__name__}: {str(e)}")
+            logger.error(f"workspace.__enter__() failed: {type(e).__name__}: {str(e)}")
             import traceback
 
-            logger.error(f"server.__enter__() traceback: {traceback.format_exc()}")
+            logger.error(f"workspace.__enter__() traceback: {traceback.format_exc()}")
             raise
 
-        return server
+        return workspace
 
     @staticmethod
     def _find_free_port(start_port=8001):
