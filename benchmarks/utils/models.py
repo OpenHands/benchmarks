@@ -10,20 +10,16 @@ logger = get_logger(__name__)
 
 class EvalMetadata(BaseModel):
     llm: LLM
-    agent_config: Agent | None = None
+    dataset: str
     max_iterations: int
     eval_output_dir: str
-    dataset: str | None = None
     data_split: str | None = None
     details: dict[str, Any] | None = None
-    # TODO: calvin is porting this over as a pydantic class
-    # condenser_config: Condenser | None = None
-    instruction_template_name: str | None = None
-    # New fields for refactoring
     prompt_path: str | None = None
     eval_n_limit: int | None = None
     env_setup_commands: list[str] | None = None
 
+EvalInstanceID = str
 
 class EvalInstance(BaseModel):
     """
@@ -33,7 +29,7 @@ class EvalInstance(BaseModel):
     benchmarks while maintaining flexibility through the generic data field.
     """
 
-    id: str = Field(..., description="Mandatory unique identifier")
+    id: EvalInstanceID = Field(..., description="Mandatory unique identifier")
     data: dict[str, Any] = Field(..., description="Generic data field for benchmark-specific content")
 
 
