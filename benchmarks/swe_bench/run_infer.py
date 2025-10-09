@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import os
-import time
 from typing import Any
 
-import pandas as pd
 from pydantic import SecretStr
 
 from benchmarks.utils.args_parser import get_parser
@@ -18,6 +16,7 @@ from benchmarks.utils.evaluation_utils import (
     read_completed_instances,
     write_output_to_file,
 )
+from benchmarks.utils.instance import Instance
 from benchmarks.utils.shared import EvalMetadata
 from openhands.sdk import LLM, Agent, get_logger
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
@@ -25,6 +24,160 @@ from openhands.tools.preset.default import get_default_tools
 
 
 logger = get_logger(__name__)
+
+
+class SWEBenchEvaluation(Evaluation):
+    """SWE-bench specific evaluation implementation."""
+
+    def __init__(self, metadata: EvalMetadata, num_workers: int = 1):
+        super().__init__(metadata, num_workers)
+        self.llm_instance = None
+        self.agent = None
+        self.instances = None
+        self.output_file = None
+        self.results = []
+        self.workspace_path = "/workspace"
+
+    def setup_data(self):
+        """Initialize dataset and prepare for evaluation."""
+        logger.info("Setting up SWE-bench evaluation data")
+
+        # Set up output file
+        self.output_file = os.path.join(self.metadata.eval_output_dir, "output.jsonl")
+
+        # Get dataset
+        dataset = get_dataset(
+            self.metadata.dataset,
+            self.metadata.data_split,
+            self.output_file,
+            self.metadata.eval_n_limit,
+        )
+
+        # Filter dataset if needed
+        if self.metadata.max_iterations is not None:
+            dataset = dataset.head(self.metadata.max_iterations)
+
+        # Convert to Instance objects
+        self.instances = []
+        for _, row in dataset.iterrows():
+            instance = Instance(id=row["instance_id"], data=row.to_dict())
+            self.instances.append(instance)
+
+        # Read completed instances to avoid re-processing
+        completed_instances = read_completed_instances(self.output_file)
+        self.instances = [
+            instance
+            for instance in self.instances
+            if instance.id not in completed_instances
+        ]
+
+        logger.info(f"Total instances to process: {len(self.instances)}")
+        return self.instances
+
+    def before_eval(self):
+        """Setup before evaluation starts."""
+        logger.info("Starting SWE-bench evaluation")
+
+        # Initialize agent
+        self.agent = Agent(
+            llm=self.llm_instance,
+            tools=get_default_tools(),
+        )
+
+    def process_instance(self, instance: Instance, workspace):
+        """Process a single instance."""
+        logger.info(f"Processing instance {instance.id}")
+
+        # Get instance data
+        instance_data = instance.data
+
+        # Create conversation
+        conversation = RemoteConversation(
+            workspace.server_url,
+            workspace.workspace_id,
+            SecretStr(workspace.token),
+        )
+
+        # Get instruction
+        instruction = get_instruction(instance_data, self.metadata.agent_class)
+
+        def event_callback(event) -> None:
+            """Handle events during conversation."""
+            pass
+
+        # Run conversation
+        try:
+            conversation.add_message(
+                role="user",
+                content=instruction,
+            )
+
+            # Set up event logging
+            def log_event(event):
+                logger.debug(f"Event: {event}")
+
+            # Run agent
+            self.agent.run(
+                conversation=conversation,
+                event_callback=log_event,
+                max_iterations=self.metadata.max_iterations,
+            )
+
+            # Get history and patch
+            history = get_history(conversation)
+            git_patch = get_git_patch_from_history(history)
+
+            # Prepare result
+            result = {
+                "instance_id": instance.id,
+                "instruction": instruction,
+                "git_patch": git_patch,
+                "history": history,
+                "test_result": {},
+            }
+
+            # Write result
+            write_output_to_file(result, self.output_file)
+            self.results.append(result)
+
+            logger.info(f"Completed instance {instance.id}")
+
+        except Exception as e:
+            logger.error(f"Error processing instance {instance.id}: {e}")
+            # Write error result
+            error_result = {
+                "instance_id": instance.id,
+                "instruction": instruction,
+                "git_patch": "",
+                "history": [],
+                "test_result": {"error": str(e)},
+            }
+            write_output_to_file(error_result, self.output_file)
+
+    def get_instance_docker_image(self, instance: Instance) -> str:
+        """Get Docker image for the instance."""
+        instance_data = instance.data
+
+        # Default image
+        image_name = "python:3.11-bookworm"
+
+        # Get repo-specific image if available
+        if "repo" in instance_data:
+            repo = instance_data["repo"]
+            # Map repo to specific image if needed
+            repo_images = {
+                # Add specific repo mappings here if needed
+            }
+            if repo in repo_images:
+                image_name = repo_images[repo]
+
+        return image_name
+
+    def on_evaluation_completion(self):
+        """Handle completion of evaluation."""
+        logger.info("SWE-bench evaluation completed")
+        logger.info(f"Processed {len(self.results)} instances")
+        logger.info(f"Results written to {self.output_file}")
 
 
 def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
@@ -36,247 +189,11 @@ def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
         metadata: EvalMetadata object containing evaluation configuration
         num_workers: Number of worker threads to use for parallel processing
     """
-    logger.info("Running evaluation")
-    logger.info(f"Using {num_workers} workers for parallel processing")
-    workspace_path = "/workspace"
+    # Create SWEBenchEvaluation instance
+    evaluation = SWEBenchEvaluation(metadata, num_workers)
+    evaluation.llm_instance = llm
 
-    # Shared state using closure variables instead of globals
-    evaluation_state = {
-        "instances": None,
-        "output_file": None,
-        "results": [],
-        "agent": None,
-        "llm_instance": llm,
-    }
-
-    def initialize_dataset_run():
-        """Initialize the dataset run and return instances to process."""
-        # Create agent
-        evaluation_state["agent"] = Agent(
-            llm=evaluation_state["llm_instance"],
-            tools=get_default_tools(enable_browser=False),  # Disable browser tools
-        )
-        # Prepare output file
-        evaluation_state["output_file"] = os.path.join(
-            metadata.eval_output_dir or ".", "output.jsonl"
-        )
-        output_dir = os.path.dirname(evaluation_state["output_file"])
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
-        # Read existing completed instances instead of overwriting
-        completed_instances = read_completed_instances(evaluation_state["output_file"])
-        if completed_instances:
-            logger.info(f"Found {len(completed_instances)} already completed instances")
-        else:
-            logger.info("No existing results found, starting fresh")
-            # Create empty output file only if it doesn't exist
-            if not os.path.exists(evaluation_state["output_file"]):
-                with open(evaluation_state["output_file"], "w"):
-                    pass
-
-        # Retrieve instances to process, excluding completed ones
-        evaluation_state["instances"] = get_dataset(
-            metadata.dataset or "",
-            metadata.data_split or "",
-            evaluation_state["output_file"],
-            metadata.eval_n_limit or 0,
-            completed_instances,
-        )
-        # Add repo_path column by extracting repo name from org/repo format
-        evaluation_state["instances"]["repo_path"] = (
-            evaluation_state["instances"]["repo"]
-            .str.split("/")
-            .str[1]
-            .apply(lambda name: os.path.join(workspace_path, name))
-        )
-        print(f"### OUTPUT FILE: {evaluation_state['output_file']} ###")
-        return evaluation_state["instances"]
-
-    def process_instance(instance, workspace):
-        """Process a single instance using remote conversation."""
-        logger.info(f"Processing instance: {instance.instance_id}")
-
-        # Get instruction
-        instruction = get_instruction(
-            instance, metadata, workspace_path, metadata.prompt_path or ""
-        )
-
-        conversation = None
-
-        # Set up callback collection, like example 22
-        received_events: list = []
-        last_event_time = {"ts": time.time()}
-
-        def event_callback(event) -> None:
-            event_type = type(event).__name__
-            logger.info(f"🔔 Callback received event: {event_type}\n{event}")
-            received_events.append(event)
-            last_event_time["ts"] = time.time()
-
-        try:
-            if evaluation_state["agent"] is None:
-                raise ValueError("Agent cannot be None")
-
-            repo_url = f"https://github.com/{instance.repo}"
-            # Clone repository
-            repo_clone_output = workspace.execute_command(
-                f"""
-                mkdir -p {workspace_path} ;
-                git clone {repo_url} {instance.repo_path} > /dev/null 2>&1 ;
-                cd {instance.repo_path} ;
-                git branch | grep -v "main" | xargs git branch -D > /dev/null 2>&1 ;
-                git reset --hard {instance.base_commit} ;
-            """,
-                timeout=90,
-            )
-
-            if repo_clone_output.exit_code != 0:
-                stderr = repo_clone_output.stderr
-                stdout = repo_clone_output.stdout
-                logger.info(
-                    f"Cloning failed with {repo_clone_output.exit_code}: {stderr}"
-                )
-                logger.info(f"Cloning failed with stdout: {stdout}")
-                raise ValueError("Cloning failed")
-            else:
-                stdout = repo_clone_output.stdout
-                logger.info(f"Cloning repository succeeded with stdout: {stdout}")
-
-                conversation = RemoteConversation(
-                    agent=evaluation_state["agent"],
-                    workspace=workspace,
-                    callbacks=[event_callback],
-                    max_iteration_per_run=metadata.max_iterations,
-                )
-
-                assert isinstance(conversation, RemoteConversation)
-
-            # Send message and run with event streaming
-            logger.info(f"Sending instruction to conversation: {instruction[:100]}...")
-            conversation.send_message(instruction)
-
-            # Add callback to log events as they happen
-            def log_event(event):
-                event_type = type(event).__name__
-                event_content = getattr(
-                    event,
-                    "message",
-                    getattr(event, "content", getattr(event, "action", str(event))),
-                )
-                logger.info(f"Event: {event_type} - {str(event_content)[:100]}")
-
-            logger.info("Starting conversation.run()...")
-            conversation.run()
-            logger.info("Conversation.run() completed")
-            history = get_history(conversation)
-
-            # Retry git patch extraction up to 5 times before falling back to history
-            git_patch = ""
-            max_retries = 5
-            for attempt in range(max_retries):
-                logger.info(f"Git patch extraction attempt {attempt + 1}/{max_retries}")
-                result = workspace.execute_command(
-                    (
-                        f"cd {instance.repo_path} ; "
-                        "git config --global core.pager '' > /dev/null 2>&1 ; "
-                        "git add -A > /dev/null 2>&1 ; "
-                        f"git --no-pager diff --cached {instance.base_commit}"
-                    )
-                )
-                logger.info(
-                    f"Patch command execution (attempt {attempt + 1}): {result}"
-                )
-                exit_code = result.exit_code
-
-                if result.exit_code != 0:
-                    stderr = result.stderr
-                    stdout = result.stdout
-                    logger.info(f"Command failed with exit code {exit_code}: {stderr}")
-                    logger.info(f"Command failed with stdout: {stdout}")
-                else:
-                    git_patch = result.stdout
-                    if git_patch:
-                        logger.info(
-                            f"Successfully extracted git patch on attempt {attempt + 1}"
-                        )
-                        break
-                    else:
-                        logger.info(f"Git patch empty on attempt {attempt + 1}")
-
-                # Wait a bit before retrying (except on last attempt)
-                if attempt < max_retries - 1:
-                    time.sleep(1)
-
-            if not git_patch:
-                logger.info("git_patch empty after all retries, searching history.")
-                git_patch = get_git_patch_from_history(history)
-                logger.info(f"Patch from history: {git_patch}")
-
-            logger.info(f"Extracted git patch with {len(git_patch)} characters")
-
-            # Extract results from conversation state
-            logger.info("Starting result extraction from conversation state")
-            from benchmarks.utils.shared import EvalOutput
-
-            logger.info(f"Creating EvalOutput with: instance_id={instance.instance_id}")
-            logger.info(f"Creating EvalOutput with: history_events={len(history)}")
-            logger.info(f"Creating EvalOutput with: git_patch_length={len(git_patch)}")
-
-            result = EvalOutput(
-                instance_id=instance.instance_id,
-                instruction=instruction,
-                test_result={
-                    "git_patch": git_patch,
-                },
-                metadata=metadata,
-                history=history,
-                metrics={},
-                error=None,
-            )
-
-            write_output_to_file(
-                instance, process_instance, result, evaluation_state["output_file"]
-            )
-
-            logger.info(f"Completed processing instance {instance.instance_id}")
-
-        except Exception as e:
-            logger.error(f"Error processing instance {instance.instance_id}: {e}")
-            raise  # Re-raise to let the worker handle it
-
-        finally:
-            # Clean up conversation
-            if conversation:
-                conversation.close()
-
-    def get_instance_docker_image(
-        instance: pd.Series,
-    ) -> str:
-        # Official SWE-Bench image
-        # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
-        # SWE-bench-Live uses the same naming convention as SWE-Bench
-        docker_image_prefix = "docker.io/swebench/"
-        repo, name = str(instance["instance_id"]).split("__")
-        prefix = docker_image_prefix.rstrip("/")
-        image_name = f"{prefix}/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-        logger.debug(f"Using official SWE-Bench image: {image_name}")
-        return image_name
-
-    def complete_dataset_run():
-        """Complete the dataset run - any cleanup if needed."""
-        logger.info("Remote evaluation completed!")
-
-    # Create and run the Evaluation
-    evaluation = Evaluation(
-        metadata=metadata,
-        initialize_dataset_run=initialize_dataset_run,
-        process_instance=process_instance,
-        complete_dataset_run=complete_dataset_run,
-        num_workers=num_workers,
-        get_instance_docker_image=get_instance_docker_image,
-    )
-
+    # Run the evaluation
     evaluation.run()
 
 
