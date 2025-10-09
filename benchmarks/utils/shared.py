@@ -1,7 +1,8 @@
 from typing import Any
 
-from openhands.sdk import LLM, Agent, Event, get_logger
 from pydantic import BaseModel
+
+from openhands.sdk import LLM, Agent, get_logger
 
 
 logger = get_logger(__name__)
@@ -18,6 +19,10 @@ class EvalMetadata(BaseModel):
     # TODO: calvin is porting this over as a pydantic class
     # condenser_config: Condenser | None = None
     instruction_template_name: str | None = None
+    # New fields for refactoring
+    prompt_path: str | None = None
+    eval_n_limit: int | None = None
+    env_setup_commands: list[str] | None = None
 
 
 class EvalOutput(BaseModel):
@@ -31,7 +36,7 @@ class EvalOutput(BaseModel):
 
     # Interaction info
     metadata: EvalMetadata | None = None
-    history: list[Event] | None = None
+    history: list[Any] | None = None
     metrics: dict[str, Any] | None = None
     error: str | None = None
 

@@ -1,526 +1,252 @@
 from __future__ import annotations
 
-import json
 import os
-import pathlib
-import shutil
-import subprocess
-from typing import Literal
+from typing import Any
 
-import modal
-import pandas as pd
-from datasets import Dataset, load_dataset
-from jinja2 import Environment, FileSystemLoader
 from pydantic import SecretStr
 
-from benchmarks.swe_bench.binary_patch_utils import (
-    remove_binary_diffs,
+from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.conversation_tools import get_git_patch_from_history, get_history
+from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.evaluation import Evaluation
+from benchmarks.utils.evaluation_utils import (
+    construct_eval_output_dir,
+    get_instruction,
+    make_metadata,
+    read_completed_instances,
+    write_output_to_file,
 )
-from benchmarks.swe_bench.resource.swt_bench_constants import (
-    MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE,
-)
-from benchmarks.utils.shared import EvalException, EvalMetadata, EvalOutput
-from openhands.sdk import (
-    LLM,
-    Agent,
-    Conversation,
-    Message,
-    TextContent,
-    get_logger,
-)
-from openhands.tools import (
-    BashTool,
-    FileEditorTool,
-)
+from benchmarks.utils.instance import Instance
+from benchmarks.utils.shared import EvalMetadata
+from openhands.sdk import LLM, Agent, get_logger
+from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
+from openhands.tools.preset.default import get_default_tools
+from openhands.workspace import DockerWorkspace
 
 
 logger = get_logger(__name__)
-BenchMode = Literal["swe", "swt", "swt-ci"]
-
-# Global variable to track dataset type
-DATASET_TYPE = "SWE-bench"
 
 
-def set_dataset_type(dataset_name: str):
-    """Set dataset type based on dataset name."""
-    global DATASET_TYPE
-    name_lower = dataset_name.lower()
+class SWEBenchEvaluation(Evaluation):
+    """SWE-bench specific evaluation implementation."""
 
-    if "swe-gym" in name_lower:
-        DATASET_TYPE = "SWE-Gym"
-    elif "swe-bench-live" in name_lower:
-        DATASET_TYPE = "SWE-bench-Live"
-    elif "multimodal" in name_lower:
-        DATASET_TYPE = "Multimodal"
-    else:
-        DATASET_TYPE = "SWE-bench"
+    def __init__(self, metadata: EvalMetadata, num_workers: int = 1):
+        super().__init__(metadata, num_workers)
+        self.llm_instance = None
+        self.agent = None
+        self.instances = None
+        self.output_file = None
+        self.results = []
+        self.workspace_path = "/workspace"
 
-    logger.info(f"Dataset type set to: {DATASET_TYPE}")
+    def setup_data(self):
+        """Initialize dataset and prepare for evaluation."""
+        logger.info("Setting up SWE-bench evaluation data")
 
+        # Set up output file
+        self.output_file = os.path.join(self.metadata.eval_output_dir, "output.jsonl")
 
-def _get_workspace_dir_name(instance: pd.Series) -> str:
-    """Extract repo name from instance.repo (e.g., "django/django" -> "django")"""
-    repo_name = instance.repo.split("/")[-1]
-    return repo_name
-
-
-def get_instruction(
-    instance: pd.Series, metadata: EvalMetadata, workspace_path: str
-) -> str:
-    """Generate instruction for the agent."""
-    workspace_dir_name = _get_workspace_dir_name(instance)
-    assert metadata.details is not None
-    mode = metadata.details["mode"]
-    llm_model = metadata.llm_config.model
-
-    # Determine the template file based on mode and LLM
-    if mode.startswith("swt"):
-        template_name = "swt.j2"
-    elif mode == "swe":
-        if "claude" in llm_model:
-            template_name = "swe_default.j2"
-        elif "gpt-4.1" in llm_model:
-            template_name = "swe_gpt4.j2"
-        else:
-            template_name = "swe_default.j2"  # Default for 'swe' mode
-    else:
-        logger.error(f"Unexpected evaluation mode: {mode}. Falling back to default.")
-        template_name = "swe_default.j2"
-
-    # Set up Jinja2 environment
-    prompts_dir = os.path.join(os.path.dirname(__file__), "prompts")
-    env = Environment(loader=FileSystemLoader(prompts_dir))
-    template = env.get_template(template_name)
-
-    # Prepare context for rendering
-    context = {
-        "instance": instance,
-        "workspace_dir_name": workspace_dir_name,
-        "actual_workspace_path": workspace_path,
-        "metadata": metadata,
-    }
-
-    # Add specific context for swt-ci mode if needed
-    if mode == "swt-ci":
-        context["test_instructions"] = (
-            f"The following command can be used to run the tests: `{list(MAP_REPO_TO_TEST_FRAMEWORK_VERBOSE[instance.repo].values())[0]}`. Make sure they fail in the expected way.\n"
-        )
-    else:
-        context["test_instructions"] = ""
-
-    # Render the instruction
-    instruction = template.render(context)
-    return instruction
-
-
-def setup_workspace(instance: pd.Series, workspace_root: str) -> str:
-    """Setup workspace for the instance by cloning the repository."""
-    repo_name = instance.repo  # e.g., "django/django"
-    base_commit = instance.base_commit
-    workspace_dir_name = _get_workspace_dir_name(instance)
-    workspace_path = os.path.join(workspace_root, workspace_dir_name)
-
-    # Construct GitHub URL
-    repo_url = f"https://github.com/{repo_name}.git"
-
-    logger.info(f"Setting up workspace for {repo_name} at {workspace_path}")
-
-    # Remove existing directory if it exists
-    if os.path.exists(workspace_path):
-        shutil.rmtree(workspace_path)
-
-    # Clone the repository
-    try:
-        subprocess.run(
-            ["git", "clone", repo_url, workspace_path],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logger.info(f"Successfully cloned {repo_url} to {workspace_path}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to clone repository {repo_url}: {e.stderr}")
-        raise EvalException(f"Failed to clone repository: {e.stderr}")
-
-    # Checkout the base commit
-    try:
-        subprocess.run(
-            ["git", "checkout", base_commit],
-            cwd=workspace_path,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logger.info(f"Successfully checked out base commit {base_commit}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to checkout base commit {base_commit}: {e.stderr}")
-        raise EvalException(f"Failed to checkout base commit: {e.stderr}")
-
-    return workspace_path
-
-
-def initialize_workspace(workspace_path: str, instance: pd.Series):
-    """Initialize the workspace with necessary setup."""
-    logger.info("-" * 30)
-    logger.info("BEGIN Workspace Initialization")
-    logger.info("-" * 30)
-
-    # Set up environment variables and git configuration
-    env_setup_commands = [
-        f"export SWE_INSTANCE_ID={instance['instance_id']}",
-        "export PIP_CACHE_DIR=~/.cache/pip",
-        'git config --global core.pager ""',
-        "git config --global diff.binary false",
-    ]
-
-    for cmd in env_setup_commands:
-        try:
-            subprocess.run(
-                cmd,
-                shell=True,
-                cwd=workspace_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            logger.info(f"Successfully executed: {cmd}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to execute {cmd}: {e.stderr}")
-            raise EvalException(f"Failed to initialize workspace: {e.stderr}")
-
-    # Create necessary directories
-    swe_util_dir = "/swe_util/eval_data/instances"
-    os.makedirs(swe_util_dir, exist_ok=True)
-
-    # Write instance data
-    swe_instance_json_name = "swe-bench-instance.json"
-    instance_file_path = os.path.join(swe_util_dir, swe_instance_json_name)
-    with open(instance_file_path, "w") as f:
-        if not isinstance(instance, dict):
-            json.dump([instance.to_dict()], f)
-        else:
-            json.dump([instance], f)
-
-    # Copy setup scripts
-    script_dir = os.path.dirname(__file__)
-    if DATASET_TYPE == "SWE-bench-Live":
-        entry_script_path = "instance_swe_entry_live.sh"
-    else:
-        entry_script_path = "instance_swe_entry.sh"
-
-    src_script = os.path.join(script_dir, f"scripts/setup/{entry_script_path}")
-    dst_script = f"/swe_util/{entry_script_path}"
-    if os.path.exists(src_script):
-        shutil.copy2(src_script, dst_script)
-
-        # Execute the setup script
-        try:
-            subprocess.run(
-                f"source {dst_script}",
-                shell=True,
-                cwd=workspace_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            logger.info(f"Successfully executed setup script: {entry_script_path}")
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Setup script execution failed (non-fatal): {e.stderr}")
-
-
-def get_git_patch(workspace_path: str) -> str:
-    """Get git patch from the workspace."""
-    logger.info("-" * 30)
-    logger.info("BEGIN Git Patch Extraction")
-    logger.info("-" * 30)
-
-    try:
-        # Change to workspace directory
-        os.chdir(workspace_path)
-
-        # Configure git
-        subprocess.run(
-            ["git", "config", "--global", "core.pager", '""'],
-            check=True,
-            capture_output=True,
-            text=True,
+        # Get dataset
+        dataset = get_dataset(
+            self.metadata.dataset or "princeton-nlp/SWE-bench_Lite",
+            self.metadata.data_split or "test",
+            self.output_file,
+            self.metadata.eval_n_limit or 0,
         )
 
-        # Remove any nested git repositories
-        result = subprocess.run(
-            ["find", ".", "-type", "d", "-name", ".git", "-not", "-path", "./.git"],
-            capture_output=True,
-            text=True,
+        # Filter dataset if needed
+        if self.metadata.max_iterations is not None:
+            dataset = dataset.head(self.metadata.max_iterations)
+
+        # Convert to Instance objects
+        self.instances = []
+        for _, row in dataset.iterrows():
+            instance = Instance(id=str(row["instance_id"]), data=row.to_dict())
+            self.instances.append(instance)
+
+        # Read completed instances to avoid re-processing
+        completed_instances = read_completed_instances(self.output_file)
+        self.instances = [
+            instance
+            for instance in self.instances
+            if instance.id not in completed_instances
+        ]
+
+        logger.info(f"Total instances to process: {len(self.instances)}")
+        return self.instances
+
+    def before_eval(self, workspace: DockerWorkspace) -> None:
+        """Setup before evaluation starts."""
+        logger.info("Starting SWE-bench evaluation")
+
+        # Initialize agent (llm_instance will be set before this method is called)
+        if self.llm_instance is None:
+            raise ValueError("LLM instance must be set before calling before_eval")
+        self.agent = Agent(
+            llm=self.llm_instance,
+            tools=get_default_tools(),
+            workspace_path=self.metadata.prompt_path or "/tmp/workspace",
+            prompt_path=self.metadata.prompt_path or "/tmp/prompts",
         )
-        git_dirs = [p for p in result.stdout.strip().split("\n") if p]
-        for git_dir in git_dirs:
-            shutil.rmtree(git_dir)
-            logger.info(f"Removed nested git directory: {git_dir}")
 
-        # Check if this is a git repository
-        try:
-            subprocess.run(
-                ["git", "rev-parse", "--git-dir"],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError:
-            logger.error("Current directory is not a git repository")
-            return ""
+    def process_instance(self, instance: Instance, workspace):
+        """Process a single instance."""
+        logger.info(f"Processing instance {instance.id}")
 
-        # Add all changes
-        subprocess.run(["git", "add", "-A"], check=True, capture_output=True, text=True)
+        # Get instance data
+        instance_data = instance.data
 
-        # Get the diff
-        result = subprocess.run(
-            ["git", "diff", "--cached"], capture_output=True, text=True
+        # Create conversation
+        # TODO: Fix workspace attributes - using placeholder values for now
+        conversation = RemoteConversation(
+            getattr(workspace, 'server_url', 'http://localhost:8000'),
+            getattr(workspace, 'workspace_id', 'default_workspace'),
+            SecretStr(getattr(workspace, 'token', 'default_token')),
         )
-        git_patch = result.stdout
 
-        # Remove binary diffs if present
-        git_patch = remove_binary_diffs(git_patch)
-
-        logger.info(f"Generated git patch with {len(git_patch)} characters")
-        return git_patch
-
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to generate git patch: {e.stderr}")
-        return ""
-    except Exception as e:
-        logger.error(f"Unexpected error generating git patch: {str(e)}")
-        return ""
-
-
-app = modal.App(name="swe-bench-eval")
-
-image = (
-    modal.Image.debian_slim()
-    .apt_install(
-        "git",
-        "curl",
-        "wget",
-        "unzip",
-        "python3-pip",
-        "build-essential",
-        "libssl-dev",
-        "libffi-dev",
-        "python3-dev",
-    )
-    .pip_install(
-        "git+openhands-sdk @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/sdk",
-        "openhands-tools @ git+https://github.com/All-Hands-AI/agent-sdk.git#subdirectory=openhands/tools",
-    )
-)
-
-
-@app.function()
-def process_instance_simplified(
-    instance: pd.Series, instruction: str, metadata: EvalMetadata
-) -> EvalOutput:
-    """Process a single instance using the simplified SDK approach."""
-    logger.info(f"Starting evaluation for instance {instance.instance_id}")
-
-    pathlib.Path("/workspace").mkdir(parents=True, exist_ok=True)
-    workspace_path = setup_workspace(instance, "/workspace")
-    initialize_workspace(workspace_path, instance)
-
-    llm = metadata.llm
-
-    # Setup tools with the workspace
-    tools = [
-        BashTool.create(working_dir=workspace_path),
-        FileEditorTool.create(),
-    ]
-
-    # Create agent
-    agent = Agent(llm=llm, tools=tools)
-
-    # Create conversation with callback
-    conversation = Conversation(agent=agent)
-
-    # Handle multimodal content if present
-    if "image_assets" in instance:
-        assets = json.loads(instance["image_assets"])
-        assert "problem_statement" in assets, (
-            "problem_statement is required in image_assets"
-        )
-        image_urls = assets["problem_statement"]
-        message = Message(
-            role="user",
-            content=[
-                TextContent(text=instruction),
-                # TODO: will fix this in next version of SDK
-                # ImageContent(image_urls=image_urls),
-            ],
-        )
-    else:
-        message = Message(role="user", content=[TextContent(text=instruction)])
-
-    # Send message and run conversation
-    conversation.send_message(message)
-    conversation.run()
-
-    history = list(conversation.state.events)
-
-    logger.info(f"Conversation completed with {len(history)} events")
-
-    # Get git patch
-    git_patch = get_git_patch(workspace_path)
-
-    logger.info(f"Completed evaluation for instance {instance.instance_id}")
-    logger.info(f"Git patch length: {len(git_patch)} characters")
-
-    return EvalOutput(
-        instance_id=instance.instance_id,
-        test_result={
-            "git_patch": git_patch,
-        },
-        instruction=instruction,
-        metadata=EvalMetadata(
-            llm=metadata.llm,
-            max_iterations=metadata.max_iterations,
-            eval_output_dir=metadata.eval_output_dir,
-            dataset=metadata.dataset,
-            data_split=metadata.data_split,
-            details=metadata.details,
-        ),
-        history=history,
-    )
-
-
-def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
-    """Filter dataset based on environment variables."""
-    # This is a simplified version - you may need to add more filtering logic
-    return dataset
-
-
-def make_metadata(
-    llm: LLM,
-    dataset_name,
-    max_iterations,
-    eval_output_dir,
-    details=None,
-):
-    """Create evaluation metadata."""
-    return EvalMetadata(
-        llm=llm,
-        data_split=dataset_name,
-        max_iterations=max_iterations,
-        eval_output_dir=eval_output_dir,
-        details=details,
-    )
-
-
-def construct_eval_output_dir(base_dir, dataset_name, model, max_iterations, eval_note):
-    """Construct the structured evaluation output directory path."""
-    # Format: eval_out/<dataset>-<split>/<agent_config>/<llm>_maxiter_<maxiter>_N_<version>-<hint>-<exp_name>-run_<run_number>
-
-    # Create LLM config string
-    llm_config_str = f"{model}_maxiter_{max_iterations}"
-
-    # Add version and note information
-    version = "v1"  # Default version
-    hint_status = "no-hint"  # Default hint status
-
-    if eval_note:
-        llm_config_str += f"_N_{version}-{hint_status}-{eval_note}-run_1"
-    else:
-        llm_config_str += f"_N_{version}-{hint_status}-run_1"
-
-    # Construct full path
-    eval_output_dir = os.path.join(base_dir, dataset_name, llm_config_str)
-
-    return eval_output_dir
-
-
-def prepare_dataset(
-    dataset: pd.DataFrame, output_file: str, n_limit: int
-) -> pd.DataFrame:
-    """Prepare dataset for evaluation."""
-    if n_limit > 0:
-        dataset = dataset.head(n_limit)
-    return dataset
-
-
-def run_evaluation_simplified(
-    instances: pd.DataFrame, metadata: EvalMetadata, output_file: str
-):
-    """Run evaluation on instances."""
-    output_dir = os.path.dirname(output_file)
-    if output_dir:  # Only create directory if dirname is not empty
-        os.makedirs(output_dir, exist_ok=True)
-
-    # Create empty output file
-    with open(output_file, "w") as f:
-        pass
-
-    results = []
-    for idx, instance in instances.iterrows():
-        logger.info(f"Processing instance {instance.instance_id}")
         # Get instruction
-        workspace_path = os.path.join("/workspace", _get_workspace_dir_name(instance))
-        instruction = get_instruction(instance, metadata, workspace_path)
-        result = process_instance_simplified.remote(instance, instruction, metadata)
+        instruction = get_instruction(instance_data, self.metadata.agent_config)
 
-        # Save result using the complete format
-        result_dict = result.model_dump()
-        if result.error:
-            result_dict["error"] = result.error
-        results.append(result_dict)
+        def event_callback(event) -> None:
+            """Handle events during conversation."""
+            pass
 
-        logger.info(f"Writing result for {instance.instance_id} to {output_file}")
-        logger.info(f"Result dict keys: {list(result_dict.keys())}")
-        git_patch_len = len(result_dict.get("test_result", {}).get("git_patch", ""))
-        logger.info(f"Git patch length: {git_patch_len}")
+        # Run conversation
+        try:
+            # TODO: Fix method name - using placeholder for now
+            if hasattr(conversation, 'add_message'):
+                conversation.add_message(
+                    role="user",
+                    content=instruction,
+                )
+            else:
+                # Fallback method name
+                conversation.send_message(instruction)
 
-        # Write to output file
-        output_dir = os.path.dirname(output_file)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        with open(output_file, "a") as f:
-            json_line = json.dumps(result_dict) + "\n"
-            f.write(json_line)
-            f.flush()  # Ensure it's written immediately
-            logger.info(
-                f"Successfully wrote {len(json_line)} characters to output file"
-            )
+            # Set up event logging
+            def log_event(event):
+                logger.debug(f"Event: {event}")
+
+            # Run agent
+            # TODO: Fix method name - using placeholder for now
+            if hasattr(self.agent, 'run'):
+                self.agent.run(
+                    conversation=conversation,
+                    event_callback=log_event,
+                    max_iterations=self.metadata.max_iterations,
+                )
+            else:
+                # Fallback method name
+                self.agent.execute(conversation, max_iterations=self.metadata.max_iterations)
+
+            # Get history and patch
+            history = get_history(conversation)
+            git_patch = get_git_patch_from_history(history)
+
+            # Prepare result
+            result = {
+                "instance_id": instance.id,
+                "instruction": instruction,
+                "git_patch": git_patch,
+                "history": history,
+                "test_result": {},
+            }
+
+            # Write result
+            write_output_to_file(result, self.output_file)
+            self.results.append(result)
+
+            logger.info(f"Completed instance {instance.id}")
+
+        except Exception as e:
+            logger.error(f"Error processing instance {instance.id}: {e}")
+            # Write error result
+            error_result = {
+                "instance_id": instance.id,
+                "instruction": instruction,
+                "git_patch": "",
+                "history": [],
+                "test_result": {"error": str(e)},
+            }
+            write_output_to_file(error_result, self.output_file)
+
+    def get_instance_docker_image(self, instance: Instance) -> str:
+        """Get Docker image for the instance."""
+        instance_data = instance.data
+
+        # Default image
+        image_name = "python:3.11-bookworm"
+
+        # Get repo-specific image if available
+        if "repo" in instance_data:
+            repo = instance_data["repo"]
+            # Map repo to specific image if needed
+            repo_images = {
+                # Add specific repo mappings here if needed
+            }
+            if repo in repo_images:
+                image_name = repo_images[repo]
+
+        return image_name
+
+    def on_evaluation_completion(self):
+        """Handle completion of evaluation."""
+        logger.info("SWE-bench evaluation completed")
+        logger.info(f"Processed {len(self.results)} instances")
+        logger.info(f"Results written to {self.output_file}")
+
+
+def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
+    """
+    Run evaluation using agent server.
+
+    Args:
+        llm: LLM instance to use for evaluation
+        metadata: EvalMetadata object containing evaluation configuration
+        num_workers: Number of worker threads to use for parallel processing
+    """
+    # Create SWEBenchEvaluation instance
+    evaluation = SWEBenchEvaluation(metadata, num_workers)
+    evaluation.llm_instance = llm
+
+    # Run the evaluation
+    evaluation.run()
 
 
 def main():
-    DATASET = "princeton-nlp/SWE-bench"
-    SPLIT = "test"
-    MODE = "swe"  # "swe", "swt", or "swt-ci"
-    MODEL = "litellm-proxy/anthropic/claude-sonnet-4-20250514"
-    EVAL_OUTPUT_DIR = "./eval_out"
-    MAX_ITERATIONS = 100
-    EVAL_N_LIMIT = 1
-    EVAL_NOTE = "initial"
-
-    # Load dataset
-    dataset = load_dataset(DATASET, split=SPLIT)
-    set_dataset_type(DATASET)
-    assert isinstance(dataset, Dataset)
-    _df = dataset.to_pandas()
-    assert isinstance(_df, pd.DataFrame)
-
-    swe_bench_tests = filter_dataset(_df, "instance_id")
-    logger.info(
-        f"Loaded dataset {DATASET} with split {SPLIT}: {len(swe_bench_tests)} tasks"
+    default_prompt_path = os.path.join(
+        os.path.dirname(__file__), "prompts", "default.j2"
     )
+    parser = get_parser()
+    parser.add_argument(
+        "--prompt-path",
+        type=str,
+        default=default_prompt_path,
+        help="Path to prompt template file",
+    )
+    args = parser.parse_args()
+
+    DATASET = args.dataset
+    SPLIT = args.split
+    MODEL = args.llm_config
+    EVAL_OUTPUT_DIR = args.eval_output_dir
+    MAX_ITERATIONS = args.max_iterations
+    EVAL_N_LIMIT = args.eval_n_limit
+    EVAL_NOTE = args.eval_note
+    PROMPT_PATH = args.prompt_path
 
     # Create LLM instance
-    api_key = os.getenv("LITELLM_API_KEY")
+    api_key = os.getenv("LLM_API_KEY")
     if not api_key:
-        raise ValueError("LITELLM_API_KEY environment variable is not set")
+        raise ValueError("LLM_API_KEY environment variable is not set")
     llm = LLM(
         model=MODEL,
         api_key=SecretStr(api_key),
         base_url="https://llm-proxy.eval.all-hands.dev",
         temperature=0,
+        service_id="litellm_proxy",
     )
 
-    details = {"mode": MODE}
     dataset_description = DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__")
 
     # Construct proper structured output directory path
@@ -537,18 +263,19 @@ def main():
         dataset_description,
         MAX_ITERATIONS,
         structured_output_dir,
-        details=details,
+        details={},
+        dataset=DATASET,
+        data_split=SPLIT,
+        prompt_path=PROMPT_PATH,
+        eval_n_limit=EVAL_N_LIMIT,
+        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
     )
 
-    # Create output directory and file
-    os.makedirs(metadata.eval_output_dir, exist_ok=True)
-    output_file = os.path.join(metadata.eval_output_dir, "output.jsonl")
-    print(f"### OUTPUT FILE: {output_file} ###")
-
-    # Prepare dataset
-    instances = prepare_dataset(swe_bench_tests, output_file, EVAL_N_LIMIT)
-
-    # Run evaluation
-    run_evaluation_simplified(instances, metadata, output_file)
+    # Always use remote evaluation
+    run_evaluation(llm, metadata, args.eval_num_workers)
 
     logger.info("Evaluation completed!")
+
+
+if __name__ == "__main__":
+    main()

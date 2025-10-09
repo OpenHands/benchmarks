@@ -27,11 +27,24 @@ We are transitioning from:
 
 This simplifies the architecture and removes the middleware layer, making the benchmarks more maintainable and easier to understand.
 
+## Prerequisites
+
+Before running any benchmarks, you must set the `AGENT_SDK_PATH` environment variable:
+
+```bash
+export AGENT_SDK_PATH=/path/to/your/agent-sdk
+```
+
+This environment variable is required for the runtime to locate the OpenHands Agent SDK installation.
+
 ## Quick Start
 
 For SWE-Bench evaluation (the only currently working benchmark):
 
 ```bash
+# Set the required environment variable
+export AGENT_SDK_PATH=/path/to/your/agent-sdk
+
 # Navigate to SWE-Bench directory
 cd swe_bench
 
