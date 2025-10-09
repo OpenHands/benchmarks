@@ -122,7 +122,7 @@ class Evaluation:
                     # Get fresh port and start a per-instance workspace
                     instance_workspace = None
                     server_port = None
-                    server_port = Evaluation._find_free_port(8001 + worker_id * 1000)
+                    server_port = Evaluation._find_free_port(8001)
                     setattr(threading.current_thread(), "server_port", server_port)
                     logger.info(
                         (
