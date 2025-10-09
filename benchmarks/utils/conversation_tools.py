@@ -51,9 +51,7 @@ def get_history(conversation):
             logger.error("No events found in conversation object")
             # Try to inspect the conversation object
             logger.debug("Conversation attributes: {dir(conversation)}")
-            logger.debug(
-                f"Conversation state attributes: {dir(conversation.state)}"
-            )
+            logger.debug(f"Conversation state attributes: {dir(conversation.state)}")
             history = []
     return history
 
@@ -86,9 +84,7 @@ def get_git_patch_from_history(history):
 
             for source_name, content in content_sources:
                 if isinstance(content, str) and content:
-                    logger.debug(
-                        f"Event {i} {source_name} length: {len(content)}"
-                    )
+                    logger.debug(f"Event {i} {source_name} length: {len(content)}")
 
                     # Extract workspace path if not found yet
                     if workspace_path is None and "/tmp/tmp" in content:
