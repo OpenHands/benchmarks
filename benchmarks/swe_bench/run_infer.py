@@ -18,7 +18,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.instance import Instance
 from benchmarks.utils.shared import EvalMetadata
-from openhands.sdk import LLM, Agent, get_logger
+from openhands.sdk import LLM, Agent, get_logger, Workspace
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
@@ -75,7 +75,7 @@ class SWEBenchEvaluation(Evaluation):
         logger.info(f"Total instances to process: {len(self.instances)}")
         return self.instances
 
-    def before_eval(self, workspace: DockerWorkspace) -> None:
+    def before_eval(self, workspace: Workspace) -> None:
         """Setup before evaluation starts."""
         logger.info("Starting SWE-bench evaluation")
 
@@ -99,9 +99,9 @@ class SWEBenchEvaluation(Evaluation):
         # Create conversation
         # TODO: Fix workspace attributes - using placeholder values for now
         conversation = RemoteConversation(
-            getattr(workspace, 'server_url', 'http://localhost:8000'),
-            getattr(workspace, 'workspace_id', 'default_workspace'),
-            SecretStr(getattr(workspace, 'token', 'default_token')),
+            getattr(workspace, "server_url", "http://localhost:8000"),
+            getattr(workspace, "workspace_id", "default_workspace"),
+            SecretStr(getattr(workspace, "token", "default_token")),
         )
 
         # Get instruction
@@ -114,7 +114,7 @@ class SWEBenchEvaluation(Evaluation):
         # Run conversation
         try:
             # TODO: Fix method name - using placeholder for now
-            if hasattr(conversation, 'add_message'):
+            if hasattr(conversation, "add_message"):
                 conversation.add_message(
                     role="user",
                     content=instruction,
@@ -129,7 +129,7 @@ class SWEBenchEvaluation(Evaluation):
 
             # Run agent
             # TODO: Fix method name - using placeholder for now
-            if hasattr(self.agent, 'run'):
+            if hasattr(self.agent, "run"):
                 self.agent.run(
                     conversation=conversation,
                     event_callback=log_event,
@@ -137,7 +137,9 @@ class SWEBenchEvaluation(Evaluation):
                 )
             else:
                 # Fallback method name
-                self.agent.execute(conversation, max_iterations=self.metadata.max_iterations)
+                self.agent.execute(
+                    conversation, max_iterations=self.metadata.max_iterations
+                )
 
             # Get history and patch
             history = get_history(conversation)
