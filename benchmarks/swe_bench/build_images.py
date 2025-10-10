@@ -167,7 +167,7 @@ def main(argv: list[str]) -> int:
     bases: list[str] = collect_unique_base_images(
         args.dataset, args.split, args.docker_image_prefix, args.n_limit
     )
-    # Decide manifest path under ./artifacts/builds/<dataset>/<split>/
+    # Decide manifest path under ./builds/<dataset>/<split>/
     BUILD_DIR = _default_build_output_dir(args.dataset, args.split)
     BUILD_LOG_DIR = BUILD_DIR / "logs"
     manifest_path = BUILD_DIR / "manifest.jsonl"
