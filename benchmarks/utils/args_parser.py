@@ -5,18 +5,19 @@ Argument parsing utilities for SWE-bench benchmarks.
 import argparse
 
 
-def get_parser():
+def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     """Create and return argument parser.
 
     Returns:
         ArgumentParser instance
     """
     parser = argparse.ArgumentParser(description="Run Evaluation inference")
-    parser.add_argument(
-        "llm_config_path",
-        type=str,
-        help="Path to JSON LLM configuration",
-    )
+    if add_llm_config:
+        parser.add_argument(
+            "llm_config_path",
+            type=str,
+            help="Path to JSON LLM configuration",
+        )
     parser.add_argument(
         "--dataset",
         type=str,
