@@ -11,13 +11,13 @@ logger = get_logger(__name__)
 class EvalMetadata(BaseModel):
     llm: LLM
     dataset: str
+    data_split: str = Field(default="test")
     max_iterations: int
     eval_output_dir: str
-    data_split: str | None = None
     details: dict[str, Any] | None = None
-    prompt_path: str | None = None
-    eval_n_limit: int | None = None
+    prompt_path: str | None = Field(default=None, description="Path to the prompt template file")
     env_setup_commands: list[str] | None = None
+    eval_limit: int = Field(default=0, description="Number of instances to evaluate, 0 means all")
 
 EvalInstanceID = str
 

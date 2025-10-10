@@ -9,11 +9,14 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
 from typing import Callable, List, Optional, Tuple
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field
 from tqdm import tqdm
 
+
 from benchmarks.utils.models import EvalMetadata, EvalInstance, EvalOutput
-from openhands.sdk import get_logger, Workspace
+from benchmarks.utils.constants import OUTPUT_FILENAME
+from openhands.sdk import get_logger
+from openhands.sdk.workspace import RemoteWorkspace
 
 logger = get_logger(__name__)
 
@@ -30,19 +33,22 @@ class Evaluation(ABC, BaseModel):
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
 
-    # --- Hooks to override ---
+    @property
+    def output_path(self) -> str:
+        return os.path.join(self.metadata.eval_output_dir, OUTPUT_FILENAME)
+
     @abstractmethod
     def prepare_instances(self) -> List[EvalInstance]:
         """Return the list of instances to evaluate."""
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_workspace(self, instance: EvalInstance) -> Workspace:
+    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
         """Create and return a context-managed Workspace for the given instance."""
         raise NotImplementedError
 
     @abstractmethod
-    def evaluate_instance(self, instance: EvalInstance, workspace: Workspace) -> EvalOutput:
+    def evaluate_instance(self, instance: EvalInstance, workspace: RemoteWorkspace) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
