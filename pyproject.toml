@@ -57,7 +57,7 @@ force-single-line = false
 lines-after-imports = 2
 
 [tool.uv.sources]
-openhands-sdk = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/sdk", rev = "main" }
-openhands-tools = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/tools", rev = "main" }
-openhands-workspace = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/workspace", rev = "main" }
-openhands-agent-server = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/agent_server", rev = "main" }
+openhands-sdk = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/sdk", rev = "feeb519f6e516128a082bc6f072f9ede92d1b603" }
+openhands-tools = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/tools", rev = "feeb519f6e516128a082bc6f072f9ede92d1b603" }
+openhands-workspace = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/workspace", rev = "feeb519f6e516128a082bc6f072f9ede92d1b603" }
+openhands-agent-server = { git = "https://github.com/All-Hands-AI/agent-sdk.git", subdirectory = "openhands/agent_server", rev = "feeb519f6e516128a082bc6f072f9ede92d1b603" }
