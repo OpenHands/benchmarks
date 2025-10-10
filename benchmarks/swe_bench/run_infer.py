@@ -169,8 +169,15 @@ class SWEBenchEvaluation(Evaluation):
         # Collect results
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
+        # git add
+        git_add_files = workspace.execute_command(("git add -A"))
+        assert git_add_files == 0, f"git add failed: {git_add_files.stderr}"
+
         # Get git patch
-        git_patch_result = workspace.execute_command("git diff")
+        base_commit = instance.data["base_commit"]
+        git_patch_result = workspace.execute_command(
+            (f"git diff --no-pager --cached {base_commit}")
+        )
         assert git_patch_result.exit_code == 0, (
             f"git diff failed: {git_patch_result.stderr}"
         )
