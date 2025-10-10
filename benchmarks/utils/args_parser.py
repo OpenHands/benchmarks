@@ -35,7 +35,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="./eval_out",
+        default="./eval_outputs",
         help="Evaluation output directory",
     )
     parser.add_argument(
