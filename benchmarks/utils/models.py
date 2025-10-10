@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 class EvalMetadata(BaseModel):
     llm: LLM
     dataset: str
-    data_split: str = Field(default="test")
+    dataset_split: str = Field(default="test")
     max_iterations: int
     eval_output_dir: str
     details: dict[str, Any] | None = None
