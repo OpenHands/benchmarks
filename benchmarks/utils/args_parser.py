@@ -15,7 +15,7 @@ def get_parser():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="princeton-nlp/SWE-bench-Verified",
+        default="princeton-nlp/SWE-bench_Verified",
         help="Dataset name",
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
