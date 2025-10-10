@@ -1,223 +1,188 @@
-from __future__ import annotations
-
 import os
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
+import fcntl
+from pathlib import Path
 from pydantic import SecretStr
-
+from pydantic import BaseModel
+from jinja2 import Environment, FileSystemLoader
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.conversation_tools import get_git_patch_from_history, get_history
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
-    get_instruction,
-    make_metadata,
     read_completed_instances,
     write_output_to_file,
 )
-from benchmarks.utils.models import EvalMetadata, EvalOutput, EvalInstance
-from openhands.sdk import LLM, Agent, get_logger, Workspace
+from openhands.sdk import LLM, Agent, get_logger, Conversation
+from openhands.sdk.workspace import BaseWorkspace, RemoteWorkspace
 from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
-from openhands.tools.preset.default import get_default_tools
+from openhands.tools.preset.default import get_default_tools, get_default_condenser
 from openhands.workspace import DockerWorkspace
 
-
+from benchmarks.utils.models import EvalMetadata, EvalInstance, EvalOutput, EvalInstanceID
+from benchmarks.utils.evaluation import Evaluation
 logger = get_logger(__name__)
 
 
+def get_instance_docker_image(
+    instance_id: str,
+    docker_image_prefix = 'docker.io/swebench/'
+) -> str:
+    # Official SWE-Bench image
+    # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
+    repo, name = instance_id.split('__')
+    image_name = f'{docker_image_prefix.rstrip("/")}/sweb.eval.x86_64.{repo}_1776_{name}:latest'.lower()
+    logger.debug(f'Using official SWE-Bench image: {image_name}')
+    return image_name
+
+
+def get_instruction(
+    instance: dict,
+    metadata: EvalMetadata,
+    workspace_path: str,
+) -> str:
+    """Generate instruction for the agent."""
+    workspace_dir_name = instance["repo"].split("/")[-1]
+    assert metadata.details is not None
+
+    # Set up Jinja2 environment
+    assert metadata.prompt_path is not None
+    prompts_dir = os.path.dirname(metadata.prompt_path)
+    template_name = os.path.basename(metadata.prompt_path)
+    env = Environment(loader=FileSystemLoader(prompts_dir))
+    template = env.get_template(template_name)
+
+    # Prepare context for rendering
+    context = {
+        "instance": instance,
+        "workspace_dir_name": workspace_dir_name,
+        "actual_workspace_path": workspace_path,
+        "metadata": metadata,
+    }
+    context["test_instructions"] = ""
+
+    # Render the instruction
+    instruction = template.render(context)
+    return instruction
+
 class SWEBenchEvaluation(Evaluation):
-    """SWE-bench specific evaluation implementation."""
+    """
+    Process-based SWE-bench evaluation implemented as a child of the
+    abstract Evaluation orchestrator.
 
-    def __init__(self, metadata: EvalMetadata, num_workers: int = 1):
-        super().__init__(metadata, num_workers)
-        self.llm_instance = None
-        self.agent = None
-        self.instances = None
-        self.output_file = None
-        self.results = []
-        self.workspace_path = "/workspace"
+    Implements:
+      - prepare_instances()
+      - prepare_workspace(instance)
+      - evaluate_instance(instance, workspace)
+    """
 
-    def setup_data(self):
-        """Initialize dataset and prepare for evaluation."""
+    def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
 
-        # Set up output file
-        self.output_file = os.path.join(self.metadata.eval_output_dir, "output.jsonl")
-
-        # Get dataset
-        dataset = get_dataset(
-            self.metadata.dataset or "princeton-nlp/SWE-bench_Lite",
-            self.metadata.data_split or "test",
-            self.output_file,
-            self.metadata.eval_n_limit or 0,
+        df = get_dataset(
+            dataset_name=self.metadata.dataset,
+            split=self.metadata.data_split,
+            output_file=self.output_path,
+            eval_limit=self.metadata.eval_limit
         )
 
-        # Filter dataset if needed
-        if self.metadata.max_iterations is not None:
-            dataset = dataset.head(self.metadata.max_iterations)
+        completed: set[EvalInstanceID] = read_completed_instances(self.output_path)
+        instances: List[EvalInstance] = []
+        for _, row in df.iterrows():
+            inst_id = str(row["instance_id"])
+            if inst_id in completed:
+                continue
+            instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
 
-        # Convert to Instance objects
-        self.instances = []
-        for _, row in dataset.iterrows():
-            instance = Instance(id=str(row["instance_id"]), data=row.to_dict())
-            self.instances.append(instance)
+        logger.info("Total instances to process: %d", len(instances))
+        return instances
 
-        # Read completed instances to avoid re-processing
-        completed_instances = read_completed_instances(self.output_file)
-        self.instances = [
-            instance
-            for instance in self.instances
-            if instance.id not in completed_instances
-        ]
+    # ---- Hook: prepare a workspace per instance ----------------------------------
+    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+        """
+        Use DockerWorkspace by default.
+        """
+        image = get_instance_docker_image(instance.id)
 
-        logger.info(f"Total instances to process: {len(self.instances)}")
-        return self.instances
+        workspace = DockerWorkspace(
+            # TODO: add a docker build script to BATCH build these images ahead of time
+            base_image=image,
+            working_dir="/workspace",
+        )
+        for cmd in self.metadata.env_setup_commands or []:
+            res = workspace.execute_command(cmd)
+            if res.exit_code != 0:
+                raise RuntimeError(f"Failed to run env setup command '{cmd}': {res.stderr}")
+            logger.debug(f"Ran env setup command '{cmd}': {res.stdout}")
+        return workspace
 
-    def before_eval(self, workspace: Workspace) -> None:
-        """Setup before evaluation starts."""
-        logger.info("Starting SWE-bench evaluation")
-
-        # Initialize agent (llm_instance will be set before this method is called)
-        if self.llm_instance is None:
-            raise ValueError("LLM instance must be set before calling before_eval")
-        self.agent = Agent(
-            llm=self.llm_instance,
-            tools=get_default_tools(),
-            workspace_path=self.metadata.prompt_path or "/tmp/workspace",
-            prompt_path=self.metadata.prompt_path or "/tmp/prompts",
+    # ---- Hook: evaluate one instance ---------------------------------------------
+    def evaluate_instance(self, instance: EvalInstance, workspace: RemoteWorkspace) -> EvalOutput:
+        """
+        Create conversation, run agent, collect history and git patch.
+        Do not write files here; just return EvalOutput.
+        """
+        tools = get_default_tools(
+            # Disable browser tools in CLI mode
+            enable_browser=False,
+        )
+        agent = Agent(
+            llm=self.metadata.llm,
+            tools=tools,
+            system_prompt_kwargs={"cli_mode": True},
+            # TODO: we can enable condenser and security analyzer later
+            # and have them configurable via EvalMetadata
+            # condenser=get_default_condenser(
+            #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
+            # ),
+            # security_analyzer=LLMSecurityAnalyzer(),
         )
 
-    def process_instance(self, instance: Instance, workspace):
-        """Process a single instance."""
-        logger.info(f"Processing instance {instance.id}")
+        assert isinstance(workspace, RemoteWorkspace)
 
-        # Get instance data
-        instance_data = instance.data
+        def _log_event(ev):  # keep it simple
+            logger.debug("Event: %s", ev)
 
-        # Create conversation
-        # TODO: Fix workspace attributes - using placeholder values for now
-        conversation = RemoteConversation(
-            getattr(workspace, "server_url", "http://localhost:8000"),
-            getattr(workspace, "workspace_id", "default_workspace"),
-            SecretStr(getattr(workspace, "token", "default_token")),
+        conversation = Conversation(
+            agent=agent,
+            workspace=workspace,
+            callbacks=[_log_event],
+            max_iteration_per_run=self.metadata.max_iterations,
         )
 
-        # Get instruction
-        instruction = get_instruction(instance_data, self.metadata.agent_config)
+        instruction = get_instruction(
+            instance=instance.data,
+            metadata=self.metadata,
+            workspace_path=workspace.working_dir
+        )
+        conversation.send_message(instruction)
+        conversation.run()
 
-        def event_callback(event) -> None:
-            """Handle events during conversation."""
-            pass
+        # Collect results
+        history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
-        # Run conversation
-        try:
-            # TODO: Fix method name - using placeholder for now
-            if hasattr(conversation, "add_message"):
-                conversation.add_message(
-                    role="user",
-                    content=instruction,
-                )
-            else:
-                # Fallback method name
-                conversation.send_message(instruction)
+        # Get git patch
+        git_patch_result = workspace.execute_command("git diff")
+        assert git_patch_result.exit_code == 0, f"git diff failed: {git_patch_result.stderr}"
+        git_patch = git_patch_result.stdout
 
-            # Set up event logging
-            def log_event(event):
-                logger.debug(f"Event: {event}")
-
-            # Run agent
-            # TODO: Fix method name - using placeholder for now
-            if hasattr(self.agent, "run"):
-                self.agent.run(
-                    conversation=conversation,
-                    event_callback=log_event,
-                    max_iterations=self.metadata.max_iterations,
-                )
-            else:
-                # Fallback method name
-                self.agent.execute(
-                    conversation, max_iterations=self.metadata.max_iterations
-                )
-
-            # Get history and patch
-            history = get_history(conversation)
-            git_patch = get_git_patch_from_history(history)
-
-            # Prepare result
-            result = {
-                "instance_id": instance.id,
-                "instruction": instruction,
+        # EvalOutput is your model; keep fields consistent with prior JSONL
+        out = EvalOutput(
+            instance_id=instance.id,
+            test_result={
                 "git_patch": git_patch,
-                "history": history,
-                "test_result": {},
-            }
-
-            # Write result
-            write_output_to_file(result, self.output_file)
-            self.results.append(result)
-
-            logger.info(f"Completed instance {instance.id}")
-
-        except Exception as e:
-            logger.error(f"Error processing instance {instance.id}: {e}")
-            # Write error result
-            error_result = {
-                "instance_id": instance.id,
-                "instruction": instruction,
-                "git_patch": "",
-                "history": [],
-                "test_result": {"error": str(e)},
-            }
-            write_output_to_file(error_result, self.output_file)
-
-    def get_instance_docker_image(self, instance: Instance) -> str:
-        """Get Docker image for the instance."""
-        instance_data = instance.data
-
-        # Default image
-        image_name = "python:3.11-bookworm"
-
-        # Get repo-specific image if available
-        if "repo" in instance_data:
-            repo = instance_data["repo"]
-            # Map repo to specific image if needed
-            repo_images = {
-                # Add specific repo mappings here if needed
-            }
-            if repo in repo_images:
-                image_name = repo_images[repo]
-
-        return image_name
-
-    def on_evaluation_completion(self):
-        """Handle completion of evaluation."""
-        logger.info("SWE-bench evaluation completed")
-        logger.info(f"Processed {len(self.results)} instances")
-        logger.info(f"Results written to {self.output_file}")
+            },
+            instruction=instruction,
+            error=None,
+            history=history,
+        )
+        return out
 
 
-def run_evaluation(llm: Any, metadata: EvalMetadata, num_workers: int = 1):
-    """
-    Run evaluation using agent server.
-
-    Args:
-        llm: LLM instance to use for evaluation
-        metadata: EvalMetadata object containing evaluation configuration
-        num_workers: Number of worker threads to use for parallel processing
-    """
-    # Create SWEBenchEvaluation instance
-    evaluation = SWEBenchEvaluation(metadata, num_workers)
-    evaluation.llm_instance = llm
-
-    # Run the evaluation
-    evaluation.run()
-
-
-def main():
-    default_prompt_path = os.path.join(
-        os.path.dirname(__file__), "prompts", "default.j2"
-    )
+def main() -> None:
+    choices = Path(__file__).parent / "prompts"
+    default_prompt_path = os.path.join(choices, "default.j2")
     parser = get_parser()
     parser.add_argument(
         "--prompt-path",
@@ -227,53 +192,52 @@ def main():
     )
     args = parser.parse_args()
 
-    DATASET = args.dataset
-    SPLIT = args.split
-    MODEL = args.llm_config
-    EVAL_OUTPUT_DIR = args.eval_output_dir
-    MAX_ITERATIONS = args.max_iterations
-    EVAL_N_LIMIT = args.eval_n_limit
-    EVAL_NOTE = args.eval_note
-    PROMPT_PATH = args.prompt_path
-
-    # Create LLM instance
+    # LLM
     api_key = os.getenv("LLM_API_KEY")
     if not api_key:
         raise ValueError("LLM_API_KEY environment variable is not set")
-    llm = LLM(
-        model=MODEL,
-        api_key=SecretStr(api_key),
-        base_url="https://llm-proxy.eval.all-hands.dev",
-        temperature=0,
-        service_id="litellm_proxy",
-    )
+    
+    llm_config_path = args.llm_config
+    if not os.path.isfile(llm_config_path):
+        raise ValueError(f"LLM config file {llm_config_path} does not exist")
+    with open(llm_config_path, "r") as f:
+        llm_config = f.read()
+    llm = LLM.model_validate_json(llm_config)
+    logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
-    dataset_description = DATASET.replace("/", "__") + "-" + SPLIT.replace("/", "__")
+    dataset_description = args.dataset.replace("/", "__") + "-" + args.split.replace("/", "__")
 
-    # Construct proper structured output directory path
     structured_output_dir = construct_eval_output_dir(
-        base_dir=EVAL_OUTPUT_DIR,
+        base_dir=args.output_dir,
         dataset_name=dataset_description,
-        model=llm.model,
-        max_iterations=MAX_ITERATIONS,
-        eval_note=EVAL_NOTE,
+        model_name=llm.model,
+        max_iterations=args.max_iterations,
+        eval_note=args.note,
     )
 
-    metadata = make_metadata(
-        llm,
-        dataset_description,
-        MAX_ITERATIONS,
-        structured_output_dir,
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset=args.dataset,
+        data_split=dataset_description,
+        max_iterations=args.max_iterations,
+        eval_output_dir=structured_output_dir,
         details={},
-        dataset=DATASET,
-        data_split=SPLIT,
-        prompt_path=PROMPT_PATH,
-        eval_n_limit=EVAL_N_LIMIT,
+        prompt_path=args.prompt_path,
+        eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
     )
 
-    # Always use remote evaluation
-    run_evaluation(llm, metadata, args.eval_num_workers)
+    # Run orchestrator with a simple JSONL writer
+    evaluator = SWEBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
+    def _default_on_result_writer(eval_output_dir: str):
+        def _cb(instance: EvalInstance, out: EvalOutput) -> None:
+            with open(evaluator.output_path, "a") as f:
+                # Use exclusive lock to prevent race
+                fcntl.flock(f, fcntl.LOCK_EX)
+                f.write(out.model_dump_json() + "\n")
+                fcntl.flock(f, fcntl.LOCK_UN)
+        return _cb
+    evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
 
     logger.info("Evaluation completed!")
 
