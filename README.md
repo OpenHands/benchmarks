@@ -90,8 +90,16 @@ Define your LLM config as a JSON following the model fields type in the [LLM cla
 
 You may validate the correctness of your config by running `uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json`
 
-### 2. Run SWE-Bench Evaluation
+### 2. Build Docker Images for SWE-Bench Evaluation
+Build ALL docker images for SWE-Bench.
+```bash
+uv run benchmarks/swe_bench/build_images.py \
+  --dataset princeton-nlp/SWE-bench_Verified --split test \
+  --image ghcr.io/all-hands-ai/agent-server --target binary-minimal
+```
 
+
+### 3. Run SWE-Bench Evaluation
 ```bash
 # Run evaluation with your configured LLM
 uv run swebench-infer --llm-config-path .llm_config/sonnet-4.json

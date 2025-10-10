@@ -20,6 +20,7 @@ from threading import Lock
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 
+from benchmarks.swe_bench.run_infer import get_official_docker_image
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
 from openhands.agent_server.docker.build import BuildOptions, build
@@ -80,13 +81,6 @@ def capture_output(base_name: str, out_dir: Path):
             f.close()
 
 
-def get_instance_docker_image(
-    instance_id: str, prefix: str = "docker.io/swebench/"
-) -> str:
-    repo, name = instance_id.split("__")
-    return f"{prefix.rstrip('/')}/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-
-
 def extend_parser() -> argparse.ArgumentParser:
     """Reuse benchmark parser and extend with build-related options."""
     parser = get_parser(add_llm_config=False)
@@ -129,7 +123,7 @@ def collect_unique_base_images(dataset, split, prefix, n_limit):
     )
     return sorted(
         {
-            get_instance_docker_image(str(row["instance_id"]), prefix)
+            get_official_docker_image(str(row["instance_id"]), prefix)
             for _, row in df.iterrows()
         }
     )
