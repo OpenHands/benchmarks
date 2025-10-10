@@ -30,7 +30,7 @@ You may validate the correctness of your config by running `uv run validate-cfg 
 
 ```bash
 # Run evaluation with your configured LLM
-uv run swebench-infer --llm-config-path .llm_config/sonnet-4.json
+uv run swebench-infer .llm_config/sonnet-4.json
 ```
 
 ## Links
