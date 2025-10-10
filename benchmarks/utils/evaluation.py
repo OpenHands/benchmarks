@@ -18,17 +18,6 @@ from openhands.sdk.workspace import RemoteWorkspace
 
 logger = get_logger(__name__)
 
-
-def _validate_env() -> None:
-    missing = [
-        name for name in ("AGENT_SDK_PATH", "LLM_API_KEY") if not os.getenv(name)
-    ]
-    if missing:
-        raise RuntimeError(
-            f"Missing required environment variables: {', '.join(missing)}"
-        )
-
-
 OnResult = Callable[[EvalInstance, EvalOutput], None]
 
 
@@ -65,8 +54,6 @@ class Evaluation(ABC, BaseModel):
         *,
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
-        _validate_env()
-
         logger.info("Starting evaluation (process pool)")
         logger.info("metadata=%s", self.metadata)
         logger.info("workers=%d", self.num_workers)
