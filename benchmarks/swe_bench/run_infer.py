@@ -206,7 +206,7 @@ def main() -> None:
     if not api_key:
         raise ValueError("LLM_API_KEY environment variable is not set")
 
-    llm_config_path = args.llm_config
+    llm_config_path = args.llm_config_path
     if not os.path.isfile(llm_config_path):
         raise ValueError(f"LLM config file {llm_config_path} does not exist")
     with open(llm_config_path, "r") as f:
