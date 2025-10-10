@@ -8,6 +8,7 @@ import pandas as pd
 import toml
 from datasets import Dataset, load_dataset
 
+from benchmarks.utils.models import EvalInstanceID
 from openhands.sdk import get_logger
 
 
@@ -112,7 +113,7 @@ def get_dataset(
     dataset_name: str,
     split: str,
     eval_limit: int | None = None,
-    completed_instances: Optional[set] = None,
+    completed_instances: set[EvalInstanceID] | None = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Load dataset
