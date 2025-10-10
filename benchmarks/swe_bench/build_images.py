@@ -4,7 +4,7 @@ Build agent-server images for all unique SWE-Bench base images in a dataset spli
 
 Example:
   uv run benchmarks/swe_bench/build_images.py \
-    --dataset princeton-nlp/SWE-bench_Lite --split test \
+    --dataset princeton-nlp/SWE-bench_Verified --split test \
     --image ghcr.io/all-hands-ai/agent-server --target binary-minimal
 """
 
@@ -32,29 +32,52 @@ logger = get_logger(__name__)
 @contextlib.contextmanager
 def capture_output(base_name: str, out_dir: Path):
     """
-    Capture all stdout/stderr during a block and save
-    to <out_dir>/<timestamp>_<base_name>.log
+    Capture stdout/stderr during a block and stream them to:
+      <out_dir>/<base_name>/build-<timestamp>.log
+
+    Keeps redirect_* semantics; writes are realtime (line-buffered + flush).
+    Yields the log_path.
     """
-    out_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
-    log_path = out_dir / base_name / f"build-{ts}.log"
+    log_path = Path(out_dir) / base_name / f"build-{ts}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # tell the user where we’re logging, without being swallowed by the redirect
+    # (goes to the original stderr so it’s visible immediately)
     logger.info(f"Logging build output to {log_path}")
 
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
+    # Open line-buffered so writes flush on newlines;
+    # also wrap to hard-flush every write.
+    f = log_path.open("w", encoding="utf-8", buffering=1)
 
-    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-        yield log_path
+    class _FlushOnWrite(io.TextIOBase):
+        encoding = f.encoding
 
-    # After the block, write both streams to file
-    with log_path.open("w", encoding="utf-8") as f:
-        f.write("=== STDOUT ===\n")
-        f.write(stdout_buf.getvalue())
-        f.write("\n=== STDERR ===\n")
-        f.write(stderr_buf.getvalue())
+        def __init__(self, sink):
+            self._sink = sink
 
-    stdout_buf.close()
-    stderr_buf.close()
+        def write(self, s):
+            n = self._sink.write(s)
+            self._sink.flush()
+            return n
+
+        def flush(self):
+            self._sink.flush()
+
+        def fileno(self):
+            # allow libs that try to detect fileno()
+            return self._sink.fileno()
+
+    sink = _FlushOnWrite(f)
+
+    # Redirect stdout/stderr to the same realtime sink.
+    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):  # type: ignore[arg-type]
+        try:
+            yield log_path
+        finally:
+            # make sure everything is on disk
+            sink.flush()
+            f.close()
 
 
 def get_instance_docker_image(
