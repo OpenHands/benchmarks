@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
 from benchmarks.swe_bench.run_infer import get_official_docker_image
@@ -130,6 +130,7 @@ def collect_unique_base_images(dataset, split, prefix, n_limit):
 
 
 class BuildOutput(BaseModel):
+    time: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     base_image: str
     tags: list[str]
     error: str | None = None
