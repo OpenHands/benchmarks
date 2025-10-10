@@ -2,21 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 
-import pandas as pd
-from jinja2 import Environment, FileSystemLoader
-
-from benchmarks.utils.models import EvalMetadata
-from openhands.sdk import (
-    LLM,
-    get_logger,
-    __version__
-)
+from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-
 
 
 def construct_eval_output_dir(
@@ -24,7 +14,7 @@ def construct_eval_output_dir(
     dataset_name: str,
     model_name: str,
     max_iterations: int,
-    eval_note: str
+    eval_note: str,
 ) -> str:
     """Construct the structured evaluation output directory path."""
     # Format: eval_out/<dataset>-<split>/<agent_config>/

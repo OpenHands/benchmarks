@@ -2,7 +2,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from openhands.sdk import LLM, Agent, get_logger
+from openhands.sdk import LLM, get_logger
 
 
 logger = get_logger(__name__)
@@ -15,11 +15,17 @@ class EvalMetadata(BaseModel):
     max_iterations: int
     eval_output_dir: str
     details: dict[str, Any] | None = None
-    prompt_path: str | None = Field(default=None, description="Path to the prompt template file")
+    prompt_path: str | None = Field(
+        default=None, description="Path to the prompt template file"
+    )
     env_setup_commands: list[str] | None = None
-    eval_limit: int = Field(default=0, description="Number of instances to evaluate, 0 means all")
+    eval_limit: int = Field(
+        default=0, description="Number of instances to evaluate, 0 means all"
+    )
+
 
 EvalInstanceID = str
+
 
 class EvalInstance(BaseModel):
     """
@@ -30,7 +36,9 @@ class EvalInstance(BaseModel):
     """
 
     id: EvalInstanceID = Field(..., description="Mandatory unique identifier")
-    data: dict[str, Any] = Field(..., description="Generic data field for benchmark-specific content")
+    data: dict[str, Any] = Field(
+        ..., description="Generic data field for benchmark-specific content"
+    )
 
 
 class EvalOutput(BaseModel):

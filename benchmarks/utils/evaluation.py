@@ -3,29 +3,34 @@ Evaluation orchestrator.
 """
 
 import os
-import traceback
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from contextlib import ExitStack
 from typing import Callable, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-
-from benchmarks.utils.models import EvalMetadata, EvalInstance, EvalOutput
 from benchmarks.utils.constants import OUTPUT_FILENAME
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 
+
 logger = get_logger(__name__)
 
+
 def _validate_env() -> None:
-    missing = [name for name in ("AGENT_SDK_PATH", "LLM_API_KEY") if not os.getenv(name)]
+    missing = [
+        name for name in ("AGENT_SDK_PATH", "LLM_API_KEY") if not os.getenv(name)
+    ]
     if missing:
-        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+        raise RuntimeError(
+            f"Missing required environment variables: {', '.join(missing)}"
+        )
+
 
 OnResult = Callable[[EvalInstance, EvalOutput], None]
+
 
 class Evaluation(ABC, BaseModel):
     """Abstract orchestrator for instance processing (process-based)."""
@@ -48,7 +53,9 @@ class Evaluation(ABC, BaseModel):
         raise NotImplementedError
 
     @abstractmethod
-    def evaluate_instance(self, instance: EvalInstance, workspace: RemoteWorkspace) -> EvalOutput:
+    def evaluate_instance(
+        self, instance: EvalInstance, workspace: RemoteWorkspace
+    ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
@@ -73,9 +80,12 @@ class Evaluation(ABC, BaseModel):
 
         outputs: List[EvalOutput] = []
 
-        # Submit one process per instance. Using a *bound* instance method as the target; this
-        # requires the subclass to be importable/pickleable (top-level class, no closures).
-        with ProcessPoolExecutor(max_workers=self.num_workers, initializer=_child_init) as pool:
+        # Submit one process per instance. Using a *bound* instance method as
+        # the target; this requires the subclass to be importable/pickleable
+        # (top-level class, no closures).
+        with ProcessPoolExecutor(
+            max_workers=self.num_workers, initializer=_child_init
+        ) as pool:
             futures = [pool.submit(self._process_one_mp, inst) for inst in instances]
 
             for fut in tqdm(
@@ -87,7 +97,11 @@ class Evaluation(ABC, BaseModel):
                 try:
                     instance, out = fut.result()
                 except Exception as e:
-                    logger.error(f"Error during instance evaluation: {e}", exc_info=True, stack_info=True)
+                    logger.error(
+                        f"Error during instance evaluation: {e}",
+                        exc_info=True,
+                        stack_info=True,
+                    )
                     raise
 
                 outputs.append(out)
@@ -101,23 +115,25 @@ class Evaluation(ABC, BaseModel):
         return outputs
 
     # --- Worker-side method (executed in child processes) ---------------------------
-    def _process_one_mp(self, instance: EvalInstance) -> Tuple[EvalInstance, EvalOutput]:
+    def _process_one_mp(
+        self, instance: EvalInstance
+    ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process.
 
         - Creates workspace in the *child* process
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
-        instance_id = getattr(instance, "id", "<unknown>")
-        logger.info("[child] start id=%s", instance_id)
+        logger.info("[child] start id=%s", instance.id)
 
-        with ExitStack() as stack:
-            workspace = self.prepare_workspace(instance)
-            out = self.evaluate_instance(instance, workspace)
-        logger.info("[child] done id=%s", instance_id)
+        workspace = self.prepare_workspace(instance)
+        out = self.evaluate_instance(instance, workspace)
+        logger.info("[child] done id=%s", instance.id)
         return instance, out
 
+
 # ---------- Optional per-process initializer ---------------------------------------
+
 
 def _child_init() -> None:
     """Per-process initializer (placeholder).

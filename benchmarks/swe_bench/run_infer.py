@@ -1,39 +1,41 @@
-import os
-from typing import Any, Dict, List, Tuple
-
 import fcntl
+import os
 from pathlib import Path
-from pydantic import SecretStr
-from pydantic import BaseModel
+from typing import List
+
 from jinja2 import Environment, FileSystemLoader
+
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.conversation_tools import get_git_patch_from_history, get_history
 from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     read_completed_instances,
-    write_output_to_file,
 )
-from openhands.sdk import LLM, Agent, get_logger, Conversation
-from openhands.sdk.workspace import BaseWorkspace, RemoteWorkspace
-from openhands.sdk.conversation.impl.remote_conversation import RemoteConversation
-from openhands.tools.preset.default import get_default_tools, get_default_condenser
+from benchmarks.utils.models import (
+    EvalInstance,
+    EvalInstanceID,
+    EvalMetadata,
+    EvalOutput,
+)
+from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
 
-from benchmarks.utils.models import EvalMetadata, EvalInstance, EvalOutput, EvalInstanceID
-from benchmarks.utils.evaluation import Evaluation
+
 logger = get_logger(__name__)
 
 
 def get_instance_docker_image(
-    instance_id: str,
-    docker_image_prefix = 'docker.io/swebench/'
+    instance_id: str, docker_image_prefix="docker.io/swebench/"
 ) -> str:
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
-    repo, name = instance_id.split('__')
-    image_name = f'{docker_image_prefix.rstrip("/")}/sweb.eval.x86_64.{repo}_1776_{name}:latest'.lower()
-    logger.debug(f'Using official SWE-Bench image: {image_name}')
+    repo, name = instance_id.split("__")
+    image_name = docker_image_prefix.rstrip("/")
+    image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
+    logger.debug(f"Using official SWE-Bench image: {image_name}")
     return image_name
 
 
@@ -66,6 +68,7 @@ def get_instruction(
     instruction = template.render(context)
     return instruction
 
+
 class SWEBenchEvaluation(Evaluation):
     """
     Process-based SWE-bench evaluation implemented as a child of the
@@ -84,7 +87,7 @@ class SWEBenchEvaluation(Evaluation):
             dataset_name=self.metadata.dataset,
             split=self.metadata.data_split,
             output_file=self.output_path,
-            eval_limit=self.metadata.eval_limit
+            eval_limit=self.metadata.eval_limit,
         )
 
         completed: set[EvalInstanceID] = read_completed_instances(self.output_path)
@@ -113,12 +116,16 @@ class SWEBenchEvaluation(Evaluation):
         for cmd in self.metadata.env_setup_commands or []:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
-                raise RuntimeError(f"Failed to run env setup command '{cmd}': {res.stderr}")
+                raise RuntimeError(
+                    f"Failed to run env setup command '{cmd}': {res.stderr}"
+                )
             logger.debug(f"Ran env setup command '{cmd}': {res.stdout}")
         return workspace
 
     # ---- Hook: evaluate one instance ---------------------------------------------
-    def evaluate_instance(self, instance: EvalInstance, workspace: RemoteWorkspace) -> EvalOutput:
+    def evaluate_instance(
+        self, instance: EvalInstance, workspace: RemoteWorkspace
+    ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
@@ -154,7 +161,7 @@ class SWEBenchEvaluation(Evaluation):
         instruction = get_instruction(
             instance=instance.data,
             metadata=self.metadata,
-            workspace_path=workspace.working_dir
+            workspace_path=workspace.working_dir,
         )
         conversation.send_message(instruction)
         conversation.run()
@@ -164,7 +171,9 @@ class SWEBenchEvaluation(Evaluation):
 
         # Get git patch
         git_patch_result = workspace.execute_command("git diff")
-        assert git_patch_result.exit_code == 0, f"git diff failed: {git_patch_result.stderr}"
+        assert git_patch_result.exit_code == 0, (
+            f"git diff failed: {git_patch_result.stderr}"
+        )
         git_patch = git_patch_result.stdout
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
@@ -196,7 +205,7 @@ def main() -> None:
     api_key = os.getenv("LLM_API_KEY")
     if not api_key:
         raise ValueError("LLM_API_KEY environment variable is not set")
-    
+
     llm_config_path = args.llm_config
     if not os.path.isfile(llm_config_path):
         raise ValueError(f"LLM config file {llm_config_path} does not exist")
@@ -205,7 +214,9 @@ def main() -> None:
     llm = LLM.model_validate_json(llm_config)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
-    dataset_description = args.dataset.replace("/", "__") + "-" + args.split.replace("/", "__")
+    dataset_description = (
+        args.dataset.replace("/", "__") + "-" + args.split.replace("/", "__")
+    )
 
     structured_output_dir = construct_eval_output_dir(
         base_dir=args.output_dir,
@@ -229,6 +240,7 @@ def main() -> None:
 
     # Run orchestrator with a simple JSONL writer
     evaluator = SWEBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
+
     def _default_on_result_writer(eval_output_dir: str):
         def _cb(instance: EvalInstance, out: EvalOutput) -> None:
             with open(evaluator.output_path, "a") as f:
@@ -236,7 +248,9 @@ def main() -> None:
                 fcntl.flock(f, fcntl.LOCK_EX)
                 f.write(out.model_dump_json() + "\n")
                 fcntl.flock(f, fcntl.LOCK_UN)
+
         return _cb
+
     evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
 
     logger.info("Evaluation completed!")

@@ -1,4 +1,3 @@
-
 class EvalException(Exception):
     pass
 

@@ -13,11 +13,17 @@ def get_parser():
     """
     parser = argparse.ArgumentParser(description="Run Evaluation inference")
     parser.add_argument(
-        "--dataset", type=str, default="princeton-nlp/SWE-bench-Verified", help="Dataset name"
+        "--dataset",
+        type=str,
+        default="princeton-nlp/SWE-bench-Verified",
+        help="Dataset name",
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
-        "--llm-config-path", type=str, required=True, help="Path to JSON LLM configuration"
+        "--llm-config-path",
+        type=str,
+        required=True,
+        help="Path to JSON LLM configuration",
     )
     parser.add_argument(
         "--max-iterations", type=int, default=100, help="Maximum iterations"
@@ -25,9 +31,7 @@ def get_parser():
     parser.add_argument(
         "--num-workers", type=int, default=1, help="Number of evaluation workers"
     )
-    parser.add_argument(
-        "--note", type=str, default="initial", help="Evaluation note"
-    )
+    parser.add_argument("--note", type=str, default="initial", help="Evaluation note")
     parser.add_argument(
         "--output-dir",
         type=str,
