@@ -136,10 +136,10 @@ def _default_build_output_dir(
     dataset: str, split: str, base_dir: Path | None = None
 ) -> Path:
     """
-    Default: ./artifacts/builds/<dataset>/<split>
+    Default: ./builds/<dataset>/<split>
     Keeps build outputs in one predictable place, easy to .gitignore.
     """
-    root = (base_dir or Path.cwd()) / "artifacts" / "builds" / dataset / split
+    root = (base_dir or Path.cwd()) / "builds" / dataset / split
     root.mkdir(parents=True, exist_ok=True)
     return root
 
