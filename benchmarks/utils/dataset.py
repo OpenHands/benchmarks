@@ -113,7 +113,7 @@ def get_dataset(
     dataset_name: str,
     split: str,
     output_file: str,
-    eval_n_limit: int,
+    eval_limit: int,
     completed_instances: Optional[set] = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
@@ -124,14 +124,9 @@ def get_dataset(
     assert isinstance(_df, pd.DataFrame)
 
     # Filter dataset
-    swe_bench_tests = filter_dataset(_df, "instance_id")
-    logger.info(
-        f"Loaded dataset {dataset_name} with split {split}: "
-        f"{len(swe_bench_tests)} tasks"
-    )
+    df = filter_dataset(_df, "instance_id")
+    logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")
 
     # Prepare dataset (apply n_limit if specified and filter completed)
-    instances = prepare_dataset(
-        swe_bench_tests, output_file, eval_n_limit, completed_instances
-    )
+    instances = prepare_dataset(df, output_file, eval_limit, completed_instances)
     return instances

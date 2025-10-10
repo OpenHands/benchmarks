@@ -216,3 +216,7 @@ workspace/
 # IDE and editor directories
 .openhands/
 .vscode/
+
+# LLM configuration directory (contains API keys and sensitive configs)
+.llm_config/
+!.llm_config/example.json
