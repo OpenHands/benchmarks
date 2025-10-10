@@ -240,6 +240,7 @@ def main(argv: list[str]) -> int:
                 try:
                     result: BuildOutput = fut.result()
                     writer.write(result.model_dump_json() + "\n")
+                    writer.flush()
                     with mu:
                         successes += 1
                     _update_pbar(
@@ -254,6 +255,7 @@ def main(argv: list[str]) -> int:
                         ).model_dump_json()
                         + "\n"
                     )
+                    writer.flush()
                     with mu:
                         failures += 1
                     _update_pbar(
