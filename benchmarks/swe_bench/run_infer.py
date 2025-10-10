@@ -151,6 +151,10 @@ class SWEBenchEvaluation(Evaluation):
         def _log_event(ev):  # keep it simple
             logger.debug("Event: %s", ev)
 
+        # git reset
+        git_reset = workspace.execute_command(("git reset --hard"))
+        assert git_reset_files == 0, f"git reset failed: {git_reset_files.stderr}"
+
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
