@@ -66,9 +66,6 @@ def extend_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
-    parser.add_argument(
-        "--fail-fast", action="store_true", help="Stop on first build failure"
-    )
     return parser
 
 
@@ -116,8 +113,7 @@ def main(argv):
             except Exception as e:
                 logger.error("Build failed for %s: %r", base, e)
                 failures.append({"base_image": base, "error": repr(e)})
-                if args.fail_fast:
-                    break
+                break
     else:
         with ThreadPoolExecutor(max_workers=args.max_workers) as ex:
             futures = {ex.submit(build_one, base, args): base for base in bases}
@@ -128,8 +124,7 @@ def main(argv):
                 except Exception as e:
                     logger.error("Build failed for %s: %r", base, e)
                     failures.append({"base_image": base, "error": repr(e)})
-                    if args.fail_fast:
-                        break
+                    break
 
     manifest = {
         "dataset": args.dataset,
