@@ -88,8 +88,7 @@ def filter_dataset(
 
 def prepare_dataset(
     dataset: pd.DataFrame,
-    output_file: str,
-    n_limit: int,
+    n_limit: int | None = None,
     completed_instances: Optional[set] = None,
 ) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
@@ -103,7 +102,7 @@ def prepare_dataset(
         logger.info(f"{len(dataset)} instances remaining")
 
     # Apply limit after filtering completed instances
-    if n_limit > 0:
+    if n_limit is not None and n_limit > 0:
         dataset = dataset.head(n_limit)
 
     return dataset
@@ -112,8 +111,7 @@ def prepare_dataset(
 def get_dataset(
     dataset_name: str,
     split: str,
-    output_file: str,
-    eval_limit: int,
+    eval_limit: int | None = None,
     completed_instances: Optional[set] = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
@@ -128,5 +126,5 @@ def get_dataset(
     logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")
 
     # Prepare dataset (apply n_limit if specified and filter completed)
-    instances = prepare_dataset(df, output_file, eval_limit, completed_instances)
+    instances = prepare_dataset(df, eval_limit, completed_instances)
     return instances

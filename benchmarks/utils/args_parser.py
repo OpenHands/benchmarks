@@ -40,7 +40,7 @@ def get_parser():
     parser.add_argument(
         "--n-limit",
         type=int,
-        default=-1,
+        default=None,
         help="Limit number of instances to evaluate",
     )
     return parser

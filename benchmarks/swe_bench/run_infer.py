@@ -86,7 +86,6 @@ class SWEBenchEvaluation(Evaluation):
         df = get_dataset(
             dataset_name=self.metadata.dataset,
             split=self.metadata.dataset_split,
-            output_file=self.output_path,
             eval_limit=self.metadata.eval_limit,
         )
 
