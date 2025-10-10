@@ -1276,7 +1276,7 @@ wheels = [
 [[package]]
 name = "litellm"
 version = "1.77.7"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/BerriAI/litellm.git?rev=v1.77.7.dev9#763d2f8ccdd8412dbe6d4ac0e136d9ac34dcd4c0" }
 dependencies = [
     { name = "aiohttp" },
     { name = "click" },
@@ -1290,10 +1290,6 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "tiktoken" },
     { name = "tokenizers" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/4b/4e9a204462687ca3796cc0fdaefbd624d7b2216edd4ad243d60a3b95127e/litellm-1.77.7.tar.gz", hash = "sha256:e3398fb2575b98726e787c0a1481daed5938d58cafdcd96fbca80c312221af3e", size = 10401706, upload-time = "2025-10-05T00:22:37.646Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/50/53df2244d4aca2af73d2f2c6ad21c731cf24bd0dbe89d896184a1eaa874f/litellm-1.77.7-py3-none-any.whl", hash = "sha256:1b3a1b17bd521a0ad25226fb62a912602c803922aabb4a16adf83834673be574", size = 9223061, upload-time = "2025-10-05T00:22:34.112Z" },
 ]
 
 [[package]]
@@ -1678,7 +1674,7 @@ wheels = [
 [[package]]
 name = "openhands-agent-server"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=feeb519f6e516128a082bc6f072f9ede92d1b603#feeb519f6e516128a082bc6f072f9ede92d1b603" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
@@ -1721,9 +1717,9 @@ requires-dist = [
     { name = "datasets" },
     { name = "jinja2" },
     { name = "modal", specifier = ">=1.1.4" },
-    { name = "openhands-agent-server", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=main" },
-    { name = "openhands-tools", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools&rev=main" },
-    { name = "openhands-workspace", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fworkspace&rev=main" },
+    { name = "openhands-agent-server", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=feeb519f6e516128a082bc6f072f9ede92d1b603" },
+    { name = "openhands-tools", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools&rev=feeb519f6e516128a082bc6f072f9ede92d1b603" },
+    { name = "openhands-workspace", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fworkspace&rev=feeb519f6e516128a082bc6f072f9ede92d1b603" },
     { name = "pandas" },
     { name = "toml" },
     { name = "tqdm" },
@@ -1742,7 +1738,7 @@ dev = [
 [[package]]
 name = "openhands-sdk"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fsdk&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fsdk&rev=feeb519f6e516128a082bc6f072f9ede92d1b603#feeb519f6e516128a082bc6f072f9ede92d1b603" }
 dependencies = [
     { name = "fastmcp" },
     { name = "litellm" },
@@ -1756,7 +1752,7 @@ dependencies = [
 [[package]]
 name = "openhands-tools"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools&rev=feeb519f6e516128a082bc6f072f9ede92d1b603#feeb519f6e516128a082bc6f072f9ede92d1b603" }
 dependencies = [
     { name = "bashlex" },
     { name = "binaryornot" },
@@ -1771,7 +1767,7 @@ dependencies = [
 [[package]]
 name = "openhands-workspace"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fworkspace&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fworkspace&rev=feeb519f6e516128a082bc6f072f9ede92d1b603#feeb519f6e516128a082bc6f072f9ede92d1b603" }
 dependencies = [
     { name = "openhands-sdk" },
     { name = "pydantic" },
