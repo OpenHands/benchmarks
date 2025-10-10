@@ -9,10 +9,13 @@ Example:
 """
 
 import argparse
-import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
+
+from pydantic import BaseModel
+from tqdm.auto import tqdm
 
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
@@ -61,9 +64,6 @@ def extend_parser() -> argparse.ArgumentParser:
         "--max-workers", type=int, default=1, help="Concurrent builds (be cautious)"
     )
     parser.add_argument(
-        "--manifest", default="build-manifest.json", help="Write build results here"
-    )
-    parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
     return parser
@@ -81,7 +81,13 @@ def collect_unique_base_images(dataset, split, prefix, n_limit):
     )
 
 
-def build_one(base_image, args):
+class BuildOutput(BaseModel):
+    base_image: str
+    tags: list[str]
+    error: str | None = None
+
+
+def build_one(base_image: str, args: argparse.Namespace) -> BuildOutput:
     opts = BuildOptions(
         base_image=base_image,
         custom_tags=args.custom_tags,
@@ -91,58 +97,141 @@ def build_one(base_image, args):
         push=args.push,
     )
     tags = build(opts)
-    return {"base_image": base_image, "tags": tags, "error": None}
+    return BuildOutput(base_image=base_image, tags=tags, error=None)
 
 
-def main(argv):
+def _default_manifest_path(
+    dataset: str, split: str, base_dir: Path | None = None
+) -> Path:
+    """
+    Default: ./artifacts/builds/<dataset>/<split>/manifest.jsonl
+    Keeps build outputs in one predictable place, easy to .gitignore.
+    """
+    root = (base_dir or Path.cwd()) / "artifacts" / "builds" / dataset / split
+    root.mkdir(parents=True, exist_ok=True)
+    return root / "manifest.jsonl"
+
+
+def _update_pbar(
+    pbar: tqdm,
+    successes: int,
+    failures: int,
+    running: int,
+    sample: str | None,
+    last_event: str | None,
+):
+    postfix = f"✅ {successes}  ❌ {failures}  🏃 {running}"
+    if sample:
+        postfix += f" ({sample})"
+    if last_event:
+        pbar.set_description(last_event)
+    pbar.set_postfix_str(postfix, refresh=True)
+
+
+def main(argv: list[str]) -> int:
     parser = extend_parser()
     args = parser.parse_args(argv)
 
-    bases = collect_unique_base_images(
+    bases: list[str] = collect_unique_base_images(
         args.dataset, args.split, args.docker_image_prefix, args.n_limit
     )
+    # Decide manifest path under ./artifacts/builds/<dataset>/<split>/
+    manifest_path = _default_manifest_path(args.dataset, args.split)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
     if args.dry_run:
         print("\n".join(bases))
         return 0
 
-    results, failures = [], []
-    if args.max_workers == 1:
-        for base in bases:
-            try:
-                results.append(build_one(base, args))
-            except Exception as e:
-                logger.error("Build failed for %s: %r", base, e)
-                failures.append({"base_image": base, "error": repr(e)})
-                break
-    else:
+    successes = 0
+    failures = 0
+    in_progress: set[str] = set()
+    mu = Lock()
+
+    with (
+        manifest_path.open("w") as writer,
+        tqdm(total=len(bases), desc="Building agent-server images", leave=True) as pbar,
+    ):
+        _update_pbar(pbar, successes, failures, 0, None, "Queueing")
+
+        # Single unified path: ThreadPoolExecutor( max_workers = args.max_workers ),
+        # even if it's 1
         with ThreadPoolExecutor(max_workers=args.max_workers) as ex:
-            futures = {ex.submit(build_one, base, args): base for base in bases}
+            futures = {}
+            for base in bases:
+                in_progress.add(base)
+                fut = ex.submit(build_one, base, args)
+                futures[fut] = base
+
+            _update_pbar(
+                pbar,
+                successes,
+                failures,
+                len(in_progress),
+                next(iter(in_progress), None),
+                "Running",
+            )
+
             for fut in as_completed(futures):
                 base = futures[fut]
                 try:
-                    results.append(fut.result())
+                    result: BuildOutput = fut.result()
+                    writer.write(result.model_dump_json() + "\n")
+                    with mu:
+                        successes += 1
+                    _update_pbar(
+                        pbar, successes, failures, len(in_progress), base, "✅ Done"
+                    )
                 except Exception as e:
                     logger.error("Build failed for %s: %r", base, e)
-                    failures.append({"base_image": base, "error": repr(e)})
-                    break
+                    # Write a failure line to manifest; keep going.
+                    writer.write(
+                        BuildOutput(
+                            base_image=base, tags=[], error=repr(e)
+                        ).model_dump_json()
+                        + "\n"
+                    )
+                    with mu:
+                        failures += 1
+                    _update_pbar(
+                        pbar, successes, failures, len(in_progress), base, "❌ Failed"
+                    )
+                finally:
+                    with mu:
+                        in_progress.discard(base)
+                    pbar.update(1)
+                    _update_pbar(
+                        pbar,
+                        successes,
+                        failures,
+                        len(in_progress),
+                        next(iter(in_progress), None),
+                        None,
+                    )
 
-    manifest = {
-        "dataset": args.dataset,
-        "split": args.split,
-        "total_unique_base_images": len(bases),
-        "built": len(results),
-        "failed": len(failures),
-        "results": results,
-        "failures": failures,
-    }
-    Path(args.manifest).write_text(json.dumps(manifest, indent=2))
-    logger.info(
-        "Done. Built=%d  Failed=%d  Manifest=%s",
-        len(results),
-        len(failures),
-        args.manifest,
+    # Optional: write a tiny summary JSON next to the manifest for quick reads
+    summary_path = manifest_path.with_name("summary.json")
+    summary_path.write_text(
+        (
+            "{"
+            f'"dataset":"{args.dataset}",'
+            f'"split":"{args.split}",'
+            f'"total_unique_base_images":{len(bases)},'
+            f'"built":{successes},'
+            f'"failed":{failures}'
+            "}"
+        ),
+        encoding="utf-8",
     )
-    return 1 if failures and args.fail_fast else 0
+
+    logger.info(
+        "Done. Built=%d  Failed=%d  Manifest=%s  Summary=%s",
+        successes,
+        failures,
+        str(manifest_path),
+        str(summary_path),
+    )
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
