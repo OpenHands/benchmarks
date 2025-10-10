@@ -125,13 +125,8 @@ def get_dataset(
 
     # Filter dataset
     df = filter_dataset(_df, "instance_id")
-    logger.info(
-        f"Loaded dataset {dataset_name} with split {split}: "
-        f"{len(df)} tasks"
-    )
+    logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")
 
     # Prepare dataset (apply n_limit if specified and filter completed)
-    instances = prepare_dataset(
-        df, output_file, eval_limit, completed_instances
-    )
+    instances = prepare_dataset(df, output_file, eval_limit, completed_instances)
     return instances
