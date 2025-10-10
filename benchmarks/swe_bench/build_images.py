@@ -9,8 +9,11 @@ Example:
 """
 
 import argparse
+import contextlib
+import io
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 
@@ -24,6 +27,34 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+@contextlib.contextmanager
+def capture_output(base_name: str, out_dir: Path):
+    """
+    Capture all stdout/stderr during a block and save
+    to <out_dir>/<timestamp>_<base_name>.log
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
+    log_path = out_dir / base_name / f"build-{ts}.log"
+    logger.info(f"Logging build output to {log_path}")
+
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+
+    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+        yield log_path
+
+    # After the block, write both streams to file
+    with log_path.open("w", encoding="utf-8") as f:
+        f.write("=== STDOUT ===\n")
+        f.write(stdout_buf.getvalue())
+        f.write("\n=== STDERR ===\n")
+        f.write(stderr_buf.getvalue())
+
+    stdout_buf.close()
+    stderr_buf.close()
 
 
 def get_instance_docker_image(
@@ -85,6 +116,7 @@ class BuildOutput(BaseModel):
     base_image: str
     tags: list[str]
     error: str | None = None
+    log_path: str | None = None
 
 
 def build_one(base_image: str, args: argparse.Namespace) -> BuildOutput:
@@ -100,16 +132,16 @@ def build_one(base_image: str, args: argparse.Namespace) -> BuildOutput:
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
 
-def _default_manifest_path(
+def _default_build_output_dir(
     dataset: str, split: str, base_dir: Path | None = None
 ) -> Path:
     """
-    Default: ./artifacts/builds/<dataset>/<split>/manifest.jsonl
+    Default: ./artifacts/builds/<dataset>/<split>
     Keeps build outputs in one predictable place, easy to .gitignore.
     """
     root = (base_dir or Path.cwd()) / "artifacts" / "builds" / dataset / split
     root.mkdir(parents=True, exist_ok=True)
-    return root / "manifest.jsonl"
+    return root
 
 
 def _update_pbar(
@@ -136,8 +168,16 @@ def main(argv: list[str]) -> int:
         args.dataset, args.split, args.docker_image_prefix, args.n_limit
     )
     # Decide manifest path under ./artifacts/builds/<dataset>/<split>/
-    manifest_path = _default_manifest_path(args.dataset, args.split)
+    BUILD_DIR = _default_build_output_dir(args.dataset, args.split)
+    BUILD_LOG_DIR = BUILD_DIR / "logs"
+    manifest_path = BUILD_DIR / "manifest.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def build_one_fn(base: str, args) -> BuildOutput:
+        with capture_output(base, BUILD_LOG_DIR) as log_path:
+            result = build_one(base, args)
+            result.log_path = str(log_path)
+            return result
 
     if args.dry_run:
         print("\n".join(bases))
@@ -160,7 +200,7 @@ def main(argv: list[str]) -> int:
             futures = {}
             for base in bases:
                 in_progress.add(base)
-                fut = ex.submit(build_one, base, args)
+                fut = ex.submit(build_one_fn, base, args)
                 futures[fut] = base
 
             _update_pbar(
