@@ -119,7 +119,7 @@ class SWEBenchEvaluation(Evaluation):
         """
         agent_server_image = get_agent_server_docker_image(instance.id)
         workspace = DockerWorkspace(
-            base_image=agent_server_image,
+            server_image=agent_server_image,
             working_dir="/workspace",
         )
         for cmd in self.metadata.env_setup_commands or []:
