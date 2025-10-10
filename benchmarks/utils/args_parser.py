@@ -13,18 +13,17 @@ def get_parser():
     """
     parser = argparse.ArgumentParser(description="Run Evaluation inference")
     parser.add_argument(
+        "llm_config_path",
+        type=str,
+        help="Path to JSON LLM configuration",
+    )
+    parser.add_argument(
         "--dataset",
         type=str,
         default="princeton-nlp/SWE-bench_Verified",
         help="Dataset name",
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
-    parser.add_argument(
-        "--llm-config-path",
-        type=str,
-        required=True,
-        help="Path to JSON LLM configuration",
-    )
     parser.add_argument(
         "--max-iterations", type=int, default=100, help="Maximum iterations"
     )
