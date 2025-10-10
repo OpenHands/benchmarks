@@ -17,6 +17,10 @@ dependencies = [
     "modal>=1.1.4",
 ]
 
+[project.scripts]
+validate-cfg = "benchmarks.scripts.validate_cfg:main"
+swebench-infer = "benchmarks.swe_bench.run_infer:main"
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
