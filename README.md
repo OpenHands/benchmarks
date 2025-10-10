@@ -30,13 +30,7 @@ You may validate the correctness of your config by running `uv run validate-cfg 
 
 ```bash
 # Run evaluation with your configured LLM
-uv run swebench-infer \
-  --llm-config-path .llm_config/default.json \
-  --dataset princeton-nlp/SWE-bench-Verified \
-  --split test \
-  --max-iterations 100 \
-  --num-workers 1 \
-  --n-limit 10
+uv run swebench-infer --llm-config-path .llm_config/sonnet-4.json
 ```
 
 ## Links
