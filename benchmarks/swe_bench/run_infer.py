@@ -85,7 +85,7 @@ class SWEBenchEvaluation(Evaluation):
 
         df = get_dataset(
             dataset_name=self.metadata.dataset,
-            split=self.metadata.data_split,
+            split=self.metadata.dataset_split,
             output_file=self.output_path,
             eval_limit=self.metadata.eval_limit,
         )
@@ -190,21 +190,22 @@ class SWEBenchEvaluation(Evaluation):
 
 
 def main() -> None:
-    choices = Path(__file__).parent / "prompts"
-    default_prompt_path = os.path.join(choices, "default.j2")
+    prompt_dir = (Path(__file__).parent / "prompts").resolve()
+    choices = [str(p) for p in prompt_dir.glob("*.j2")]
+    default_prompt_path = prompt_dir / "default.j2"
+    assert default_prompt_path.exists(), (
+        f"Default prompt {default_prompt_path} not found"
+    )
+
     parser = get_parser()
     parser.add_argument(
         "--prompt-path",
         type=str,
-        default=default_prompt_path,
+        default=str(default_prompt_path),
+        choices=choices,
         help="Path to prompt template file",
     )
     args = parser.parse_args()
-
-    # LLM
-    api_key = os.getenv("LLM_API_KEY")
-    if not api_key:
-        raise ValueError("LLM_API_KEY environment variable is not set")
 
     llm_config_path = args.llm_config_path
     if not os.path.isfile(llm_config_path):
@@ -229,7 +230,7 @@ def main() -> None:
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
-        data_split=dataset_description,
+        dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
         details={},
