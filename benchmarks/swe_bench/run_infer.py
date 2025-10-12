@@ -47,7 +47,10 @@ def get_agent_server_docker_image(
     target: str = "binary-minimal",
 ) -> str:
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
-    return f"v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
+    return (
+        "ghcr.io/all-hands-ai/agent-server"
+        + f":v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
+    )
 
 
 def get_instruction(
