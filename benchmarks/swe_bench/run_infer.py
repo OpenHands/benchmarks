@@ -191,6 +191,8 @@ class SWEBenchEvaluation(Evaluation):
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
+        repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}"
+        instance.data["repo_path"] = repo_path
         instruction = get_instruction(
             instance=instance.data,
             metadata=self.metadata,

@@ -1,4 +1,4 @@
-I have access to a python code repository in the directory {{ instance.repo_path }}. You can explore and modify files using the available tools. Consider the following issue description:
+I have access to a python code repository in the directory {{ instance.repo_path }} . You can explore and modify files using the available tools. Consider the following issue description:
 
 <issue_description>
 {{ instance.problem_statement }}
@@ -19,9 +19,11 @@ Phase 1. READING: read the problem and reword it in clearer terms
    1.5 Hightlight any best practices to take into account when testing and fixing the issue
 
 Phase 2. RUNNING: install and run the tests on the repository
-   2.1 Follow the readme
-   2.2 Install the environment and anything needed
-   2.2 Iterate and figure out how to run the tests
+   2.1 Activate the environment by running  
+       ./opt/miniconda3/etc/profile.d/conda.sh ; conda activate testbed
+   2.2 Follow the readme
+   2.3 Install the environment and anything needed
+   2.4 Iterate and figure out how to run the tests
 
 Phase 3. EXPLORATION: find the files that are related to the problem and possible solutions
    3.1 Use `grep` to search for relevant methods, classes, keywords and error messages.
