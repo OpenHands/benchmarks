@@ -120,11 +120,27 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
         """
-        agent_server_image = get_agent_server_docker_image(instance.id)
-        workspace = DockerWorkspace(
-            server_image=agent_server_image,
-            working_dir="/workspace",
-        )
+        SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
+        logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+        if SKIP_BUILD:
+            agent_server_image = get_agent_server_docker_image(instance.id)
+            workspace = DockerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+            )
+        else:
+            official_docker_image = get_official_docker_image(instance.id)
+            workspace = DockerWorkspace(
+                base_image=official_docker_image,
+                working_dir="/workspace",
+            )
+            logger.info(
+                f"Building workspace from {official_docker_image}. "
+                "This may take a while...\n"
+                "You can run benchmarks/swe_bench/build_images.py and set "
+                "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
+                "agent-server image."
+            )
         for cmd in self.metadata.env_setup_commands or []:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
