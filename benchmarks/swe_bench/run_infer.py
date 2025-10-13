@@ -180,9 +180,8 @@ class SWEBenchEvaluation(Evaluation):
         def _log_event(ev):  # keep it simple
             logger.debug("Event: %s", ev)
 
-        # git reset
-        git_reset = workspace.execute_command(("git reset --hard"))
-        assert git_reset_files == 0, f"git reset failed: {git_reset_files.stderr}"
+        repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}"
+        instance.data["repo_path"] = repo_path
 
         conversation = Conversation(
             agent=agent,
@@ -191,8 +190,14 @@ class SWEBenchEvaluation(Evaluation):
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
-        repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}"
-        instance.data["repo_path"] = repo_path
+        # cd into repo
+        cd = workspace.execute_command(f"cd {repo_path}")
+        assert cd == 0, f"cd failed: {cd.stderr}"
+
+        # git reset
+        git_reset_files = workspace.execute_command(("git reset --hard"))
+        assert git_reset_files == 0, f"git reset failed: {git_reset_files.stderr}"
+
         instruction = get_instruction(
             instance=instance.data,
             metadata=self.metadata,
@@ -204,8 +209,12 @@ class SWEBenchEvaluation(Evaluation):
         # Collect results
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
+        # cd into repo
+        cd = workspace.execute_command(f"cd {repo_path}")
+        assert cd == 0, f"cd failed: {cd.stderr}"
+
         # git add
-        git_add_files = workspace.execute_command(("git add -A"))
+        git_add_files = workspace.execute_command("git add -A")
         assert git_add_files == 0, f"git add failed: {git_add_files.stderr}"
 
         # Get git patch
