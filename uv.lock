@@ -6,6 +6,15 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[manifest]
+members = [
+    "openhands-agent-server",
+    "openhands-benchmarks",
+    "openhands-sdk",
+    "openhands-tools",
+    "openhands-workspace",
+]
+
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
@@ -205,6 +214,34 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a7/fe/7ebfec74d49f97fc55cd38240c7a7d08134002b1e14be8c3897c0dd5e49b/binaryornot-0.4.4.tar.gz", hash = "sha256:359501dfc9d40632edc9fac890e19542db1a287bbcfa58175b66658392018061", size = 371054, upload-time = "2017-08-03T15:55:25.08Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/24/7e/f7b6f453e6481d1e233540262ccbfcf89adcd43606f44a028d7f5fae5eb2/binaryornot-0.4.4-py2.py3-none-any.whl", hash = "sha256:b8b71173c917bddcd2c16070412e369c3ed7f0528926f70cac18a6c97fd563e4", size = 9006, upload-time = "2017-08-03T15:55:31.23Z" },
+]
+
+[[package]]
+name = "boto3"
+version = "1.40.49"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+    { name = "jmespath" },
+    { name = "s3transfer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/32/5b/165dbfc6de77774b0dac5582ac8a7aa92652d61215871ff4c88854864fb0/boto3-1.40.49.tar.gz", hash = "sha256:ea37d133548fbae543092ada61aeb08bced8f9aecd2e96e803dc8237459a80a0", size = 111572, upload-time = "2025-10-09T19:21:49.295Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/07/9b622ec8691911e3420c9872a50a9d333d4880d217e9eb25b327193099dc/boto3-1.40.49-py3-none-any.whl", hash = "sha256:64eb7af5f66998b34ad629786ff4a7f81d74c2d4ef9e42f69d99499dbee46d07", size = 139345, upload-time = "2025-10-09T19:21:46.886Z" },
+]
+
+[[package]]
+name = "botocore"
+version = "1.40.49"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jmespath" },
+    { name = "python-dateutil" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/01/6a/eb7503536552bbd3388b2607bc7a64e59d4f988336406b51a69d29f17ed2/botocore-1.40.49.tar.gz", hash = "sha256:fe8d4cbcc22de84c20190ae728c46b931bafeb40fce247010fb071c31b6532b5", size = 14415240, upload-time = "2025-10-09T19:21:37.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/7b/dce396a3f7078e0432d40a9778602cbf0785ca91e7bcb64e05f19dfb5662/botocore-1.40.49-py3-none-any.whl", hash = "sha256:bf1089d0e77e4fc2e195d81c519b194ab62a4d4dd3e7113ee4e2bf903b0b75ab", size = 14085172, upload-time = "2025-10-09T19:21:32.721Z" },
 ]
 
 [[package]]
@@ -1191,6 +1228,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jmespath"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/2a/e867e8531cf3e36b41201936b7fa7ba7b5702dbef42922193f05c8976cd6/jmespath-1.0.1.tar.gz", hash = "sha256:90261b206d6defd58fdd5e85f478bf633a2901798906be2ad389150c5c60edbe", size = 25843, upload-time = "2022-06-17T18:00:12.224Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/b4/b9b800c45527aadd64d5b442f9b932b00648617eb5d63d2c7a6587b7cafc/jmespath-1.0.1-py3-none-any.whl", hash = "sha256:02e2e4cc71b5bcab88332eebf907519190dd9e6e82107fa7f83b1003a6252980", size = 20256, upload-time = "2022-06-17T18:00:10.251Z" },
+]
+
+[[package]]
 name = "jsonschema"
 version = "4.25.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1276,7 +1322,7 @@ wheels = [
 [[package]]
 name = "litellm"
 version = "1.77.7"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/BerriAI/litellm.git?rev=v1.77.7.dev9#763d2f8ccdd8412dbe6d4ac0e136d9ac34dcd4c0" }
 dependencies = [
     { name = "aiohttp" },
     { name = "click" },
@@ -1290,10 +1336,6 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "tiktoken" },
     { name = "tokenizers" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/4b/4e9a204462687ca3796cc0fdaefbd624d7b2216edd4ad243d60a3b95127e/litellm-1.77.7.tar.gz", hash = "sha256:e3398fb2575b98726e787c0a1481daed5938d58cafdcd96fbca80c312221af3e", size = 10401706, upload-time = "2025-10-05T00:22:37.646Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/50/53df2244d4aca2af73d2f2c6ad21c731cf24bd0dbe89d896184a1eaa874f/litellm-1.77.7-py3-none-any.whl", hash = "sha256:1b3a1b17bd521a0ad25226fb62a912602c803922aabb4a16adf83834673be574", size = 9223061, upload-time = "2025-10-05T00:22:34.112Z" },
 ]
 
 [[package]]
@@ -1678,7 +1720,7 @@ wheels = [
 [[package]]
 name = "openhands-agent-server"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { editable = "vendor/agent-sdk/openhands/agent_server" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
@@ -1688,6 +1730,18 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "uvicorn" },
     { name = "websockets" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.19" },
+    { name = "alembic", specifier = ">=1.13" },
+    { name = "docker", specifier = ">=7.1,<8" },
+    { name = "fastapi", specifier = ">=0.104" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "sqlalchemy", specifier = ">=2" },
+    { name = "uvicorn", specifier = ">=0.31.1" },
+    { name = "websockets", specifier = ">=12" },
 ]
 
 [[package]]
@@ -1721,9 +1775,9 @@ requires-dist = [
     { name = "datasets" },
     { name = "jinja2" },
     { name = "modal", specifier = ">=1.1.4" },
-    { name = "openhands-agent-server", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fagent_server&rev=main" },
-    { name = "openhands-tools", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools&rev=main" },
-    { name = "openhands-workspace", git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fworkspace&rev=main" },
+    { name = "openhands-agent-server", editable = "vendor/agent-sdk/openhands/agent_server" },
+    { name = "openhands-tools", editable = "vendor/agent-sdk/openhands/tools" },
+    { name = "openhands-workspace", editable = "vendor/agent-sdk/openhands/workspace" },
     { name = "pandas" },
     { name = "toml" },
     { name = "tqdm" },
@@ -1742,9 +1796,10 @@ dev = [
 [[package]]
 name = "openhands-sdk"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fsdk&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { editable = "vendor/agent-sdk/openhands/sdk" }
 dependencies = [
     { name = "fastmcp" },
+    { name = "httpx" },
     { name = "litellm" },
     { name = "pydantic" },
     { name = "python-frontmatter" },
@@ -1753,10 +1808,29 @@ dependencies = [
     { name = "websockets" },
 ]
 
+[package.optional-dependencies]
+boto3 = [
+    { name = "boto3" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", marker = "extra == 'boto3'", specifier = ">=1.35.0" },
+    { name = "fastmcp", specifier = ">=2.11.3" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "litellm", git = "https://github.com/BerriAI/litellm.git?rev=v1.77.7.dev9" },
+    { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "python-frontmatter", specifier = ">=1.1.0" },
+    { name = "python-json-logger", specifier = ">=3.3.0" },
+    { name = "tenacity", specifier = ">=9.1.2" },
+    { name = "websockets", specifier = ">=12" },
+]
+provides-extras = ["boto3"]
+
 [[package]]
 name = "openhands-tools"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Ftools&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { editable = "vendor/agent-sdk/openhands/tools" }
 dependencies = [
     { name = "bashlex" },
     { name = "binaryornot" },
@@ -1768,13 +1842,31 @@ dependencies = [
     { name = "pydantic" },
 ]
 
+[package.metadata]
+requires-dist = [
+    { name = "bashlex", specifier = ">=0.18" },
+    { name = "binaryornot", specifier = ">=0.4.4" },
+    { name = "browser-use", specifier = ">=0.7.7" },
+    { name = "cachetools" },
+    { name = "func-timeout", specifier = ">=4.3.5" },
+    { name = "libtmux", specifier = ">=0.46.2" },
+    { name = "openhands-sdk", editable = "vendor/agent-sdk/openhands/sdk" },
+    { name = "pydantic", specifier = ">=2.11.7" },
+]
+
 [[package]]
 name = "openhands-workspace"
 version = "1.0.0"
-source = { git = "https://github.com/All-Hands-AI/agent-sdk.git?subdirectory=openhands%2Fworkspace&rev=main#255795ec08bb929b555f45032a56c6c6f37af680" }
+source = { editable = "vendor/agent-sdk/openhands/workspace" }
 dependencies = [
     { name = "openhands-sdk" },
     { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "openhands-sdk", editable = "vendor/agent-sdk/openhands/sdk" },
+    { name = "pydantic", specifier = ">=2.11.7" },
 ]
 
 [[package]]
@@ -5297,6 +5389,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/46/09/dca8df3d48e8b3f4202bf20b1658898e74b6442ac835bfe2c1816d926697/ruff-0.13.0-py3-none-win32.whl", hash = "sha256:4e473e8f0e6a04e4113f2e1de12a5039579892329ecc49958424e5568ef4f768", size = 12141613, upload-time = "2025-09-10T16:25:28.664Z" },
     { url = "https://files.pythonhosted.org/packages/61/21/0647eb71ed99b888ad50e44d8ec65d7148babc0e242d531a499a0bbcda5f/ruff-0.13.0-py3-none-win_amd64.whl", hash = "sha256:48e5c25c7a3713eea9ce755995767f4dcd1b0b9599b638b12946e892123d1efb", size = 13258250, upload-time = "2025-09-10T16:25:31.773Z" },
     { url = "https://files.pythonhosted.org/packages/e1/a3/03216a6a86c706df54422612981fb0f9041dbb452c3401501d4a22b942c9/ruff-0.13.0-py3-none-win_arm64.whl", hash = "sha256:ab80525317b1e1d38614addec8ac954f1b3e662de9d59114ecbf771d00cf613e", size = 12312357, upload-time = "2025-09-10T16:25:35.595Z" },
+]
+
+[[package]]
+name = "s3transfer"
+version = "0.14.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/62/74/8d69dcb7a9efe8baa2046891735e5dfe433ad558ae23d9e3c14c633d1d58/s3transfer-0.14.0.tar.gz", hash = "sha256:eff12264e7c8b4985074ccce27a3b38a485bb7f7422cc8046fee9be4983e4125", size = 151547, upload-time = "2025-09-09T19:23:31.089Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl", hash = "sha256:ea3b790c7077558ed1f02a3072fb3cb992bbbd253392f4b6e9e8976941c7d456", size = 85712, upload-time = "2025-09-09T19:23:30.041Z" },
 ]
 
 [[package]]
