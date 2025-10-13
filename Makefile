@@ -31,6 +31,8 @@ check-uv-version:
 
 build: check-uv-version
 	@$(ECHO) "$(CYAN)Setting up OpenHands V1 development environment...$(RESET)"
+	@$(ECHO) "$(YELLOW)Syncing submodules...$(RESET)"
+	@git submodule update --init --recursive
 	@$(ECHO) "$(YELLOW)Installing dependencies with uv sync --dev...$(RESET)"
 	@uv sync --dev
 	@$(ECHO) "$(GREEN)Dependencies installed successfully.$(RESET)"

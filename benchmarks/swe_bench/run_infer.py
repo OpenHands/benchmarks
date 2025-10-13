@@ -18,6 +18,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from openhands.agent_server.docker.build import SDK_VERSION, _base_slug
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -27,16 +28,29 @@ from openhands.workspace import DockerWorkspace
 logger = get_logger(__name__)
 
 
-def get_instance_docker_image(
-    instance_id: str, docker_image_prefix="docker.io/swebench/"
+def get_official_docker_image(
+    instance_id: str,
+    docker_image_prefix="docker.io/swebench/",
 ) -> str:
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
     repo, name = instance_id.split("__")
-    image_name = docker_image_prefix.rstrip("/")
-    image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-    logger.debug(f"Using official SWE-Bench image: {image_name}")
-    return image_name
+    official_image_name = docker_image_prefix.rstrip("/")
+    official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
+    logger.debug(f"Official SWE-Bench image: {official_image_name}")
+    return official_image_name
+
+
+def get_agent_server_docker_image(
+    instance_id: str,
+    docker_image_prefix="docker.io/swebench/",
+    target: str = "binary-minimal",
+) -> str:
+    official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
+    return (
+        "ghcr.io/all-hands-ai/agent-server"
+        + f":v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
+    )
 
 
 def get_instruction(
@@ -86,8 +100,8 @@ class SWEBenchEvaluation(Evaluation):
         df = get_dataset(
             dataset_name=self.metadata.dataset,
             split=self.metadata.dataset_split,
-            output_file=self.output_path,
             eval_limit=self.metadata.eval_limit,
+            completed_instances=self._get_completed_instances(),
         )
 
         completed: set[EvalInstanceID] = read_completed_instances(self.output_path)
@@ -106,13 +120,28 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
         """
-        image = get_instance_docker_image(instance.id)
-
-        workspace = DockerWorkspace(
-            # TODO: add a docker build script to BATCH build these images ahead of time
-            base_image=image,
-            working_dir="/workspace",
-        )
+        SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
+        logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+        if SKIP_BUILD:
+            agent_server_image = get_agent_server_docker_image(instance.id)
+            workspace = DockerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+            )
+        else:
+            official_docker_image = get_official_docker_image(instance.id)
+            workspace = DockerWorkspace(
+                base_image=official_docker_image,
+                working_dir="/workspace",
+                target="binary-minimal",
+            )
+            logger.info(
+                f"Building workspace from {official_docker_image}. "
+                "This may take a while...\n"
+                "You can run benchmarks/swe_bench/build_images.py and set "
+                "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
+                "agent-server image."
+            )
         for cmd in self.metadata.env_setup_commands or []:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
