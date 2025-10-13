@@ -1,4 +1,4 @@
-I have access to a python code repository in the directory /workspace/{{ instance.repo }} . You can explore and modify files using the available tools. Consider the following issue description:
+I have access to a python code repository in the directory {{ instance.repo_path }} . You can explore and modify files using the available tools. Consider the following issue description:
 
 <issue_description>
 {{ instance.problem_statement }}
@@ -7,7 +7,7 @@ I have access to a python code repository in the directory /workspace/{{ instanc
 Can you help me implement the necessary changes to the repository so that the requirements specified in the <issue_description> are met?
 I've already taken care of all changes to any of the test files described in the <issue_description>. This means you DON'T have to modify the testing logic or any of the tests in any way!
 Also the development Python environment is already set up for you (i.e., all dependencies already installed), so you don't need to install other packages.
-Your task is to make the minimal changes to non-test files in the /workspace/{{ instance.repo }} directory to ensure the <issue_description> is satisfied.
+Your task is to make the minimal changes to non-test files in the {{ instance.repo_path }} directory to ensure the <issue_description> is satisfied.
 
 Follow these phases to resolve the issue:
 
