@@ -21,7 +21,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: make build
 
       - name: Run pre-commit (all files)
         uses: pre-commit/action@v3.0.1
