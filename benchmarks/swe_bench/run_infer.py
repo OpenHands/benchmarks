@@ -133,6 +133,7 @@ class SWEBenchEvaluation(Evaluation):
             workspace = DockerWorkspace(
                 base_image=official_docker_image,
                 working_dir="/workspace",
+                target="binary-minimal",
             )
             logger.info(
                 f"Building workspace from {official_docker_image}. "
