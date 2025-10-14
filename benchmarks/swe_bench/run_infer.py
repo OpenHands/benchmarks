@@ -44,7 +44,7 @@ def get_official_docker_image(
 def get_agent_server_docker_image(
     instance_id: str,
     docker_image_prefix="docker.io/swebench/",
-    target: str = "binary-minimal",
+    target: str = "source-minimal",
 ) -> str:
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
@@ -133,6 +133,7 @@ class SWEBenchEvaluation(Evaluation):
             workspace = DockerWorkspace(
                 base_image=official_docker_image,
                 working_dir="/workspace",
+                target="source-minimal",
             )
             logger.info(
                 f"Building workspace from {official_docker_image}. "
