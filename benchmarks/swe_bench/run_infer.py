@@ -10,11 +10,9 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
-    read_completed_instances,
 )
 from benchmarks.utils.models import (
     EvalInstance,
-    EvalInstanceID,
     EvalMetadata,
     EvalOutput,
 )
@@ -104,12 +102,9 @@ class SWEBenchEvaluation(Evaluation):
             completed_instances=self._get_completed_instances(),
         )
 
-        completed: set[EvalInstanceID] = read_completed_instances(self.output_path)
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
             inst_id = str(row["instance_id"])
-            if inst_id in completed:
-                continue
             instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
 
         logger.info("Total instances to process: %d", len(instances))
