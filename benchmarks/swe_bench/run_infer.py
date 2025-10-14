@@ -220,8 +220,8 @@ class SWEBenchEvaluation(Evaluation):
         # git commit
         git_commit = workspace.execute_command(
             f"cd {repo_path} && "
-            "git config --global user.email 'you@example.com' && "
-            "git config --global user.name 'Your Name' && "
+            "git config --global user.email 'evaluation@openhands.dev' && "
+            "git config --global user.name 'OpenHands Evaluation' && "
             "git commit -m 'patch'"
         )
         assert git_commit.exit_code == 0, f"git commit failed: {git_commit.stderr}"
