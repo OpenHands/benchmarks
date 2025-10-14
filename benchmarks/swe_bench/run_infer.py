@@ -44,7 +44,7 @@ def get_official_docker_image(
 def get_agent_server_docker_image(
     instance_id: str,
     docker_image_prefix="docker.io/swebench/",
-    target: str = "binary-minimal",
+    target: str = "source-minimal",
 ) -> str:
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
@@ -133,7 +133,7 @@ class SWEBenchEvaluation(Evaluation):
             workspace = DockerWorkspace(
                 base_image=official_docker_image,
                 working_dir="/workspace",
-                target="binary-minimal",
+                target="source-minimal",
             )
             logger.info(
                 f"Building workspace from {official_docker_image}. "
@@ -180,12 +180,27 @@ class SWEBenchEvaluation(Evaluation):
         def _log_event(ev):  # keep it simple
             logger.debug("Event: %s", ev)
 
+        repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
+        instance.data["repo_path"] = repo_path
+
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
             callbacks=[_log_event],
             max_iteration_per_run=self.metadata.max_iterations,
         )
+
+        logger.info("repo_path: %s", repo_path)
+        cp_testebed_repo = workspace.execute_command(
+            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
+        )
+        assert cp_testebed_repo.exit_code == 0, (
+            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
+        )
+
+        # git reset
+        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
+        assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
         instruction = get_instruction(
             instance=instance.data,
@@ -198,8 +213,24 @@ class SWEBenchEvaluation(Evaluation):
         # Collect results
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
+        # git add
+        git_add = workspace.execute_command(f"cd {repo_path} ; git add -A")
+        assert git_add.exit_code == 0, f"git add failed: {git_add.stderr}"
+
+        # git commit
+        git_commit = workspace.execute_command(
+            f"cd {repo_path} && "
+            "git config --global user.email 'you@example.com' && "
+            "git config --global user.name 'Your Name' && "
+            "git commit -m 'patch'"
+        )
+        assert git_commit.exit_code == 0, f"git commit failed: {git_commit.stderr}"
+
         # Get git patch
-        git_patch_result = workspace.execute_command("git diff")
+        base_commit = instance.data["base_commit"]
+        git_patch_result = workspace.execute_command(
+            (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
+        )
         assert git_patch_result.exit_code == 0, (
             f"git diff failed: {git_patch_result.stderr}"
         )
