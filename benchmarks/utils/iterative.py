@@ -61,18 +61,18 @@ class AgentFinishedCritic(BaseModel):
         return bool(git_patch and git_patch.strip())
 
     def _has_agent_finish_action(self, output: EvalOutput) -> bool:
-        """Check if the last action was an AgentFinishAction."""
+        """Check if the last action was a FinishAction."""
         if not output.history:
             return False
 
         # Look for the last action in the history
         for event in reversed(output.history):
-            if isinstance(event, dict) and event.get("type") == "action":
-                action_type = event.get("action", {}).get("action", "")
-                if action_type == "finish":
+            if isinstance(event, dict) and event.get("kind") == "ActionEvent":
+                action_kind = event.get("action", {}).get("kind", "")
+                if action_kind == "FinishAction":
                     return True
                 # If we find any other action type, the agent didn't finish properly
-                elif action_type:
+                elif action_kind:
                     return False
 
         return False
@@ -165,13 +165,26 @@ def aggregate_results(
                         data = json.loads(line.strip())
                         output = EvalOutput(**data)
 
-                        # If we haven't seen this instance yet, or if this attempt
-                        # succeeded and has a non-empty git patch, use this result
-                        if output.instance_id not in best_results or (
-                            critic._has_non_empty_git_patch(output)
-                            and critic.evaluate_instance(output)
-                        ):
-                            best_results[output.instance_id] = output
+                        # Use this result if:
+                        # 1. We haven't seen this instance yet, OR
+                        # 2. This attempt is the first one to succeed
+                        instance_id = output.instance_id
+                        is_successful = critic._has_non_empty_git_patch(
+                            output
+                        ) and critic.evaluate_instance(output)
+
+                        if instance_id not in best_results:
+                            # First time seeing this instance
+                            best_results[instance_id] = output
+                        elif is_successful:
+                            # This attempt succeeded, check if we should replace
+                            current_best = best_results[instance_id]
+                            current_is_successful = critic._has_non_empty_git_patch(
+                                current_best
+                            ) and critic.evaluate_instance(current_best)
+                            if not current_is_successful:
+                                # Replace failed result with successful one
+                                best_results[instance_id] = output
 
                     except json.JSONDecodeError as e:
                         logger.warning(
@@ -187,6 +200,8 @@ def aggregate_results(
 
     # Write the aggregated results
     final_path = os.path.join(output_dir, final_output_file)
+    if not best_results:
+        logger.warning("No results found to aggregate - creating empty output file")
     logger.info(f"Writing {len(best_results)} aggregated results to {final_path}")
 
     try:
