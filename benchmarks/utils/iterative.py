@@ -9,8 +9,7 @@ import json
 import os
 from typing import Dict, Optional, Set
 
-from pydantic import BaseModel
-
+from benchmarks.utils.critics import Critic, CriticRegistry
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 
@@ -18,68 +17,11 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-class AgentFinishedCritic(BaseModel):
-    """
-    Critic that evaluates whether an agent properly finished a task.
-
-    This critic checks two main criteria:
-    1. The agent's last action was an AgentFinishAction (proper completion)
-    2. The generated git patch is non-empty (actual changes were made)
-    """
-
-    def evaluate_instance(self, output: EvalOutput) -> bool:
-        """
-        Evaluate if an instance was successfully completed.
-
-        Args:
-            output: The evaluation output to check
-
-        Returns:
-            True if the instance was successfully completed, False otherwise
-        """
-        try:
-            # Check if git patch is non-empty
-            if not self._has_non_empty_git_patch(output):
-                logger.debug(f"Instance {output.instance_id}: Empty git patch")
-                return False
-
-            # Check if agent properly finished with AgentFinishAction
-            if not self._has_agent_finish_action(output):
-                logger.debug(f"Instance {output.instance_id}: No AgentFinishAction")
-                return False
-
-            logger.debug(f"Instance {output.instance_id}: Successfully completed")
-            return True
-
-        except Exception as e:
-            logger.warning(f"Error evaluating instance {output.instance_id}: {e}")
-            return False
-
-    def _has_non_empty_git_patch(self, output: EvalOutput) -> bool:
-        """Check if the git patch is non-empty."""
-        git_patch = output.test_result.get("git_patch", "")
-        return bool(git_patch and git_patch.strip())
-
-    def _has_agent_finish_action(self, output: EvalOutput) -> bool:
-        """Check if the last action was a FinishAction."""
-        if not output.history:
-            return False
-
-        # Look for the last action in the history
-        for event in reversed(output.history):
-            if isinstance(event, dict) and event.get("kind") == "ActionEvent":
-                action_kind = event.get("action", {}).get("kind", "")
-                if action_kind == "FinishAction":
-                    return True
-                # If we find any other action type, the agent didn't finish properly
-                elif action_kind:
-                    return False
-
-        return False
+# AgentFinishedCritic has been moved to benchmarks.utils.critics
 
 
 def get_failed_instances(
-    output_file: str, critic: Optional[AgentFinishedCritic] = None
+    output_file: str, critic: Optional[Critic] = None
 ) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
@@ -92,7 +34,7 @@ def get_failed_instances(
         Set of instance IDs that failed
     """
     if critic is None:
-        critic = AgentFinishedCritic()
+        critic = CriticRegistry.create_critic("default_critic")
 
     failed_instances: Set[EvalInstanceID] = set()
 
@@ -127,7 +69,10 @@ def get_failed_instances(
 
 
 def aggregate_results(
-    output_dir: str, max_attempts: int, final_output_file: str = "output.jsonl"
+    output_dir: str,
+    max_attempts: int,
+    critic_name: str = "default_critic",
+    final_output_file: str = "output.jsonl",
 ) -> None:
     """
     Aggregate results from multiple attempts into a final output file.
@@ -138,13 +83,14 @@ def aggregate_results(
     Args:
         output_dir: Directory containing attempt files
         max_attempts: Maximum number of attempts
+        critic_name: Name of the critic to use for evaluation
         final_output_file: Name of the final output file
     """
     logger.info(f"Aggregating results from {max_attempts} attempts")
 
     # Dictionary to store the best result for each instance
     best_results: Dict[EvalInstanceID, EvalOutput] = {}
-    critic = AgentFinishedCritic()
+    critic = CriticRegistry.create_critic(critic_name)
 
     # Work backwards from the last attempt to the first
     for attempt in range(max_attempts, 0, -1):

@@ -297,6 +297,7 @@ def main() -> None:
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
         max_attempts=args.max_attempts,
+        critic_name=args.critic,
     )
 
     # Run orchestrator with a simple JSONL writer

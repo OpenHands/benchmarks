@@ -12,11 +12,8 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
-from benchmarks.utils.iterative import (
-    AgentFinishedCritic,
-    aggregate_results,
-    get_failed_instances,
-)
+from benchmarks.utils.critics import CriticRegistry
+from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -160,7 +157,7 @@ class Evaluation(ABC, BaseModel):
             logger.warning("No instances to process.")
             return []
 
-        critic = AgentFinishedCritic()
+        critic = CriticRegistry.create_critic(self.metadata.critic_name)
         all_outputs: List[EvalOutput] = []
 
         # Track instances to process in each attempt
@@ -268,6 +265,7 @@ class Evaluation(ABC, BaseModel):
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
             max_attempts=self.metadata.max_attempts,
+            critic_name=self.metadata.critic_name,
             final_output_file="output.jsonl",
         )
 

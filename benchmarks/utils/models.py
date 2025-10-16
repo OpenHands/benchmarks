@@ -25,6 +25,9 @@ class EvalMetadata(BaseModel):
     max_attempts: int = Field(
         default=1, ge=1, description="Maximum number of attempts for iterative mode"
     )
+    critic_name: str = Field(
+        default="default_critic", description="Name of the critic to use for evaluation"
+    )
 
 
 EvalInstanceID = str

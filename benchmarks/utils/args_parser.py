@@ -50,4 +50,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=3,
         help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
     )
+    parser.add_argument(
+        "--critic",
+        type=str,
+        default="default_critic",
+        help="Critic to use for evaluating instance success (default: default_critic)",
+    )
     return parser
