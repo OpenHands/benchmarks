@@ -29,7 +29,7 @@ def prepare_dataset(
 
     # Apply limit after filtering completed instances
     if n_limit is not None and n_limit > 0:
-        dataset = dataset.head(n_limit)
+        dataset = dataset.sample(n=min(n_limit, len(dataset)), random_state=42)
 
     return dataset
 
