@@ -24,6 +24,11 @@ def construct_eval_output_dir(
     if eval_note:
         folder += f"_N_{eval_note}"
 
+    # Add experiment name from environment variable
+    exp_name = os.getenv("EXP_NAME")
+    if exp_name:
+        folder += f"-{exp_name}"
+
     # Construct full path
     eval_output_dir = os.path.join(base_dir, dataset_name, folder)
     os.makedirs(eval_output_dir, exist_ok=True)
