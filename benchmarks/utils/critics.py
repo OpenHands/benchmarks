@@ -105,6 +105,41 @@ class AgentFinishedCritic(Critic):
         return False
 
 
+class EmptyPatchCritic(Critic):
+    """
+    Critic that only evaluates whether a git patch is non-empty.
+
+    This critic checks only one criterion:
+    - The generated git patch is non-empty (actual changes were made)
+
+    Unlike AgentFinishedCritic, this critic does not check for proper
+    agent completion with FinishAction.
+    """
+
+    def evaluate_instance(self, output: EvalOutput) -> bool:
+        """
+        Evaluate if an instance has a non-empty git patch.
+
+        Args:
+            output: The evaluation output to check
+
+        Returns:
+            True if the git patch is non-empty, False otherwise
+        """
+        try:
+            # Check if git patch is non-empty
+            if not self._has_non_empty_git_patch(output):
+                logger.debug(f"Instance {output.instance_id}: Empty git patch")
+                return False
+
+            logger.debug(f"Instance {output.instance_id}: Non-empty git patch found")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Error evaluating instance {output.instance_id}: {e}")
+            return False
+
+
 class CriticRegistry:
     """
     Registry for managing available critics.
@@ -125,7 +160,6 @@ class CriticRegistry:
             critic_class: The critic class to register
         """
         cls._critics[name] = critic_class
-        logger.debug(f"Registered critic: {name} -> {critic_class.__name__}")
 
     @classmethod
     def create_critic(cls, name: str) -> Critic:
@@ -161,6 +195,7 @@ class CriticRegistry:
 
 # Register default critics
 CriticRegistry.register("default_critic", AgentFinishedCritic)
+CriticRegistry.register("empty_patch_critic", EmptyPatchCritic)
 
 
 def get_failed_instances(
