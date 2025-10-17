@@ -100,6 +100,7 @@ class SWEBenchEvaluation(Evaluation):
             split=self.metadata.dataset_split,
             eval_limit=self.metadata.eval_limit,
             completed_instances=self._get_completed_instances(),
+            selected_instances_file=self.metadata.selected_instances_file,
         )
 
         instances: List[EvalInstance] = []
@@ -292,6 +293,7 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        selected_instances_file=args.select,
     )
 
     # Run orchestrator with a simple JSONL writer

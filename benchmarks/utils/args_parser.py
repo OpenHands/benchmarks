@@ -44,4 +44,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=None,
         help="Limit number of instances to evaluate",
     )
+    parser.add_argument(
+        "--select",
+        type=str,
+        default=None,
+        help="Path to text file containing instance IDs to select (one per line)",
+    )
     return parser
