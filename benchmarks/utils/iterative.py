@@ -89,7 +89,7 @@ def aggregate_results(
     logger.info(f"Aggregating results from {max_attempts} attempts")
 
     # Dictionary to store the best result for each instance
-    best_results: Dict[EvalInstanceID, EvalOutput] = {}
+    best_results: dict[EvalInstanceID, EvalOutput] = {}
     critic = CriticRegistry.create_critic(critic_name)
 
     # Work backwards from the last attempt to the first
