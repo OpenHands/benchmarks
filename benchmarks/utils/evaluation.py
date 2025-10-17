@@ -80,86 +80,43 @@ class Evaluation(ABC, BaseModel):
         Run evaluation with iterative mode support.
 
         If max_attempts > 1, will retry failed instances multiple times.
+        If max_attempts == 1, will run once without retries.
         """
         logger.info("Starting evaluation (process pool)")
         logger.info("metadata=%s", self.metadata)
         logger.info("workers=%d", self.num_workers)
         logger.info("max_attempts=%d", self.metadata.max_attempts)
 
-        if self.metadata.max_attempts == 1:
-            # Single attempt mode - use original logic
-            return self._run_single_attempt(on_result=on_result)
-        else:
-            # Iterative mode - multiple attempts
-            return self._run_iterative_mode(on_result=on_result)
-
-    def _run_single_attempt(
-        self,
-        *,
-        on_result: Optional[OnResult] = None,
-    ) -> List[EvalOutput]:
-        """Run evaluation with single attempt (original behavior)."""
-        instances = self.prepare_instances()
-        total = len(instances)
-        logger.info("prepared %d instances", total)
-        if total == 0:
-            logger.warning("No instances to process.")
-            return []
-
-        outputs: List[EvalOutput] = []
-
-        # Submit one process per instance. Using a *bound* instance method as
-        # the target; this requires the subclass to be importable/pickleable
-        # (top-level class, no closures).
-        with ProcessPoolExecutor(
-            max_workers=self.num_workers, initializer=_child_init
-        ) as pool:
-            futures = [pool.submit(self._process_one_mp, inst) for inst in instances]
-
-            for fut in tqdm(
-                as_completed(futures),
-                total=len(futures),
-                desc="Evaluating",
-                leave=False,
-            ):
-                try:
-                    instance, out = fut.result()
-                except Exception as e:
-                    logger.error(
-                        f"Error during instance evaluation: {e}",
-                        exc_info=True,
-                        stack_info=True,
-                    )
-                    raise
-
-                outputs.append(out)
-                if on_result:
-                    try:
-                        on_result(instance, out)
-                    except Exception as cb_err:
-                        logger.warning("on_result callback failed: %s", cb_err)
-
-        logger.info("Evaluation complete: %d/%d done", len(outputs), total)
-        return outputs
+        # Use iterative mode for all cases
+        return self._run_iterative_mode(on_result=on_result)
 
     def _run_iterative_mode(
         self,
         *,
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
-        """Run evaluation with iterative mode (multiple attempts)."""
+        """Run evaluation with support for single or multiple attempts."""
         # Get all instances for the first attempt
         all_instances = self.prepare_instances()
         total_instances = len(all_instances)
-        logger.info("prepared %d instances for iterative evaluation", total_instances)
+        logger.info("prepared %d instances for evaluation", total_instances)
 
         if total_instances == 0:
             logger.warning("No instances to process.")
             return []
 
-        if not self.metadata.critic_name:
-            raise ValueError("critic_name is required for iterative evaluation")
-        critic = CriticRegistry.create_critic(self.metadata.critic_name)
+        # For single attempts without a critic, use the pass critic
+        critic_name = self.metadata.critic_name
+        if not critic_name:
+            if self.metadata.max_attempts == 1:
+                critic_name = "pass"
+                logger.info(
+                    "No critic specified for single attempt, using 'pass' critic"
+                )
+            else:
+                raise ValueError("critic_name is required for multi-attempt evaluation")
+
+        critic = CriticRegistry.create_critic(critic_name)
         all_outputs: List[EvalOutput] = []
 
         # Track instances to process in each attempt
@@ -268,12 +225,12 @@ class Evaluation(ABC, BaseModel):
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
             max_attempts=self.metadata.max_attempts,
-            critic_name=self.metadata.critic_name,
+            critic_name=critic_name,
             final_output_file="output.jsonl",
         )
 
         logger.info(
-            f"Iterative evaluation complete: {total_instances} total instances, "
+            f"Evaluation complete: {total_instances} total instances, "
             f"{self.metadata.max_attempts} max attempts"
         )
         return all_outputs
