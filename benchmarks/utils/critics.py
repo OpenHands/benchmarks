@@ -12,6 +12,7 @@ from typing import Dict, Optional, Set, Type
 
 from pydantic import BaseModel
 
+from benchmarks.utils.critics_utils import _has_non_empty_git_patch
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 
@@ -40,15 +41,6 @@ class Critic(ABC, BaseModel):
         """
         pass
 
-    def _has_non_empty_git_patch(self, output: EvalOutput) -> bool:
-        """
-        Check if the git patch is non-empty.
-
-        This is a default implementation that can be overridden by subclasses.
-        """
-        git_patch = output.test_result.get("git_patch", "")
-        return bool(git_patch and git_patch.strip())
-
 
 class AgentFinishedCritic(Critic):
     """
@@ -71,7 +63,7 @@ class AgentFinishedCritic(Critic):
         """
         try:
             # Check if git patch is non-empty
-            if not self._has_non_empty_git_patch(output):
+            if not _has_non_empty_git_patch(output):
                 logger.debug(f"Instance {output.instance_id}: Empty git patch")
                 return False
 
@@ -128,7 +120,7 @@ class EmptyPatchCritic(Critic):
         """
         try:
             # Check if git patch is non-empty
-            if not self._has_non_empty_git_patch(output):
+            if not _has_non_empty_git_patch(output):
                 logger.debug(f"Instance {output.instance_id}: Empty git patch")
                 return False
 
@@ -242,5 +234,8 @@ def get_failed_instances(
     except Exception as e:
         logger.error(f"Error reading output file {output_file}: {e}")
 
-    logger.info(f"Found {len(failed_instances)} failed instances judged by critic in {output_file}")
+    logger.info(
+        f"Found {len(failed_instances)} failed instances judged by critic in "
+        f"{output_file}"
+    )
     return failed_instances
