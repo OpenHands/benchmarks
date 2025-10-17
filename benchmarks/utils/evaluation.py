@@ -157,7 +157,11 @@ class Evaluation(ABC, BaseModel):
             logger.warning("No instances to process.")
             return []
 
-        critic = CriticRegistry.create_critic(self.metadata.critic_name)
+        critic = (
+            CriticRegistry.create_critic(self.metadata.critic_name)
+            if self.metadata.critic_name
+            else None
+        )
         all_outputs: List[EvalOutput] = []
 
         # Track instances to process in each attempt

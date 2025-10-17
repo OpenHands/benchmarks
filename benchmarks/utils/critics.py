@@ -186,7 +186,7 @@ class CriticRegistry:
 
 
 # Register default critics
-CriticRegistry.register("default_critic", AgentFinishedCritic)
+CriticRegistry.register("finish_with_patch", AgentFinishedCritic)
 CriticRegistry.register("empty_patch_critic", EmptyPatchCritic)
 
 
@@ -198,13 +198,16 @@ def get_failed_instances(
 
     Args:
         output_file: Path to the JSONL output file
-        critic: Optional critic to use for evaluation. If None, creates a default one.
+        critic: Critic to use for evaluation. Must be provided.
 
     Returns:
         Set of instance IDs that failed
+
+    Raises:
+        ValueError: If critic is None
     """
     if critic is None:
-        critic = CriticRegistry.create_critic("default_critic")
+        raise ValueError("Critic must be provided and cannot be None")
 
     failed_instances: Set[EvalInstanceID] = set()
 

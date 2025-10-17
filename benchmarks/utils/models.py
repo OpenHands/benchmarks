@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from openhands.sdk import LLM, get_logger
 
@@ -25,9 +25,18 @@ class EvalMetadata(BaseModel):
     max_attempts: int = Field(
         default=1, ge=1, description="Maximum number of attempts for iterative mode"
     )
-    critic_name: str = Field(
-        default="default_critic", description="Name of the critic to use for evaluation"
+    critic_name: str | None = Field(
+        default=None,
+        description=(
+            "Name of the critic to use for evaluation (required unless max_attempts=1)"
+        ),
     )
+
+    @model_validator(mode="after")
+    def validate_critic_name(self):
+        if self.max_attempts != 1 and self.critic_name is None:
+            raise ValueError("critic_name is required when max_attempts is not 1")
+        return self
 
 
 EvalInstanceID = str
