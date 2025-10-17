@@ -7,7 +7,7 @@ including the AgentFinishedCritic for determining if an instance succeeded.
 
 import json
 import os
-from typing import Optional, Set
+from typing import Set
 
 from benchmarks.utils.critics import Critic, CriticRegistry
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
@@ -20,24 +20,17 @@ logger = get_logger(__name__)
 # AgentFinishedCritic has been moved to benchmarks.utils.critics
 
 
-def get_failed_instances(
-    output_file: str, critic: Optional[Critic] = None
-) -> Set[EvalInstanceID]:
+def get_failed_instances(output_file: str, critic: Critic) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
 
     Args:
         output_file: Path to the JSONL output file
-        critic: Critic to use for evaluation. Must be provided.
+        critic: Critic to use for evaluation.
 
     Returns:
         Set of instance IDs that failed
-
-    Raises:
-        ValueError: If critic is None
     """
-    if critic is None:
-        raise ValueError("Critic must be provided and cannot be None")
 
     failed_instances: Set[EvalInstanceID] = set()
 
@@ -74,7 +67,7 @@ def get_failed_instances(
 def aggregate_results(
     output_dir: str,
     max_attempts: int,
-    critic_name: str | None = None,
+    critic_name: str,
     final_output_file: str = "output.jsonl",
 ) -> None:
     """
@@ -93,7 +86,7 @@ def aggregate_results(
 
     # Dictionary to store the best result for each instance
     best_results: dict[EvalInstanceID, EvalOutput] = {}
-    critic = CriticRegistry.create_critic(critic_name) if critic_name else None
+    critic = CriticRegistry.create_critic(critic_name)
 
     # Work backwards from the last attempt to the first
     for attempt in range(max_attempts, 0, -1):
@@ -118,9 +111,7 @@ def aggregate_results(
                         # 1. We haven't seen this instance yet, OR
                         # 2. This attempt is the first one to succeed
                         instance_id = output.instance_id
-                        is_successful = (
-                            critic.evaluate_instance(output) if critic else True
-                        )
+                        is_successful = critic.evaluate_instance(output)
 
                         if instance_id not in best_results:
                             # First time seeing this instance
@@ -128,10 +119,8 @@ def aggregate_results(
                         elif is_successful:
                             # This attempt succeeded, check if we should replace
                             current_best = best_results[instance_id]
-                            current_is_successful = (
-                                critic.evaluate_instance(current_best)
-                                if critic
-                                else True
+                            current_is_successful = critic.evaluate_instance(
+                                current_best
                             )
                             if not current_is_successful:
                                 # Replace failed result with successful one

@@ -8,7 +8,7 @@ different critics that evaluate whether an instance was successfully completed.
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Set, Type
+from typing import Dict, Set, Type
 
 from pydantic import BaseModel
 
@@ -132,6 +132,28 @@ class EmptyPatchCritic(Critic):
             return False
 
 
+class PassCritic(Critic):
+    """
+    Critic that always returns True.
+
+    This critic can be used when no evaluation is needed or when
+    all instances should be considered successful regardless of their output.
+    """
+
+    def evaluate_instance(self, output: EvalOutput) -> bool:
+        """
+        Always evaluate an instance as successful.
+
+        Args:
+            output: The evaluation output to check (ignored)
+
+        Returns:
+            Always True
+        """
+        logger.debug(f"Instance {output.instance_id}: PassCritic always returns True")
+        return True
+
+
 class CriticRegistry:
     """
     Registry for managing available critics.
@@ -188,26 +210,20 @@ class CriticRegistry:
 # Register default critics
 CriticRegistry.register("finish_with_patch", AgentFinishedCritic)
 CriticRegistry.register("empty_patch_critic", EmptyPatchCritic)
+CriticRegistry.register("pass", PassCritic)
 
 
-def get_failed_instances(
-    output_file: str, critic: Optional[Critic] = None
-) -> Set[EvalInstanceID]:
+def get_failed_instances(output_file: str, critic: Critic) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
 
     Args:
         output_file: Path to the JSONL output file
-        critic: Critic to use for evaluation. Must be provided.
+        critic: Critic to use for evaluation.
 
     Returns:
         Set of instance IDs that failed
-
-    Raises:
-        ValueError: If critic is None
     """
-    if critic is None:
-        raise ValueError("Critic must be provided and cannot be None")
 
     failed_instances: Set[EvalInstanceID] = set()
 

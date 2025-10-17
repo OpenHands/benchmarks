@@ -53,25 +53,11 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--critic",
         type=str,
-        default=None,
-        help=(
-            "Critic to use for evaluating instance success "
-            "(required unless --max-attempts=1)"
-        ),
+        required=True,
+        help="Critic to use for evaluating instance success",
     )
 
-    # Custom validation: critic is required unless max-attempts=1
-    def validate_args(args):
-        if args.max_attempts != 1 and args.critic is None:
-            parser.error("--critic is required when --max-attempts is not 1")
-        return args
+    # Critic is now required
 
-    # Parse args and validate
-    original_parse_args = parser.parse_args
-
-    def parse_args_with_validation(*args, **kwargs):
-        parsed_args = original_parse_args(*args, **kwargs)
-        return validate_args(parsed_args)
-
-    parser.parse_args = parse_args_with_validation
+    # No custom validation needed
     return parser
