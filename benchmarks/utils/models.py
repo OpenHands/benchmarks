@@ -22,6 +22,11 @@ class EvalMetadata(BaseModel):
     eval_limit: int = Field(
         default=0, description="Number of instances to evaluate, 0 means all"
     )
+    selected_instances_file: str | None = Field(
+        default=None,
+        description="Path to text file containing instance IDs to select "
+        "(one per line)",
+    )
 
 
 EvalInstanceID = str
