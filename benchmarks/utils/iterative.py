@@ -7,7 +7,7 @@ including the AgentFinishedCritic for determining if an instance succeeded.
 
 import json
 import os
-from typing import Dict, Optional, Set
+from typing import Optional, Set
 
 from benchmarks.utils.critics import Critic, CriticRegistry
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
@@ -123,7 +123,9 @@ def aggregate_results(
                         elif is_successful:
                             # This attempt succeeded, check if we should replace
                             current_best = best_results[instance_id]
-                            current_is_successful = critic.evaluate_instance(current_best)
+                            current_is_successful = critic.evaluate_instance(
+                                current_best
+                            )
                             if not current_is_successful:
                                 # Replace failed result with successful one
                                 best_results[instance_id] = output
