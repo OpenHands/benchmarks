@@ -7,12 +7,12 @@ if [ -f .env ]; then
 fi
 
 # Default values
-DATASET="mgulavani/openagentsafety_full"
+DATASET="mgulavani/openagentsafety_full_updated"
 SPLIT="train"
 MODEL="" #FIXME
 OUTPUT_DIR="./eval_out"
 MAX_ITERATIONS=100
-EVAL_N_LIMIT=1
+EVAL_N_LIMIT=2
 EVAL_NOTE="initial"
 
 # Help function
