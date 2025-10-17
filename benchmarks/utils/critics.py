@@ -242,5 +242,5 @@ def get_failed_instances(
     except Exception as e:
         logger.error(f"Error reading output file {output_file}: {e}")
 
-    logger.info(f"Found {len(failed_instances)} failed instances in {output_file}")
+    logger.info(f"Found {len(failed_instances)} failed instances judged by critic in {output_file}")
     return failed_instances
