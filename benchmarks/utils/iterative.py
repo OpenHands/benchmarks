@@ -78,7 +78,7 @@ def aggregate_results(
     Aggregate results from multiple attempts into a final output file.
 
     Works backwards from the last attempt to the first, using the most recent
-    successful attempt for each instance that has a non-empty git patch.
+    successful attempt for each instance.
 
     Args:
         output_dir: Directory containing attempt files
@@ -115,9 +115,7 @@ def aggregate_results(
                         # 1. We haven't seen this instance yet, OR
                         # 2. This attempt is the first one to succeed
                         instance_id = output.instance_id
-                        is_successful = critic._has_non_empty_git_patch(
-                            output
-                        ) and critic.evaluate_instance(output)
+                        is_successful = critic.evaluate_instance(output)
 
                         if instance_id not in best_results:
                             # First time seeing this instance
@@ -125,9 +123,7 @@ def aggregate_results(
                         elif is_successful:
                             # This attempt succeeded, check if we should replace
                             current_best = best_results[instance_id]
-                            current_is_successful = critic._has_non_empty_git_patch(
-                                current_best
-                            ) and critic.evaluate_instance(current_best)
+                            current_is_successful = critic.evaluate_instance(current_best)
                             if not current_is_successful:
                                 # Replace failed result with successful one
                                 best_results[instance_id] = output
