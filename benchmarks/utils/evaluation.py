@@ -157,11 +157,9 @@ class Evaluation(ABC, BaseModel):
             logger.warning("No instances to process.")
             return []
 
-        critic = (
-            CriticRegistry.create_critic(self.metadata.critic_name)
-            if self.metadata.critic_name
-            else None
-        )
+        if not self.metadata.critic_name:
+            raise ValueError("critic_name is required for iterative evaluation")
+        critic = CriticRegistry.create_critic(self.metadata.critic_name)
         all_outputs: List[EvalOutput] = []
 
         # Track instances to process in each attempt
@@ -251,6 +249,7 @@ class Evaluation(ABC, BaseModel):
             attempt_file = os.path.join(
                 self.metadata.eval_output_dir, f"output.critic_attempt_{attempt}.jsonl"
             )
+
             failed_instance_ids = get_failed_instances(attempt_file, critic)
 
             # Filter instances for next attempt
