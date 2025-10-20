@@ -56,8 +56,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         required=True,
         help="Critic to use for evaluating instance success",
     )
-
-    # Critic is now required
-
-    # No custom validation needed
+    parser.add_argument(
+        "--select",
+        type=str,
+        default=None,
+        help="Path to text file containing instance IDs to select (one per line)",
+    )
     return parser

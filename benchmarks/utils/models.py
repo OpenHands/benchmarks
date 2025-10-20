@@ -28,6 +28,11 @@ class EvalMetadata(BaseModel):
     critic_name: str = Field(
         description="Name of the critic to use for evaluation",
     )
+    selected_instances_file: str | None = Field(
+        default=None,
+        description="Path to text file containing instance IDs to select "
+        "(one per line)",
+    )
 
 
 EvalInstanceID = str
