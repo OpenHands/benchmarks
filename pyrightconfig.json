@@ -1,0 +1,19 @@
+{
+  "include": [
+    "benchmarks"
+  ],
+  "extraPaths": [
+    "vendor/agent-sdk/openhands-sdk",
+    "vendor/agent-sdk/openhands-tools", 
+    "vendor/agent-sdk/openhands-workspace",
+    "vendor/agent-sdk/openhands-agent-server"
+  ],
+  "exclude": [
+    ".venv/**",
+    "**/__pycache__",
+    "**/.pytest_cache"
+  ],
+  "pythonPath": ".venv/bin/python",
+  "venvPath": ".",
+  "venv": ".venv"
+}
