@@ -5,7 +5,7 @@ Build agent-server images for all unique SWE-Bench base images in a dataset spli
 Example:
   uv run benchmarks/swe_bench/build_images.py \
     --dataset princeton-nlp/SWE-bench_Verified --split test \
-    --image ghcr.io/all-hands-ai/agent-server --target binary-minimal
+    --image ghcr.io/all-hands-ai/agent-server --target source-minimal
 """
 
 import argparse
@@ -98,8 +98,8 @@ def extend_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--target",
-        default="binary-minimal",
-        help="Build target (binary | binary-minimal | source | source-minimal)",
+        default="source-minimal",
+        help="Build target (source | source-minimal | binary | binary-minimal)",
     )
     parser.add_argument(
         "--platforms", default="linux/amd64", help="Comma-separated platforms"
