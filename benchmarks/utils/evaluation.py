@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
-from benchmarks.utils.critics import CriticRegistry
+from benchmarks.utils.critics import CriticRegistry, get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
@@ -90,6 +90,49 @@ class Evaluation(ABC, BaseModel):
         # Use iterative mode for all cases
         return self._run_iterative_mode(on_result=on_result)
 
+    def _get_resume_start_attempt(self) -> Tuple[int, List[EvalOutput]]:
+        """
+        Find where to resume and load previous outputs.
+
+        Returns:
+            Tuple of (start_attempt, previous_outputs)
+            - start_attempt: Which attempt to start from (1 for fresh start)
+            - previous_outputs: All outputs from previous attempts
+        """
+        all_previous_outputs = []
+
+        # Check backwards from max_attempts to find the last attempt with results
+        for attempt in range(self.metadata.max_attempts, 0, -1):
+            attempt_file = os.path.join(
+                self.metadata.eval_output_dir, f"output.critic_attempt_{attempt}.jsonl"
+            )
+            if os.path.exists(attempt_file) and os.path.getsize(attempt_file) > 0:
+                # Found the last attempt with results, resume from here
+                logger.info(f"Found existing results up to attempt {attempt}")
+
+                # Load ALL previous outputs from attempts 1 to attempt
+                for a in range(1, attempt + 1):
+                    a_file = os.path.join(
+                        self.metadata.eval_output_dir,
+                        f"output.critic_attempt_{a}.jsonl",
+                    )
+                    if os.path.exists(a_file):
+                        try:
+                            with open(a_file, "r", encoding="utf-8") as f:
+                                for line in f:
+                                    if line.strip():
+                                        output = EvalOutput(**json.loads(line))
+                                        all_previous_outputs.append(output)
+                        except Exception as e:
+                            logger.warning(f"Error loading outputs from {a_file}: {e}")
+
+                logger.info(f"Loaded {len(all_previous_outputs)} previous outputs")
+                return attempt, all_previous_outputs
+
+        # No existing files found, start fresh
+        logger.info("No existing results found, starting fresh")
+        return 1, []
+
     def _run_iterative_mode(
         self,
         *,
@@ -117,12 +160,44 @@ class Evaluation(ABC, BaseModel):
                 raise ValueError("critic_name is required for multi-attempt evaluation")
 
         critic = CriticRegistry.create_critic(critic_name)
-        all_outputs: List[EvalOutput] = []
 
-        # Track instances to process in each attempt
-        instances_to_process = all_instances.copy()
+        # Check for resume point and load previous outputs
+        start_attempt, all_outputs = self._get_resume_start_attempt()
 
-        for attempt in range(1, self.metadata.max_attempts + 1):
+        # Reconstruct instances_to_process for the resume attempt
+        if start_attempt == 1:
+            # Fresh start or resuming attempt 1 - exclude completed instances
+            completed_in_attempt_1 = get_completed_instances(
+                os.path.join(
+                    self.metadata.eval_output_dir, "output.critic_attempt_1.jsonl"
+                )
+            )
+            instances_to_process = [
+                inst for inst in all_instances if inst.id not in completed_in_attempt_1
+            ]
+        else:
+            # Resuming attempt N > 1 - start with failed from previous attempt,
+            # exclude completed in current
+            prev_attempt_file = os.path.join(
+                self.metadata.eval_output_dir,
+                f"output.critic_attempt_{start_attempt - 1}.jsonl",
+            )
+            failed_from_prev = get_failed_instances(prev_attempt_file, critic)
+
+            completed_in_current = get_completed_instances(
+                os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{start_attempt}.jsonl",
+                )
+            )
+
+            instances_to_process = [
+                inst
+                for inst in all_instances
+                if inst.id in failed_from_prev and inst.id not in completed_in_current
+            ]
+
+        for attempt in range(start_attempt, self.metadata.max_attempts + 1):
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
             logger.info(f"Processing {len(instances_to_process)} instances")
 

@@ -213,6 +213,45 @@ CriticRegistry.register("empty_patch_critic", EmptyPatchCritic)
 CriticRegistry.register("pass", PassCritic)
 
 
+def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
+    """
+    Get all instance IDs present in output file
+    (completed, regardless of success/failure).
+
+    Args:
+        output_file: Path to the JSONL output file
+
+    Returns:
+        Set of instance IDs that were completed (processed)
+    """
+    completed_instances: Set[EvalInstanceID] = set()
+
+    if not os.path.exists(output_file):
+        return completed_instances
+
+    try:
+        with open(output_file, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                try:
+                    data = json.loads(line.strip())
+                    output = EvalOutput(**data)
+                    completed_instances.add(output.instance_id)
+
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        f"Invalid JSON on line {line_num} in {output_file}: {e}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Error processing line {line_num} in {output_file}: {e}"
+                    )
+
+    except Exception as e:
+        logger.warning(f"Error reading output file {output_file}: {e}")
+
+    return completed_instances
+
+
 def get_failed_instances(output_file: str, critic: Critic) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
