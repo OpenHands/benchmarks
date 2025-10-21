@@ -139,6 +139,11 @@ def run_swebench_evaluation(
     logger.info(f"Running SWE-Bench evaluation on {predictions_file}")
 
     try:
+        # Get the directory of the predictions file
+        predictions_path = Path(predictions_file)
+        predictions_dir = predictions_path.parent
+        predictions_filename = predictions_path.name
+
         # Run SWE-Bench evaluation using global python (not UV environment)
         # since swebench is installed globally
         cmd = [
@@ -148,19 +153,20 @@ def run_swebench_evaluation(
             "--dataset_name",
             dataset,
             "--predictions_path",
-            predictions_file,
+            predictions_filename,
             "--max_workers",
             "5",
             "--run_id",
-            f"eval_{Path(predictions_file).stem}",
+            f"eval_{predictions_path.stem}",
         ]
 
         logger.info(f"Running command: {' '.join(cmd)}")
+        logger.info(f"Working directory: {predictions_dir}")
         logger.info("SWE-Bench evaluation output:")
         print("-" * 80)
 
-        # Stream output directly to console
-        result = subprocess.run(cmd, text=True)
+        # Stream output directly to console, running from predictions file directory
+        result = subprocess.run(cmd, text=True, cwd=predictions_dir)
 
         print("-" * 80)
         if result.returncode == 0:
