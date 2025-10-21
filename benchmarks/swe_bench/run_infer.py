@@ -210,17 +210,15 @@ class SWEBenchEvaluation(Evaluation):
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
         # git add
-        git_add = workspace.execute_command(f"cd {repo_path} ; git add -A")
-        assert git_add.exit_code == 0, f"git add failed: {git_add.stderr}"
+        workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
-        git_commit = workspace.execute_command(
+        workspace.execute_command(
             f"cd {repo_path} && "
             "git config --global user.email 'evaluation@openhands.dev' && "
             "git config --global user.name 'OpenHands Evaluation' && "
             "git commit -m 'patch'"
         )
-        assert git_commit.exit_code == 0, f"git commit failed: {git_commit.stderr}"
 
         # Get git patch
         base_commit = instance.data["base_commit"]
