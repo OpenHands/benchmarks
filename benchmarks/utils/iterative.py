@@ -16,6 +16,7 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 
+
 def get_failed_instances(output_file: str, critic: Critic) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
