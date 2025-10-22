@@ -165,37 +165,32 @@ class Evaluation(ABC, BaseModel):
         start_attempt, all_outputs = self._get_resume_start_attempt()
 
         # Reconstruct instances_to_process for the resume attempt
-        if start_attempt == 1:
-            # Fresh start or resuming attempt 1 - exclude completed instances
-            completed_in_attempt_1 = get_completed_instances(
-                os.path.join(
-                    self.metadata.eval_output_dir, "output.critic_attempt_1.jsonl"
-                )
-            )
-            instances_to_process = [
-                inst for inst in all_instances if inst.id not in completed_in_attempt_1
-            ]
+        # Uniform logic for all attempts
+        prev_attempt_file = os.path.join(
+            self.metadata.eval_output_dir,
+            f"output.critic_attempt_{start_attempt - 1}.jsonl",
+        )
+
+        if start_attempt == 1 or not os.path.exists(prev_attempt_file):
+            # First attempt or no previous attempt exists: start with all instances
+            target_instances = set(inst.id for inst in all_instances)
         else:
-            # Resuming attempt N > 1 - start with failed from previous attempt,
-            # exclude completed in current
-            prev_attempt_file = os.path.join(
+            # Start with failed instances from previous attempt
+            target_instances = get_failed_instances(prev_attempt_file, critic)
+
+        # For any attempt: exclude instances already completed in current attempt
+        completed_in_current = get_completed_instances(
+            os.path.join(
                 self.metadata.eval_output_dir,
-                f"output.critic_attempt_{start_attempt - 1}.jsonl",
+                f"output.critic_attempt_{start_attempt}.jsonl",
             )
-            failed_from_prev = get_failed_instances(prev_attempt_file, critic)
+        )
 
-            completed_in_current = get_completed_instances(
-                os.path.join(
-                    self.metadata.eval_output_dir,
-                    f"output.critic_attempt_{start_attempt}.jsonl",
-                )
-            )
-
-            instances_to_process = [
-                inst
-                for inst in all_instances
-                if inst.id in failed_from_prev and inst.id not in completed_in_current
-            ]
+        instances_to_process = [
+            inst
+            for inst in all_instances
+            if inst.id in target_instances and inst.id not in completed_in_current
+        ]
 
         for attempt in range(start_attempt, self.metadata.max_attempts + 1):
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
@@ -285,8 +280,9 @@ class Evaluation(ABC, BaseModel):
             failed_instance_ids = get_failed_instances(attempt_file, critic)
 
             # Filter instances for next attempt
+            # Always include ALL failed instances from current attempt for next attempt
             instances_to_process = [
-                inst for inst in instances_to_process if inst.id in failed_instance_ids
+                inst for inst in all_instances if inst.id in failed_instance_ids
             ]
 
             logger.info(f"Found {len(failed_instance_ids)} failed instances for retry")
