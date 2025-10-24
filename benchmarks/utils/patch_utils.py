@@ -39,12 +39,12 @@ def remove_files_from_patch(git_patch, files):
         file_diff = git_patch[start:end]
         file_diffs.append(file_diff)
 
-    # Filter out pyproject.toml diffs
+    # Filter out files in list
     filtered_diffs = []
     for diff in file_diffs:
-        # Check if this diff is for pyproject.toml
+        # Check if this diff is for a file in files
         if "diff --git" in diff and any(f in diff for f in files):
-            # Skip this diff - it's for pyproject.toml
+            # Skip this diff
             continue
         filtered_diffs.append(diff)
 
