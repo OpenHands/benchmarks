@@ -16,6 +16,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.patch_utils import remove_files_from_patch
 from openhands.agent_server.docker.build import SDK_VERSION, _base_slug
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -229,6 +230,10 @@ class SWEBenchEvaluation(Evaluation):
             f"git diff failed: {git_patch_result.stderr}"
         )
         git_patch = git_patch_result.stdout
+
+        # remove setup files from patch
+        setup_files = ["pyproject.toml", "tox.ini"]
+        git_patch = remove_files_from_patch(git_patch, setup_files)
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
