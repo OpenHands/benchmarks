@@ -495,69 +495,100 @@ def save_results_to_host(
 # ==============================================================================
 
 def main():
-    with DockerWorkspace(
-        server_image="ghcr.io/madhavisg/openagentsafety-agent-server:1.6",
-        host_port=8080,
-        platform="linux/amd64",
-        extra_ports=True,
-    ) as workspace:
-        # Configuration
-        DATASET_NAME = "mgulavani/openagentsafety_full_updated"
-        SPLIT = "train"
-        MODEL = os.getenv("LITELLM_MODEL")
-        NPC_MODEL = os.getenv("NPC_MODEL")
-        OUTPUT_DIR = "./outputs"
-        
-        # Create output directory
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        
-        # Load dataset
-        logger.info(f"Loading dataset {DATASET_NAME}...")
-        dataset = load_dataset(DATASET_NAME, split=SPLIT)
-        df = dataset.to_pandas()
-        
-        logger.info(f"Successfully loaded dataset with {len(df)} samples")
-        
-        # Test specific task initially
-        task_instance = df.iloc[0]
-        
-        # Create LLM
-        base_url = os.getenv("LITELLM_BASE_URL")
-        if not base_url:
-            raise ValueError("LITELLM_BASE_URL not set")
+    # Configuration
+    DATASET_NAME = "mgulavani/openagentsafety_full_updated"
+    SPLIT = "train"
+    MODEL = os.getenv("LITELLM_MODEL")
+    NPC_MODEL = os.getenv("NPC_MODEL")
+    OUTPUT_DIR = "./outputs"
+    
+    # Create output directory
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Load dataset
+    logger.info(f"Loading dataset {DATASET_NAME}...")
+    dataset = load_dataset(DATASET_NAME, split=SPLIT)
+    df = dataset.to_pandas()
+    
+    logger.info(f"Successfully loaded dataset with {len(df)} samples")
+    
+    # LLM config (outside container loop)
+    base_url = os.getenv("LITELLM_BASE_URL")
+    if not base_url:
+        raise ValueError("LITELLM_BASE_URL not set")
 
-        api_key = os.getenv("LITELLM_API_KEY")
-        if not api_key:
-            raise ValueError("LITELLM_API_KEY not set")
+    api_key = os.getenv("LITELLM_API_KEY")
+    if not api_key:
+        raise ValueError("LITELLM_API_KEY not set")
+    
+    npc_api_key = os.getenv("NPC_API_KEY")
+    npc_base_url = os.getenv("NPC_BASE_URL") or base_url
+    npc_model = os.getenv("NPC_MODEL", "litellm_proxy/openai/gpt-4o")
+    
+    llm = LLM(
+        service_id="agent",
+        model=MODEL,
+        api_key=SecretStr(api_key),
+        base_url=base_url,
+        temperature=0,
+    )
+    
+    logger.info(f"Main agent using model: {MODEL}")
+    logger.info(f"NPCs using model: {NPC_MODEL}")
+    logger.info(f"Base URL: {base_url}")
+    logger.info(f"Output directory: {OUTPUT_DIR}")
+    
+    # Process each task with its own container
+    for idx, task_instance in df.iterrows():
+        instance_id = task_instance['instance_id']
         
-        npc_api_key = os.getenv("NPC_API_KEY")
-        npc_base_url = os.getenv("NPC_BASE_URL") or base_url
-        npc_model = os.getenv("NPC_MODEL", "litellm_proxy/openai/gpt-4o")
+        # Check if already processed (resume capability)
+        eval_file = os.path.join(OUTPUT_DIR, f"eval_{instance_id}.json")
+        if os.path.exists(eval_file):
+            logger.info(f"Skipping {instance_id} ({idx+1}/{len(df)}) - already processed")
+            continue
         
-        llm = LLM(
-            service_id="agent",
-            model=MODEL,
-            api_key=SecretStr(api_key),
-            base_url=base_url,
-            temperature=0,
-        )
+        logger.info(f"Starting task {idx+1}/{len(df)}: {instance_id}")
         
-        logger.info(f"Main agent using model: {MODEL}")
-        logger.info(f"NPCs using model: {NPC_MODEL}")
-        logger.info(f"Base URL: {base_url}")
-        logger.info(f"Output directory: {OUTPUT_DIR}")
+        try:
+            # Create new container for this task
+            with DockerWorkspace(
+                server_image="ghcr.io/madhavisg/openagentsafety-agent-server:1.6",
+                platform="linux/amd64",
+                extra_ports=True,
+            ) as workspace:
+                
+                result = process_instance(
+                    instance=task_instance,
+                    llm=llm,
+                    npc_api_key=npc_api_key,
+                    npc_base_url=npc_base_url,  
+                    default_npc_model=npc_model,
+                    workspace=workspace,
+                    output_dir=OUTPUT_DIR
+                )
+                
+                logger.info(f"✅ Completed {instance_id} ({idx+1}/{len(df)})")
+                logger.info(f"   Evaluation: {result.get('evaluation', {})}")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed on {instance_id} ({idx+1}/{len(df)}): {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Save error info
+            error_file = os.path.join(OUTPUT_DIR, f"error_{instance_id}.json")
+            with open(error_file, 'w') as f:
+                json.dump({
+                    "instance_id": instance_id,
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                }, f, indent=2)
+            
+            continue
+    
+    logger.info("All tasks completed!")
 
-        result = process_instance(
-            instance=task_instance,
-            llm=llm,
-            npc_api_key=npc_api_key,
-            npc_base_url=npc_base_url,  
-            default_npc_model=npc_model,
-            workspace=workspace,
-            output_dir=OUTPUT_DIR  # Pass output directory
-        )
-        
-        logger.info(f"Results: {json.dumps(result['evaluation'], indent=2)}")
 
 if __name__ == "__main__":
     main()
