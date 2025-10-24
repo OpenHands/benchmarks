@@ -210,17 +210,15 @@ class SWEBenchEvaluation(Evaluation):
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
         # git add
-        git_add = workspace.execute_command(f"cd {repo_path} ; git add -A")
-        assert git_add.exit_code == 0, f"git add failed: {git_add.stderr}"
+        workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
-        git_commit = workspace.execute_command(
+        workspace.execute_command(
             f"cd {repo_path} && "
             "git config --global user.email 'evaluation@openhands.dev' && "
             "git config --global user.name 'OpenHands Evaluation' && "
             "git commit -m 'patch'"
         )
-        assert git_commit.exit_code == 0, f"git commit failed: {git_commit.stderr}"
 
         # Get git patch
         base_commit = instance.data["base_commit"]
@@ -263,6 +261,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Validate max_attempts
+    if args.max_attempts < 1:
+        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+
     llm_config_path = args.llm_config_path
     if not os.path.isfile(llm_config_path):
         raise ValueError(f"LLM config file {llm_config_path} does not exist")
@@ -293,6 +295,8 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        max_attempts=args.max_attempts,
+        critic_name=args.critic,
         selected_instances_file=args.select,
     )
 
