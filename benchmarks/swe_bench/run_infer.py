@@ -232,7 +232,7 @@ class SWEBenchEvaluation(Evaluation):
         git_patch = git_patch_result.stdout
 
         # remove setup files from patch
-        setup_files = ["pyproject.toml", "tox.ini"]
+        setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
         git_patch = remove_files_from_patch(git_patch, setup_files)
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
