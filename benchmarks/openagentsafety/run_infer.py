@@ -15,6 +15,7 @@ import pandas as pd
 from datasets import load_dataset
 from pydantic import Field, SecretStr
 import tempfile
+import shutil
 
 import requests
 from urllib.parse import urlparse
@@ -255,9 +256,10 @@ def process_instance(
     npc_api_key: str,
     npc_base_url: str,
     default_npc_model: str,
-    workspace
+    workspace,
+    output_dir: str  # Add output_dir parameter
 ) -> Dict[str, Any]:
-    """Process a single task instance with SDK."""
+    """Process a single task instance with SDK and evaluation."""
     
     instance_id = instance['instance_id']
     logger.info(f"Processing instance: {instance_id}")
@@ -289,7 +291,7 @@ def process_instance(
     # Create agent
     agent = Agent(llm=llm, tools=tools, workspace=workspace)
     
-    # Create callback to suppress unknown events
+    # Create callback to collect events
     received_events = []
     
     def event_callback(event) -> None:
@@ -303,8 +305,7 @@ def process_instance(
         
         received_events.append(event)
     
-    # Use Conversation (not RemoteConversation directly)
-    # This will automatically create RemoteConversation since workspace is RemoteWorkspace
+    # Create conversation
     conversation = Conversation(
         agent=agent, 
         workspace=workspace,
@@ -327,16 +328,167 @@ def process_instance(
         import traceback
         traceback.print_exc()
     
-    # Extract history from received events
+    # Extract history and trajectory
     history = received_events
     trajectory = "\n".join([str(event) for event in history])
+    
+    # Run evaluation if evaluator_code exists
+    eval_result = {}
+    if 'evaluator_code' in instance and instance['evaluator_code']:
+        eval_result = run_evaluation_in_container(
+            workspace=workspace,
+            evaluator_code=instance['evaluator_code'],
+            trajectory=trajectory,
+            instance_id=instance_id
+        )
+    else:
+        logger.warning(f"No evaluator_code found for {instance_id}")
+        eval_result = {"error": "No evaluator code provided"}
+    
+    # Save all results to host
+    save_results_to_host(
+        workspace=workspace,
+        instance_id=instance_id,
+        trajectory=trajectory,
+        eval_result=eval_result,
+        history=history,
+        output_dir=output_dir
+    )
     
     return {
         "instance_id": instance_id,
         "history": history,
         "trajectory": trajectory,
         "num_events": len(history),
+        "evaluation": eval_result,
     }
+
+# ==============================================================================
+# EVALUATION
+# ==============================================================================
+
+def run_evaluation_in_container(
+    workspace,
+    evaluator_code: str,
+    trajectory: str,
+    instance_id: str
+) -> Dict[str, Any]:
+    """
+    Execute evaluator code in the Docker container and return results.
+    """
+    logger.info(f"Running evaluation for {instance_id}")
+    
+    # Write evaluator code to container
+    evaluator_path = "/workspace/evaluator_temp.py"
+    bash_command = f"cat > {evaluator_path} << 'EOFEVAL'\n{evaluator_code}\nEOFEVAL"
+    
+    try:
+        workspace.execute_command(bash_command)
+        logger.info(f"Wrote evaluator code to {evaluator_path}")
+    except Exception as e:
+        logger.error(f"Failed to write evaluator code: {e}")
+        return {"error": f"Failed to write evaluator: {e}"}
+    
+    # Write trajectory to container
+    trajectory_path = "/workspace/trajectory_temp.json"
+    # Escape the trajectory string for bash heredoc
+    trajectory_json = json.dumps(trajectory, cls=NumpyEncoder)
+    bash_command = f"cat > {trajectory_path} << 'EOFTRAJ'\n{trajectory_json}\nEOFTRAJ"
+    
+    try:
+        workspace.execute_command(bash_command)
+        logger.info(f"Wrote trajectory to {trajectory_path}")
+    except Exception as e:
+        logger.error(f"Failed to write trajectory: {e}")
+        return {"error": f"Failed to write trajectory: {e}"}
+    
+    # Create Python script to run evaluation
+    eval_runner = f"""
+import sys
+import json
+
+# Import evaluator code
+sys.path.insert(0, '/workspace')
+import evaluator_temp
+
+# Read trajectory
+with open('{trajectory_path}', 'r') as f:
+    trajectory = f.read()
+
+# Run evaluation
+try:
+    result = evaluator_temp.grade_checkpoints(trajectory=trajectory)
+    
+    # Use the built-in to_dict() method from Result class
+    output = result.to_dict()
+    
+    print(json.dumps(output))
+except Exception as e:
+    import traceback
+    print(json.dumps({{"error": str(e), "traceback": traceback.format_exc()}}))
+    sys.exit(1)
+"""
+    
+    # Write and execute eval runner
+    runner_path = "/workspace/eval_runner.py"
+    bash_command = f"cat > {runner_path} << 'EOFRUNNER'\n{eval_runner}\nEOFRUNNER"
+    
+    try:
+        workspace.execute_command(bash_command)
+        result = workspace.execute_command(f"cd /workspace && python {runner_path}")
+        
+        # Parse output
+        output_str = result.stdout.strip()
+        eval_result = json.loads(output_str)
+        
+        logger.info(f"Evaluation completed for {instance_id}")
+        return eval_result
+        
+    except Exception as e:
+        logger.error(f"Failed to run evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Evaluation failed: {e}"}
+
+
+def save_results_to_host(
+    workspace,
+    instance_id: str,
+    trajectory: str,
+    eval_result: Dict[str, Any],
+    history: List,
+    output_dir: str
+) -> None:
+    """
+    Save evaluation results from container to host machine.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    task_name = instance_id
+    
+    # 1. Save trajectory (traj file)
+    traj_file = os.path.join(output_dir, f"traj_{task_name}.json")
+    with open(traj_file, 'w') as f:
+        json.dump(trajectory, f, indent=2, cls=NumpyEncoder)
+    logger.info(f"Saved trajectory to {traj_file}")
+    
+    # 2. Save evaluation results (eval file)
+    eval_file = os.path.join(output_dir, f"eval_{task_name}.json")
+    with open(eval_file, 'w') as f:
+        json.dump(eval_result, f, indent=2, cls=NumpyEncoder)
+    logger.info(f"Saved evaluation to {eval_file}")
+    
+    # 3. Save state (state file) - contains the full conversation history
+    state_file = os.path.join(output_dir, f"state_{task_name}.json")
+    state_data = {
+        "instance_id": instance_id,
+        "history": [str(event) for event in history],
+        "num_events": len(history),
+    }
+    with open(state_file, 'w') as f:
+        json.dump(state_data, f, indent=2, cls=NumpyEncoder)
+    logger.info(f"Saved state to {state_file}")
+
 
 # ==============================================================================
 # MAIN
@@ -356,6 +508,8 @@ def main():
         NPC_MODEL = os.getenv("NPC_MODEL")
         OUTPUT_DIR = "./outputs"
         
+        # Create output directory
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         
         # Load dataset
         logger.info(f"Loading dataset {DATASET_NAME}...")
@@ -365,7 +519,7 @@ def main():
         logger.info(f"Successfully loaded dataset with {len(df)} samples")
         
         # Test specific task initially
-        task_instance = df.iloc[2]
+        task_instance = df.iloc[0]
         
         # Create LLM
         base_url = os.getenv("LITELLM_BASE_URL")
@@ -377,7 +531,7 @@ def main():
             raise ValueError("LITELLM_API_KEY not set")
         
         npc_api_key = os.getenv("NPC_API_KEY")
-        npc_base_url = os.getenv("NPC_BASE_URL") or base_url  # Fall back to agent URL
+        npc_base_url = os.getenv("NPC_BASE_URL") or base_url
         npc_model = os.getenv("NPC_MODEL", "litellm_proxy/openai/gpt-4o")
         
         llm = LLM(
@@ -391,6 +545,7 @@ def main():
         logger.info(f"Main agent using model: {MODEL}")
         logger.info(f"NPCs using model: {NPC_MODEL}")
         logger.info(f"Base URL: {base_url}")
+        logger.info(f"Output directory: {OUTPUT_DIR}")
 
         result = process_instance(
             instance=task_instance,
@@ -398,9 +553,11 @@ def main():
             npc_api_key=npc_api_key,
             npc_base_url=npc_base_url,  
             default_npc_model=npc_model,
-            workspace=workspace
-            )
-
+            workspace=workspace,
+            output_dir=OUTPUT_DIR  # Pass output directory
+        )
+        
+        logger.info(f"Results: {json.dumps(result['evaluation'], indent=2)}")
 
 if __name__ == "__main__":
     main()
