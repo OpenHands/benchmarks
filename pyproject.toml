@@ -6,8 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "datasets",
+    "huggingface-hub",
     "jinja2",
     "pandas",
+    "Pillow",
     "toml",
     "tqdm",
     "openhands-sdk",
@@ -21,6 +23,7 @@ dependencies = [
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
 swebench-infer = "benchmarks.swe_bench.run_infer:main"
+gaia-infer = "benchmarks.gaia.run_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
