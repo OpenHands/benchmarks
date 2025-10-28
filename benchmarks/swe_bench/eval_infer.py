@@ -15,6 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.utils.patch_utils import remove_files_from_patch
 from openhands.sdk import get_logger
 
 
@@ -76,6 +77,10 @@ def convert_to_swebench_format(
                     )
                     # Still create entry with empty patch
                     git_patch = ""
+
+                # postprocess git_patch
+                setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
+                git_patch = remove_files_from_patch(git_patch, setup_files)
 
                 # Create SWE-Bench format entry
                 swebench_entry = {
