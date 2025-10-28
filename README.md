@@ -95,6 +95,7 @@ Build ALL docker images for SWE-Bench.
 ```bash
 uv run benchmarks/swe_bench/build_images.py \
   --dataset princeton-nlp/SWE-bench_Verified --split test \
+  --critic pass \
   --image ghcr.io/all-hands-ai/agent-server --target binary-minimal
 ```
 
@@ -102,7 +103,10 @@ uv run benchmarks/swe_bench/build_images.py \
 ### 3. Run SWE-Bench Evaluation
 ```bash
 # Run evaluation with your configured LLM
-uv run swebench-infer .llm_config/sonnet-4.json
+uv run swebench-infer .llm_config/example.json \
+                      --critic pass \
+                      --max-iterations 10 \
+                      --n-limit 1
 ```
 
 ### 4. Selecting Specific Instances
