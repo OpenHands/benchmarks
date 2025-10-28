@@ -22,6 +22,8 @@ from openhands.sdk import (
     Agent,
     Conversation,
     Event,
+    ImageContent,
+    Message,
     MessageEvent,
     TextContent,
     get_logger,
@@ -81,19 +83,21 @@ class GAIAEvaluation(Evaluation):
         # Filter completed instances
         completed_instances = self._get_completed_instances()
         if completed_instances:
-            df = df[~df["instance_id"].isin(completed_instances)]
+            df = cast(
+                pd.DataFrame, df[~df["instance_id"].isin(list(completed_instances))]
+            )
             logger.info(f"Filtered out {len(completed_instances)} completed instances")
 
         # Apply eval_limit if specified
         if self.metadata.eval_limit and self.metadata.eval_limit > 0:
-            df = df.head(self.metadata.eval_limit)
+            df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
             logger.info(f"Limited to {len(df)} instances due to eval_limit")
 
         # Filter by selected_instances_file if provided
         if self.metadata.selected_instances_file:
             with open(self.metadata.selected_instances_file, "r") as f:
                 selected_ids = set(line.strip() for line in f if line.strip())
-            df = df[df["instance_id"].isin(selected_ids)]
+            df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
             logger.info(f"Filtered to {len(df)} selected instances")
 
         instances: List[EvalInstance] = []
@@ -122,7 +126,6 @@ class GAIAEvaluation(Evaluation):
         if file_name:
             logger.info(f"Handling file: {file_name}")
             assert self.metadata.details is not None
-            level = self.metadata.details.get("level", "")
 
             # Construct source file path
             src_file = (
@@ -186,7 +189,6 @@ class GAIAEvaluation(Evaluation):
             if extension_name in ["jpg", "png", "jpeg"]:
                 # Load image and encode as base64
                 assert self.metadata.details is not None
-                level = self.metadata.details.get("level", "")
                 src_file = (
                     DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
                 )
@@ -220,8 +222,14 @@ class GAIAEvaluation(Evaluation):
 
         # Send message and run
         if image_urls:
-            # FIXME:
-            conversation.send_message(instruction, image_urls=image_urls)  # noqa
+            msg = Message(
+                role="user",
+                content=[
+                    TextContent(text=instruction),
+                    ImageContent(image_urls=image_urls),
+                ],
+            )
+            conversation.send_message(msg)
         else:
             conversation.send_message(instruction)
         conversation.run()
