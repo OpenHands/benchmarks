@@ -46,11 +46,17 @@ def remove_files_from_patch(git_patch, files):
             continue
         filtered_diffs.append(diff)
 
-    # Rejoin the filtered diffs
-    result = "".join(filtered_diffs)
+    # Rejoin the filtered diffs with proper newlines
+    if not filtered_diffs:
+        return ""
 
-    # Clean up any trailing whitespace
-    result = result.rstrip()
+    # Ensure each diff ends with exactly one newline
+    normalized_diffs = []
+    for diff in filtered_diffs:
+        # Remove trailing whitespace/newlines, then add exactly one newline
+        normalized_diffs.append(diff.rstrip() + "\n")
+
+    result = "".join(normalized_diffs)
 
     return result
 
