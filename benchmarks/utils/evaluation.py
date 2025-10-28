@@ -53,6 +53,30 @@ class Evaluation(ABC, BaseModel):
             )
         return completed_instances
 
+    def _prepare_instances_for_resume(self) -> List[EvalInstance]:
+        """Prepare instances for resume case without completed filtering.
+
+        This ensures we get the full set of selected instances (from --select)
+        so we can properly intersect with failed instances from previous attempts.
+        """
+        from benchmarks.utils.dataset import get_dataset
+
+        df = get_dataset(
+            dataset_name=self.metadata.dataset,
+            split=self.metadata.dataset_split,
+            eval_limit=self.metadata.eval_limit,
+            completed_instances=None,  # Don't filter completed instances
+            selected_instances_file=self.metadata.selected_instances_file,
+        )
+
+        instances: List[EvalInstance] = []
+        for _, row in df.iterrows():
+            inst_id = str(row["instance_id"])
+            instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
+
+        logger.info("Total instances for resume: %d", len(instances))
+        return instances
+
     @abstractmethod
     def prepare_instances(self) -> List[EvalInstance]:
         """Return the list of instances to evaluate."""
@@ -142,7 +166,7 @@ class Evaluation(ABC, BaseModel):
                             logger.warning(f"Error loading outputs from {a_file}: {e}")
 
                 logger.info(f"Loaded {len(all_previous_outputs)} previous outputs")
-                return attempt, all_previous_outputs
+                return attempt + 1, all_previous_outputs
 
         # No existing files found, start fresh
         logger.info("No existing results found, starting fresh")
@@ -154,8 +178,18 @@ class Evaluation(ABC, BaseModel):
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
         """Run evaluation with support for single or multiple attempts."""
-        # Get all instances for the first attempt
-        all_instances = self.prepare_instances()
+        # Check for resume point and load previous outputs first
+        start_attempt, all_outputs = self._get_resume_start_attempt()
+
+        # Get all instances, but handle resume case differently
+        if start_attempt == 1:
+            # Fresh start: get all instances normally (with --select filtering)
+            all_instances = self.prepare_instances()
+        else:
+            # Resume case: get all instances without completed filtering
+            # to ensure we have the full set for intersection logic
+            all_instances = self._prepare_instances_for_resume()
+
         total_instances = len(all_instances)
         logger.info("prepared %d instances for evaluation", total_instances)
 
@@ -176,9 +210,6 @@ class Evaluation(ABC, BaseModel):
 
         critic = CriticRegistry.create_critic(critic_name)
 
-        # Check for resume point and load previous outputs
-        start_attempt, all_outputs = self._get_resume_start_attempt()
-
         # Reconstruct instances_to_process for the resume attempt
         # Uniform logic for all attempts
         prev_attempt_file = os.path.join(
@@ -191,7 +222,15 @@ class Evaluation(ABC, BaseModel):
             target_instances = set(inst.id for inst in all_instances)
         else:
             # Start with failed instances from previous attempt
-            target_instances = get_failed_instances(prev_attempt_file, critic)
+            # But only consider instances that are in our current selection
+            failed_instances = get_failed_instances(prev_attempt_file, critic)
+            available_instances = set(inst.id for inst in all_instances)
+            target_instances = failed_instances.intersection(available_instances)
+            logger.info(
+                f"Resume: {len(failed_instances)} failed from previous attempt, "
+                f"{len(available_instances)} available instances, "
+                f"{len(target_instances)} instances to retry"
+            )
 
         # For any attempt: exclude instances already completed in current attempt
         completed_in_current = get_completed_instances(
