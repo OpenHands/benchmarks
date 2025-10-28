@@ -10,6 +10,7 @@ dependencies = [
     "pandas",
     "toml",
     "tqdm",
+    "openhands-sdk",
     "openhands-tools",
     "unidiff>=0.7.5,<0.8.0",
     "openhands-agent-server",
@@ -65,8 +66,8 @@ openhands-agent-server = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-  "vendor/agent-sdk/openhands/sdk",
-  "vendor/agent-sdk/openhands/tools",
-  "vendor/agent-sdk/openhands/workspace",
-  "vendor/agent-sdk/openhands/agent_server",
+  "vendor/agent-sdk/openhands-sdk",
+  "vendor/agent-sdk/openhands-tools",
+  "vendor/agent-sdk/openhands-workspace",
+  "vendor/agent-sdk/openhands-agent-server",
 ]

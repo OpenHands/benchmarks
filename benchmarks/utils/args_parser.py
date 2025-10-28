@@ -44,4 +44,22 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=None,
         help="Limit number of instances to evaluate",
     )
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=3,
+        help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
+    )
+    parser.add_argument(
+        "--critic",
+        type=str,
+        required=True,
+        help="Critic to use for evaluating instance success",
+    )
+    parser.add_argument(
+        "--select",
+        type=str,
+        default=None,
+        help="Path to text file containing instance IDs to select (one per line)",
+    )
     return parser
