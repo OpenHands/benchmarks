@@ -298,6 +298,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic_name=args.critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
     )
 
     # Run orchestrator with a simple JSONL writer

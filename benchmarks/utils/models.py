@@ -33,6 +33,11 @@ class EvalMetadata(BaseModel):
         description="Path to text file containing instance IDs to select "
         "(one per line)",
     )
+    max_retries: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum number of retries for instances that throw exceptions",
+    )
 
 
 EvalInstanceID = str

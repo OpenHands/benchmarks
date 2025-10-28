@@ -70,6 +70,21 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
+    def _create_error_output(
+        self, instance: EvalInstance, error: Exception, retry_count: int
+    ) -> EvalOutput:
+        """Create an EvalOutput object for a failed instance."""
+        return EvalOutput(
+            instance_id=instance.id,
+            test_result={},
+            instruction=None,
+            error=(
+                f"Instance failed after {retry_count} retries. Last error: {str(error)}"
+            )[:200],
+            history=None,
+            instance=instance.data,
+        )
+
     # --- Runner ---
     def run(
         self,
@@ -248,15 +263,63 @@ class Evaluation(ABC, BaseModel):
                 ):
                     try:
                         instance, out = fut.result()
+                        attempt_on_result(instance, out)
                     except Exception as e:
-                        logger.error(
-                            f"Error during instance evaluation: {e}",
-                            exc_info=True,
-                            stack_info=True,
-                        )
-                        raise
+                        # Find which instance failed by checking the future
+                        failed_instance = None
+                        for i, f in enumerate(futures):
+                            if f is fut:
+                                failed_instance = instances_to_process[i]
+                                break
 
-                    attempt_on_result(instance, out)
+                        if failed_instance:
+                            # Retry logic for individual instance
+                            retry_count = 0
+                            last_error = e
+                            success = False
+
+                            while (
+                                retry_count < self.metadata.max_retries and not success
+                            ):
+                                retry_count += 1
+                                logger.warning(
+                                    f"Instance {failed_instance.id} failed "
+                                    f"(attempt {retry_count}/"
+                                    f"{self.metadata.max_retries}): "
+                                    f"{str(last_error)[:50]}"
+                                )
+
+                                try:
+                                    # Retry the failed instance
+                                    instance, out = self._process_one_mp(
+                                        failed_instance
+                                    )
+                                    attempt_on_result(instance, out)
+                                    success = True
+                                except Exception as retry_e:
+                                    last_error = retry_e
+
+                            if not success:
+                                logger.error(
+                                    f"Instance {failed_instance.id} failed after "
+                                    f"{self.metadata.max_retries} retries. "
+                                    f"Last error: {str(last_error)[:50]}",
+                                    exc_info=True,
+                                )
+                                # Create error output and add to results
+                                error_output = self._create_error_output(
+                                    failed_instance,
+                                    last_error,
+                                    self.metadata.max_retries,
+                                )
+                                attempt_on_result(failed_instance, error_output)
+                        else:
+                            logger.error(
+                                f"Error during instance evaluation "
+                                f"(unknown instance): {str(e)[:50]}",
+                                exc_info=True,
+                                stack_info=True,
+                            )
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
