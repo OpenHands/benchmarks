@@ -132,7 +132,9 @@ def install_swebench() -> None:
 
 
 def run_swebench_evaluation(
-    predictions_file: str, dataset: str = "princeton-nlp/SWE-bench_Verified"
+    predictions_file: str,
+    dataset: str = "princeton-nlp/SWE-bench_Verified",
+    workers: str = "12",
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -140,6 +142,7 @@ def run_swebench_evaluation(
     Args:
         predictions_file: Path to the SWE-Bench format predictions file
         dataset: SWE-Bench dataset to evaluate against
+        workers: Number of workers to use for evaluation
     """
     logger.info(f"Running SWE-Bench evaluation on {predictions_file}")
 
@@ -160,7 +163,7 @@ def run_swebench_evaluation(
             "--predictions_path",
             predictions_filename,
             "--max_workers",
-            "5",
+            str(workers),
             "--run_id",
             f"eval_{predictions_path.stem}",
         ]
@@ -239,6 +242,12 @@ Examples:
         help="Model name to use in the model_name_or_path field (default: OpenHands)",
     )
 
+    parser.add_argument(
+        "--workers",
+        default="12",
+        help="Number of workers to use when evaluating",
+    )
+
     args = parser.parse_args()
 
     # Validate input file
@@ -271,7 +280,7 @@ Examples:
                 install_swebench()
 
             # Run evaluation
-            run_swebench_evaluation(str(output_file), args.dataset)
+            run_swebench_evaluation(str(output_file), args.dataset, args.workers)
 
         logger.info("Script completed successfully!")
 
