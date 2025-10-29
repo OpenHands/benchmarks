@@ -265,61 +265,11 @@ class Evaluation(ABC, BaseModel):
                         instance, out = fut.result()
                         attempt_on_result(instance, out)
                     except Exception as e:
-                        # Find which instance failed by checking the future
-                        failed_instance = None
-                        for i, f in enumerate(futures):
-                            if f is fut:
-                                failed_instance = instances_to_process[i]
-                                break
-
-                        if failed_instance:
-                            # Retry logic for individual instance
-                            retry_count = 0
-                            last_error = e
-                            success = False
-
-                            while (
-                                retry_count < self.metadata.max_retries and not success
-                            ):
-                                retry_count += 1
-                                logger.warning(
-                                    f"Instance {failed_instance.id} failed "
-                                    f"(attempt {retry_count}/"
-                                    f"{self.metadata.max_retries}): "
-                                    f"{str(last_error)[:50]}"
-                                )
-
-                                try:
-                                    # Retry the failed instance
-                                    instance, out = self._process_one_mp(
-                                        failed_instance
-                                    )
-                                    attempt_on_result(instance, out)
-                                    success = True
-                                except Exception as retry_e:
-                                    last_error = retry_e
-
-                            if not success:
-                                logger.error(
-                                    f"Instance {failed_instance.id} failed after "
-                                    f"{self.metadata.max_retries} retries. "
-                                    f"Last error: {str(last_error)[:50]}",
-                                    exc_info=True,
-                                )
-                                # Create error output and add to results
-                                error_output = self._create_error_output(
-                                    failed_instance,
-                                    last_error,
-                                    self.metadata.max_retries,
-                                )
-                                attempt_on_result(failed_instance, error_output)
-                        else:
-                            logger.error(
-                                f"Error during instance evaluation "
-                                f"(unknown instance): {str(e)[:50]}",
-                                exc_info=True,
-                                stack_info=True,
-                            )
+                        logger.error(
+                            f"Unexpected error from worker process: {str(e)[:50]}",
+                            exc_info=True,
+                            stack_info=True,
+                        )
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
@@ -373,18 +323,46 @@ class Evaluation(ABC, BaseModel):
     def _process_one_mp(
         self, instance: EvalInstance
     ) -> Tuple[EvalInstance, EvalOutput]:
-        """Execute one instance in a child process.
+        """Execute one instance in a child process with retry logic.
 
         - Creates workspace in the *child* process
+        - Handles retries within the worker process
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
         logger.info("[child] start id=%s", instance.id)
 
-        workspace = self.prepare_workspace(instance)
-        out = self.evaluate_instance(instance, workspace)
-        logger.info("[child] done id=%s", instance.id)
-        return instance, out
+        retry_count = 0
+        last_error = None
+        max_retries = getattr(self.metadata, 'max_retries', 3)
+
+        while retry_count <= max_retries:
+            try:
+                workspace = self.prepare_workspace(instance)
+                out = self.evaluate_instance(instance, workspace)
+                logger.info("[child] done id=%s", instance.id)
+                return instance, out
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                
+                if retry_count <= max_retries:
+                    logger.warning(
+                        f"[child] Instance {instance.id} failed "
+                        f"(attempt {retry_count}/{max_retries}): "
+                        f"{str(e)[:50]}"
+                    )
+                else:
+                    logger.error(
+                        f"[child] Instance {instance.id} failed after "
+                        f"{max_retries} retries. Last error: {str(e)[:50]}",
+                        exc_info=True,
+                    )
+                    # Create error output for final failure
+                    error_output = self._create_error_output(
+                        instance, last_error, max_retries
+                    )
+                    return instance, error_output
 
 
 # ---------- Optional per-process initializer ---------------------------------------
