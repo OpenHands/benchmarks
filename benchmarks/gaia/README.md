@@ -26,6 +26,7 @@ TAVILY_API_KEY=xxx python -m benchmarks.gaia.run_infer \
     --level 2023_level1 \
     --split validation \
     --max-iterations 100 \
+    --critic pass \
     --output-dir outputs/gaia
 ```
 
@@ -40,10 +41,11 @@ uv run python -m benchmarks.gaia.get_score --file /path/to/jsonl
 
 - Path to LLM configuration JSON file
 - `--level`: GAIA level to evaluate (e.g., `2023_level1`, `2023_all`)
+- `--split`: Dataset split (e.g., `validation`, `test`)
+- `--critic`: Critic to use for evaluation (e.g., `pass`)
 
 ### Optional Arguments
 
-- `--split`: Dataset split (default: `test`, options: `validation`, `test`)
 - `--max-iterations`: Maximum iterations per instance (default: 30)
 - `--output-dir`: Base directory for outputs (default: `outputs`)
 - `--n-limit`: Limit number of instances to evaluate (default: 0 = all)
