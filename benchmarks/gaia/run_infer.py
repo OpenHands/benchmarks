@@ -157,7 +157,7 @@ class GAIAEvaluation(Evaluation):
                 else:
                     # Copy other files
                     logger.info(f"Copying file {file_name} to workspace")
-                    workspace.file_download(
+                    workspace.file_upload(
                         str(src_file), f"/workspace/file.{extension_name}"
                     )
 
