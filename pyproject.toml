@@ -21,6 +21,7 @@ dependencies = [
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
 swebench-infer = "benchmarks.swe_bench.run_infer:main"
+swtbench-infer = "benchmarks.swt_bench.run_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
