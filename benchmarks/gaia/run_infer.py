@@ -2,6 +2,7 @@ import fcntl
 import os
 import re
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from typing import List, Sequence, cast
@@ -201,13 +202,20 @@ class GAIAEvaluation(Evaluation):
 
         # Create agent
         tools = get_default_tools(enable_browser=True)
+        tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+        assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
             mcp_config={
                 "mcpServers": {
-                    "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]}
+                    "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},
+                    "tavily": {
+                        "command": "npx",
+                        "args": ["-y", "tavily-mcp@0.2.1"],
+                        "env": {"TAVILY_API_KEY": tavily_api_key},
+                    },
                 }
             },
         )
@@ -313,19 +321,49 @@ For example: if you want to search for a research paper on Arxiv, either use the
         return instruction
 
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
-        """Extract the last agent message/thought from conversation history."""
-        # Search backwards through events for agent output
-        logger.info(f"All conversation events: {events}")
-        for event in reversed(events):
-            if isinstance(event, MessageEvent) and event.source == "agent":
-                logger.info(f"Found agent message event: {event}")
-                # Try different event types
-                if event.llm_message and event.llm_message.content:
-                    content = event.llm_message.content[0]
-                    assert isinstance(content, TextContent)
-                    return content.text
+        """Extract the last agent message/thought from conversation history.
 
-        logger.warning("Could not find agent output in history")
+        Note: When using RemoteConversation (with DockerWorkspace), there's a race condition
+        where the final MessageEvent might not appear in the events list immediately after
+        run() completes, due to WebSocket event streaming. This method implements a retry
+        mechanism to handle that case.
+        """
+        # FIXME: Implement a more robust event synchronization mechanism in the SDK
+        max_retries = 10
+        retry_delay = 0.5  # seconds
+
+        for attempt in range(max_retries):
+            # Search backwards through events for agent output
+            if attempt == 0:
+                logger.info(f"Extracting answer from {len(events)} events")
+            else:
+                logger.warning(
+                    f"Retry {attempt}/{max_retries}: searching for agent message in {len(events)} events"
+                )
+
+            for event in reversed(events):
+                if isinstance(event, MessageEvent) and event.source == "agent":
+                    logger.info(f"Found agent message event: {event}")
+                    # Try different event types
+                    if event.llm_message and event.llm_message.content:
+                        content = event.llm_message.content[0]
+                        assert isinstance(content, TextContent)
+                        return content.text
+
+            # If not found and we have retries left, wait and try again
+            if attempt < max_retries - 1:
+                logger.warning(
+                    f"Agent MessageEvent not found yet, waiting {retry_delay}s before retry..."
+                )
+                time.sleep(retry_delay)
+                # Note: events is a reference to the conversation's events list,
+                # which gets updated by the WebSocket callback in the background
+            else:
+                logger.error(
+                    f"Could not find agent output after {max_retries} attempts"
+                )
+                logger.debug(f"All events: {[type(e).__name__ for e in events]}")
+
         return ""
 
     def _parse_solution_tag(self, text: str) -> str:
