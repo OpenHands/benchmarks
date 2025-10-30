@@ -334,7 +334,7 @@ class Evaluation(ABC, BaseModel):
 
         retry_count = 0
         last_error = None
-        max_retries = getattr(self.metadata, 'max_retries', 3)
+        max_retries = getattr(self.metadata, "max_retries", 3)
 
         while retry_count <= max_retries:
             try:
@@ -345,7 +345,7 @@ class Evaluation(ABC, BaseModel):
             except Exception as e:
                 last_error = e
                 retry_count += 1
-                
+
                 if retry_count <= max_retries:
                     logger.warning(
                         f"[child] Instance {instance.id} failed "
@@ -363,6 +363,12 @@ class Evaluation(ABC, BaseModel):
                         instance, last_error, max_retries
                     )
                     return instance, error_output
+
+        # This should never be reached, but added for type safety
+        error_output = self._create_error_output(
+            instance, Exception("Unexpected error: no attempts made"), max_retries
+        )
+        return instance, error_output
 
 
 # ---------- Optional per-process initializer ---------------------------------------
