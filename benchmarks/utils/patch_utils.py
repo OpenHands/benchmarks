@@ -40,8 +40,20 @@ def remove_files_from_patch(git_patch, files):
     # Filter out files in list
     filtered_diffs = []
     for diff in file_diffs:
-        # Check if this diff is for a file in files
-        if "diff --git" in diff and any(f in diff for f in files):
+        # Extract filenames from diff header to do exact matching
+        should_skip = False
+        if "diff --git" in diff:
+            # Extract the diff header line
+            first_line = diff.split('\n')[0]
+            # Parse diff --git a/file b/file format
+            match = re.match(r'diff --git a/(.+) b/(.+)', first_line)
+            if match:
+                file_a, file_b = match.groups()
+                # Check if either filename (before or after) matches any file to remove
+                if file_a in files or file_b in files:
+                    should_skip = True
+        
+        if should_skip:
             # Skip this diff
             continue
         filtered_diffs.append(diff)
