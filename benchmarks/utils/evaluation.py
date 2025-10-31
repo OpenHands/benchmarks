@@ -218,18 +218,15 @@ class Evaluation(ABC, BaseModel):
         )
 
         if start_attempt == 1 or not os.path.exists(prev_attempt_file):
-            # First attempt or no previous attempt exists: start with all instances
             target_instances = set(inst.id for inst in all_instances)
         else:
-            # Start with failed instances from previous attempt
-            # But only consider instances that are in our current selection
+            # Resume: only retry failed instances that are in our current selection
             failed_instances = get_failed_instances(prev_attempt_file, critic)
             available_instances = set(inst.id for inst in all_instances)
-            target_instances = failed_instances.intersection(available_instances)
+            target_instances = failed_instances & available_instances
             logger.info(
-                f"Resume: {len(failed_instances)} failed from previous attempt, "
-                f"{len(available_instances)} available instances, "
-                f"{len(target_instances)} instances to retry"
+                f"Resume attempt {start_attempt}: {len(failed_instances)} failed, "
+                f"{len(available_instances)} available, {len(target_instances)} to retry"
             )
 
         # For any attempt: exclude instances already completed in current attempt
