@@ -24,7 +24,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default="princeton-nlp/SWE-bench_Verified",
         help="Dataset name",
     )
-    parser.add_argument("--split", type=str, required=True, help="Dataset split")
+    parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
         "--max-iterations", type=int, default=100, help="Maximum iterations"
     )
@@ -41,7 +41,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--n-limit",
         type=int,
-        default=0,
+        default=None,
         help="Limit number of instances to evaluate",
     )
     parser.add_argument(
