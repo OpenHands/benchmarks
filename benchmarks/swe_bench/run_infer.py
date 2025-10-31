@@ -1,4 +1,3 @@
-import fcntl
 import os
 from pathlib import Path
 from typing import List
@@ -10,6 +9,7 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
+    get_default_on_result_writer,
 )
 from benchmarks.utils.models import (
     EvalInstance,
@@ -304,17 +304,7 @@ def main() -> None:
     # Run orchestrator with a simple JSONL writer
     evaluator = SWEBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
 
-    def _default_on_result_writer(eval_output_dir: str):
-        def _cb(instance: EvalInstance, out: EvalOutput) -> None:
-            with open(evaluator.output_path, "a") as f:
-                # Use exclusive lock to prevent race
-                fcntl.flock(f, fcntl.LOCK_EX)
-                f.write(out.model_dump_json() + "\n")
-                fcntl.flock(f, fcntl.LOCK_UN)
-
-        return _cb
-
-    evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
+    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
 
