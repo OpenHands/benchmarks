@@ -1,0 +1,141 @@
+name: Build SWE-Bench Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
+        required: true
+        default: 'princeton-nlp/SWE-bench_Verified'
+        type: string
+      split:
+        description: 'Dataset split (e.g., test, dev)'
+        required: true
+        default: 'test'
+        type: string
+      target:
+        description: 'Build target (source | source-minimal | binary | binary-minimal)'
+        required: false
+        default: 'source-minimal'
+        type: choice
+        options:
+          - source
+          - source-minimal
+          - binary
+          - binary-minimal
+      platforms:
+        description: 'Comma-separated platforms (e.g., linux/amd64,linux/arm64)'
+        required: false
+        default: 'linux/amd64'
+        type: string
+      max-workers:
+        description: 'Number of concurrent builds'
+        required: false
+        default: '1'
+        type: string
+      n-limit:
+        description: 'Limit number of images to build (for testing)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build-and-push:
+    runs-on:
+      labels: blacksmith-32vcpu-ubuntu-2204
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+      
+      - name: Cache Docker layers
+        uses: useblacksmith/cache@v6
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          version: "0.8.13"
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          uv sync --dev
+      
+      - name: Build and push SWE-Bench images
+        run: |
+          # Construct the command with required arguments
+          CMD="uv run benchmarks/swe_bench/build_images.py \
+            --dataset ${{ inputs.dataset }} \
+            --split ${{ inputs.split }} \
+            --image ghcr.io/openhands/eval-agent-server \
+            --target ${{ inputs.target }} \
+            --platforms ${{ inputs.platforms }} \
+            --push \
+            --max-workers ${{ inputs.max-workers }}"
+          
+          # Add optional n-limit if provided
+          if [ -n "${{ inputs.n-limit }}" ]; then
+            CMD="$CMD --n-limit ${{ inputs.n-limit }}"
+          fi
+          
+          # Execute the build command
+          eval $CMD
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+      
+      - name: Upload build manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-manifest-${{ inputs.dataset }}-${{ inputs.split }}
+          path: |
+            builds/**/manifest.jsonl
+            builds/**/summary.json
+          retention-days: 30
+      
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ inputs.dataset }}-${{ inputs.split }}
+          path: builds/**/logs/**/*.log
+          retention-days: 7
+      
+      - name: Display build summary
+        if: always()
+        run: |
+          if [ -f builds/*/summary.json ]; then
+            echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+            cat builds/*/summary.json | python -m json.tool >> $GITHUB_STEP_SUMMARY
+          fi

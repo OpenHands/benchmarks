@@ -86,6 +86,13 @@ def extend_parser() -> argparse.ArgumentParser:
     parser = get_parser(add_llm_config=False)
     parser.description = "Build all agent-server images for SWE-Bench base images."
 
+    # Make --critic optional for build_images use case
+    for action in parser._actions:
+        if action.dest == "critic":
+            action.required = False
+            action.default = "none"
+            break
+
     parser.add_argument(
         "--docker-image-prefix",
         default="docker.io/swebench/",
