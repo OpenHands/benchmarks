@@ -334,7 +334,7 @@ class Evaluation(ABC, BaseModel):
 
         retry_count = 0
         last_error = None
-        max_retries = getattr(self.metadata, "max_retries", 3)
+        max_retries = self.metadata.max_retries
 
         while retry_count <= max_retries:
             try:
