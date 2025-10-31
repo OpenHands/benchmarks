@@ -74,7 +74,6 @@ class Evaluation(ABC, BaseModel):
             inst_id = str(row["instance_id"])
             instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
 
-        logger.info("Total instances for resume: %d", len(instances))
         return instances
 
     @abstractmethod
@@ -166,13 +165,11 @@ class Evaluation(ABC, BaseModel):
         # Check for resume point and load previous outputs first
         start_attempt, all_outputs = self._get_resume_start_attempt()
 
-        # Get all instances, but handle resume case differently
+        # Get instances based on whether we're resuming or starting fresh
         if start_attempt == 1:
-            # Fresh start: get all instances normally (with --select filtering)
             all_instances = self.prepare_instances()
         else:
-            # Resume case: get all instances without completed filtering
-            # to ensure we have the full set for intersection logic
+            # For resume, get unfiltered instances to properly intersect with failed ones
             all_instances = self._prepare_instances_for_resume()
 
         total_instances = len(all_instances)
@@ -203,18 +200,15 @@ class Evaluation(ABC, BaseModel):
         )
 
         if start_attempt == 1 or not os.path.exists(prev_attempt_file):
-            # First attempt or no previous attempt exists: start with all instances
             target_instances = set(inst.id for inst in all_instances)
         else:
-            # Start with failed instances from previous attempt
-            # But only consider instances that are in our current selection
+            # Resume: only retry failed instances that are in our current selection
             failed_instances = get_failed_instances(prev_attempt_file, critic)
             available_instances = set(inst.id for inst in all_instances)
-            target_instances = failed_instances.intersection(available_instances)
+            target_instances = failed_instances & available_instances
             logger.info(
-                f"Resume: {len(failed_instances)} failed from previous attempt, "
-                f"{len(available_instances)} available instances, "
-                f"{len(target_instances)} instances to retry"
+                f"Resume attempt {start_attempt}: {len(failed_instances)} failed, "
+                f"{len(available_instances)} available, {len(target_instances)} to retry"
             )
 
         # For any attempt: exclude instances already completed in current attempt
