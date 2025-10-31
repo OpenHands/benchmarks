@@ -70,6 +70,21 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
+    def _create_error_output(
+        self, instance: EvalInstance, error: Exception, retry_count: int
+    ) -> EvalOutput:
+        """Create an EvalOutput object for a failed instance."""
+        return EvalOutput(
+            instance_id=instance.id,
+            test_result={},
+            instruction=None,
+            error=(
+                f"Instance failed after {retry_count} retries. Last error: {str(error)}"
+            )[:200],
+            history=None,
+            instance=instance.data,
+        )
+
     # --- Runner ---
     def run(
         self,
@@ -248,15 +263,13 @@ class Evaluation(ABC, BaseModel):
                 ):
                     try:
                         instance, out = fut.result()
+                        attempt_on_result(instance, out)
                     except Exception as e:
                         logger.error(
-                            f"Error during instance evaluation: {e}",
+                            f"Unexpected error from worker process: {str(e)[:50]}",
                             exc_info=True,
                             stack_info=True,
                         )
-                        raise
-
-                    attempt_on_result(instance, out)
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
@@ -310,18 +323,52 @@ class Evaluation(ABC, BaseModel):
     def _process_one_mp(
         self, instance: EvalInstance
     ) -> Tuple[EvalInstance, EvalOutput]:
-        """Execute one instance in a child process.
+        """Execute one instance in a child process with retry logic.
 
         - Creates workspace in the *child* process
+        - Handles retries within the worker process
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
         logger.info("[child] start id=%s", instance.id)
 
-        workspace = self.prepare_workspace(instance)
-        out = self.evaluate_instance(instance, workspace)
-        logger.info("[child] done id=%s", instance.id)
-        return instance, out
+        retry_count = 0
+        last_error = None
+        max_retries = self.metadata.max_retries
+
+        while retry_count <= max_retries:
+            try:
+                workspace = self.prepare_workspace(instance)
+                out = self.evaluate_instance(instance, workspace)
+                logger.info("[child] done id=%s", instance.id)
+                return instance, out
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+
+                if retry_count <= max_retries:
+                    logger.warning(
+                        f"[child] Instance {instance.id} failed "
+                        f"(attempt {retry_count}/{max_retries}): "
+                        f"{str(e)[:50]}"
+                    )
+                else:
+                    logger.error(
+                        f"[child] Instance {instance.id} failed after "
+                        f"{max_retries} retries. Last error: {str(e)[:50]}",
+                        exc_info=True,
+                    )
+                    # Create error output for final failure
+                    error_output = self._create_error_output(
+                        instance, last_error, max_retries
+                    )
+                    return instance, error_output
+
+        # This should never be reached, but added for type safety
+        error_output = self._create_error_output(
+            instance, Exception("Unexpected error: no attempts made"), max_retries
+        )
+        return instance, error_output
 
 
 # ---------- Optional per-process initializer ---------------------------------------
