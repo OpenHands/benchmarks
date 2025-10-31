@@ -53,30 +53,6 @@ class Evaluation(ABC, BaseModel):
             )
         return completed_instances
 
-    def _prepare_instances_for_resume(self) -> List[EvalInstance]:
-        """Prepare instances for resume case without completed filtering.
-
-        This ensures we get the full set of selected instances (from --select)
-        so we can properly intersect with failed instances from previous attempts.
-        """
-        from benchmarks.utils.dataset import get_dataset
-
-        df = get_dataset(
-            dataset_name=self.metadata.dataset,
-            split=self.metadata.dataset_split,
-            eval_limit=self.metadata.eval_limit,
-            completed_instances=None,  # Don't filter completed instances
-            selected_instances_file=self.metadata.selected_instances_file,
-        )
-
-        instances: List[EvalInstance] = []
-        for _, row in df.iterrows():
-            inst_id = str(row["instance_id"])
-            instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
-
-        logger.info("Total instances for resume: %d", len(instances))
-        return instances
-
     @abstractmethod
     def prepare_instances(self) -> List[EvalInstance]:
         """Return the list of instances to evaluate."""
@@ -182,13 +158,7 @@ class Evaluation(ABC, BaseModel):
         start_attempt, all_outputs = self._get_resume_start_attempt()
 
         # Get all instances, but handle resume case differently
-        if start_attempt == 1:
-            # Fresh start: get all instances normally (with --select filtering)
-            all_instances = self.prepare_instances()
-        else:
-            # Resume case: get all instances without completed filtering
-            # to ensure we have the full set for intersection logic
-            all_instances = self._prepare_instances_for_resume()
+        all_instances = self.prepare_instances()
 
         total_instances = len(all_instances)
         logger.info("prepared %d instances for evaluation", total_instances)
