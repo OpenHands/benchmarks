@@ -62,4 +62,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=None,
         help="Path to text file containing instance IDs to select (one per line)",
     )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Maximum retries for instances that throw exceptions (default: 3)",
+    )
     return parser

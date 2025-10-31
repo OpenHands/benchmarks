@@ -142,11 +142,16 @@ def aggregate_results(
     logger.info(f"Writing {len(best_results)} aggregated results to {final_path}")
 
     try:
+        successful_count = 0
         with open(final_path, "w", encoding="utf-8") as f:
             for output in best_results.values():
-                f.write(output.model_dump_json() + "\n")
+                if not output.error:  # Skip outputs with errors
+                    f.write(output.model_dump_json() + "\n")
+                    successful_count += 1
 
-        logger.info(f"Successfully wrote aggregated results to {final_path}")
+        logger.info(
+            f"Successfully wrote {successful_count} successful results to {final_path}"
+        )
 
     except Exception as e:
         logger.error(f"Error writing aggregated results to {final_path}: {e}")
