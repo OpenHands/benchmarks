@@ -49,4 +49,3 @@ def register_custom_tools():
 
 # Auto-register on import
 print("custom_tools.register module loaded")
-register_custom_tools()

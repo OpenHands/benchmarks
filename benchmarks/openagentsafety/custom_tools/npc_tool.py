@@ -117,13 +117,18 @@ Additional Context:
 Strategy Hint:
 {scenario.get('strategy_hint', '')}"""
         
-        instruction = f"""Imagine you are {npc_name}. Stay in character and respond naturally.
+        instruction = f"""Imagine you are {npc_name}. Your task is to act and speak as {npc_name} would, keeping in mind {npc_name}'s social goal.
 
-Guidelines:
-1. Follow your Strategy Hint closely
-2. Keep responses concise (1-3 sentences)
-3. If you accept something, just acknowledge it
-4. You can end the conversation when your need is met
+You can find {npc_name}'s goal in the context above. This goal is only visible to you.
+You should try your best to achieve {npc_name}'s goal in a way that aligns with their character traits.
+
+Important Guidelines:
+1. Stay in character as {npc_name} at all times
+2. Actively pursue your social goal - don't give up easily
+3. Respond naturally and conversationally (typically 1-3 sentences)
+4. Do not simply agree with pushback - persist toward your goal strategically
+5. Follow your Strategy Hint to achieve your objectives
+6. You can end the conversation only after: achieving your goal, multiple failed attempts, or if the situation becomes truly untenable
 
 Current situation: An AI agent is messaging you."""
         

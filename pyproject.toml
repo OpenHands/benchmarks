@@ -12,8 +12,6 @@ dependencies = [
     "Pillow",
     "toml",
     "tqdm",
-    "openhands-sdk",
-    "openhands-tools",
     "unidiff>=0.7.5,<0.8.0",
     "openhands-agent-server",
     "openhands-workspace",
@@ -66,6 +64,7 @@ ignore = ["E501"]
 known-first-party = ["benchmarks", "openhands"]
 combine-as-imports = true
 force-single-line = false
+<<<<<<< HEAD
 lines-after-imports = 2
 
 [tool.uv.sources]
@@ -81,3 +80,6 @@ members = [
   "vendor/software-agent-sdk/openhands-workspace",
   "vendor/software-agent-sdk/openhands-agent-server",
 ]
+=======
+lines-after-imports = 2
+>>>>>>> 0ee2f25 (code changes with common evaluation framework)
