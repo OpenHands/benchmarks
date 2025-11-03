@@ -3,10 +3,10 @@
     "benchmarks"
   ],
   "extraPaths": [
-    "vendor/agent-sdk/openhands-sdk",
-    "vendor/agent-sdk/openhands-tools", 
-    "vendor/agent-sdk/openhands-workspace",
-    "vendor/agent-sdk/openhands-agent-server"
+    "vendor/software-agent-sdk/openhands-sdk",
+    "vendor/software-agent-sdk/openhands-tools", 
+    "vendor/software-agent-sdk/openhands-workspace",
+    "vendor/software-agent-sdk/openhands-agent-server"
   ],
   "exclude": [
     ".venv/**",
