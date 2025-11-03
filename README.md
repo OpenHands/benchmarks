@@ -1,6 +1,6 @@
 # OpenHands Benchmarks Migration
 
-⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure from [OpenHands](https://github.com/All-Hands-AI/OpenHands/) to work with the [OpenHands Agent SDK](https://github.com/All-Hands-AI/agent-sdk).
+⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure from [OpenHands](https://github.com/OpenHands/OpenHands/) to work with the [OpenHands Agent SDK](https://github.com/OpenHands/agent-sdk).
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ make build
 
 ### 🧩 1. Initialize the Agent SDK submodule
 
-The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/All-Hands-AI/agent-sdk).  
+The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/OpenHands/agent-sdk).  
 This ensures your code runs against a specific, reproducible commit.
 
 Run once after cloning (already done in `make build` for you):
@@ -78,7 +78,7 @@ to rebuild your environment with the new SDK code.
 
 ### 1. Configure Your LLM
 
-Define your LLM config as a JSON following the model fields type in the [LLM class](https://github.com/All-Hands-AI/agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93), [for example](.llm_config/example.json), you can write the following to `.llm_config/example.json`:
+Define your LLM config as a JSON following the model fields type in the [LLM class](https://github.com/OpenHands/agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93), [for example](.llm_config/example.json), you can write the following to `.llm_config/example.json`:
 
 ```json
 {
@@ -96,7 +96,7 @@ Build ALL docker images for SWE-Bench.
 uv run benchmarks/swe_bench/build_images.py \
   --dataset princeton-nlp/SWE-bench_Verified --split test \
   --critic pass \
-  --image ghcr.io/all-hands-ai/agent-server --target binary-minimal
+  --image ghcr.io/openhands/agent-server --target binary-minimal
 ```
 
 
@@ -136,6 +136,6 @@ This will only evaluate the instances listed in the file.
 
 ## Links
 
-- **Original OpenHands**: https://github.com/All-Hands-AI/OpenHands/
-- **Agent SDK**: https://github.com/All-Hands-AI/agent-sdk
+- **Original OpenHands**: https://github.com/OpenHands/OpenHands/
+- **Agent SDK**: https://github.com/OpenHands/agent-sdk
 - **SWE-Bench**: https://www.swebench.com/
