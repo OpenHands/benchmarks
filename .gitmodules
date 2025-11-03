@@ -1,3 +1,3 @@
-[submodule "vendor/agent-sdk"]
-	path = vendor/agent-sdk
-	url = https://github.com/All-Hands-AI/agent-sdk.git
+[submodule "vendor/software-agent-sdk"]
+	path = vendor/software-agent-sdk
+	url = https://github.com/OpenHands/software-agent-sdk.git
