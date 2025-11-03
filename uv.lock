@@ -1756,6 +1756,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
+    { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "modal" },
     { name = "openhands-agent-server" },
@@ -1763,6 +1764,7 @@ dependencies = [
     { name = "openhands-tools" },
     { name = "openhands-workspace" },
     { name = "pandas" },
+    { name = "pillow" },
     { name = "toml" },
     { name = "tqdm" },
     { name = "unidiff" },
@@ -1780,6 +1782,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "datasets" },
+    { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "modal", specifier = ">=1.1.4" },
     { name = "openhands-agent-server", editable = "vendor/software-agent-sdk/openhands-agent-server" },
@@ -1787,6 +1790,7 @@ requires-dist = [
     { name = "openhands-tools", editable = "vendor/software-agent-sdk/openhands-tools" },
     { name = "openhands-workspace", editable = "vendor/software-agent-sdk/openhands-workspace" },
     { name = "pandas" },
+    { name = "pillow" },
     { name = "toml" },
     { name = "tqdm" },
     { name = "unidiff", specifier = ">=0.7.5,<0.8.0" },
