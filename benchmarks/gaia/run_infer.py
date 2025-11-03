@@ -283,7 +283,7 @@ Give it all you can: I know for a fact that you have access to all the relevant 
 You must make sure you find the correct answer! You MUST strictly follow the task-specific formatting instructions for your final answer.
 Here is the task:
 {task_question}
-""".format(
+""".format(  # noqa: E501
             task_question=question,
         )
 
@@ -292,7 +292,6 @@ Here is the task:
             extension_name = file_name.split(".")[-1].lower()
             if extension_name == "zip":
                 # List files from zip
-                # level = self.metadata.details and self.metadata.details.get("level", "")
                 src_file = (
                     DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
                 )
@@ -300,33 +299,33 @@ Here is the task:
                     with zipfile.ZipFile(src_file, "r") as zip_ref:
                         filenames = [f"/workspace/{f}" for f in zip_ref.namelist()]
                     filenames_str = ", ".join(filenames)
-                    instruction += f"To solve this task you will have to use the attached files provided in the workspace at locations: {filenames_str}\n\n"
+                    instruction += f"To solve this task you will have to use the attached files provided in the workspace at locations: {filenames_str}\n\n"  # noqa: E501
             elif extension_name in ["jpg", "png", "jpeg"]:
-                instruction += "Image: To solve this task you will have to use the image shown below.\n\n"
+                instruction += "Image: To solve this task you will have to use the image shown below.\n\n"  # noqa: E501
             else:
-                instruction += f"To solve this task you will have to use the attached file provided in the workspace at location: /workspace/file.{extension_name}\n\n"
+                instruction += f"To solve this task you will have to use the attached file provided in the workspace at location: /workspace/file.{extension_name}\n\n"  # noqa: E501
 
         # Add GAIA-specific instructions
         instruction += """IMPORTANT: When seeking information from a website, REFRAIN from arbitrary URL navigation. You should utilize the designated search engine tool with precise keywords to obtain relevant URLs or use the specific website's search interface. DO NOT navigate directly to specific URLs as they may not exist.
 
 For example: if you want to search for a research paper on Arxiv, either use the search engine tool with specific keywords or navigate to arxiv.org and then use its interface.
-"""
+"""  # noqa: E501
         instruction += "IMPORTANT: You should NEVER ask for Human Help.\n"
-        instruction += "IMPORTANT: Please encapsulate your final answer (answer ONLY) within <solution> and </solution> and report it back to users via a message, instead of the 'finish' tool. Your answer will be evaluated using string matching approaches so it important that you STRICTLY adhere to the output formatting instructions specified in the task (e.g., alphabetization, sequencing, units, rounding, decimal places, etc.)\n"
+        instruction += "IMPORTANT: Please encapsulate your final answer (answer ONLY) within <solution> and </solution> and report it back to users via a message, instead of the 'finish' tool. Your answer will be evaluated using string matching approaches so it important that you STRICTLY adhere to the output formatting instructions specified in the task (e.g., alphabetization, sequencing, units, rounding, decimal places, etc.)\n"  # noqa: E501
         instruction += (
             "For example: The answer to the question is <solution> 42 </solution>.\n"
         )
-        instruction += "IMPORTANT: Your final answer should be a number OR as few words as possible OR a comma separated list of numbers and/or strings. If you are asked for a number, express it numerically (i.e., with digits rather than words), do not use commas, and do not include units such as $ or percent signs unless specified otherwise. If you are asked for a string, don't use articles, neither abbreviations (e.g. for cities). If you are asked for a comma separated list, apply the above rules depending of whether the element to be put in the list is a number or a string.\n"
+        instruction += "IMPORTANT: Your final answer should be a number OR as few words as possible OR a comma separated list of numbers and/or strings. If you are asked for a number, express it numerically (i.e., with digits rather than words), do not use commas, and do not include units such as $ or percent signs unless specified otherwise. If you are asked for a string, don't use articles, neither abbreviations (e.g. for cities). If you are asked for a comma separated list, apply the above rules depending of whether the element to be put in the list is a number or a string.\n"  # noqa: E501
 
         return instruction
 
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
         """Extract the last agent message/thought from conversation history.
 
-        Note: When using RemoteConversation (with DockerWorkspace), there's a race condition
-        where the final MessageEvent might not appear in the events list immediately after
-        run() completes, due to WebSocket event streaming. This method implements a retry
-        mechanism to handle that case.
+        Note: When using RemoteConversation (with DockerWorkspace), there's a race
+          condition where the final MessageEvent might not appear in the events list
+          immediately after run() completes, due to WebSocket event streaming.
+          This method implements a retry mechanism to handle that case.
         """
         # FIXME: Implement a more robust event synchronization mechanism in the SDK
         max_retries = 10
@@ -338,7 +337,8 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 logger.info(f"Extracting answer from {len(events)} events")
             else:
                 logger.warning(
-                    f"Retry {attempt}/{max_retries}: searching for agent message in {len(events)} events"
+                    f"Retry {attempt}/{max_retries}: searching for agent "
+                    "message in {len(events)} events"
                 )
 
             for event in reversed(events):
@@ -353,7 +353,8 @@ For example: if you want to search for a research paper on Arxiv, either use the
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
                 logger.warning(
-                    f"Agent MessageEvent not found yet, waiting {retry_delay}s before retry..."
+                    "Agent MessageEvent not found yet, "
+                    f"waiting {retry_delay}s before retry..."
                 )
                 time.sleep(retry_delay)
                 # Note: events is a reference to the conversation's events list,

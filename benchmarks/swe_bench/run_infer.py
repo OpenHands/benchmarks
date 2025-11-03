@@ -99,7 +99,6 @@ class SWEBenchEvaluation(Evaluation):
             dataset_name=self.metadata.dataset,
             split=self.metadata.dataset_split,
             eval_limit=self.metadata.eval_limit,
-            completed_instances=self._get_completed_instances(),
             selected_instances_file=self.metadata.selected_instances_file,
         )
 
