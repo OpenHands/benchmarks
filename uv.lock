@@ -1724,7 +1724,7 @@ wheels = [
 [[package]]
 name = "openhands-agent-server"
 version = "1.0.0a3"
-source = { editable = "vendor/agent-sdk/openhands-agent-server" }
+source = { editable = "vendor/software-agent-sdk/openhands-agent-server" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
@@ -1782,10 +1782,10 @@ requires-dist = [
     { name = "datasets" },
     { name = "jinja2" },
     { name = "modal", specifier = ">=1.1.4" },
-    { name = "openhands-agent-server", editable = "vendor/agent-sdk/openhands-agent-server" },
-    { name = "openhands-tools", editable = "vendor/agent-sdk/openhands-tools" },
-    { name = "openhands-workspace", editable = "vendor/agent-sdk/openhands-workspace" },
-    { name = "openhands-sdk", editable = "vendor/agent-sdk/openhands-sdk" },
+    { name = "openhands-agent-server", editable = "vendor/software-agent-sdk/openhands-agent-server" },
+    { name = "openhands-sdk", editable = "vendor/software-agent-sdk/openhands-sdk" },
+    { name = "openhands-tools", editable = "vendor/software-agent-sdk/openhands-tools" },
+    { name = "openhands-workspace", editable = "vendor/software-agent-sdk/openhands-workspace" },
     { name = "pandas" },
     { name = "toml" },
     { name = "tqdm" },
@@ -1804,7 +1804,7 @@ dev = [
 [[package]]
 name = "openhands-sdk"
 version = "1.0.0a3"
-source = { editable = "vendor/agent-sdk/openhands-sdk" }
+source = { editable = "vendor/software-agent-sdk/openhands-sdk" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
@@ -1838,7 +1838,7 @@ provides-extras = ["boto3"]
 [[package]]
 name = "openhands-tools"
 version = "1.0.0a3"
-source = { editable = "vendor/agent-sdk/openhands-tools" }
+source = { editable = "vendor/software-agent-sdk/openhands-tools" }
 dependencies = [
     { name = "bashlex" },
     { name = "binaryornot" },
@@ -1858,14 +1858,14 @@ requires-dist = [
     { name = "cachetools" },
     { name = "func-timeout", specifier = ">=4.3.5" },
     { name = "libtmux", specifier = ">=0.46.2" },
-    { name = "openhands-sdk", editable = "vendor/agent-sdk/openhands-sdk" },
+    { name = "openhands-sdk", editable = "vendor/software-agent-sdk/openhands-sdk" },
     { name = "pydantic", specifier = ">=2.11.7" },
 ]
 
 [[package]]
 name = "openhands-workspace"
 version = "1.0.0a3"
-source = { editable = "vendor/agent-sdk/openhands-workspace" }
+source = { editable = "vendor/software-agent-sdk/openhands-workspace" }
 dependencies = [
     { name = "openhands-sdk" },
     { name = "pydantic" },
@@ -1873,7 +1873,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "openhands-sdk", editable = "vendor/agent-sdk/openhands-sdk" },
+    { name = "openhands-sdk", editable = "vendor/software-agent-sdk/openhands-sdk" },
     { name = "pydantic", specifier = ">=2.11.7" },
 ]
 

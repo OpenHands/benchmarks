@@ -46,7 +46,7 @@ def get_agent_server_docker_image(
 ) -> str:
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
-        "ghcr.io/all-hands-ai/agent-server"
+        "ghcr.io/openhands/agent-server"
         + f":v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
     )
 
