@@ -100,7 +100,7 @@ uv run benchmarks/swe_bench/build_images.py \
 ```
 
 
-### 3. Run SWE-Bench Evaluation
+### 3. Run SWE-Bench Inference
 ```bash
 # Run evaluation with your configured LLM
 uv run swebench-infer .llm_config/sonnet-4.json
@@ -130,6 +130,24 @@ python -m benchmarks.swe_bench.run_infer \
 ```
 
 This will only evaluate the instances listed in the file.
+
+### 5. Evaluate SWE-Bench Results
+After running inference, evaluate the results using the official SWE-Bench evaluation:
+
+```bash
+# Convert output format and run SWE-Bench evaluation
+uv run swebench-eval output.jsonl
+
+# Or specify custom dataset and output file
+uv run swebench-eval output.jsonl --dataset princeton-nlp/SWE-bench_Lite --output-file results.swebench.jsonl
+
+# Only convert format without running evaluation
+uv run swebench-eval output.jsonl --skip-evaluation
+```
+
+The script will:
+1. Convert OpenHands output format to SWE-Bench prediction format
+2. Run the official SWE-Bench evaluation harness
 
 ## Links
 
