@@ -36,7 +36,7 @@ on:
       n-limit:
         description: 'Limit number of images to build (for testing)'
         required: false
-        default: ''
+        default: '10'
         type: string
 
 jobs:
