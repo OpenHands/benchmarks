@@ -95,8 +95,7 @@ Build ALL docker images for SWE-Bench.
 ```bash
 uv run benchmarks/swe_bench/build_images.py \
   --dataset princeton-nlp/SWE-bench_Verified --split test \
-  --image ghcr.io/openhands/eval-
-  agent-server --target binary-minimal
+  --image ghcr.io/openhands/eval-agent-server --target binary-minimal
 ```
 
 
