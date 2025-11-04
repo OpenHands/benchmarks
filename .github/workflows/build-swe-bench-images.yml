@@ -128,7 +128,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-manifest-${{ env.DATASET }}-${{ env.SPLIT }}
+          name: build-manifest-${{ github.run_id }}
           path: |
             builds/**/manifest.jsonl
             builds/**/summary.json
@@ -138,9 +138,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ env.DATASET }}-${{ env.SPLIT }}
+          name: build-logs-${{ github.run_id }}
           path: builds/**/logs/**/*.log
           retention-days: 7
+          if-no-files-found: warn
 
       - name: Display build summary
         if: always()
