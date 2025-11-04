@@ -96,6 +96,12 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Apply fix for Docker cache tag length limit
+        run: |
+          cd vendor/software-agent-sdk
+          git apply ../../.github/workflows/fix-cache-tag-length.patch
+          echo "Applied patch to fix cache tag length limit"
+
       - name: Install dependencies
         run: |
           make build
