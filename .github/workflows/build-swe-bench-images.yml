@@ -134,12 +134,23 @@ jobs:
             builds/**/summary.json
           retention-days: 30
 
+      - name: Archive build logs
+        if: always()
+        run: |
+          if [ -d builds ]; then
+            # Create tar archive to avoid filename restrictions (colons, etc.)
+            tar -czf build-logs.tar.gz builds/
+            echo "Build logs archived successfully"
+          else
+            echo "No builds directory found"
+          fi
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-${{ github.run_id }}
-          path: builds/**/logs/**/*.log
+          path: build-logs.tar.gz
           retention-days: 7
           if-no-files-found: warn
 
