@@ -133,7 +133,9 @@ def run_swebench_evaluation(
         # Run SWE-Bench evaluation using global python (not UV environment)
         # since swebench is installed globally
         cmd = [
-            "/usr/bin/python3",
+            "uv",
+            "run",
+            "python",
             "-m",
             "swebench.harness.run_evaluation",
             "--dataset_name",
