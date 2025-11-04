@@ -41,7 +41,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--n-limit",
         type=int,
-        default=None,
+        default=0,
         help="Limit number of instances to evaluate",
     )
     parser.add_argument(
