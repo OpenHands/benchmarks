@@ -1,6 +1,7 @@
 name: Build SWE-Bench Images
 
 on:
+  pull_request:  # for debugging
   workflow_dispatch:
     inputs:
       dataset:
@@ -31,39 +32,65 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '1'
+        default: '2'
         type: string
       n-limit:
-        description: 'Limit number of images to build (for testing)'
+        description: 'Limit number of images to build (for testing). Leave blank for no limit.'
         required: false
         default: '10'
         type: string
+
+# Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
+env:
+  DATASET: princeton-nlp/SWE-bench_Verified
+  SPLIT: test
+  TARGET: source-minimal
+  PLATFORMS: linux/amd64
+  MAX_WORKERS: '2'      # modest concurrency for reliability
+  N_LIMIT: '10'           # empty = no limit
+
+concurrency:
+  group: build-swe-bench-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-and-push:
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
-    
+
+    # Allow pushing to GHCR
     permissions:
       contents: read
       packages: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
+      # If this was a manual dispatch, override defaults with provided inputs.
+      - name: Apply workflow_dispatch overrides (if any)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.target }}" ]; then echo "TARGET=${{ inputs.target }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.platforms }}" ]; then echo "PLATFORMS=${{ inputs.platforms }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          # Empty string means "no limit"
+          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+
       - name: Set up Docker Buildx with Blacksmith
         uses: useblacksmith/setup-docker-builder@v1
-      
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -72,52 +99,53 @@ jobs:
       - name: Install dependencies
         run: |
           make build
-      
+
       - name: Build and push SWE-Bench images
         run: |
-          # Construct the command with required arguments
+          set -euo pipefail
+
           CMD="uv run benchmarks/swe_bench/build_images.py \
-            --dataset ${{ inputs.dataset }} \
-            --split ${{ inputs.split }} \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \
-            --target ${{ inputs.target }} \
-            --platforms ${{ inputs.platforms }} \
+            --target '${TARGET}' \
+            --platforms '${PLATFORMS}' \
             --push \
-            --max-workers ${{ inputs.max-workers }}"
-          
-          # Add optional n-limit if provided
-          if [ -n "${{ inputs.n-limit }}" ]; then
-            CMD="$CMD --n-limit ${{ inputs.n-limit }}"
+            --max-workers '${MAX_WORKERS}'"
+
+          # Only include --n-limit if provided (non-empty)
+          if [ -n "${N_LIMIT}" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
           fi
-          
-          # Execute the build command
-          eval $CMD
+
+          echo "Running: $CMD"
+          eval "$CMD"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-      
+
       - name: Upload build manifest
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-manifest-${{ inputs.dataset }}-${{ inputs.split }}
+          name: build-manifest-${{ env.DATASET }}-${{ env.SPLIT }}
           path: |
             builds/**/manifest.jsonl
             builds/**/summary.json
           retention-days: 30
-      
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ inputs.dataset }}-${{ inputs.split }}
+          name: build-logs-${{ env.DATASET }}-${{ env.SPLIT }}
           path: builds/**/logs/**/*.log
           retention-days: 7
-      
+
       - name: Display build summary
         if: always()
         run: |
-          if [ -f builds/*/summary.json ]; then
-            echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-            cat builds/*/summary.json | python -m json.tool >> $GITHUB_STEP_SUMMARY
+          if ls builds/*/summary.json >/dev/null 2>&1; then
+            echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+            cat builds/*/summary.json | python -m json.tool >> "$GITHUB_STEP_SUMMARY"
           fi
