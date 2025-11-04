@@ -208,6 +208,11 @@ class SWEBenchEvaluation(Evaluation):
         # Collect results
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
+        # Collect metrics from LLM
+        metrics = None
+        if self.metadata.llm.metrics:
+            metrics = self.metadata.llm.metrics.model_dump()
+
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
@@ -238,6 +243,7 @@ class SWEBenchEvaluation(Evaluation):
             instruction=instruction,
             error=None,
             history=history,
+            metrics=metrics,
         )
         return out
 

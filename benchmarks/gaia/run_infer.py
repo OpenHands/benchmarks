@@ -258,6 +258,11 @@ class GAIAEvaluation(Evaluation):
         # Collect history
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
+        # Collect metrics from LLM
+        metrics = None
+        if self.metadata.llm.metrics:
+            metrics = self.metadata.llm.metrics.model_dump()
+
         # Return evaluation output
         return EvalOutput(
             instance_id=instance.id,
@@ -270,6 +275,7 @@ class GAIAEvaluation(Evaluation):
             instruction=instruction,
             error=None,
             history=history,
+            metrics=metrics,
             instance=instance.data,
         )
 
