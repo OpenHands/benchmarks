@@ -108,11 +108,3 @@ def test_metrics_serialization():
     assert "accumulated_token_usage" in metrics_dict
 
     print("✓ Metrics serialization test passed")
-
-
-if __name__ == "__main__":
-    # Run the tests
-    test_metrics_collection_pattern()
-    test_eval_output_with_no_metrics()
-    test_metrics_serialization()
-    print("\nAll tests passed!")
