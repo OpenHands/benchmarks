@@ -6,8 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "datasets",
+    "huggingface-hub",
     "jinja2",
     "pandas",
+    "Pillow",
     "toml",
     "tqdm",
     "openhands-sdk",
@@ -16,11 +18,15 @@ dependencies = [
     "openhands-agent-server",
     "openhands-workspace",
     "modal>=1.1.4",
+    "swebench",
 ]
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
 swebench-infer = "benchmarks.swe_bench.run_infer:main"
+swebench-eval = "benchmarks.swe_bench.eval_infer:main"
+gaia-infer = "benchmarks.gaia.run_infer:main"
+
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -50,6 +56,7 @@ indent-style = "space"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["benchmarks", "openhands"]
@@ -65,8 +72,8 @@ openhands-agent-server = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-  "vendor/agent-sdk/openhands-sdk",
-  "vendor/agent-sdk/openhands-tools",
-  "vendor/agent-sdk/openhands-workspace",
-  "vendor/agent-sdk/openhands-agent-server",
+  "vendor/software-agent-sdk/openhands-sdk",
+  "vendor/software-agent-sdk/openhands-tools",
+  "vendor/software-agent-sdk/openhands-workspace",
+  "vendor/software-agent-sdk/openhands-agent-server",
 ]
