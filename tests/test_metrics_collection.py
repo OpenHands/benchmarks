@@ -16,7 +16,7 @@ from openhands.sdk import LLM
 def test_metrics_collection_pattern():
     """
     Test the pattern for collecting metrics from LLM.
-    
+
     This verifies that the pattern used in the fixed run_infer.py files
     (checking llm.metrics and calling model_dump()) works correctly.
     """
@@ -101,7 +101,7 @@ def test_metrics_serialization():
     # Ensure it can be JSON serialized
     metrics_json = json.dumps(metrics)
     assert metrics_json is not None
-    
+
     # Ensure it can be deserialized
     metrics_dict = json.loads(metrics_json)
     assert "accumulated_cost" in metrics_dict
