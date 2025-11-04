@@ -98,10 +98,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install dependencies, preferring binary wheels for problematic packages
-          git submodule update --init --recursive
-          uv sync --dev --no-build-package pyarrow
-          uv run pre-commit install
+          make build
 
       - name: Build and push SWE-Bench images
         run: |
