@@ -146,15 +146,11 @@ uv run swebench-eval output.jsonl --dataset princeton-nlp/SWE-bench_Lite --outpu
 
 # Only convert format without running evaluation
 uv run swebench-eval output.jsonl --skip-evaluation
-
-# Install SWE-Bench if needed
-uv run swebench-eval output.jsonl --install-swebench
 ```
 
 The script will:
 1. Convert OpenHands output format to SWE-Bench prediction format
-2. Install SWE-Bench if not already available (optional)
-3. Run the official SWE-Bench evaluation harness
+2. Run the official SWE-Bench evaluation harness
 
 ## Links
 

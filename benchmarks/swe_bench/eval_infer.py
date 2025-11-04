@@ -109,28 +109,6 @@ def convert_to_swebench_format(
         raise ValueError("No valid entries were converted")
 
 
-def install_swebench() -> None:
-    """Install SWE-Bench if not already available."""
-    import importlib.util
-
-    if importlib.util.find_spec("swebench") is not None:
-        logger.info("SWE-Bench is already installed")
-        return
-
-    logger.info("Installing SWE-Bench...")
-    try:
-        # Install SWE-Bench using uv
-        subprocess.run(
-            ["uv", "add", "swebench"], check=True, capture_output=True, text=True
-        )
-        logger.info("SWE-Bench installed successfully")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to install SWE-Bench: {e}")
-        logger.error(f"stdout: {e.stdout}")
-        logger.error(f"stderr: {e.stderr}")
-        raise
-
-
 def run_swebench_evaluation(
     predictions_file: str,
     dataset: str = "princeton-nlp/SWE-bench_Verified",
@@ -231,12 +209,6 @@ Examples:
     )
 
     parser.add_argument(
-        "--install-swebench",
-        action="store_true",
-        help="Install SWE-Bench before running evaluation",
-    )
-
-    parser.add_argument(
         "--model-name",
         default="OpenHands",
         help="Model name to use in the model_name_or_path field (default: OpenHands)",
@@ -275,10 +247,6 @@ Examples:
         convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
 
         if not args.skip_evaluation:
-            # Install SWE-Bench if requested
-            if args.install_swebench:
-                install_swebench()
-
             # Run evaluation
             run_swebench_evaluation(str(output_file), args.dataset, args.workers)
 
