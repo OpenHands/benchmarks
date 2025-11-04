@@ -206,6 +206,7 @@ workspace/
 
 # IDE and editor directories
 .openhands/
+!.openhands/setup.sh
 .vscode/
 
 # LLM configuration directory (contains API keys and sensitive configs)
