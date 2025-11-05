@@ -111,36 +111,7 @@ uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 
 ## Running Benchmarks
 
-After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
-
-- **[SWE-Bench](benchmarks/swe_bench/README.md)**: Instructions for building Docker images, running inference, and evaluating software engineering tasks
-- **[GAIA](benchmarks/gaia/README.md)**: Instructions for running general AI assistant evaluations
-
-### Quick Examples
-
-**SWE-Bench:**
-```bash
-# Build Docker images (required once)
-uv run python -m benchmarks.swe_bench.build_images \
-  --dataset princeton-nlp/SWE-bench_Lite
-
-# Run inference
-uv run swebench-infer .llm_config/your-config.json
-
-# Evaluate results
-uv run swebench-eval output.jsonl
-```
-
-**GAIA:**
-```bash
-# Run inference (requires TAVILY_API_KEY environment variable)
-TAVILY_API_KEY=xxx uv run gaia-infer .llm_config/your-config.json \
-    --level 2023_level1 \
-    --split validation
-
-# Get score
-uv run python -m benchmarks.gaia.get_score --file outputs/gaia/output.jsonl
-```
+After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions.
 
 ## Links
 
