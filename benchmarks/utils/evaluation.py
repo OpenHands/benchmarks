@@ -70,6 +70,21 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
+    def _create_error_output(
+        self, instance: EvalInstance, error: Exception, retry_count: int
+    ) -> EvalOutput:
+        """Create an EvalOutput object for a failed instance."""
+        return EvalOutput(
+            instance_id=instance.id,
+            test_result={},
+            instruction=None,
+            error=(
+                f"Instance failed after {retry_count} retries. Last error: {str(error)}"
+            )[:200],
+            history=None,
+            instance=instance.data,
+        )
+
     # --- Runner ---
     def run(
         self,
@@ -139,14 +154,18 @@ class Evaluation(ABC, BaseModel):
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
         """Run evaluation with support for single or multiple attempts."""
-        # Get all instances for the first attempt
+        # Get all instances first
         all_instances = self.prepare_instances()
+
         total_instances = len(all_instances)
         logger.info("prepared %d instances for evaluation", total_instances)
 
         if total_instances == 0:
             logger.warning("No instances to process.")
             return []
+
+        # Check for resume point and load previous outputs
+        start_attempt, all_outputs = self._get_resume_start_attempt()
 
         # For single attempts without a critic, use the pass critic
         critic_name = self.metadata.critic_name
@@ -161,44 +180,40 @@ class Evaluation(ABC, BaseModel):
 
         critic = CriticRegistry.create_critic(critic_name)
 
-        # Check for resume point and load previous outputs
-        start_attempt, all_outputs = self._get_resume_start_attempt()
-
-        # Reconstruct instances_to_process for the resume attempt
-        # Uniform logic for all attempts
-        prev_attempt_file = os.path.join(
-            self.metadata.eval_output_dir,
-            f"output.critic_attempt_{start_attempt - 1}.jsonl",
-        )
-
-        if start_attempt == 1 or not os.path.exists(prev_attempt_file):
-            # First attempt or no previous attempt exists: start with all instances
-            target_instances = set(inst.id for inst in all_instances)
-        else:
-            # Start with failed instances from previous attempt
-            target_instances = get_failed_instances(prev_attempt_file, critic)
-
-        # For any attempt: exclude instances already completed in current attempt
-        completed_in_current = get_completed_instances(
-            os.path.join(
-                self.metadata.eval_output_dir,
-                f"output.critic_attempt_{start_attempt}.jsonl",
-            )
-        )
-
-        instances_to_process = [
-            inst
-            for inst in all_instances
-            if inst.id in target_instances and inst.id not in completed_in_current
-        ]
-
         for attempt in range(start_attempt, self.metadata.max_attempts + 1):
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
+
+            # Determine what this attempt should process
+            if attempt == 1:
+                target_instances = set(inst.id for inst in all_instances)
+            else:
+                prev_file = os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{attempt - 1}.jsonl",
+                )
+                if os.path.exists(prev_file):
+                    target_instances = get_failed_instances(prev_file, critic)
+                else:
+                    target_instances = set()
+
+            # Exclude already completed in current attempt
+            completed = get_completed_instances(
+                os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{attempt}.jsonl",
+                )
+            )
+            instances_to_process = [
+                inst
+                for inst in all_instances
+                if inst.id in target_instances and inst.id not in completed
+            ]
+
             logger.info(f"Processing {len(instances_to_process)} instances")
 
             if not instances_to_process:
-                logger.info("No instances to process, stopping early")
-                break
+                logger.info("No instances to process, skipping to next attempt")
+                continue
 
             # Adjust temperature for retries (deterministic -> non-deterministic)
             original_temperature = self.metadata.llm.temperature
@@ -248,15 +263,13 @@ class Evaluation(ABC, BaseModel):
                 ):
                     try:
                         instance, out = fut.result()
+                        attempt_on_result(instance, out)
                     except Exception as e:
                         logger.error(
-                            f"Error during instance evaluation: {e}",
+                            f"Unexpected error from worker process: {str(e)[:50]}",
                             exc_info=True,
                             stack_info=True,
                         )
-                        raise
-
-                    attempt_on_result(instance, out)
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
@@ -267,29 +280,6 @@ class Evaluation(ABC, BaseModel):
                 f"{len(attempt_outputs)} instances processed"
             )
             all_outputs.extend(attempt_outputs)
-
-            # If this is the last attempt, we're done
-            if attempt == self.metadata.max_attempts:
-                break
-
-            # Evaluate which instances failed and need retry
-            attempt_file = os.path.join(
-                self.metadata.eval_output_dir, f"output.critic_attempt_{attempt}.jsonl"
-            )
-
-            failed_instance_ids = get_failed_instances(attempt_file, critic)
-
-            # Filter instances for next attempt
-            # Always include ALL failed instances from current attempt for next attempt
-            instances_to_process = [
-                inst for inst in all_instances if inst.id in failed_instance_ids
-            ]
-
-            logger.info(f"Found {len(failed_instance_ids)} failed instances for retry")
-
-            if not instances_to_process:
-                logger.info("All instances succeeded, stopping early")
-                break
 
         # Aggregate results from all attempts
         logger.info("Aggregating results from all attempts")
@@ -310,18 +300,52 @@ class Evaluation(ABC, BaseModel):
     def _process_one_mp(
         self, instance: EvalInstance
     ) -> Tuple[EvalInstance, EvalOutput]:
-        """Execute one instance in a child process.
+        """Execute one instance in a child process with retry logic.
 
         - Creates workspace in the *child* process
+        - Handles retries within the worker process
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
         logger.info("[child] start id=%s", instance.id)
 
-        workspace = self.prepare_workspace(instance)
-        out = self.evaluate_instance(instance, workspace)
-        logger.info("[child] done id=%s", instance.id)
-        return instance, out
+        retry_count = 0
+        last_error = None
+        max_retries = self.metadata.max_retries
+
+        while retry_count <= max_retries:
+            try:
+                workspace = self.prepare_workspace(instance)
+                out = self.evaluate_instance(instance, workspace)
+                logger.info("[child] done id=%s", instance.id)
+                return instance, out
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+
+                if retry_count <= max_retries:
+                    logger.warning(
+                        f"[child] Instance {instance.id} failed "
+                        f"(attempt {retry_count}/{max_retries}): "
+                        f"{str(e)[:50]}"
+                    )
+                else:
+                    logger.error(
+                        f"[child] Instance {instance.id} failed after "
+                        f"{max_retries} retries. Last error: {str(e)[:50]}",
+                        exc_info=True,
+                    )
+                    # Create error output for final failure
+                    error_output = self._create_error_output(
+                        instance, last_error, max_retries
+                    )
+                    return instance, error_output
+
+        # This should never be reached, but added for type safety
+        error_output = self._create_error_output(
+            instance, Exception("Unexpected error: no attempts made"), max_retries
+        )
+        return instance, error_output
 
 
 # ---------- Optional per-process initializer ---------------------------------------

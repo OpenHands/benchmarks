@@ -26,12 +26,23 @@ class EvalMetadata(BaseModel):
         default=1, ge=1, description="Maximum number of attempts for iterative mode"
     )
     critic_name: str = Field(
-        description="Name of the critic to use for evaluation",
+        default="pass",
+        description=(
+            "Name of the critic to use for evaluation. "
+            "Critics determine whether an agent's output is considered successful "
+            "and whether another attempt should be made in iterative evaluation mode. "
+            "Default is 'pass' which always accepts the output (suitable for single-attempt runs)."
+        ),
     )
     selected_instances_file: str | None = Field(
         default=None,
         description="Path to text file containing instance IDs to select "
         "(one per line)",
+    )
+    max_retries: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum number of retries for instances that throw exceptions",
     )
 
 
