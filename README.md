@@ -1,8 +1,21 @@
-# OpenHands Benchmarks Migration
+# OpenHands Benchmarks
 
-⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure from [OpenHands](https://github.com/OpenHands/OpenHands/) to work with the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).
+This repository contains benchmark evaluation infrastructure for [OpenHands](https://github.com/OpenHands/OpenHands/) agents. It provides standardized evaluation pipelines for testing agent capabilities across various real-world tasks.
 
-## Prerequisites
+⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure to work with the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).
+
+## Available Benchmarks
+
+| Benchmark | Description | Status |
+|-----------|-------------|--------|
+| [SWE-Bench](benchmarks/swe_bench/) | Software engineering tasks from GitHub issues | ✅ Active |
+| [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
+
+See the individual benchmark directories for detailed usage instructions.
+
+## Quick Start
+
+### Prerequisites
 
 Before running any benchmarks, you need to set up the environment and ensure the local Agent SDK submodule is initialized.
 
@@ -74,11 +87,13 @@ to rebuild your environment with the new SDK code.
 
 </details>
 
-## Quick Start
+## Configuration
 
-### 1. Configure Your LLM
+### Configure Your LLM
 
-Define your LLM config as a JSON following the model fields type in the [LLM class](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93), [for example](.llm_config/example.json), you can write the following to `.llm_config/example.json`:
+All benchmarks require an LLM configuration file. Define your LLM config as a JSON following the model fields in the [LLM class](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93).
+
+**Example** (`.llm_config/example.json`):
 
 ```json
 {
@@ -88,66 +103,44 @@ Define your LLM config as a JSON following the model fields type in the [LLM cla
 }
 ```
 
-You may validate the correctness of your config by running `uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json`
-
-### 2. Build Docker Images for SWE-Bench Evaluation
-Build ALL docker images for SWE-Bench.
-```bash
-uv run benchmarks/swe_bench/build_images.py \
-  --dataset princeton-nlp/SWE-bench_Verified --split test \
-  --critic pass \
-  --image ghcr.io/openhands/agent-server --target binary-minimal
-```
-
-
-### 3. Run SWE-Bench Inference
-```bash
-# Run evaluation with your configured LLM
-uv run swebench-infer .llm_config/sonnet-4.json
-```
-
-### 4. Selecting Specific Instances
-
-You can run evaluation on a specific subset of instances using the `--select` option:
-
-1. Create a text file with one instance ID per line:
-
-**instances.txt:**
-```
-django__django-11333
-astropy__astropy-12345
-requests__requests-5555
-```
-
-2. Run evaluation with the selection file:
-```bash
-python -m benchmarks.swe_bench.run_infer \
-    --agent-cls CodeActAgent \
-    --llm-config llm_config.toml \
-    --max-iterations 30 \
-    --select instances.txt \
-    --eval-output-dir ./evaluation_results
-```
-
-This will only evaluate the instances listed in the file.
-
-### 5. Evaluate SWE-Bench Results
-After running inference, evaluate the results using the official SWE-Bench evaluation:
+Validate your configuration:
 
 ```bash
-# Convert output format and run SWE-Bench evaluation
+uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
+```
+
+## Running Benchmarks
+
+After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
+
+- **[SWE-Bench](benchmarks/swe_bench/README.md)**: Instructions for building Docker images, running inference, and evaluating software engineering tasks
+- **[GAIA](benchmarks/gaia/README.md)**: Instructions for running general AI assistant evaluations
+
+### Quick Examples
+
+**SWE-Bench:**
+```bash
+# Build Docker images (required once)
+uv run python -m benchmarks.swe_bench.build_images \
+  --dataset princeton-nlp/SWE-bench_Lite
+
+# Run inference
+uv run swebench-infer .llm_config/your-config.json
+
+# Evaluate results
 uv run swebench-eval output.jsonl
-
-# Or specify custom dataset and output file
-uv run swebench-eval output.jsonl --dataset princeton-nlp/SWE-bench_Lite --output-file results.swebench.jsonl
-
-# Only convert format without running evaluation
-uv run swebench-eval output.jsonl --skip-evaluation
 ```
 
-The script will:
-1. Convert OpenHands output format to SWE-Bench prediction format
-2. Run the official SWE-Bench evaluation harness
+**GAIA:**
+```bash
+# Run inference (requires TAVILY_API_KEY environment variable)
+TAVILY_API_KEY=xxx uv run gaia-infer .llm_config/your-config.json \
+    --level 2023_level1 \
+    --split validation
+
+# Get score
+uv run python -m benchmarks.gaia.get_score --file outputs/gaia/output.jsonl
+```
 
 ## Links
 
