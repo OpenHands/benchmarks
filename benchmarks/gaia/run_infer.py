@@ -164,7 +164,7 @@ class GAIAEvaluation(Evaluation):
         # Install ffmpeg (some GAIA tasks need it)
         logger.info("Installing ffmpeg...")
         result = workspace.execute_command(
-            "apt-get update && apt-get install -y ffmpeg ffprobe"
+            "sudo apt-get update && sudo apt-get install -y ffmpeg ffprobe"
         )
         if result.exit_code != 0:
             logger.warning(f"Failed to install ffmpeg: {result.stderr}")

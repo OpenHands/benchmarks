@@ -21,7 +21,7 @@ GAIA is a benchmark for evaluating AI assistants on real-world questions that re
 By default, [Tavily MCP server](https://github.com/tavily-ai/tavily-mcp) is configured, which requires an API key set in the environment variable `TAVILY_API_KEY`.
 
 ```bash
-TAVILY_API_KEY=xxx python -m benchmarks.gaia.run_infer \
+TAVILY_API_KEY=xxx uv run python -m benchmarks.gaia.run_infer \
     path/to/llm_config.json \
     --level 2023_level1 \
     --split validation \

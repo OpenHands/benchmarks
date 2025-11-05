@@ -41,7 +41,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--n-limit",
         type=int,
-        default=None,
+        default=0,
         help="Limit number of instances to evaluate",
     )
     parser.add_argument(
@@ -53,8 +53,18 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--critic",
         type=str,
-        required=True,
-        help="Critic to use for evaluating instance success",
+        default="pass",
+        help=(
+            "Name of the critic to use for evaluation (default: 'pass'). "
+            "Critics determine whether an agent's output is considered successful "
+            "and whether another attempt should be made in iterative evaluation mode. "
+            "Available critics: "
+            "'pass' - Always accepts the output (no retry logic, suitable for single-attempt runs), "
+            "'finish_with_patch' - Requires both AgentFinishAction and non-empty git patch, "
+            "'empty_patch_critic' - Only requires non-empty git patch. "
+            "For single-attempt runs (default), 'pass' is recommended as the actual evaluation "
+            "is performed by the benchmark's own scoring system."
+        ),
     )
     parser.add_argument(
         "--select",
