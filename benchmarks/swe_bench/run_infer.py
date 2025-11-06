@@ -162,6 +162,7 @@ class SWEBenchEvaluation(Evaluation):
             llm=self.metadata.llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            finish_on_message_only=False,  # Don't finish on message-only responses in SWE-bench
             # TODO: we can enable condenser and security analyzer later
             # and have them configurable via EvalMetadata
             # condenser=get_default_condenser(
