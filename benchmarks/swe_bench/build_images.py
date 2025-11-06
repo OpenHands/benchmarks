@@ -12,7 +12,7 @@ import argparse
 import contextlib
 import io
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
@@ -162,6 +162,19 @@ def _default_build_output_dir(
     return root
 
 
+def _build_with_logging(
+    base: str, log_dir: Path, args: argparse.Namespace
+) -> BuildOutput:
+    """
+    Module-level function for building a single image with output capture.
+    Must be at module level to be picklable for ProcessPoolExecutor.
+    """
+    with capture_output(base, log_dir) as log_path:
+        result = build_one(base, args)
+        result.log_path = str(log_path)
+        return result
+
+
 def _update_pbar(
     pbar: tqdm,
     successes: int,
@@ -191,12 +204,6 @@ def main(argv: list[str]) -> int:
     manifest_path = BUILD_DIR / "manifest.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def build_one_fn(base: str, args) -> BuildOutput:
-        with capture_output(base, BUILD_LOG_DIR) as log_path:
-            result = build_one(base, args)
-            result.log_path = str(log_path)
-            return result
-
     if args.dry_run:
         print("\n".join(bases))
         return 0
@@ -212,13 +219,14 @@ def main(argv: list[str]) -> int:
     ):
         _update_pbar(pbar, successes, failures, 0, None, "Queueing")
 
-        # Single unified path: ThreadPoolExecutor( max_workers = args.max_workers ),
-        # even if it's 1
-        with ThreadPoolExecutor(max_workers=args.max_workers) as ex:
+        # Single unified path: ProcessPoolExecutor( max_workers = args.max_workers ),
+        # even if it's 1. Using processes instead of threads ensures proper isolation
+        # of stdout/stderr and logging handlers, preventing output mixing between builds.
+        with ProcessPoolExecutor(max_workers=args.max_workers) as ex:
             futures = {}
             for base in bases:
                 in_progress.add(base)
-                fut = ex.submit(build_one_fn, base, args)
+                fut = ex.submit(_build_with_logging, base, BUILD_LOG_DIR, args)
                 futures[fut] = base
 
             _update_pbar(
