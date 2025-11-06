@@ -314,6 +314,7 @@ class Evaluation(ABC, BaseModel):
         max_retries = self.metadata.max_retries
 
         while retry_count <= max_retries:
+            workspace = None
             try:
                 workspace = self.prepare_workspace(instance)
                 out = self.evaluate_instance(instance, workspace)
@@ -340,6 +341,20 @@ class Evaluation(ABC, BaseModel):
                         instance, last_error, max_retries
                     )
                     return instance, error_output
+            finally:
+                # Ensure workspace cleanup happens regardless of success or failure
+                if workspace is not None:
+                    try:
+                        # Use the context manager protocol for cleanup
+                        workspace.__exit__(None, None, None)
+                        logger.debug(
+                            "[child] cleaned up workspace for id=%s", instance.id
+                        )
+                    except Exception as cleanup_error:
+                        logger.warning(
+                            f"[child] Failed to cleanup workspace for {instance.id}: "
+                            f"{str(cleanup_error)[:50]}"
+                        )
 
         # This should never be reached, but added for type safety
         error_output = self._create_error_output(
