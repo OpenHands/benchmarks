@@ -3,6 +3,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from openhands.sdk import LLM, get_logger
+from openhands.sdk.llm import Metrics
 
 
 logger = get_logger(__name__)
@@ -75,7 +76,7 @@ class EvalOutput(BaseModel):
     # Interaction info
     metadata: EvalMetadata | None = None
     history: list[Any] | None = None
-    metrics: dict[str, Any] | None = None
+    metrics: Metrics | None = None
     error: str | None = None
 
     # Optionally save the input test instance
