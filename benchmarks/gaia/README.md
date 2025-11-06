@@ -14,38 +14,50 @@ GAIA is a benchmark for evaluating AI assistants on real-world questions that re
 
 ## Usage
 
-### Basic Command
-
-1. Run inference:
+### Step 1: Run Inference
 
 By default, [Tavily MCP server](https://github.com/tavily-ai/tavily-mcp) is configured, which requires an API key set in the environment variable `TAVILY_API_KEY`.
 
+**Basic inference:**
+
 ```bash
-TAVILY_API_KEY=xxx python -m benchmarks.gaia.run_infer \
+TAVILY_API_KEY=xxx uv run gaia-infer path/to/llm_config.json \
+    --level 2023_level1 \
+    --split validation
+```
+
+**Advanced options:**
+
+```bash
+TAVILY_API_KEY=xxx uv run python -m benchmarks.gaia.run_infer \
     path/to/llm_config.json \
     --level 2023_level1 \
     --split validation \
     --max-iterations 100 \
     --critic pass \
-    --output-dir outputs/gaia
+    --output-dir outputs/gaia \
+    --num-workers 4
 ```
 
-2. Get score:
+### Step 2: Get Score
+
+After running inference, calculate the accuracy score:
 
 ```bash
-uv run python -m benchmarks.gaia.get_score --file /path/to/jsonl
+uv run python -m benchmarks.gaia.get_score --file outputs/gaia/output.jsonl
 ```
 
+## Configuration Options
 
 ### Required Arguments
 
-- Path to LLM configuration JSON file
+- LLM config path: Path to JSON configuration file for the language model
 - `--level`: GAIA level to evaluate (e.g., `2023_level1`, `2023_all`)
 - `--split`: Dataset split (e.g., `validation`, `test`)
-- `--critic`: Critic to use for evaluation (e.g., `pass`)
 
 ### Optional Arguments
 
+- `--critic`: Critic to use for evaluation (default: `pass`)
 - `--max-iterations`: Maximum iterations per instance (default: 30)
 - `--output-dir`: Base directory for outputs (default: `outputs`)
 - `--n-limit`: Limit number of instances to evaluate (default: 0 = all)

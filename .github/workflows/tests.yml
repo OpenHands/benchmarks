@@ -1,0 +1,67 @@
+name: Run tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: ['**']
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Detect changes
+        id: changed
+        uses: tj-actions/changed-files@v47
+        with:
+          files: |
+            benchmarks/**
+            tests/**
+            pyproject.toml
+            uv.lock
+            .github/workflows/tests.yml
+
+      - name: Install uv
+        if: steps.changed.outputs.any_changed == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        if: steps.changed.outputs.any_changed == 'true'
+        run: uv sync --frozen --group dev
+
+      - name: Run tests with coverage
+        if: steps.changed.outputs.any_changed == 'true'
+        run: |
+          # Clean up any existing coverage file
+          rm -f .coverage
+          CI=true uv run python -m pytest -vvs \
+            --forked \
+            --cov=benchmarks \
+            --cov-report=term-missing \
+            --cov-fail-under=0 \
+            tests/
+          # Rename coverage file for upload
+          if [ -f .coverage ]; then
+            mv .coverage coverage.dat
+            echo "Coverage file prepared for upload"
+          fi
+
+      - name: Upload coverage
+        if: steps.changed.outputs.any_changed == 'true' && always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage
+          path: coverage.dat
+          if-no-files-found: warn
