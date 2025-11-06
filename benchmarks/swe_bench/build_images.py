@@ -11,6 +11,8 @@ Example:
 import argparse
 import contextlib
 import io
+import os
+import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -28,6 +30,52 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def get_sdk_commit_hash() -> str:
+    """Get the short commit hash of the SDK submodule."""
+    sdk_path = Path(__file__).parent.parent.parent / "vendor" / "software-agent-sdk"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=7", "HEAD"],
+            cwd=sdk_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        logger.warning("Failed to get SDK commit hash, using 'unknown'")
+        return "unknown"
+
+
+def extract_instance_id(base_image: str) -> str:
+    """
+    Extract SWE-Bench instance ID from base image name.
+
+    Example:
+        docker.io/swebench/sweb.eval.x86_64.django_1776_django-12155:latest
+        -> django-12155
+
+        docker.io/swebench/sweb.eval.x86_64.sympy_1776_sympy-18189:latest
+        -> sympy-18189
+
+        docker.io/swebench/sweb.eval.x86_64.scikit-learn_3742_scikit-learn-25973:latest
+        -> scikit-learn-25973
+    """
+    # SWE-Bench images pattern: ..._{repo}_{version}_{instance_id}:tag
+    # We want to extract just the instance_id (last part before colon)
+    # Instance ID format: {repo}-{number} or {repo}_{number}
+
+    parts = base_image.split("_")
+    if len(parts) >= 2:
+        # Last part contains the instance ID and tag
+        last_part = parts[-1]  # e.g., "django-12155:latest"
+        instance_id = last_part.split(":")[0]  # Remove tag
+        return instance_id
+
+    logger.warning(f"Could not extract instance ID from: {base_image}")
+    return "unknown"
 
 
 @contextlib.contextmanager
@@ -138,13 +186,22 @@ class BuildOutput(BaseModel):
 
 
 def build_one(base_image: str, args: argparse.Namespace) -> BuildOutput:
+    # Extract instance ID and build custom tag
+    instance_id = extract_instance_id(base_image)
+    custom_tag = f"swebench-{instance_id}"
+
+    # Combine with user-provided custom tags if any
+    if args.custom_tags:
+        custom_tag = f"{custom_tag},{args.custom_tags}"
+
     opts = BuildOptions(
         base_image=base_image,
-        custom_tags=args.custom_tags,
+        custom_tags=custom_tag,
         image=args.image,
         target=args.target,
         platforms=[p.strip() for p in args.platforms.split(",") if p.strip()],
         push=args.push,
+        include_versioned_tag=False,  # Disable long versioned tag
     )
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
@@ -194,6 +251,11 @@ def _update_pbar(
 def main(argv: list[str]) -> int:
     parser = extend_parser()
     args = parser.parse_args(argv)
+
+    # Set SDK commit hash as version override for image tags
+    sdk_commit = get_sdk_commit_hash()
+    os.environ["SDK_VERSION_OVERRIDE"] = sdk_commit
+    logger.info(f"Using SDK commit: {sdk_commit}")
 
     bases: list[str] = collect_unique_base_images(
         args.dataset, args.split, args.docker_image_prefix, args.n_limit
