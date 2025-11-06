@@ -11,8 +11,6 @@ Example:
 import argparse
 import contextlib
 import io
-import os
-import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -30,23 +28,6 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-
-
-def get_sdk_commit_hash() -> str:
-    """Get the short commit hash of the SDK submodule."""
-    sdk_path = Path(__file__).parent.parent.parent / "vendor" / "software-agent-sdk"
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short=7", "HEAD"],
-            cwd=sdk_path,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError:
-        logger.warning("Failed to get SDK commit hash, using 'unknown'")
-        return "unknown"
 
 
 def extract_instance_id(base_image: str) -> str:
@@ -251,11 +232,6 @@ def _update_pbar(
 def main(argv: list[str]) -> int:
     parser = extend_parser()
     args = parser.parse_args(argv)
-
-    # Set SDK commit hash as version override for image tags
-    sdk_commit = get_sdk_commit_hash()
-    os.environ["SDK_VERSION_OVERRIDE"] = sdk_commit
-    logger.info(f"Using SDK commit: {sdk_commit}")
 
     bases: list[str] = collect_unique_base_images(
         args.dataset, args.split, args.docker_image_prefix, args.n_limit

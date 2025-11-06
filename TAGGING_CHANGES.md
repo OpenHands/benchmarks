@@ -10,13 +10,13 @@ This change replaces the long, auto-generated versioned tags with short, meaning
 
 ### 1. SDK Build System (`vendor/software-agent-sdk/.../docker/build.py`)
 
-**Added three features:**
+**Added two features:**
 
-1. **`SDK_VERSION_OVERRIDE` environment variable**
-   - Allows overriding the package version with a commit hash
-   - Falls back to `importlib.metadata.version("openhands-sdk")` if not set
-   - Critical for git submodule contexts where package version != actual commit
-   - Follows existing pattern (SDK already uses `GITHUB_REF` env var)
+1. **SDK_VERSION now uses git commit hash**
+   - `_sdk_version()` now automatically detects the SDK repo root and gets its commit hash
+   - Falls back to package version only if git info unavailable
+   - Works correctly in submodule contexts (uses SDK repo, not calling repo)
+   - No environment variable override needed - automatic and robust
 
 2. **`include_versioned_tag` option in BuildOptions**
    - When `False`, skips the long versioned tag
@@ -32,13 +32,9 @@ This change replaces the long, auto-generated versioned tags with short, meaning
 
 ### 2. Benchmarks Build Script (`benchmarks/swe_bench/build_images.py`)
 
-**Added two functions:**
+**Added one function:**
 
-1. **`get_sdk_commit_hash()`**
-   - Extracts the 7-character commit hash from SDK submodule
-   - Returns "unknown" if git fails (with warning)
-
-2. **`extract_instance_id(base_image)`**
+1. **`extract_instance_id(base_image)`**
    - Parses SWE-Bench base image name to extract instance ID
    - Examples:
      - `...django_1776_django-12155:latest` → `django-12155`
@@ -47,9 +43,9 @@ This change replaces the long, auto-generated versioned tags with short, meaning
 
 **Modified build flow:**
 
-1. At startup: Set `SDK_VERSION_OVERRIDE` env var to SDK commit hash
-2. Per image: Extract instance ID and create custom tag `swebench-{instance_id}`
-3. Pass `include_versioned_tag=False` to disable long tag
+1. Per image: Extract instance ID and create custom tag `swebench-{instance_id}`
+2. Pass `include_versioned_tag=False` to disable long tag
+3. SDK automatically uses its own commit hash (no manual override needed)
 
 ## Tag Format Comparison
 
@@ -87,8 +83,8 @@ ghcr.io/openhands/eval-agent-server:main-swebench-django-12155
 
 The SDK's `all_tags` property generates:
 
-1. **Commit-based tag**: `{image}:{SHORT_SHA}-{custom_tag}[-{target}]{arch_suffix}`
-   - `SHORT_SHA` = First 7 chars of SDK commit (from `SDK_VERSION_OVERRIDE`)
+1. **Commit-based tag**: `{image}:{SDK_VERSION[:7]}-{custom_tag}[-{target}]{arch_suffix}`
+   - `SDK_VERSION[:7]` = First 7 chars of SDK commit hash (automatically detected)
    - `custom_tag` = `swebench-{instance_id}`
    - `target` = Build target (omitted for `binary`, included for others)
    - Examples: 
@@ -143,14 +139,11 @@ uv run benchmarks/swe_bench/build_images.py \
 To test the tagging logic without building:
 
 ```python
-from benchmarks.swe_bench.build_images import extract_instance_id, get_sdk_commit_hash
+from benchmarks.swe_bench.build_images import extract_instance_id
 
 # Test instance ID extraction
 base = "docker.io/swebench/sweb.eval.x86_64.django_1776_django-12155:latest"
 print(extract_instance_id(base))  # → django-12155
-
-# Get SDK commit
-print(get_sdk_commit_hash())  # → a612c0a
 ```
 
 ## Migration Notes
@@ -180,21 +173,22 @@ Possible additions:
 ## Files Changed
 
 1. `vendor/software-agent-sdk/openhands-agent-server/openhands/agent_server/docker/build.py`
-   - Added `SDK_VERSION_OVERRIDE` env var support to `_sdk_version()`
+   - Refactored `_sdk_version()` to automatically use SDK repo commit hash
+   - Added `_git_info_for_repo()` to get git info from specific directories
    - Added `include_versioned_tag` field to `BuildOptions`
    - Changed tag suffix logic: Non-binary targets get `-{target}` suffix, binary gets no suffix
    - Removed deprecated `is_dev` property
    - Modified `all_tags` property to respect new flag and suffix logic
 
 2. `benchmarks/swe_bench/build_images.py`
-   - Added `get_sdk_commit_hash()` function
    - Added `extract_instance_id()` function
-   - Modified `main()` to set `SDK_VERSION_OVERRIDE`
    - Modified `build_one()` to use custom tags and disable versioned tag
+   - Removed unnecessary SDK_VERSION_OVERRIDE logic (now automatic)
 
 ## Related PRs
 
 - **SDK Changes**: https://github.com/OpenHands/software-agent-sdk/pull/1088
-  - Adds `SDK_VERSION_OVERRIDE` support
+  - SDK_VERSION now automatically uses commit hash from SDK repo
   - Changes tag suffix: binary gets no suffix, non-binary gets `-{target}` (more descriptive)
   - Adds `include_versioned_tag` option
+  - Works correctly in submodule/vendored contexts
