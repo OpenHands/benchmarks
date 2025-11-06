@@ -24,7 +24,8 @@ This change replaces the long, auto-generated versioned tags with short, meaning
    - Gives consumers control over tag format
 
 3. **Target-based tag suffixes** (replaces `-dev` suffix)
-   - All tags now include `-{target}` suffix: `-binary`, `-source`, `-binary-minimal`, `-source-minimal`
+   - Non-binary builds include `-{target}` suffix: `-source`, `-binary-minimal`, `-source-minimal`
+   - Binary builds have no suffix (it's the default/common case)
    - More descriptive than previous `-dev` suffix (which only applied to source builds)
    - Makes tag meaning immediately clear without needing to check build config
    - Removed deprecated `is_dev` property
@@ -61,35 +62,49 @@ ghcr.io/openhands/eval-agent-server:v1.0.0_docker.io_s_swebench_s_sweb.eval.x86_
 - **Problem**: No git commit info, hard to parse
 
 ### After (New Format)
+
+For source-minimal (most common for SWE-Bench):
 ```
 ghcr.io/openhands/eval-agent-server:a612c0a-swebench-django-12155-source-minimal
 ghcr.io/openhands/eval-agent-server:main-swebench-django-12155-source-minimal
 ```
 - **Length**: 84 characters (**39% shorter**)
-- **Includes**: SDK commit hash, instance ID, build target
-- **Benefits**: 
+
+For binary (no suffix, it's the default):
+```
+ghcr.io/openhands/eval-agent-server:a612c0a-swebench-django-12155
+ghcr.io/openhands/eval-agent-server:main-swebench-django-12155
+```
+- **Length**: 69 characters (**50% shorter**)
+
+**Benefits**: 
   - Exact reproducibility (commit hash)
   - Easy to parse and filter
   - Clear instance identification
-  - Explicit target indication (no more ambiguous `-dev` suffix)
+  - Clean tags for common case (binary has no suffix)
 
 ## Tag Generation Logic
 
 The SDK's `all_tags` property generates:
 
-1. **Commit-based tag**: `{image}:{SHORT_SHA}-{custom_tag}-{target}{arch_suffix}`
+1. **Commit-based tag**: `{image}:{SHORT_SHA}-{custom_tag}[-{target}]{arch_suffix}`
    - `SHORT_SHA` = First 7 chars of SDK commit (from `SDK_VERSION_OVERRIDE`)
    - `custom_tag` = `swebench-{instance_id}`
-   - `target` = Build target (`binary`, `source`, `binary-minimal`, `source-minimal`)
-   - Example: `a612c0a-swebench-django-12155-source-minimal`
+   - `target` = Build target (omitted for `binary`, included for others)
+   - Examples: 
+     - Binary: `a612c0a-swebench-django-12155`
+     - Source: `a612c0a-swebench-django-12155-source`
+     - Source-minimal: `a612c0a-swebench-django-12155-source-minimal`
 
-2. **Main branch tag** (if on main): `{image}:main-{custom_tag}-{target}{arch_suffix}`
-   - Example: `main-swebench-django-12155-source-minimal`
+2. **Main branch tag** (if on main): `{image}:main-{custom_tag}[-{target}]{arch_suffix}`
+   - Examples:
+     - Binary: `main-swebench-django-12155`
+     - Source-minimal: `main-swebench-django-12155-source-minimal`
 
-3. **Versioned tag** (now disabled): `{image}:{versioned_tag}-{target}{arch_suffix}`
+3. **Versioned tag** (now disabled): `{image}:{versioned_tag}[-{target}]{arch_suffix}`
    - Skipped when `include_versioned_tag=False`
 
-All tags now include `-{target}` suffix for clarity (replaces old `-dev` suffix pattern).
+Non-binary targets include `-{target}` suffix for clarity. Binary has no suffix (default case).
 
 ## Benefits
 
@@ -167,7 +182,7 @@ Possible additions:
 1. `vendor/software-agent-sdk/openhands-agent-server/openhands/agent_server/docker/build.py`
    - Added `SDK_VERSION_OVERRIDE` env var support to `_sdk_version()`
    - Added `include_versioned_tag` field to `BuildOptions`
-   - Changed tag suffix logic: All tags get `-{target}` suffix (replaces `-dev`)
+   - Changed tag suffix logic: Non-binary targets get `-{target}` suffix, binary gets no suffix
    - Removed deprecated `is_dev` property
    - Modified `all_tags` property to respect new flag and suffix logic
 
@@ -181,5 +196,5 @@ Possible additions:
 
 - **SDK Changes**: https://github.com/OpenHands/software-agent-sdk/pull/1088
   - Adds `SDK_VERSION_OVERRIDE` support
-  - Changes `-dev` suffix to `-{target}` for all builds (more descriptive)
+  - Changes tag suffix: binary gets no suffix, non-binary gets `-{target}` (more descriptive)
   - Adds `include_versioned_tag` option
