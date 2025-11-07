@@ -148,8 +148,21 @@ jobs:
           # Get SDK version from submodule
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
           
+          # Check if manifest files exist
+          if ! ls builds/*/manifest.jsonl >/dev/null 2>&1; then
+            echo "No manifest.jsonl files found in builds directory"
+            echo "Build may have completed but produced no images"
+            exit 0
+          fi
+          
           # Count total images built
-          TOTAL_IMAGES=$(cat builds/*/manifest.jsonl | wc -l)
+          TOTAL_IMAGES=$(cat builds/*/manifest.jsonl 2>/dev/null | wc -l)
+          
+          if [ "$TOTAL_IMAGES" -eq 0 ]; then
+            echo "No images found in manifest files"
+            echo "Skipping comment as there are no built images to report"
+            exit 0
+          fi
           
           # Extract all tags and format them as a markdown list
           TAGS=$(cat builds/*/manifest.jsonl | python -c "
