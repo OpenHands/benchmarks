@@ -30,33 +30,23 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def extract_instance_id(base_image: str) -> str:
+def extract_custom_tag(base_image: str) -> str:
     """
     Extract SWE-Bench instance ID from base image name.
 
     Example:
         docker.io/swebench/sweb.eval.x86_64.django_1776_django-12155:latest
-        -> django-12155
+        -> sweb.eval.x86_64.django_1776_django-12155
 
         docker.io/swebench/sweb.eval.x86_64.sympy_1776_sympy-18189:latest
-        -> sympy-18189
+        -> sweb.eval.x86_64.sympy_1776_sympy-18189
 
         docker.io/swebench/sweb.eval.x86_64.scikit-learn_3742_scikit-learn-25973:latest
-        -> scikit-learn-25973
+        -> sweb.eval.x86_64.scikit-learn_3742_scikit-learn-25973
     """
-    # SWE-Bench images pattern: ..._{repo}_{version}_{instance_id}:tag
-    # We want to extract just the instance_id (last part before colon)
-    # Instance ID format: {repo}-{number} or {repo}_{number}
-
-    parts = base_image.split("_")
-    if len(parts) >= 2:
-        # Last part contains the instance ID and tag
-        last_part = parts[-1]  # e.g., "django-12155:latest"
-        instance_id = last_part.split(":")[0]  # Remove tag
-        return instance_id
-
-    logger.warning(f"Could not extract instance ID from: {base_image}")
-    return "unknown"
+    name_tag = base_image.split("/")[-1]
+    name = name_tag.split(":")[0]
+    return name
 
 
 @contextlib.contextmanager
@@ -133,7 +123,6 @@ def extend_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--platforms", default="linux/amd64", help="Comma-separated platforms"
     )
-    parser.add_argument("--custom-tags", default="", help="Comma-separated custom tags")
     parser.add_argument(
         "--push", action="store_true", help="Push via buildx instead of load locally"
     )
@@ -168,12 +157,7 @@ class BuildOutput(BaseModel):
 
 def build_one(base_image: str, args: argparse.Namespace) -> BuildOutput:
     # Extract instance ID and build custom tag
-    instance_id = extract_instance_id(base_image)
-    custom_tag = f"swebench-{instance_id}"
-
-    # Combine with user-provided custom tags if any
-    if args.custom_tags:
-        custom_tag = f"{custom_tag},{args.custom_tags}"
+    custom_tag = extract_custom_tag(base_image)
 
     opts = BuildOptions(
         base_image=base_image,
@@ -182,7 +166,6 @@ def build_one(base_image: str, args: argparse.Namespace) -> BuildOutput:
         target=args.target,
         platforms=[p.strip() for p in args.platforms.split(",") if p.strip()],
         push=args.push,
-        include_versioned_tag=False,  # Disable long versioned tag
     )
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
