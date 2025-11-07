@@ -162,14 +162,24 @@ jobs:
                       print(f'- \`{tag}\`')
           ")
           
+          # Determine how the workflow was triggered
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TRIGGER="Manual trigger (workflow_dispatch)"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
+          else
+            TRIGGER="${{ github.event_name }}"
+          fi
+          
           # Create the comment body
           COMMENT_BODY=$(cat <<EOF
           ## Build Complete ✅
 
           **Dataset:** \`${DATASET}\`
           **Split:** \`${SPLIT}\`
-          **SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/All-Hands-AI/agent-sdk/commit/${SDK_SHA})
+          **SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
           **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          **Triggered by:** ${TRIGGER}
 
           <details>
           <summary>Built Tags (${TOTAL_IMAGES} images)</summary>
