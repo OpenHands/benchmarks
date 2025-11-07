@@ -138,6 +138,11 @@ class Commit0Evaluation(Evaluation):
             inst_id = str(row["instance_id"])
             instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
 
+        # Apply eval_limit if specified
+        if self.metadata.eval_limit > 0:
+            instances = instances[:self.metadata.eval_limit]
+            logger.info("Limited instances to %d (eval_limit=%d)", len(instances), self.metadata.eval_limit)
+
         logger.info("Total instances to process: %d", len(instances))
         return instances
 
