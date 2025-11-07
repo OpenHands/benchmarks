@@ -29,8 +29,8 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '2'      # modest concurrency for reliability
-  N_LIMIT: '10'           # empty = no limit
+  MAX_WORKERS: '16'      # modest concurrency for reliability
+  N_LIMIT: '50'           # empty = no limit
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}
