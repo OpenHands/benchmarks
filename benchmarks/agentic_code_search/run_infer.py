@@ -282,6 +282,12 @@ class AgenticCodeSearchEvaluation(Evaluation):
         reward, predicted_files, true_files = reward_function(
             finish_message, instance.data
         )
+        if (
+            self.metadata.details is not None
+            and self.metadata.details["runtime"] == "local"
+        ):
+            # clean up workspace after use
+            workspace.execute_command(f"rm -rf {instance.data['repo_dir']}")
         out = EvalOutput(
             instance_id=instance.id,
             test_result={
