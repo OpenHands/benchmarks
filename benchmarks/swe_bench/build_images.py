@@ -20,7 +20,7 @@ from threading import Lock
 from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
-from benchmarks.swe_bench.run_infer import get_official_docker_image
+from benchmarks.swe_bench.run_infer import extract_custom_tag, get_official_docker_image
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
 from openhands.agent_server.docker.build import BuildOptions, build
@@ -28,25 +28,6 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-
-
-def extract_custom_tag(base_image: str) -> str:
-    """
-    Extract SWE-Bench instance ID from base image name.
-
-    Example:
-        docker.io/swebench/sweb.eval.x86_64.django_1776_django-12155:latest
-        -> sweb.eval.x86_64.django_1776_django-12155
-
-        docker.io/swebench/sweb.eval.x86_64.sympy_1776_sympy-18189:latest
-        -> sweb.eval.x86_64.sympy_1776_sympy-18189
-
-        docker.io/swebench/sweb.eval.x86_64.scikit-learn_3742_scikit-learn-25973:latest
-        -> sweb.eval.x86_64.scikit-learn_3742_scikit-learn-25973
-    """
-    name_tag = base_image.split("/")[-1]
-    name = name_tag.split(":")[0]
-    return name
 
 
 @contextlib.contextmanager
