@@ -1,0 +1,11 @@
+I have access to a python code repository in the directory {{ working_dir }} . 
+
+Consider the following issue description:
+
+<issue_description>
+{{ problem_statement }}
+</issue_description>
+
+Act as a code search agent to find the relevant files where we need to make changes so that <issue_description> is met?
+NOTE: You do not need to solve the issue, all you need to do is find the relevant files. Your output will be used to guide another agent to solve the issue.
+Only use grep to find and please output your answer as just a list of the relevant files that are directly related to the <issue_description> in the format <file-list>['file1', 'file2', ...]</file-list> using the message parameter of the Finish tool.

@@ -21,7 +21,7 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from openhands.sdk import get_logger
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -59,13 +59,15 @@ class Evaluation(ABC, BaseModel):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance
+    ) -> RemoteWorkspace | LocalWorkspace:
         """Create and return a context-managed Workspace for the given instance."""
         raise NotImplementedError
 
     @abstractmethod
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
