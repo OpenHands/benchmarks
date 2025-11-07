@@ -16,6 +16,10 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+
+# SHORT_SHA is computed from git rev-parse HEAD in the current working directory
+# (benchmarks repo), not the SDK submodule. This ensures images are tagged with
+# the benchmarks repo commit, making them reproducible and traceable.
 from openhands.agent_server.docker.build import SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
