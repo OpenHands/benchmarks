@@ -16,7 +16,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from openhands.agent_server.docker.build import SDK_VERSION, _base_slug
+from openhands.agent_server.docker.build import SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -24,6 +24,19 @@ from openhands.workspace import DockerWorkspace
 
 
 logger = get_logger(__name__)
+
+
+def extract_custom_tag(base_image: str) -> str:
+    """
+    Extract SWE-Bench instance ID from base image name.
+
+    Example:
+        docker.io/swebench/sweb.eval.x86_64.django_1776_django-12155:latest
+        -> sweb.eval.x86_64.django_1776_django-12155
+    """
+    name_tag = base_image.split("/")[-1]
+    name = name_tag.split(":")[0]
+    return name
 
 
 def get_official_docker_image(
@@ -45,10 +58,14 @@ def get_agent_server_docker_image(
     target: str = "source-minimal",
 ) -> str:
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
-    return (
-        "ghcr.io/openhands/eval-agent-server"
-        + f":v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
-    )
+    custom_tag = extract_custom_tag(official_image_name)
+
+    # New tag format: {SHORT_SHA}-{custom_tag}-{target}
+    # For non-binary targets, append target suffix
+    if target == "binary":
+        return f"ghcr.io/openhands/eval-agent-server:{SHORT_SHA}-{custom_tag}"
+    else:
+        return f"ghcr.io/openhands/eval-agent-server:{SHORT_SHA}-{custom_tag}-{target}"
 
 
 def get_instruction(
