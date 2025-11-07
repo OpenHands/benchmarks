@@ -7,6 +7,8 @@ from typing import List
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.utils.dataset import prepare_dataset
+
 # from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
@@ -138,18 +140,28 @@ def reward_function(
 ) -> tuple[float, set[str], set[str]]:
     true_files = set(x[0] for x in ast.literal_eval(instance["target"]))
     score = 0.0
+    repo_dir = str(instance["repo_dir"])
+    if not repo_dir.endswith("/"):
+        repo_dir += "/"
     try:
         predicted_files = set(
             ast.literal_eval(
                 final_message.split("<file-list>")[1].split("</file-list>")[0]
             )
         )
-        score = f1_reward_function(predicted_files, true_files)
+        relative_predicted_files = set()
+        for file_path in predicted_files:
+            if file_path.startswith(repo_dir):
+                relative_path = file_path[len(repo_dir) :]
+            else:
+                relative_path = file_path
+            relative_predicted_files.add(relative_path)
+        score = f1_reward_function(relative_predicted_files, true_files)
     except Exception as e:
         print(f"Error parsing final message: {e}")
         return 0.0, set(), true_files
 
-    return score, predicted_files, true_files
+    return score, relative_predicted_files, true_files
 
 
 class AgenticCodeSearchEvaluation(Evaluation):
@@ -158,6 +170,9 @@ class AgenticCodeSearchEvaluation(Evaluation):
 
         # Load dataset
         dataset = pd.read_parquet(self.metadata.dataset)
+        dataset = prepare_dataset(
+            dataset, self.metadata.eval_limit, self.metadata.selected_instances_file
+        )
 
         instances: List[EvalInstance] = []
         for _, row in dataset.iterrows():
@@ -185,8 +200,9 @@ class AgenticCodeSearchEvaluation(Evaluation):
         elif runtime_type == "docker":
             # TODO: directly use prebuilt agent-server image?
             workspace = DockerWorkspace(
-                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                # base_image="nikolaik/python-nodejs:python3.12-nodejs22",
                 working_dir="/workspace",
+                server_image="ghcr.io/openhands/agent-server:latest-python",
             )
             repo_dir = f"/workspace/{repo_name.split('/')[-1]}/"
         else:
@@ -212,12 +228,14 @@ class AgenticCodeSearchEvaluation(Evaluation):
 
         # clone repo inside repo_dir
         repo_url = f"https://github.com/{repo_name}.git"
-        clone_repo = workspace.execute_command(f"git clone {repo_url} {repo_dir}")
+        clone_repo = workspace.execute_command(
+            f"git clone {repo_url} {repo_dir}", timeout=10 * 60
+        )
         assert clone_repo.exit_code == 0, f"Failed to clone repo: {clone_repo.stderr}"
 
         # checkout to base commit
         checkout_commit = workspace.execute_command(
-            f"git -C {repo_dir} checkout {base_commit_id}"
+            f"git -C {repo_dir} checkout {base_commit_id}", timeout=5 * 60
         )
         assert checkout_commit.exit_code == 0, (
             f"Failed to checkout to commit {base_commit_id}: {checkout_commit.stderr}"
@@ -259,6 +277,8 @@ class AgenticCodeSearchEvaluation(Evaluation):
         conversation.run()
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
         finish_message = get_agent_final_response(conversation.state.events)
+        if finish_message == "":
+            logger.info("No final response from agent.")
         reward, predicted_files, true_files = reward_function(
             finish_message, instance.data
         )
@@ -290,15 +310,9 @@ def main():
     llm = LLM.model_validate_json(llm_config)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
-    # Load LLM configuration
-    with open(args.llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
-    logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
-
     structured_output_dir = construct_eval_output_dir(
         base_dir=args.output_dir,
-        dataset_name=f"agentic_code_search_{args.dataset_file.split('.parquet')[0]}",
+        dataset_name=f"agentic_code_search_{args.dataset_file.split('/')[-1].split('.parquet')[0]}",
         model_name=llm.model,
         max_iterations=args.max_iterations,
         eval_note="",
