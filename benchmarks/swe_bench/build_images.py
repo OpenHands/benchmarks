@@ -138,9 +138,7 @@ class BuildOutput(BaseModel):
 
 
 def build_one(base_image: str, args: argparse.Namespace) -> BuildOutput:
-    # Extract instance ID and build custom tag
     custom_tag = extract_custom_tag(base_image)
-
     opts = BuildOptions(
         base_image=base_image,
         custom_tags=custom_tag,
