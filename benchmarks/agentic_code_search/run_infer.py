@@ -81,12 +81,7 @@ def get_parser():
         default=str(default_prompt_path),
         help="Path to prompt template file",
     )
-    # parser.add_argument(
-    #     "--num_runs",
-    #     type=int,
-    #     default=1,
-    #     help="Number of evaluation runs for each task instance (useful for best@K evaluation)"
-    # )
+
     parser.add_argument(
         "--runtime",
         type=str,
