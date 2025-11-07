@@ -140,8 +140,12 @@ class Commit0Evaluation(Evaluation):
 
         # Apply eval_limit if specified
         if self.metadata.eval_limit > 0:
-            instances = instances[:self.metadata.eval_limit]
-            logger.info("Limited instances to %d (eval_limit=%d)", len(instances), self.metadata.eval_limit)
+            instances = instances[: self.metadata.eval_limit]
+            logger.info(
+                "Limited instances to %d (eval_limit=%d)",
+                len(instances),
+                self.metadata.eval_limit,
+            )
 
         logger.info("Total instances to process: %d", len(instances))
         return instances
@@ -180,7 +184,8 @@ class Commit0Evaluation(Evaluation):
         logger.info("Created new branch: openhands")
 
         # Install commit0
-        install_cmd = f"cd /workspace/{workspace_dir_name} && /root/.cargo/bin/uv pip install commit0"
+        # Try uv first, fall back to pip if uv is not available
+        install_cmd = f"cd /workspace/{workspace_dir_name} && (uv pip install commit0 || pip install commit0)"
         res = workspace.execute_command(install_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to install commit0: {res.stderr}")
