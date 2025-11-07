@@ -166,15 +166,15 @@ jobs:
             exit 0
           fi
           
-          # Extract all tags and format them as a markdown list
+          # Extract all tags and format them as a markdown list (one tag per image)
           TAGS=$(cat $MANIFEST_FILES | python -c "
           import sys
           import json
           for line in sys.stdin:
               data = json.loads(line.strip())
-              if data.get('tags'):
-                  for tag in data['tags']:
-                      print(f'- \`{tag}\`')
+              if data.get('tags') and len(data['tags']) > 0:
+                  # Only show the first tag per image to reduce clutter
+                  print(f'- \`{data[\"tags\"][0]}\`')
           ")
           
           # Determine how the workflow was triggered
