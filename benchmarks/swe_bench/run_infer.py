@@ -4,7 +4,12 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swe_bench.build_images import (
+    extract_custom_tag,
+    get_official_docker_image,
+)
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -25,45 +30,6 @@ from openhands.workspace import DockerWorkspace
 
 
 logger = get_logger(__name__)
-
-
-def extract_custom_tag(base_image: str) -> str:
-    """
-    Extract SWE-Bench instance ID from base image name.
-
-    Example:
-        docker.io/swebench/sweb.eval.x86_64.django_1776_django-12155:latest
-        -> sweb.eval.x86_64.django_1776_django-12155
-    """
-    name_tag = base_image.split("/")[-1]
-    name = name_tag.split(":")[0]
-    return name
-
-
-def get_official_docker_image(
-    instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
-) -> str:
-    # Official SWE-Bench image
-    # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
-    repo, name = instance_id.split("__")
-    official_image_name = docker_image_prefix.rstrip("/")
-    official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-    logger.debug(f"Official SWE-Bench image: {official_image_name}")
-    return official_image_name
-
-
-def get_agent_server_docker_image(
-    instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
-    target: str = "source-minimal",
-) -> str:
-    official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
-    custom_tag = extract_custom_tag(official_image_name)
-
-    # For non-binary targets, append target suffix
-    suffix = f"-{target}" if target != "binary" else ""
-    return f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
 
 
 def get_instruction(
@@ -132,26 +98,43 @@ class SWEBenchEvaluation(Evaluation):
         """
         SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
         logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-        if SKIP_BUILD:
-            agent_server_image = get_agent_server_docker_image(instance.id)
-            workspace = DockerWorkspace(
-                server_image=agent_server_image,
-                working_dir="/workspace",
-            )
-        else:
-            official_docker_image = get_official_docker_image(instance.id)
-            workspace = DockerWorkspace(
-                base_image=official_docker_image,
-                working_dir="/workspace",
-                target="source-minimal",
-            )
+        official_docker_image = get_official_docker_image(instance.id)
+        build_target = "source-minimal"
+        custom_tag = extract_custom_tag(official_docker_image)
+
+        # For non-binary targets, append target suffix
+        suffix = f"-{build_target}" if build_target != "binary" else ""
+        agent_server_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+        )
+        if not SKIP_BUILD:
             logger.info(
-                f"Building workspace from {official_docker_image}. "
+                f"Building workspace from {official_docker_image} "
+                f"for instance {instance.id}. "
                 "This may take a while...\n"
                 "You can run benchmarks/swe_bench/build_images.py and set "
                 "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
                 "agent-server image."
             )
+            output = build_image(
+                base_image=official_docker_image,
+                target_image=EVAL_AGENT_SERVER_IMAGE,
+                custom_tag=custom_tag,
+                target=build_target,
+                push=False,
+            )
+            logger.info(f"Image build output: {output}")
+            assert output.error is None, f"Image build failed: {output.error}"
+            if agent_server_image not in output.tags:
+                raise RuntimeError(
+                    f"Built image tags {output.tags} do not include expected tag "
+                    f"{agent_server_image}"
+                )
+
+        workspace = DockerWorkspace(
+            server_image=agent_server_image,
+            working_dir="/workspace",
+        )
         for cmd in self.metadata.env_setup_commands or []:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
