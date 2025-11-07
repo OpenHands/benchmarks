@@ -19,6 +19,13 @@ dependencies = [
     "openhands-workspace",
     "modal>=1.1.4",
     "swebench",
+    # SWT-Bench dependencies (since the git package doesn't install them properly)
+    "requests",
+    "docker",
+    "python-dotenv",
+    "fire",
+    "editdistance",
+    "GitPython",
 ]
 
 [project.scripts]
@@ -71,6 +78,7 @@ openhands-sdk = { workspace = true }
 openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
+swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git" }
 
 [tool.uv.workspace]
 members = [

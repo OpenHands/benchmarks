@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -118,6 +119,11 @@ def run_swtbench_evaluation(
     """
     Run SWT-Bench evaluation on the predictions file.
 
+    Note: The swt-bench package is included as a dependency in pyproject.toml
+    to ensure all its dependencies are available, but the package itself is not
+    properly structured for import. We use subprocess to run it from a cached
+    clone since that's how the upstream package is designed to work.
+
     Args:
         predictions_file: Path to the SWT-Bench format predictions file
         dataset: SWT-Bench dataset to evaluate against
@@ -126,15 +132,15 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
-        # Get the directory of the predictions file
-        predictions_path = Path(predictions_file).resolve()
-        predictions_dir = predictions_path.parent
-        predictions_filename = predictions_path.name
+        # Use a global cache directory for SWT-Bench source
+        cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
+        swt_bench_dir = cache_dir / "swt-bench"
 
         # Clone SWT-Bench repository if it doesn't exist
-        swt_bench_dir = predictions_dir / "swt-bench"
-        logger.info(f"swt_bench_dir {swt_bench_dir}")
         if not swt_bench_dir.exists():
+            logger.info("Setting up SWT-Bench source in global cache...")
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
             logger.info("Cloning SWT-Bench repository...")
             clone_cmd = [
                 "git",
@@ -146,31 +152,43 @@ def run_swtbench_evaluation(
             if result.returncode != 0:
                 raise subprocess.CalledProcessError(result.returncode, clone_cmd)
 
-        # Set up virtual environment and install dependencies
-        venv_dir = swt_bench_dir / ".venv"
-        if not venv_dir.exists():
-            logger.info("Setting up SWT-Bench virtual environment...")
-            # Create virtual environment
-            venv_cmd = ["python", "-m", "venv", ".venv"]
-            result = subprocess.run(venv_cmd, text=True, cwd=swt_bench_dir)
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, venv_cmd)
+            logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
 
-            # Install package in editable mode
-            pip_cmd = [".venv/bin/pip", "install", "-e", "."]
-            result = subprocess.run(pip_cmd, text=True, cwd=swt_bench_dir)
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, pip_cmd)
+        # Get the directory and filename of the predictions file
+        predictions_path = Path(predictions_file).resolve()
+        predictions_filename = predictions_path.name
 
         # Copy predictions file to swt-bench directory
         swt_predictions_file = swt_bench_dir / predictions_filename
         shutil.copy2(predictions_file, swt_predictions_file)
 
-        # Run SWT-Bench evaluation using the cloned repository
+        # Run SWT-Bench evaluation by running python directly from the swt-bench directory
+        # but using the uv environment's python executable which has all dependencies
+        benchmarks_dir = Path(__file__).parent.parent.parent
+
+        # Get the python executable from the uv environment
+        python_executable = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--directory",
+                str(benchmarks_dir),
+                "python",
+                "-c",
+                "import sys; print(sys.executable)",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=benchmarks_dir,
+        ).stdout.strip()
+
+        # Set up environment with PYTHONPATH to include swt-bench directory
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(swt_bench_dir)
+
         cmd = [
-            ".venv/bin/python",
-            "-m",
-            "src.main",
+            python_executable,
+            "src/main.py",  # Run as script instead of module
             "--dataset_name",
             dataset,
             "--predictions_path",
@@ -182,13 +200,15 @@ def run_swtbench_evaluation(
             f"eval_{predictions_path.stem}",
         ]
 
+        logger.info(f"Using Python executable: {python_executable}")
         logger.info(f"Running command: {' '.join(cmd)}")
         logger.info(f"Working directory: {swt_bench_dir}")
+        logger.info(f"PYTHONPATH: {env['PYTHONPATH']}")
         logger.info("SWT-Bench evaluation output:")
         print("-" * 80)
 
         # Stream output directly to console, running from swt-bench directory
-        result = subprocess.run(cmd, text=True, cwd=swt_bench_dir)
+        result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
 
         print("-" * 80)
         if result.returncode == 0:
