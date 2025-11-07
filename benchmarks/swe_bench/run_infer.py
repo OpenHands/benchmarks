@@ -5,6 +5,7 @@ from typing import List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
@@ -16,11 +17,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-
-# SHORT_SHA is computed from git rev-parse HEAD in the current working directory
-# (benchmarks repo), not the SDK submodule. This ensures images are tagged with
-# the benchmarks repo commit, making them reproducible and traceable.
-from openhands.agent_server.docker.build import SHORT_SHA
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -64,12 +61,9 @@ def get_agent_server_docker_image(
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     custom_tag = extract_custom_tag(official_image_name)
 
-    # New tag format: {SHORT_SHA}-{custom_tag}-{target}
     # For non-binary targets, append target suffix
-    if target == "binary":
-        return f"ghcr.io/openhands/eval-agent-server:{SHORT_SHA}-{custom_tag}"
-    else:
-        return f"ghcr.io/openhands/eval-agent-server:{SHORT_SHA}-{custom_tag}-{target}"
+    suffix = f"-{target}" if target != "binary" else ""
+    return f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
 
 
 def get_instruction(

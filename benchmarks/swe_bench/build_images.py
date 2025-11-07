@@ -22,6 +22,7 @@ from tqdm.auto import tqdm
 
 from benchmarks.swe_bench.run_infer import extract_custom_tag, get_official_docker_image
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
 from openhands.agent_server.docker.build import BuildOptions, build
 from openhands.sdk import get_logger
@@ -93,7 +94,7 @@ def extend_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--image",
-        default="ghcr.io/openhands/eval-agent-server",
+        default=EVAL_AGENT_SERVER_IMAGE,
         help="Target repo/name for built image",
     )
     parser.add_argument(
