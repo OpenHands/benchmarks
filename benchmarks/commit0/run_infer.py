@@ -159,29 +159,23 @@ class Commit0Evaluation(Evaluation):
             f"Building workspace from {base_docker_image}. This may take a while..."
         )
 
-        # Clone the repository
+        # Clone the repository to the specific directory
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        clone_cmd = f"git clone -b commit0_combined https://github.com/{instance.data['repo']}.git"
+        clone_cmd = f"cd /workspace/ && git clone -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
         res = workspace.execute_command(clone_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
         logger.info(f"Cloned repository: {instance.data['repo']}")
 
-        # Change to repository directory
-        cd_cmd = f"cd /workspace/{workspace_dir_name}"
-        res = workspace.execute_command(cd_cmd, timeout=600)
-        if res.exit_code != 0:
-            raise RuntimeError(f"Failed to cd to workspace: {res.stderr}")
-
         # Create new branch
-        branch_cmd = "git checkout -b openhands"
+        branch_cmd = f"cd /workspace/{workspace_dir_name} && git checkout -b openhands"
         res = workspace.execute_command(branch_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to create branch: {res.stderr}")
         logger.info("Created new branch: openhands")
 
         # Install commit0
-        install_cmd = "/root/.cargo/bin/uv pip install commit0"
+        install_cmd = f"cd /workspace/{workspace_dir_name} && /root/.cargo/bin/uv pip install commit0"
         res = workspace.execute_command(install_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to install commit0: {res.stderr}")
@@ -271,16 +265,8 @@ class Commit0Evaluation(Evaluation):
             else ""
         )
 
-        # Get pytest exit code
-        pytest_exit_code_result = workspace.execute_command(
-            "echo $?",
-            timeout=600,
-        )
-        pytest_exit_code = (
-            pytest_exit_code_result.stdout.strip()
-            if pytest_exit_code_result.exit_code == 0
-            else ""
-        )
+        # Get pytest exit code from the test_result
+        pytest_exit_code = str(test_result.exit_code)
 
         # Get test IDs and parse report
         repo_name = instance.data["repo"].split("/")[1]
