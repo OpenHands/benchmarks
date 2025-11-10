@@ -104,14 +104,6 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
-      - name: Upload build manifest
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-manifest-${{ github.run_id }}
-          path: builds/**/manifest.jsonl
-          retention-days: 30
-
       - name: Archive build logs
         if: always()
         run: |
