@@ -1,7 +1,7 @@
 name: Build SWE-Bench Images
 
 on:
-  pull_request:  # for debugging
+  # pull_request:  # for debugging
   workflow_dispatch:
     inputs:
       dataset:
