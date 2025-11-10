@@ -217,3 +217,5 @@ workspace/
 # Evaluation outputs
 ./eval_outputs
 ./builds
+swe_bench_lite.parquet
+./docker_outputs/
