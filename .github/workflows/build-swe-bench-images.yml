@@ -109,9 +109,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-manifest-${{ github.run_id }}
-          path: |
-            builds/**/manifest.jsonl
-            builds/**/summary.json
+          path: builds/**/manifest.jsonl
           retention-days: 30
 
       - name: Archive build logs
@@ -137,9 +135,49 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          if ls builds/*/summary.json >/dev/null 2>&1; then
-            echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-            cat builds/*/summary.json | python -m json.tool >> "$GITHUB_STEP_SUMMARY"
+          # Find all manifest.jsonl files
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            exit 0
+          fi
+          
+          # Generate summary from manifest files
+          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          # Count successes and failures
+          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
+          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
+          import sys
+          import json
+          count = 0
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is None and len(data.get('tags', [])) > 0:
+                  count += 1
+          print(count)
+          ")
+          FAILURES=$((TOTAL - SUCCESSES))
+          
+          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          # Show failed builds if any
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat $MANIFEST_FILES | python -c "
+          import sys
+          import json
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is not None or len(data.get('tags', [])) == 0:
+                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
+          " >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Comment on tracker issue
