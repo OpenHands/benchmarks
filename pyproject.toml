@@ -19,6 +19,7 @@ dependencies = [
     "openhands-workspace",
     "modal>=1.1.4",
     "swebench",
+    "matplotlib>=3.10.7",
 ]
 
 [project.scripts]
