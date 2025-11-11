@@ -84,7 +84,7 @@ make build  # Rebuild environment
 5. Update README.md with usage instructions
 
 # LLM Configuration
-LLM configs use JSON matching the [LLM class schema](https://github.com/All-Hands-AI/agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93):
+LLM configs use JSON matching the [LLM class schema](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93):
 ```json
 {
   "model": "litellm_proxy/anthropic/claude-sonnet-4-20250514",
