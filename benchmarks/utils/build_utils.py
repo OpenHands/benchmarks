@@ -106,12 +106,6 @@ def get_build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
-    parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=2,
-        help="Number of times to retry each failed build (default: 2)",
-    )
     return parser
 
 
@@ -142,7 +136,7 @@ def _build_with_logging(
     target: TargetType = "source-minimal",
     push: bool = False,
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
-    max_retries: int = 2,
+    max_retries: int = 3,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -153,30 +147,22 @@ def _build_with_logging(
     if base_image_to_custom_tag_fn:
         custom_tag = base_image_to_custom_tag_fn(base_image)
 
-    last_exception = None
-    for attempt in range(max_retries + 1):
-        try:
-            with capture_output(base_image, log_dir) as log_path:
-                if attempt > 0:
-                    logger.info(
-                        f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries + 1})"
-                    )
-                result = build_image(base_image, target_image, custom_tag, target, push)
-                result.log_path = str(log_path)
+    assert max_retries >= 0, "max_retries must be non-negative"
+    for attempt in range(max_retries):
+        with capture_output(base_image, log_dir) as log_path:
+            if attempt > 0:
+                logger.info(
+                    f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
+                )
+            result = build_image(base_image, target_image, custom_tag, target, push)
+            result.log_path = str(log_path)
+            if not result.error:
                 return result
-        except Exception as e:
-            last_exception = e
-            if attempt < max_retries:
-                logger.warning(
-                    f"Build failed for {base_image} (attempt {attempt + 1}): {e!r}. Retrying..."
-                )
-            else:
-                logger.error(
-                    f"Build failed for {base_image} after {max_retries + 1} attempts: {e!r}"
-                )
-
-    # If we get here, all retries failed
-    raise last_exception  # type: ignore[misc]
+        logger.error("Build error for %s: %s", base_image, result.error)
+        if attempt == max_retries - 1:
+            logger.error("Max retries reached for %s. Giving up.", base_image)
+            return result
+    raise RuntimeError("Unreachable code reached in _build_with_logging")
 
 
 def _update_pbar(
