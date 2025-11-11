@@ -82,7 +82,7 @@ jobs:
         run: |
           make build
 
-      - name: Build and push SWE-Bench images (attempt 1)
+      - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
 
@@ -100,86 +100,6 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-
-      - name: Extract failed builds (attempt 1)
-        if: always()
-        run: |
-          if .github/scripts/extract_failed_builds.sh "builds/${DATASET}/${SPLIT}/failed-attempt-1.txt"; then
-            echo "RETRY_NEEDED=true" >> "$GITHUB_ENV"
-          else
-            echo "RETRY_NEEDED=false" >> "$GITHUB_ENV"
-          fi
-
-      - name: Preserve manifest from attempt 1
-        if: always()
-        run: |
-          MANIFEST_FILE="builds/${DATASET}/${SPLIT}/manifest.jsonl"
-          if [ -f "$MANIFEST_FILE" ]; then
-            mv "$MANIFEST_FILE" "builds/${DATASET}/${SPLIT}/manifest-attempt-1.jsonl"
-            echo "Preserved manifest from attempt 1"
-          fi
-
-      - name: Retry failed builds (attempt 2)
-        if: env.RETRY_NEEDED == 'true'
-        run: |
-          set -euo pipefail
-          
-          FAILED_FILE="builds/${DATASET}/${SPLIT}/failed-attempt-1.txt"
-          
-          if [ ! -f "$FAILED_FILE" ]; then
-            echo "Failed images file not found: $FAILED_FILE"
-            exit 0
-          fi
-          
-          echo "Retrying failed builds from $FAILED_FILE"
-          uv run benchmarks/swe_bench/build_images.py \
-            --base-images-file "$FAILED_FILE" \
-            --image ghcr.io/openhands/eval-agent-server \
-            --push \
-            --max-workers '${MAX_WORKERS}'
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-
-      - name: Extract failed builds (attempt 2)
-        if: env.RETRY_NEEDED == 'true'
-        run: |
-          if .github/scripts/extract_failed_builds.sh "builds/${DATASET}/${SPLIT}/failed-attempt-2.txt"; then
-            echo "RETRY_NEEDED_2=true" >> "$GITHUB_ENV"
-          else
-            echo "RETRY_NEEDED_2=false" >> "$GITHUB_ENV"
-          fi
-
-      - name: Preserve manifest from attempt 2
-        if: env.RETRY_NEEDED == 'true'
-        run: |
-          MANIFEST_FILE="builds/${DATASET}/${SPLIT}/manifest.jsonl"
-          if [ -f "$MANIFEST_FILE" ]; then
-            mv "$MANIFEST_FILE" "builds/${DATASET}/${SPLIT}/manifest-attempt-2.jsonl"
-            echo "Preserved manifest from attempt 2"
-          fi
-
-      - name: Retry failed builds (attempt 3)
-        if: env.RETRY_NEEDED_2 == 'true'
-        run: |
-          set -euo pipefail
-          
-          FAILED_FILE="builds/${DATASET}/${SPLIT}/failed-attempt-2.txt"
-          
-          if [ ! -f "$FAILED_FILE" ]; then
-            echo "Failed images file not found: $FAILED_FILE"
-            exit 0
-          fi
-          
-          echo "Retrying failed builds from $FAILED_FILE (final attempt)"
-          uv run benchmarks/swe_bench/build_images.py \
-            --base-images-file "$FAILED_FILE" \
-            --image ghcr.io/openhands/eval-agent-server \
-            --push \
-            --max-workers '${MAX_WORKERS}'
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
@@ -207,20 +127,21 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
+          # Find all manifest.jsonl files
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            exit 0
+          fi
+          
+          # Generate summary from manifest files
           echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           
-          # Function to analyze a manifest file
-          analyze_manifest() {
-            local manifest_file="$1"
-            local attempt_name="$2"
-            
-            if [ ! -f "$manifest_file" ]; then
-              return
-            fi
-            
-            local total=$(cat "$manifest_file" 2>/dev/null | wc -l)
-            local successes=$(cat "$manifest_file" 2>/dev/null | python3 -c "
+          # Count successes and failures
+          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
+          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
           import sys
           import json
           count = 0
@@ -230,70 +151,25 @@ jobs:
                   count += 1
           print(count)
           ")
-            local failures=$((total - successes))
-            
-            echo "### $attempt_name" >> "$GITHUB_STEP_SUMMARY"
-            echo "- **Total:** $total" >> "$GITHUB_STEP_SUMMARY"
-            echo "- **Successful:** ✅ $successes" >> "$GITHUB_STEP_SUMMARY"
-            echo "- **Failed:** ❌ $failures" >> "$GITHUB_STEP_SUMMARY"
+          FAILURES=$((TOTAL - SUCCESSES))
+          
+          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          # Show failed builds if any
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-          }
-          
-          # Analyze each attempt's manifest
-          BUILD_DIR="builds/${DATASET}/${SPLIT}"
-          
-          if [ -f "$BUILD_DIR/manifest-attempt-1.jsonl" ]; then
-            analyze_manifest "$BUILD_DIR/manifest-attempt-1.jsonl" "Attempt 1"
-          fi
-          
-          if [ -f "$BUILD_DIR/manifest-attempt-2.jsonl" ]; then
-            analyze_manifest "$BUILD_DIR/manifest-attempt-2.jsonl" "Attempt 2 (Retry)"
-          fi
-          
-          if [ -f "$BUILD_DIR/manifest.jsonl" ]; then
-            # Check if this is from attempt 3 or if no retries happened
-            if [ -f "$BUILD_DIR/manifest-attempt-2.jsonl" ]; then
-              analyze_manifest "$BUILD_DIR/manifest.jsonl" "Attempt 3 (Final Retry)"
-            elif [ -f "$BUILD_DIR/manifest-attempt-1.jsonl" ]; then
-              analyze_manifest "$BUILD_DIR/manifest.jsonl" "Attempt 2 (Retry)"
-            else
-              analyze_manifest "$BUILD_DIR/manifest.jsonl" "Build Results"
-            fi
-          fi
-          
-          # Show final failed builds if any (from the latest manifest)
-          FINAL_MANIFEST="$BUILD_DIR/manifest.jsonl"
-          if [ -f "$FINAL_MANIFEST" ]; then
-            FINAL_FAILURES=$(cat "$FINAL_MANIFEST" 2>/dev/null | python3 -c "
-          import sys
-          import json
-          count = 0
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('error') is not None or len(data.get('tags', [])) == 0:
-                  count += 1
-          print(count)
-          ")
-            
-            if [ "$FINAL_FAILURES" -gt 0 ]; then
-              echo "### ❌ Remaining Failed Builds" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              cat "$FINAL_MANIFEST" | python3 -c "
+            cat $MANIFEST_FILES | python -c "
           import sys
           import json
           for line in sys.stdin:
               data = json.loads(line.strip())
               if data.get('error') is not None or len(data.get('tags', [])) == 0:
-                  error_msg = data.get('error', 'No tags generated')
-                  # Truncate long error messages
-                  if len(error_msg) > 100:
-                      error_msg = error_msg[:100] + '...'
-                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {error_msg}\")
+                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
           " >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "### ✅ All Builds Successful!" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-            fi
           fi
 
       - name: Comment on tracker issue

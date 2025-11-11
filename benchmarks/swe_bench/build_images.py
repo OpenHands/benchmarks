@@ -57,39 +57,14 @@ def collect_unique_base_images(dataset, split, n_limit):
     )
 
 
-def load_base_images_from_file(file_path: str) -> list[str]:
-    """Load base images from a text file (one image per line)."""
-    with open(file_path) as f:
-        return [line.strip() for line in f if line.strip()]
-
-
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
-    parser.add_argument(
-        "--base-images-file",
-        type=str,
-        help="Path to file containing base images (one per line). "
-        "If provided, --dataset and --split are ignored.",
-    )
     args = parser.parse_args(argv)
 
-    if args.base_images_file:
-        base_images = load_base_images_from_file(args.base_images_file)
-        # When using file input, we need to determine build_dir from the file path
-        # Use the parent directory of the base-images-file for retries
-        from pathlib import Path
-
-        build_dir = Path(args.base_images_file).parent
-        logger.info(
-            f"Loaded {len(base_images)} base images from {args.base_images_file}"
-        )
-    else:
-        base_images = collect_unique_base_images(args.dataset, args.split, args.n_limit)
-        build_dir = default_build_output_dir(args.dataset, args.split)
-        logger.info(
-            f"Collected {len(base_images)} unique base images from dataset {args.dataset}/{args.split}"
-        )
-
+    base_images: list[str] = collect_unique_base_images(
+        args.dataset, args.split, args.n_limit
+    )
+    build_dir = default_build_output_dir(args.dataset, args.split)
     return build_all_images(
         base_images=base_images,
         target=args.target,
@@ -98,6 +73,7 @@ def main(argv: list[str]) -> int:
         push=args.push,
         max_workers=args.max_workers,
         dry_run=args.dry_run,
+        max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
     )
 
