@@ -136,18 +136,33 @@ def _build_with_logging(
     target: TargetType = "source-minimal",
     push: bool = False,
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
+    max_retries: int = 3,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
     Must be at module level to be picklable for ProcessPoolExecutor.
+    Automatically retries failed builds up to max_retries times.
     """
-    with capture_output(base_image, log_dir) as log_path:
-        custom_tag = ""
-        if base_image_to_custom_tag_fn:
-            custom_tag = base_image_to_custom_tag_fn(base_image)
-        result = build_image(base_image, target_image, custom_tag, target, push)
-        result.log_path = str(log_path)
-        return result
+    custom_tag = ""
+    if base_image_to_custom_tag_fn:
+        custom_tag = base_image_to_custom_tag_fn(base_image)
+
+    assert max_retries >= 1, "max_retries must be at least 1"
+    for attempt in range(max_retries):
+        with capture_output(base_image, log_dir) as log_path:
+            if attempt > 0:
+                logger.info(
+                    f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
+                )
+            result = build_image(base_image, target_image, custom_tag, target, push)
+            result.log_path = str(log_path)
+            if not result.error:
+                return result
+        logger.error("Build error for %s: %s", base_image, result.error)
+        if attempt == max_retries - 1:
+            logger.error("Max retries reached for %s. Giving up.", base_image)
+            return result
+    raise RuntimeError("Unreachable code reached in _build_with_logging")
 
 
 def _update_pbar(
@@ -187,10 +202,11 @@ def build_all_images(
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_workers: int = 1,
     dry_run: bool = False,
+    max_retries: int = 3,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
-    writing a manifest file.
+    writing a manifest file. Each build is automatically retried on failure.
 
     Args:
         base_images: List of base images to build from.
@@ -201,6 +217,7 @@ def build_all_images(
         base_image_to_custom_tag_fn: Function to extract custom tag from base image.
         max_workers: Number of concurrent builds.
         dry_run: If True, only list base images without building.
+        max_retries: Number of times to retry each failed build (default: 2).
 
     Returns:
         Exit code: 0 if all builds succeeded, 1 if any failed.
@@ -242,6 +259,7 @@ def build_all_images(
                     target,
                     push,
                     base_image_to_custom_tag_fn,
+                    max_retries,
                 )
                 futures[fut] = base
 
