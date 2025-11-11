@@ -202,7 +202,7 @@ def build_all_images(
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_workers: int = 1,
     dry_run: bool = False,
-    max_retries: int = 2,
+    max_retries: int = 3,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
