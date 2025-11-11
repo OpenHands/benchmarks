@@ -82,7 +82,7 @@ jobs:
         run: |
           make build
 
-      - name: Build and push SWE-Bench images
+      - name: Build and push SWE-Bench images (attempt 1)
         run: |
           set -euo pipefail
 
@@ -100,6 +100,110 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
+      - name: Extract failed builds (attempt 1)
+        if: always()
+        run: |
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null || true)
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            exit 0
+          fi
+          
+          # Extract failed base images
+          FAILED_IMAGES=$(cat $MANIFEST_FILES | python -c "
+          import sys
+          import json
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is not None or len(data.get('tags', [])) == 0:
+                  print(data.get('base_image', ''))
+          " | sort -u)
+          
+          if [ -z "$FAILED_IMAGES" ]; then
+            echo "No failed builds found"
+            echo "RETRY_NEEDED=false" >> "$GITHUB_ENV"
+          else
+            FAILED_COUNT=$(echo "$FAILED_IMAGES" | wc -l)
+            echo "Found $FAILED_COUNT failed builds"
+            echo "$FAILED_IMAGES" > builds/${DATASET}/${SPLIT}/failed-attempt-1.txt
+            echo "RETRY_NEEDED=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Retry failed builds (attempt 2)
+        if: env.RETRY_NEEDED == 'true'
+        run: |
+          set -euo pipefail
+          
+          FAILED_FILE="builds/${DATASET}/${SPLIT}/failed-attempt-1.txt"
+          
+          if [ ! -f "$FAILED_FILE" ]; then
+            echo "Failed images file not found: $FAILED_FILE"
+            exit 0
+          fi
+          
+          echo "Retrying failed builds from $FAILED_FILE"
+          uv run benchmarks/swe_bench/build_images.py \
+            --base-images-file "$FAILED_FILE" \
+            --image ghcr.io/openhands/eval-agent-server \
+            --push \
+            --max-workers '${MAX_WORKERS}'
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
+      - name: Extract failed builds (attempt 2)
+        if: env.RETRY_NEEDED == 'true'
+        run: |
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null || true)
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            exit 0
+          fi
+          
+          # Extract failed base images
+          FAILED_IMAGES=$(cat $MANIFEST_FILES | python -c "
+          import sys
+          import json
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is not None or len(data.get('tags', [])) == 0:
+                  print(data.get('base_image', ''))
+          " | sort -u)
+          
+          if [ -z "$FAILED_IMAGES" ]; then
+            echo "No failed builds found after retry"
+            echo "RETRY_NEEDED_2=false" >> "$GITHUB_ENV"
+          else
+            FAILED_COUNT=$(echo "$FAILED_IMAGES" | wc -l)
+            echo "Found $FAILED_COUNT failed builds after retry"
+            echo "$FAILED_IMAGES" > builds/${DATASET}/${SPLIT}/failed-attempt-2.txt
+            echo "RETRY_NEEDED_2=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Retry failed builds (attempt 3)
+        if: env.RETRY_NEEDED_2 == 'true'
+        run: |
+          set -euo pipefail
+          
+          FAILED_FILE="builds/${DATASET}/${SPLIT}/failed-attempt-2.txt"
+          
+          if [ ! -f "$FAILED_FILE" ]; then
+            echo "Failed images file not found: $FAILED_FILE"
+            exit 0
+          fi
+          
+          echo "Retrying failed builds from $FAILED_FILE (final attempt)"
+          uv run benchmarks/swe_bench/build_images.py \
+            --base-images-file "$FAILED_FILE" \
+            --image ghcr.io/openhands/eval-agent-server \
+            --push \
+            --max-workers '${MAX_WORKERS}'
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
