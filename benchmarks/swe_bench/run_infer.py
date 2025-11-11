@@ -155,7 +155,8 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
                 ),
                 runtime_api_key=runtime_api_key,
-                server_image="ghcr.io/openhands/agent-server:main-python",
+                server_image=agent_server_image,
+                target_type="source" if "source" in build_target else "binary",
             )
         else:
             raise ValueError(
