@@ -147,7 +147,7 @@ def _build_with_logging(
     if base_image_to_custom_tag_fn:
         custom_tag = base_image_to_custom_tag_fn(base_image)
 
-    assert max_retries >= 0, "max_retries must be non-negative"
+    assert max_retries >= 1, "max_retries must be at least 1"
     for attempt in range(max_retries):
         with capture_output(base_image, log_dir) as log_path:
             if attempt > 0:
