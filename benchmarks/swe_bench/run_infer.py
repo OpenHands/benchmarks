@@ -26,7 +26,7 @@ from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -96,45 +96,72 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
         """
-        SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-        logger.info(f"SKIP_BUILD={SKIP_BUILD}")
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
         custom_tag = extract_custom_tag(official_docker_image)
-
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
-        agent_server_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
-        )
-        if not SKIP_BUILD:
-            logger.info(
-                f"Building workspace from {official_docker_image} "
-                f"for instance {instance.id}. "
-                "This may take a while...\n"
-                "You can run benchmarks/swe_bench/build_images.py and set "
-                "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
-                "agent-server image."
+
+        if self.metadata.workspace_type == "docker":
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            output = build_image(
-                base_image=official_docker_image,
-                target_image=EVAL_AGENT_SERVER_IMAGE,
-                custom_tag=custom_tag,
-                target=build_target,
-                push=False,
+            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
+            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+            if not SKIP_BUILD:
+                logger.info(
+                    f"Building workspace from {official_docker_image} "
+                    f"for instance {instance.id}. "
+                    "This may take a while...\n"
+                    "You can run benchmarks/swe_bench/build_images.py and set "
+                    "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
+                    "agent-server image."
+                )
+                output = build_image(
+                    base_image=official_docker_image,
+                    target_image=EVAL_AGENT_SERVER_IMAGE,
+                    custom_tag=custom_tag,
+                    target=build_target,
+                    push=False,
+                )
+                logger.info(f"Image build output: {output}")
+                assert output.error is None, f"Image build failed: {output.error}"
+                if agent_server_image not in output.tags:
+                    raise RuntimeError(
+                        f"Built image tags {output.tags} do not include expected tag "
+                        f"{agent_server_image}"
+                    )
+
+            workspace = DockerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
             )
-            logger.info(f"Image build output: {output}")
-            assert output.error is None, f"Image build failed: {output.error}"
-            if agent_server_image not in output.tags:
-                raise RuntimeError(
-                    f"Built image tags {output.tags} do not include expected tag "
-                    f"{agent_server_image}"
+        elif self.metadata.workspace_type == "remote":
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-        workspace = DockerWorkspace(
-            server_image=agent_server_image,
-            working_dir="/workspace",
-        )
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+            )
+            logger.info(
+                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
+            )
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=os.getenv(
+                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                ),
+                runtime_api_key=runtime_api_key,
+                server_image="ghcr.io/openhands/agent-server:main-python",
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
+
         for cmd in self.metadata.env_setup_commands or []:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
@@ -297,6 +324,7 @@ def main() -> None:
         critic_name=args.critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        workspace_type=args.workspace,
     )
 
     # Run orchestrator with a simple JSONL writer

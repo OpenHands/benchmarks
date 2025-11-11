@@ -26,6 +26,13 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
+        "--workspace",
+        type=str,
+        default="docker",
+        choices=["docker", "remote"],
+        help="Type of workspace to use (default: docker)",
+    )
+    parser.add_argument(
         "--max-iterations", type=int, default=100, help="Maximum iterations"
     )
     parser.add_argument(
