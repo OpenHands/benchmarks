@@ -22,7 +22,7 @@ on:
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
         required: false
-        default: '10'
+        default: ''
         type: string
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
