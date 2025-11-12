@@ -6,6 +6,8 @@ Shared utilities for batch building agent-server images.
 import argparse
 import contextlib
 import io
+import subprocess
+import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +24,68 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def _get_sdk_submodule_info() -> tuple[str, str, str]:
+    """
+    Get SDK version info from the vendor/software-agent-sdk submodule.
+
+    Returns:
+        tuple[str, str, str]: (git_ref, git_sha, sdk_version)
+    """
+    # Find the benchmarks repo root (where this file lives)
+    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+
+    # Get submodule SHA
+    try:
+        result = subprocess.run(
+            ["git", "submodule", "status", "vendor/software-agent-sdk"],
+            cwd=benchmarks_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # Output format: " <sha> vendor/software-agent-sdk (<description>)"
+        # or "+<sha>" if modified, "-<sha>" if uninitialized
+        sha_line = result.stdout.strip().split()[0]
+        git_sha = sha_line.lstrip("+-")
+    except subprocess.CalledProcessError:
+        logger.warning(
+            "Failed to get SDK submodule SHA, using 'unknown'. "
+            "Make sure submodules are initialized."
+        )
+        git_sha = "unknown"
+
+    # Get submodule ref (current branch or HEAD)
+    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
+    try:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "-q", "--short", "HEAD"],
+            cwd=sdk_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        git_ref = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        # Not on a branch (detached HEAD), use the SHA
+        git_ref = git_sha
+
+    # Get SDK version from pyproject.toml
+    pyproject_path = sdk_path / "openhands-sdk" / "pyproject.toml"
+    sdk_version = "unknown"
+    try:
+        if pyproject_path.exists():
+            with pyproject_path.open("rb") as f:
+                config = tomllib.load(f)
+            sdk_version = config.get("project", {}).get("version", "unknown")
+    except Exception as e:
+        logger.warning(f"Failed to read SDK version from pyproject.toml: {e}")
+
+    logger.info(
+        f"SDK submodule info: ref={git_ref}, sha={git_sha[:7]}, version={sdk_version}"
+    )
+    return git_ref, git_sha, sdk_version
 
 
 class BuildOutput(BaseModel):
@@ -116,6 +180,9 @@ def build_image(
     target: TargetType = "source-minimal",
     push: bool = False,
 ) -> BuildOutput:
+    # Get SDK info from submodule to ensure tags use the correct SDK SHA
+    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+
     opts = BuildOptions(
         base_image=base_image,
         custom_tags=custom_tag,
@@ -124,6 +191,10 @@ def build_image(
         # SWE-Bench only supports linux/amd64 images
         platforms=["linux/amd64"],
         push=push,
+        # Override git info to use SDK submodule info instead of benchmarks repo
+        git_ref=git_ref,
+        git_sha=git_sha,
+        sdk_version=sdk_version,
     )
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
