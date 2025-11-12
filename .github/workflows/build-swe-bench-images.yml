@@ -1,7 +1,8 @@
 name: Build SWE-Bench Images
 
 on:
-  # pull_request:  # for debugging
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       dataset:
@@ -38,6 +39,10 @@ concurrency:
 
 jobs:
   build-and-push:
+    # Only run on workflow_dispatch or if the PR is labeled with 'build-swebench'
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'build-swebench')
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
 
