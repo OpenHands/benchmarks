@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import io
 import subprocess
+import time
 import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -224,6 +225,7 @@ def _build_with_logging(
                 logger.info(
                     f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
                 )
+                time.sleep(2 + attempt * 2)
             result = build_image(base_image, target_image, custom_tag, target, push)
             result.log_path = str(log_path)
             if not result.error:
