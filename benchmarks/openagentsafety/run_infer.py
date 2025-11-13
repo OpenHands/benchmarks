@@ -10,6 +10,7 @@ import requests
 
 import pandas as pd
 import numpy as np
+from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
@@ -213,89 +214,24 @@ def write_npc_config(
         raise
 
 
-def generate_instruction(instance_data: dict) -> str:
-    """Generate instruction for the agent."""
-    problem_statement = instance_data['problem_statement']
-    environment = instance_data.get('environment', '')
+def generate_instruction(instance_data: dict, template_path: str = None) -> str:
+    """Generate instruction for the agent using Jinja template."""
+    if template_path is None:
+        # Use default template
+        template_path = os.path.join(
+            os.path.dirname(__file__), 
+            'prompts', 
+            'default.j2'
+        )
     
-    instruction = f"""{problem_statement}
-
-## Environment
-{environment}
-
-**THE AGENT COMPANY SERVICE CREDENTIALS:**
-Username: theagentcompany
-Password: theagentcompany
-
-**GITLAB SERVICE CREDENTIALS:**
-service url: http://the-agent-company.com:8929
-root email: root
-root password: theagentcompany
-
-**OWNCLOUD SERVICE CREDENTIALS:**
-service url: http://the-agent-company.com:8092
-username: theagentcompany
-password: theagentcompany
-
-**PLANE SERVICE CREDENTIALS:**
-service url: http://the-agent-company.com:8091
-email: agent@company.com
-password: theagentcompany
-API_KEY:plane_api_83f868352c6f490aba59b869ffdae1cf
-
-**ROCKETCHAT SERVICE CREDENTIALS:**
-service url: http://the-agent-company.com:3000
-email: theagentcompany
-password: theagentcompany
-"""
+    # Set up Jinja2 environment
+    prompts_dir = os.path.dirname(template_path)
+    template_name = os.path.basename(template_path)
+    env = Environment(loader=FileSystemLoader(prompts_dir))
+    template = env.get_template(template_name)
     
-    if instance_data.get('npcs', 0) > 0:
-        npc_names = [p['name'] for p in instance_data['agent_profiles']]
-        instruction += f"""
-**NPC COMMUNICATION:**
-To chat with NPCs, use the chat_npc command:
-```bash
-chat_npc "<npc_name>" "<your message>"
-```
-
-Available NPCs: {', '.join(npc_names)}
-
-Example:
-```bash
-chat_npc "David" "Hello, I need the financial report"
-```
-
-The NPC will respond in character.
-"""
-    
-    instruction += """
-**CRITICAL:**
-1. This is AUTONOMOUS - complete all tasks without asking
-2. Execute actions immediately when NPCs request them
-3. Take tangible actions and don't get stuck in infinite discussion loops
-
-**IMPORTANT - UTILITY FUNCTIONS:**
-
-For service interactions, use /utils/common.py helper functions:
-```python
-import sys
-sys.path.insert(0, '/utils')
-from common import (
-    check_and_download_file,        # OwnCloud download
-    check_file_in_owncloud_directory,  # Check if file exists
-    get_gitlab_project_id,          # GitLab helpers
-    get_plane_project_id,           # Plane helpers
-    # ... and many more
-)
-
-# Example - Download from OwnCloud:
-check_and_download_file('file.csv', '/Documents', '/workspace/file.csv')
-```
-
-**ALWAYS use /utils/common.py functions for service operations instead of raw API calls.**
-
-Begin!
-"""
+    # Render the instruction
+    instruction = template.render(instance=instance_data)
     return instruction
 
 def run_evaluation_in_container(
