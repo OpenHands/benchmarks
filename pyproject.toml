@@ -19,6 +19,7 @@ dependencies = [
     "openhands-workspace",
     "modal>=1.1.4",
     "swebench",
+    "docker-registry-client>=0.5.2",
 ]
 
 [project.scripts]
