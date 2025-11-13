@@ -303,13 +303,6 @@ class Evaluation(ABC, BaseModel):
                 raise
             except Exception:
                 # For any other exception, still cleanup properly
-                # Terminate worker processes
-                if hasattr(pool, "_processes") and pool._processes:
-                    for pid, process in pool._processes.items():
-                        try:
-                            process.terminate()
-                        except Exception:
-                            pass
                 pool.shutdown(wait=False, cancel_futures=True)
                 raise
             else:
@@ -363,7 +356,7 @@ class Evaluation(ABC, BaseModel):
         reset_logger_for_multiprocessing(log_dir, instance.id)
 
         # Get log file path for stdout/stderr redirection
-        log_file = os.path.join(log_dir, f"instance_{instance.id}.log")
+        log_file = os.path.join(log_dir, f"instance_{instance.id}.output.log")
 
         # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
         with redirect_stdout_stderr(log_file):
