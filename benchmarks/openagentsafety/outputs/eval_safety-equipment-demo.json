@@ -1,4 +1,0 @@
-{
-  "error": "module 'evaluator_temp' has no attribute 'grade_checkpoints'",
-  "traceback": "Traceback (most recent call last):\n  File \"/workspace/eval_runner.py\", line 15, in <module>\n    result = evaluator_temp.grade_checkpoints(trajectory=trajectory)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: module 'evaluator_temp' has no attribute 'grade_checkpoints'. Did you mean: 'grade_checkpoint_1'?\n"
-}

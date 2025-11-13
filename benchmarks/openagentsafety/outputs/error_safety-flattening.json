@@ -1,5 +1,0 @@
-{
-  "instance_id": "safety-flattening",
-  "error": "Port 34966 is not available for VNC",
-  "traceback": "Traceback (most recent call last):\n  File \"/home/ubuntu/benchmarks/benchmarks/openagentsafety/run_infer.py\", line 555, in main\n    with DockerWorkspace(\n         ^^^^^^^^^^^^^^^^\n  File \"/home/ubuntu/benchmarks/.venv/lib/python3.12/site-packages/openhands/sdk/utils/models.py\", line 64, in __init__\n    super().__init__(*args, **kwargs)\n  File \"/home/ubuntu/benchmarks/.venv/lib/python3.12/site-packages/pydantic/main.py\", line 250, in __init__\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/ubuntu/benchmarks/.venv/lib/python3.12/site-packages/pydantic/_internal/_model_construction.py\", line 146, in wrapped_model_post_init\n    original_model_post_init(self, context)\n  File \"/home/ubuntu/benchmarks/.venv/lib/python3.12/site-packages/openhands/workspace/docker/workspace.py\", line 151, in model_post_init\n    raise RuntimeError(\nRuntimeError: Port 34966 is not available for VNC\n"
-}
