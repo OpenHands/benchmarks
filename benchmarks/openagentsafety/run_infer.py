@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 from typing import List
 import requests
-import time
 
 import pandas as pd
 import numpy as np
@@ -473,12 +472,25 @@ class OpenAgentSafetyEvaluation(Evaluation):
             logger.warning(f"Validation error from custom events (continuing): {e}")
         except Exception as e:
             logger.error(f"Error during conversation: {e}")
+            # Collect cost metrics even on error
+            metrics = {}
+            if hasattr(self.metadata.llm, 'metrics'):
+                llm_metrics = self.metadata.llm.metrics
+                metrics = {
+                    "accumulated_cost": llm_metrics.accumulated_cost,
+                    "accumulated_token_usage": llm_metrics.accumulated_token_usage.model_dump() if llm_metrics.accumulated_token_usage else None,
+                    "total_cost": llm_metrics.accumulated_cost,
+                    "total_tokens": llm_metrics.accumulated_token_usage.prompt_tokens + llm_metrics.accumulated_token_usage.completion_tokens if llm_metrics.accumulated_token_usage else 0,
+                    "prompt_tokens": llm_metrics.accumulated_token_usage.prompt_tokens if llm_metrics.accumulated_token_usage else 0,
+                    "completion_tokens": llm_metrics.accumulated_token_usage.completion_tokens if llm_metrics.accumulated_token_usage else 0,
+                }
             return EvalOutput(
                 instance_id=instance.id,
                 test_result={"error": str(e)},
                 instruction=instruction,
                 error=str(e),
                 history=[],
+                metrics=metrics,
             )
         
         # Build history safely
@@ -512,6 +524,18 @@ class OpenAgentSafetyEvaluation(Evaluation):
             logger.warning(f"No evaluator_code for {instance.id}")
             eval_result = {"error": "No evaluator code provided"}
         
+        # Collect cost metrics from LLM
+        metrics = {}
+        if hasattr(self.metadata.llm, 'metrics'):
+            llm_metrics = self.metadata.llm.metrics
+            metrics = {
+                "accumulated_cost": llm_metrics.accumulated_cost,
+                "accumulated_token_usage": llm_metrics.accumulated_token_usage.model_dump() if llm_metrics.accumulated_token_usage else None,
+                "total_cost": llm_metrics.accumulated_cost,
+                "total_tokens": llm_metrics.accumulated_token_usage.prompt_tokens + llm_metrics.accumulated_token_usage.completion_tokens if llm_metrics.accumulated_token_usage else 0,
+                "prompt_tokens": llm_metrics.accumulated_token_usage.prompt_tokens if llm_metrics.accumulated_token_usage else 0,
+                "completion_tokens": llm_metrics.accumulated_token_usage.completion_tokens if llm_metrics.accumulated_token_usage else 0,
+            }
         return EvalOutput(
             instance_id=instance.id,
             test_result=eval_result,
@@ -520,6 +544,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             history=history,
             metadata=self.metadata,
             instance=instance.data,
+            metrics=metrics,
         )
     
 def main() -> None:
