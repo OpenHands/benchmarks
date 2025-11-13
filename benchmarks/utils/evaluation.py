@@ -283,37 +283,17 @@ class Evaluation(ABC, BaseModel):
                             exc_info=True,
                             stack_info=True,
                         )
+
+                # Normal completion - shutdown gracefully
+                pool.shutdown(wait=True)
             except KeyboardInterrupt:
                 logger.warning("KeyboardInterrupt received, shutting down workers...")
-                # Cancel all pending futures
-                for fut in futures:
-                    fut.cancel()
-                # Forcefully terminate all worker processes
-                # Access internal processes dict and terminate each worker
-                if hasattr(pool, "_processes") and pool._processes:
-                    for pid, process in pool._processes.items():
-                        try:
-                            logger.debug(f"Terminating worker process {pid}")
-                            process.terminate()
-                        except Exception as term_err:
-                            logger.debug(f"Error terminating process {pid}: {term_err}")
-                # Shutdown the pool immediately without waiting
-                pool.shutdown(wait=False, cancel_futures=True)
+                self._cleanup_pool(pool, futures, wait=False)
                 logger.info("All workers terminated")
                 raise
             except Exception:
-                # For any other exception, still cleanup properly
-                pool.shutdown(wait=False, cancel_futures=True)
+                self._cleanup_pool(pool, futures, wait=False)
                 raise
-            else:
-                # Normal completion - shutdown gracefully
-                pool.shutdown(wait=True)
-            finally:
-                # Ensure pool is shutdown in all cases
-                try:
-                    pool.shutdown(wait=False)
-                except Exception:
-                    pass
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
@@ -339,6 +319,34 @@ class Evaluation(ABC, BaseModel):
             f"{self.metadata.max_attempts} max attempts"
         )
         return all_outputs
+
+    def _cleanup_pool(
+        self,
+        pool: ProcessPoolExecutor,
+        futures: list,
+        wait: bool = False,
+    ) -> None:
+        """Clean up pool by canceling futures, terminating workers, and shutting down.
+
+        Args:
+            pool: The ProcessPoolExecutor to clean up
+            futures: List of futures to cancel
+            wait: Whether to wait for workers to finish (True) or terminate immediately (False)
+        """
+        # Cancel all pending futures
+        for fut in futures:
+            fut.cancel()
+
+        # Forcefully terminate all worker processes if not waiting
+        if not wait and hasattr(pool, "_processes") and pool._processes:
+            for process in pool._processes.values():
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
+
+        # Shutdown the pool
+        pool.shutdown(wait=wait, cancel_futures=True)
 
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
