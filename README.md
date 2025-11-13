@@ -1,8 +1,22 @@
-# OpenHands Benchmarks Migration
+# OpenHands Benchmarks
 
-⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure from [OpenHands](https://github.com/All-Hands-AI/OpenHands/) to work with the [OpenHands Agent SDK](https://github.com/All-Hands-AI/agent-sdk).
+This repository contains benchmark evaluation infrastructure for [OpenHands](https://github.com/OpenHands/OpenHands/) agents. It provides standardized evaluation pipelines for testing agent capabilities across various real-world tasks.
 
-## Prerequisites
+⚠️ **Migration in Progress**: We are currently migrating the [benchmarks from OpenHands V0](https://github.com/OpenHands/OpenHands/tree/main/evaluation) to work with the [OpenHands Software Agent SDK](https://github.com/OpenHands/software-agent-sdk) infrastructure in V1.
+
+## Available Benchmarks
+
+| Benchmark | Description | Status |
+|-----------|-------------|--------|
+| [SWE-Bench](benchmarks/swe_bench/) | Software engineering tasks from GitHub issues | ✅ Active |
+| [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
+| [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
+
+See the individual benchmark directories for detailed usage instructions.
+
+## Quick Start
+
+### Prerequisites
 
 Before running any benchmarks, you need to set up the environment and ensure the local Agent SDK submodule is initialized.
 
@@ -15,7 +29,7 @@ make build
 
 ### 🧩 1. Initialize the Agent SDK submodule
 
-The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/All-Hands-AI/agent-sdk).  
+The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).
 This ensures your code runs against a specific, reproducible commit.
 
 Run once after cloning (already done in `make build` for you):
@@ -25,7 +39,7 @@ git submodule update --init --recursive
 ```
 
 This command will:
-- clone the SDK into `vendor/agent-sdk/`
+- clone the SDK into `vendor/software-agent-sdk/`
 - check out the exact commit pinned by this repo
 - make it available for local development (`uv sync` will install from the local folder)
 
@@ -56,12 +70,12 @@ and ensures the `openhands-*` packages (SDK, tools, workspace, agent-server) are
 If you want to update to a newer version of the SDK:
 
 ```bash
-cd vendor/agent-sdk
+cd vendor/software-agent-sdk
 git fetch
 git checkout <new_commit_or_branch>
 cd ../..
-git add vendor/agent-sdk
-git commit -m "Update agent-sdk submodule to <new_commit_sha>"
+git add vendor/software-agent-sdk
+git commit -m "Update software-agent-sdk submodule to <new_commit_sha>"
 ```
 
 Then re-run:
@@ -74,18 +88,11 @@ to rebuild your environment with the new SDK code.
 
 </details>
 
-## Available Benchmarks
+### Configure Your LLM
 
-This repository contains multiple benchmarks:
+All benchmarks require an LLM configuration file. Define your LLM config as a JSON following the model fields in the [LLM class](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93).
 
-- **SWE-Bench**: Software engineering tasks requiring code changes and bug fixes
-- **OpenAgentSafety**: AI agent safety evaluation in workplace scenarios with NPC interactions
-
-## Quick Start
-
-### 1. Configure Your LLM
-
-Define your LLM config as a JSON following the model fields type in the [LLM class](https://github.com/All-Hands-AI/agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93), [for example](.llm_config/example.json), you can write the following to `.llm_config/example.json`:
+**Example** (`.llm_config/example.json`):
 
 ```json
 {
@@ -95,108 +102,22 @@ Define your LLM config as a JSON following the model fields type in the [LLM cla
 }
 ```
 
-You may validate the correctness of your config by running `uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json`
-
-## SWE-Bench Evaluation
-
-### 2. Build Docker Images for SWE-Bench
-Build ALL docker images for SWE-Bench.
-```bash
-uv run benchmarks/swe_bench/build_images.py \
-  --dataset princeton-nlp/SWE-bench_Verified --split test \
-  --image ghcr.io/all-hands-ai/agent-server --target binary-minimal
-```
-
-### 3. Run SWE-Bench Evaluation
-```bash
-# Run evaluation with your configured LLM
-uv run swebench-infer .llm_config/sonnet-4.json
-```
-
-## OpenAgentSafety Evaluation
-
-OpenAgentSafety uses the same LLM config approach as SWE-Bench, but requires additional setup for NPC interactions and TheAgentCompany services.
-
-### 4. Start Docker and Set Up Services
-
-OpenAgentSafety requires TheAgentCompany infrastructure (GitLab, ownCloud, RocketChat, etc.) for realistic NPC interactions:
+Validate your configuration:
 
 ```bash
-# 1. Start Docker daemon
-sudo dockerd > /tmp/docker.log 2>&1 &
-sleep 5
-
-# 2. Verify Docker is running
-sudo docker version
-
-# 3. Fix Docker socket permissions
-sudo chmod 666 /var/run/docker.sock
-
-# 4. Set up TheAgentCompany services (~30GB download, 15-30 min setup)
-cd /workspace/project
-curl -fsSL https://github.com/TheAgentCompany/the-agent-company-backup-data/releases/download/setup-script-20241208/setup.sh | sh
-
-# 5. Set NPC environment variables
-export NPC_API_KEY="your-openai-api-key"
-export NPC_BASE_URL="https://api.openai.com/v1"
-export NPC_MODEL="gpt-4o-mini"
+uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 ```
 
-### 5. Run OpenAgentSafety Evaluation
-```bash
-cd benchmarks
-uv run openagentsafety-infer .llm_config/gpt-4o-mini.json \
-  --dataset mgulavani/openagentsafety_full_updated_v3 \
-  --split train \
-  --output-dir ./results \
-  --num-workers 1 \
-  --n-limit 2 \
-  --critic pass
-```
+## Running Benchmarks
 
-**Note**: The setup requires ~30GB disk space and sufficient system resources for multiple services (GitLab, ownCloud, RocketChat, databases).
+After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
 
-See [benchmarks/openagentsafety/README.md](benchmarks/openagentsafety/README.md) for detailed documentation.
-
-## Selecting Specific Instances
-
-Both SWE-Bench and OpenAgentSafety support running evaluation on a specific subset of instances using the `--select` option:
-
-1. Create a text file with one instance ID per line:
-
-**instances.txt:**
-```
-django__django-11333
-astropy__astropy-12345
-requests__requests-5555
-```
-
-2. Run evaluation with the selection file:
-
-**For SWE-Bench:**
-```bash
-python -m benchmarks.swe_bench.run_infer \
-    --agent-cls CodeActAgent \
-    --llm-config llm_config.toml \
-    --max-iterations 30 \
-    --select instances.txt \
-    --eval-output-dir ./evaluation_results
-```
-
-**For OpenAgentSafety:**
-```bash
-uv run openagentsafety-infer .llm_config/gpt-4o-mini.json \
-  --dataset mgulavani/openagentsafety_full_updated_v3 \
-  --split train \
-  --output-dir ./results \
-  --select instances.txt \
-  --critic pass
-```
-
-This will only evaluate the instances listed in the file.
+- **[SWE-Bench](benchmarks/swe_bench/)**: Software engineering tasks from GitHub issues
+- **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
+- **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
 ## Links
 
-- **Original OpenHands**: https://github.com/All-Hands-AI/OpenHands/
-- **Agent SDK**: https://github.com/All-Hands-AI/agent-sdk
+- **Original OpenHands**: https://github.com/OpenHands/OpenHands/
+- **Agent SDK**: https://github.com/OpenHands/software-agent-sdk
 - **SWE-Bench**: https://www.swebench.com/
