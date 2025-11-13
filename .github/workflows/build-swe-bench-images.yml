@@ -1,7 +1,7 @@
 name: Build SWE-Bench Images
 
 on:
-  pull_request:
+  pull_request_target:
     types: [labeled]
   workflow_dispatch:
     inputs:
@@ -18,7 +18,7 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '64'
+        default: '32'
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
@@ -30,7 +30,7 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '64'
+  MAX_WORKERS: '32'
   N_LIMIT: '500'
 
 concurrency:
@@ -39,10 +39,11 @@ concurrency:
 
 jobs:
   build-and-push:
-    # Only run on workflow_dispatch or if the PR is labeled with 'build-swebench'
-    if: |
+    if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.event.label.name == 'build-swebench')
+      (github.event_name == 'pull_request_target' &&
+       github.event.label.name == 'build-swebench')
+
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
 
