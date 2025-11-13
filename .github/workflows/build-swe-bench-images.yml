@@ -18,7 +18,7 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '64'
+        default: '32'
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
@@ -30,7 +30,7 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '64'
+  MAX_WORKERS: '32'
   N_LIMIT: '500'
 
 concurrency:
