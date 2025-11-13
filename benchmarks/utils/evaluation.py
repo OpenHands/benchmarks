@@ -260,7 +260,9 @@ class Evaluation(ABC, BaseModel):
                         logger.warning("on_result callback failed: %s", cb_err)
 
             # Run evaluation for this attempt
-            with ProcessPoolExecutor(max_workers=self.num_workers) as pool:
+            pool = ProcessPoolExecutor(max_workers=self.num_workers)
+            futures = []
+            try:
                 futures = [
                     pool.submit(self._process_one_mp, inst)
                     for inst in instances_to_process
@@ -281,6 +283,44 @@ class Evaluation(ABC, BaseModel):
                             exc_info=True,
                             stack_info=True,
                         )
+            except KeyboardInterrupt:
+                logger.warning("KeyboardInterrupt received, shutting down workers...")
+                # Cancel all pending futures
+                for fut in futures:
+                    fut.cancel()
+                # Forcefully terminate all worker processes
+                # Access internal processes dict and terminate each worker
+                if hasattr(pool, "_processes") and pool._processes:
+                    for pid, process in pool._processes.items():
+                        try:
+                            logger.debug(f"Terminating worker process {pid}")
+                            process.terminate()
+                        except Exception as term_err:
+                            logger.debug(f"Error terminating process {pid}: {term_err}")
+                # Shutdown the pool immediately without waiting
+                pool.shutdown(wait=False, cancel_futures=True)
+                logger.info("All workers terminated")
+                raise
+            except Exception:
+                # For any other exception, still cleanup properly
+                # Terminate worker processes
+                if hasattr(pool, "_processes") and pool._processes:
+                    for pid, process in pool._processes.items():
+                        try:
+                            process.terminate()
+                        except Exception:
+                            pass
+                pool.shutdown(wait=False, cancel_futures=True)
+                raise
+            else:
+                # Normal completion - shutdown gracefully
+                pool.shutdown(wait=True)
+            finally:
+                # Ensure pool is shutdown in all cases
+                try:
+                    pool.shutdown(wait=False)
+                except Exception:
+                    pass
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
