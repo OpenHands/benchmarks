@@ -35,6 +35,17 @@ class Evaluation(ABC, BaseModel):
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
 
+    def model_post_init(self, __context) -> None:
+        """Save metadata to output directory after initialization."""
+        # Ensure output directory exists
+        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
+
+        # Save metadata to JSON file
+        metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
+        with open(metadata_file, "w", encoding="utf-8") as f:
+            f.write(self.metadata.model_dump_json(indent=2))
+        logger.info(f"Saved metadata to {metadata_file}")
+
     @property
     def output_path(self) -> str:
         return os.path.join(self.metadata.eval_output_dir, OUTPUT_FILENAME)
@@ -247,9 +258,7 @@ class Evaluation(ABC, BaseModel):
                         logger.warning("on_result callback failed: %s", cb_err)
 
             # Run evaluation for this attempt
-            with ProcessPoolExecutor(
-                max_workers=self.num_workers, initializer=_child_init
-            ) as pool:
+            with ProcessPoolExecutor(max_workers=self.num_workers) as pool:
                 futures = [
                     pool.submit(self._process_one_mp, inst)
                     for inst in instances_to_process
@@ -307,6 +316,10 @@ class Evaluation(ABC, BaseModel):
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
+        # Set up instance-specific logging
+        log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
+        reset_logger_for_multiprocessing(log_dir, instance.id)
+
         logger.info("[child] start id=%s", instance.id)
 
         retry_count = 0
@@ -363,11 +376,57 @@ class Evaluation(ABC, BaseModel):
         return instance, error_output
 
 
-# ---------- Optional per-process initializer ---------------------------------------
+# ---------- Multiprocessing logging helper ---------------------------------------
 
 
-def _child_init() -> None:
-    """Per-process initializer (placeholder).
-    Put signal handlers or per-process setup here if needed.
+def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
+    """Reset the logger for multiprocessing with instance-specific logging.
+
+    Save logs to a separate file for each instance, instead of trying to write to the
+    same file/console from multiple processes. This provides:
+    - One INFO line to console at start with tail hint
+    - All subsequent logs go to instance-specific file
+    - Only WARNING+ messages go to console after initial message
+
+    Args:
+        log_dir: Directory to store log files
+        instance_id: Unique identifier for the instance being processed
     """
-    pass
+    import logging
+
+    # Set up logger
+    log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
+
+    # Get root logger and remove all existing handlers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Create console handler for initial message
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(
+        logging.Formatter(
+            f"Instance {instance_id} - " + "%(asctime)s - %(levelname)s - %(message)s"
+        )
+    )
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(logging.DEBUG)
+
+    # Print one INFO line with helpful hint
+    root_logger.info(
+        f"Starting evaluation for instance {instance_id}.\n"
+        f'Hint: run "tail -f {log_file}" to see live logs in a separate shell'
+    )
+
+    # Now set console to WARNING+ only
+    console_handler.setLevel(logging.WARNING)
+
+    # Add file handler for detailed logs
+    os.makedirs(log_dir, exist_ok=True)
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    )
+    file_handler.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
