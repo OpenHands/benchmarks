@@ -4,8 +4,10 @@ Evaluation orchestrator.
 
 import json
 import os
+import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import contextmanager
 from typing import Callable, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
@@ -320,60 +322,65 @@ class Evaluation(ABC, BaseModel):
         log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
         reset_logger_for_multiprocessing(log_dir, instance.id)
 
-        logger.info("[child] start id=%s", instance.id)
+        # Get log file path for stdout/stderr redirection
+        log_file = os.path.join(log_dir, f"instance_{instance.id}.log")
 
-        retry_count = 0
-        last_error = None
-        max_retries = self.metadata.max_retries
+        # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
+        with redirect_stdout_stderr(log_file):
+            logger.info("[child] start id=%s", instance.id)
 
-        while retry_count <= max_retries:
-            workspace = None
-            try:
-                workspace = self.prepare_workspace(instance)
-                out = self.evaluate_instance(instance, workspace)
-                logger.info("[child] done id=%s", instance.id)
-                return instance, out
-            except Exception as e:
-                last_error = e
-                retry_count += 1
+            retry_count = 0
+            last_error = None
+            max_retries = self.metadata.max_retries
 
-                if retry_count <= max_retries:
-                    logger.warning(
-                        f"[child] Instance {instance.id} failed "
-                        f"(attempt {retry_count}/{max_retries}): "
-                        f"{str(e)[:50]}"
-                    )
-                else:
-                    logger.error(
-                        f"[child] Instance {instance.id} failed after "
-                        f"{max_retries} retries. Last error: {str(e)[:50]}",
-                        exc_info=True,
-                    )
-                    # Create error output for final failure
-                    error_output = self._create_error_output(
-                        instance, last_error, max_retries
-                    )
-                    return instance, error_output
-            finally:
-                # Ensure workspace cleanup happens regardless of success or failure
-                if workspace is not None:
-                    try:
-                        # Use the context manager protocol for cleanup
-                        workspace.__exit__(None, None, None)
-                        logger.debug(
-                            "[child] cleaned up workspace for id=%s", instance.id
-                        )
-                    except Exception as cleanup_error:
+            while retry_count <= max_retries:
+                workspace = None
+                try:
+                    workspace = self.prepare_workspace(instance)
+                    out = self.evaluate_instance(instance, workspace)
+                    logger.info("[child] done id=%s", instance.id)
+                    return instance, out
+                except Exception as e:
+                    last_error = e
+                    retry_count += 1
+
+                    if retry_count <= max_retries:
                         logger.warning(
-                            f"[child] Failed to cleanup workspace for {instance.id}: "
-                            f"{str(cleanup_error)[:50]}"
+                            f"[child] Instance {instance.id} failed "
+                            f"(attempt {retry_count}/{max_retries}): "
+                            f"{str(e)[:50]}"
                         )
+                    else:
+                        logger.error(
+                            f"[child] Instance {instance.id} failed after "
+                            f"{max_retries} retries. Last error: {str(e)[:50]}",
+                            exc_info=True,
+                        )
+                        # Create error output for final failure
+                        error_output = self._create_error_output(
+                            instance, last_error, max_retries
+                        )
+                        return instance, error_output
+                finally:
+                    # Ensure workspace cleanup happens regardless of success or failure
+                    if workspace is not None:
+                        try:
+                            # Use the context manager protocol for cleanup
+                            workspace.__exit__(None, None, None)
+                            logger.debug(
+                                "[child] cleaned up workspace for id=%s", instance.id
+                            )
+                        except Exception as cleanup_error:
+                            logger.warning(
+                                f"[child] Failed to cleanup workspace for {instance.id}: "
+                                f"{str(cleanup_error)[:50]}"
+                            )
 
-        # This should never be reached, but added for type safety
-        error_output = self._create_error_output(
-            instance, Exception("Unexpected error: no attempts made"), max_retries
-        )
-        return instance, error_output
+            # This should never be reached, but added for type safety
+            error_output = self._create_error_output(
+                instance, Exception("Unexpected error: no attempts made"), max_retries
+            )
+            return instance, error_output
 
 
 # ---------- Multiprocessing logging helper ---------------------------------------
@@ -430,3 +437,38 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     )
     file_handler.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
+
+
+@contextmanager
+def redirect_stdout_stderr(log_file_path: str):
+    """Context manager to redirect stdout/stderr to a log file.
+
+    This captures all print() statements, SDK visualizations, and any other
+    output that goes to stdout/stderr.
+
+    Args:
+        log_file_path: Path to the log file where output should be redirected
+    """
+    # Save original stdout/stderr
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    log_file = None
+
+    try:
+        # Open log file in append mode with line buffering
+        log_file = open(log_file_path, "a", buffering=1, encoding="utf-8")
+
+        # Redirect stdout and stderr
+        sys.stdout = log_file
+        sys.stderr = log_file
+
+        yield
+
+    finally:
+        # Restore original stdout/stderr
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+
+        # Close the log file if it was opened
+        if log_file is not None and not log_file.closed:
+            log_file.close()
