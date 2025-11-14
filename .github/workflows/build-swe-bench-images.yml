@@ -25,6 +25,11 @@ on:
         required: false
         default: ''
         type: string
+      sdk-ref:
+        description: 'SDK commit, branch, or tag to use for vendor/software-agent-sdk (defaults to main)'
+        required: false
+        default: 'main'
+        type: string
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
@@ -32,6 +37,7 @@ env:
   SPLIT: test
   MAX_WORKERS: '32'
   N_LIMIT: '500'
+  SDK_REF: 'main'
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}
@@ -68,6 +74,22 @@ jobs:
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.sdk-ref }}" ]; then echo "SDK_REF=${{ inputs.sdk-ref }}" >> "$GITHUB_ENV"; fi
+
+      - name: Use PR head commit for SDK ref
+        if: ${{ github.event_name == 'pull_request_target' }}
+        run: |
+          echo "SDK_REF=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_ENV"
+
+      - name: Sync SDK submodule to requested ref
+        run: |
+          set -euo pipefail
+          SDK_REF="${SDK_REF:-main}"
+          echo "Checking out vendor/software-agent-sdk@$SDK_REF"
+          pushd vendor/software-agent-sdk >/dev/null
+          git fetch origin "$SDK_REF"
+          git checkout "$SDK_REF"
+          popd >/dev/null
 
       - name: Set up Docker Buildx with Blacksmith
         uses: useblacksmith/setup-docker-builder@v1
