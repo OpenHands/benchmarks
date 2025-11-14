@@ -13,7 +13,7 @@ from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 from openhands.sdk.critic import (
     AgentFinishedCritic,
-    BaseCritic,
+    CriticBase,
     CriticRegistry,
     CriticResult,
     EmptyPatchCritic,
@@ -24,7 +24,7 @@ from openhands.sdk.event import LLMConvertibleEvent
 
 # Re-export SDK critic components for convenience
 __all__ = [
-    "BaseCritic",
+    "CriticBase",
     "CriticResult",
     "CriticRegistry",
     "AgentFinishedCritic",
@@ -94,7 +94,7 @@ def extract_git_patch(eval_output: EvalOutput) -> str | None:
     return eval_output.test_result.get("git_patch")
 
 
-def evaluate_output(critic: BaseCritic, eval_output: EvalOutput) -> bool:
+def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
     """
     Evaluate an EvalOutput using a critic.
 
@@ -164,7 +164,7 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     return completed_instances
 
 
-def get_failed_instances(output_file: str, critic: BaseCritic) -> Set[EvalInstanceID]:
+def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
 

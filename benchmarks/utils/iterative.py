@@ -9,7 +9,7 @@ import json
 import os
 from typing import Set
 
-from benchmarks.utils.critics import BaseCritic, CriticRegistry, evaluate_output
+from benchmarks.utils.critics import CriticBase, CriticRegistry, evaluate_output
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 
@@ -17,7 +17,7 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def get_failed_instances(output_file: str, critic: BaseCritic) -> Set[EvalInstanceID]:
+def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
 
