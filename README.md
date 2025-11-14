@@ -127,7 +127,7 @@ Uses local Docker containers to run agent evaluations. Images are built locally 
 
 ### Remote Workspace
 
-Uses a remote runtime API to provision containers in a cloud environment, enabling massive parallelization.
+Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-coding-agents-on-swe-bench-at-30x-speed) to provision containers in a cloud environment, enabling massive parallelization.
 
 - **Pros**: Scalable to hundreds of parallel workers, no local resource constraints
 - **Cons**: Requires pre-built images and API access
