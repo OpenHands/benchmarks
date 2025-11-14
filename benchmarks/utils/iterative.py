@@ -2,14 +2,14 @@
 Iterative mode utilities for evaluation.
 
 This module contains utilities for implementing iterative mode evaluation,
-including the AgentFinishedCritic for determining if an instance succeeded.
+using SDK critics to determine if an instance succeeded.
 """
 
 import json
 import os
 from typing import Set
 
-from benchmarks.utils.critics import Critic, CriticRegistry
+from benchmarks.utils.critics import BaseCritic, CriticRegistry, evaluate_output
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 
@@ -17,13 +17,13 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def get_failed_instances(output_file: str, critic: Critic) -> Set[EvalInstanceID]:
+def get_failed_instances(output_file: str, critic: BaseCritic) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
 
     Args:
         output_file: Path to the JSONL output file
-        critic: Critic to use for evaluation.
+        critic: SDK critic to use for evaluation
 
     Returns:
         Set of instance IDs that failed
@@ -42,7 +42,8 @@ def get_failed_instances(output_file: str, critic: Critic) -> Set[EvalInstanceID
                     data = json.loads(line.strip())
                     output = EvalOutput(**data)
 
-                    if not critic.evaluate_instance(output):
+                    # Evaluate using the critic
+                    if not evaluate_output(critic, output):
                         failed_instances.add(output.instance_id)
 
                 except json.JSONDecodeError as e:
@@ -108,7 +109,8 @@ def aggregate_results(
                         # 1. We haven't seen this instance yet, OR
                         # 2. This attempt is the first one to succeed
                         instance_id = output.instance_id
-                        is_successful = critic.evaluate_instance(output)
+
+                        is_successful = evaluate_output(critic, output)
 
                         if instance_id not in best_results:
                             # First time seeing this instance
@@ -116,8 +118,8 @@ def aggregate_results(
                         elif is_successful:
                             # This attempt succeeded, check if we should replace
                             current_best = best_results[instance_id]
-                            current_is_successful = critic.evaluate_instance(
-                                current_best
+                            current_is_successful = evaluate_output(
+                                critic, current_best
                             )
                             if not current_is_successful:
                                 # Replace failed result with successful one
