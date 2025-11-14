@@ -110,6 +110,16 @@ jobs:
         run: |
           make build
 
+      - name: Re-sync SDK submodule after setup
+        run: |
+          set -euo pipefail
+          SDK_REF="${SDK_REF:-main}"
+          echo "Re-checking out vendor/software-agent-sdk@$SDK_REF after dependency install"
+          pushd vendor/software-agent-sdk >/dev/null
+          git fetch origin "$SDK_REF"
+          git checkout "$SDK_REF"
+          popd >/dev/null
+
       - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
