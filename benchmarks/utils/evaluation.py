@@ -4,8 +4,10 @@ Evaluation orchestrator.
 
 import json
 import os
+import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import contextmanager
 from typing import Callable, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
@@ -34,6 +36,17 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+
+    def model_post_init(self, __context) -> None:
+        """Save metadata to output directory after initialization."""
+        # Ensure output directory exists
+        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
+
+        # Save metadata to JSON file
+        metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
+        with open(metadata_file, "w", encoding="utf-8") as f:
+            f.write(self.metadata.model_dump_json(indent=2))
+        logger.info(f"Saved metadata to {metadata_file}")
 
     @property
     def output_path(self) -> str:
@@ -247,9 +260,9 @@ class Evaluation(ABC, BaseModel):
                         logger.warning("on_result callback failed: %s", cb_err)
 
             # Run evaluation for this attempt
-            with ProcessPoolExecutor(
-                max_workers=self.num_workers, initializer=_child_init
-            ) as pool:
+            pool = ProcessPoolExecutor(max_workers=self.num_workers)
+            futures = []
+            try:
                 futures = [
                     pool.submit(self._process_one_mp, inst)
                     for inst in instances_to_process
@@ -270,6 +283,17 @@ class Evaluation(ABC, BaseModel):
                             exc_info=True,
                             stack_info=True,
                         )
+
+                # Normal completion - shutdown gracefully
+                pool.shutdown(wait=True)
+            except KeyboardInterrupt:
+                logger.warning("KeyboardInterrupt received, shutting down workers...")
+                self._cleanup_pool(pool, futures, wait=False)
+                logger.info("All workers terminated")
+                raise
+            except Exception:
+                self._cleanup_pool(pool, futures, wait=False)
+                raise
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
@@ -296,6 +320,34 @@ class Evaluation(ABC, BaseModel):
         )
         return all_outputs
 
+    def _cleanup_pool(
+        self,
+        pool: ProcessPoolExecutor,
+        futures: list,
+        wait: bool = False,
+    ) -> None:
+        """Clean up pool by canceling futures, terminating workers, and shutting down.
+
+        Args:
+            pool: The ProcessPoolExecutor to clean up
+            futures: List of futures to cancel
+            wait: Whether to wait for workers to finish (True) or terminate immediately (False)
+        """
+        # Cancel all pending futures
+        for fut in futures:
+            fut.cancel()
+
+        # Forcefully terminate all worker processes if not waiting
+        if not wait and hasattr(pool, "_processes") and pool._processes:
+            for process in pool._processes.values():
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
+
+        # Shutdown the pool
+        pool.shutdown(wait=wait, cancel_futures=True)
+
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
         self, instance: EvalInstance
@@ -307,67 +359,157 @@ class Evaluation(ABC, BaseModel):
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
-        logger.info("[child] start id=%s", instance.id)
+        # Set up instance-specific logging
+        log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
+        reset_logger_for_multiprocessing(log_dir, instance.id)
 
-        retry_count = 0
-        last_error = None
-        max_retries = self.metadata.max_retries
+        # Get log file path for stdout/stderr redirection
+        log_file = os.path.join(log_dir, f"instance_{instance.id}.output.log")
 
-        while retry_count <= max_retries:
-            workspace = None
-            try:
-                workspace = self.prepare_workspace(instance)
-                out = self.evaluate_instance(instance, workspace)
-                logger.info("[child] done id=%s", instance.id)
-                return instance, out
-            except Exception as e:
-                last_error = e
-                retry_count += 1
+        # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
+        with redirect_stdout_stderr(log_file):
+            logger.info("[child] start id=%s", instance.id)
 
-                if retry_count <= max_retries:
-                    logger.warning(
-                        f"[child] Instance {instance.id} failed "
-                        f"(attempt {retry_count}/{max_retries}): "
-                        f"{str(e)[:50]}"
-                    )
-                else:
-                    logger.error(
-                        f"[child] Instance {instance.id} failed after "
-                        f"{max_retries} retries. Last error: {str(e)[:50]}",
-                        exc_info=True,
-                    )
-                    # Create error output for final failure
-                    error_output = self._create_error_output(
-                        instance, last_error, max_retries
-                    )
-                    return instance, error_output
-            finally:
-                # Ensure workspace cleanup happens regardless of success or failure
-                if workspace is not None:
-                    try:
-                        # Use the context manager protocol for cleanup
-                        workspace.__exit__(None, None, None)
-                        logger.debug(
-                            "[child] cleaned up workspace for id=%s", instance.id
-                        )
-                    except Exception as cleanup_error:
+            retry_count = 0
+            last_error = None
+            max_retries = self.metadata.max_retries
+
+            while retry_count <= max_retries:
+                workspace = None
+                try:
+                    workspace = self.prepare_workspace(instance)
+                    out = self.evaluate_instance(instance, workspace)
+                    logger.info("[child] done id=%s", instance.id)
+                    return instance, out
+                except Exception as e:
+                    last_error = e
+                    retry_count += 1
+
+                    if retry_count <= max_retries:
                         logger.warning(
-                            f"[child] Failed to cleanup workspace for {instance.id}: "
-                            f"{str(cleanup_error)[:50]}"
+                            f"[child] Instance {instance.id} failed "
+                            f"(attempt {retry_count}/{max_retries}): "
+                            f"{str(e)[:50]}"
                         )
+                    else:
+                        logger.error(
+                            f"[child] Instance {instance.id} failed after "
+                            f"{max_retries} retries. Last error: {str(e)[:50]}",
+                            exc_info=True,
+                        )
+                        # Create error output for final failure
+                        error_output = self._create_error_output(
+                            instance, last_error, max_retries
+                        )
+                        return instance, error_output
+                finally:
+                    # Ensure workspace cleanup happens regardless of success or failure
+                    if workspace is not None:
+                        try:
+                            # Use the context manager protocol for cleanup
+                            workspace.__exit__(None, None, None)
+                            logger.debug(
+                                "[child] cleaned up workspace for id=%s", instance.id
+                            )
+                        except Exception as cleanup_error:
+                            logger.warning(
+                                f"[child] Failed to cleanup workspace for {instance.id}: "
+                                f"{str(cleanup_error)[:50]}"
+                            )
 
-        # This should never be reached, but added for type safety
-        error_output = self._create_error_output(
-            instance, Exception("Unexpected error: no attempts made"), max_retries
-        )
-        return instance, error_output
+            # This should never be reached, but added for type safety
+            error_output = self._create_error_output(
+                instance, Exception("Unexpected error: no attempts made"), max_retries
+            )
+            return instance, error_output
 
 
-# ---------- Optional per-process initializer ---------------------------------------
+# ---------- Multiprocessing logging helper ---------------------------------------
 
 
-def _child_init() -> None:
-    """Per-process initializer (placeholder).
-    Put signal handlers or per-process setup here if needed.
+def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
+    """Reset the logger for multiprocessing with instance-specific logging.
+
+    Save logs to a separate file for each instance, instead of trying to write to the
+    same file/console from multiple processes. This provides:
+    - One INFO line to console at start with tail hint
+    - All subsequent logs go to instance-specific file
+    - Only WARNING+ messages go to console after initial message
+
+    Args:
+        log_dir: Directory to store log files
+        instance_id: Unique identifier for the instance being processed
     """
-    pass
+    import logging
+
+    # Set up logger
+    log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
+
+    # Get root logger and remove all existing handlers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Create console handler for initial message
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(
+        logging.Formatter(
+            f"Instance {instance_id} - " + "%(asctime)s - %(levelname)s - %(message)s"
+        )
+    )
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(logging.DEBUG)
+
+    # Print one INFO line with helpful hint
+    root_logger.info(
+        f"Starting evaluation for instance {instance_id}.\n"
+        f'Hint: run "tail -f {log_file}" to see live logs in a separate shell'
+    )
+
+    # Now set console to WARNING+ only
+    console_handler.setLevel(logging.WARNING)
+
+    # Add file handler for detailed logs
+    os.makedirs(log_dir, exist_ok=True)
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    )
+    file_handler.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
+
+
+@contextmanager
+def redirect_stdout_stderr(log_file_path: str):
+    """Context manager to redirect stdout/stderr to a log file.
+
+    This captures all print() statements, SDK visualizations, and any other
+    output that goes to stdout/stderr.
+
+    Args:
+        log_file_path: Path to the log file where output should be redirected
+    """
+    # Save original stdout/stderr
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    log_file = None
+
+    try:
+        # Open log file in append mode with line buffering
+        log_file = open(log_file_path, "a", buffering=1, encoding="utf-8")
+
+        # Redirect stdout and stderr
+        sys.stdout = log_file
+        sys.stderr = log_file
+
+        yield
+
+    finally:
+        # Restore original stdout/stderr
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+
+        # Close the log file if it was opened
+        if log_file is not None and not log_file.closed:
+            log_file.close()
