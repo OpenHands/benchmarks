@@ -33,6 +33,32 @@ from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 logger = get_logger(__name__)
 
 
+def _install_runtime_request_logging():
+    """Ensure APIRemoteWorkspace logs sanitized headers for debugging."""
+
+    if getattr(APIRemoteWorkspace, "_swebench_request_logging", False):
+        return
+
+    original_send = APIRemoteWorkspace._send_api_request
+
+    def _logged_send(self, method, url, **kwargs):
+        headers = kwargs.get("headers") or {}
+        sanitized_headers = {}
+        for key, value in headers.items():
+            if isinstance(key, str) and "key" in key.lower() and isinstance(value, str):
+                sanitized_headers[key] = f"{value[:4]}… (len={len(value)})"
+            else:
+                sanitized_headers[key] = value
+        logger.info("Runtime request %s %s headers=%s", method, url, sanitized_headers)
+        return original_send(self, method, url, **kwargs)
+
+    APIRemoteWorkspace._send_api_request = _logged_send
+    APIRemoteWorkspace._swebench_request_logging = True
+
+
+_install_runtime_request_logging()
+
+
 def get_instruction(
     instance: dict,
     metadata: EvalMetadata,
