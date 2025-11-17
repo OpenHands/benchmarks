@@ -19,6 +19,7 @@ dependencies = [
     "openhands-workspace",
     "modal>=1.1.4",
     "swebench",
+    "pyright[nodejs]>=1.1.405",
 ]
 
 [project.scripts]
