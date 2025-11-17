@@ -50,6 +50,10 @@ def _install_runtime_request_logging():
             else:
                 sanitized_headers[key] = value
         logger.info("Runtime request %s %s headers=%s", method, url, sanitized_headers)
+        print(
+            f"[runtime-request] {method} {url} headers={sanitized_headers}",
+            flush=True,
+        )
         return original_send(self, method, url, **kwargs)
 
     APIRemoteWorkspace._send_api_request = _logged_send
