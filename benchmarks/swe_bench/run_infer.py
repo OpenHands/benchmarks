@@ -201,7 +201,8 @@ class SWEBenchEvaluation(Evaluation):
     def _expected_remote_image_tag(
         self, custom_tag: str, suffix: str, sdk_short_sha: str | None = None
     ) -> str:
-        sha = sdk_short_sha or os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+        tag_prefix = os.getenv("SDK_IMAGE_TAG_PREFIX")
+        sha = tag_prefix or sdk_short_sha or os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
         return f"{EVAL_AGENT_SERVER_IMAGE}:{sha}-{custom_tag}{suffix}"
 
     def _all_remote_images_exist(self, instances: List[EvalInstance]) -> bool:
