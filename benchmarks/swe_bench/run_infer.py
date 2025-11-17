@@ -165,8 +165,9 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
             logger.info(
-                "Runtime API key detected (prefix=%s…)",
+                "Runtime API key detected (prefix=%s…, len=%s)",
                 runtime_api_key[:4] if runtime_api_key else "none",
+                len(runtime_api_key) if runtime_api_key else 0,
             )
             agent_server_image = self._expected_remote_image_tag(
                 custom_tag, suffix, sdk_short_sha
