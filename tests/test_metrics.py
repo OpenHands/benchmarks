@@ -19,6 +19,7 @@ import pytest
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
+from openhands.sdk.critic import PassCritic
 from openhands.sdk.event import MessageEvent
 from openhands.sdk.llm import Message, TextContent
 from openhands.sdk.llm.utils.metrics import Metrics, TokenUsage
@@ -232,6 +233,7 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             eval_output_dir="/tmp/eval_output",
             dataset="princeton-nlp/SWE-bench_Lite",
             dataset_split="test",
+            critic=PassCritic(),
         )
     elif benchmark_name == "gaia":
         return EvalMetadata(
@@ -241,6 +243,7 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             dataset="gaia-benchmark/GAIA",
             dataset_split="test",
             details={"test": True},
+            critic=PassCritic(),
         )
     else:
         # Generic metadata for unknown benchmarks
@@ -250,6 +253,7 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             eval_output_dir="/tmp/eval_output",
             dataset=f"test/{benchmark_name}",
             dataset_split="test",
+            critic=PassCritic(),
         )
 
 
