@@ -64,6 +64,24 @@ def _install_runtime_request_logging():
         return original_send(self, method, url, **kwargs)
 
     APIRemoteWorkspace._send_api_request = _logged_send
+
+    original_api_headers = APIRemoteWorkspace._api_headers
+
+    def _patched_api_headers(self):
+        headers = original_api_headers.fget(self) if hasattr(original_api_headers, "fget") else original_api_headers(self)  # type: ignore[attr-defined]
+        key = getattr(self, "runtime_api_key", None)
+        env_key = os.getenv("RUNTIME_API_KEY")
+        resolved_key = key or env_key
+        if hasattr(resolved_key, "get_secret_value"):
+            resolved_key = resolved_key.get_secret_value()
+        if resolved_key and resolved_key not in headers.values():
+            headers = dict(headers)
+            headers["X-API-Key"] = resolved_key
+        if not headers.get("X-API-Key"):
+            logger.error("Runtime API key missing when building API headers")
+        return headers
+
+    APIRemoteWorkspace._api_headers = property(_patched_api_headers)
     APIRemoteWorkspace._swebench_request_logging = True
 
 
