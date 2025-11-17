@@ -4,13 +4,13 @@ import json
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
-from benchmarks.utils.critics import (
+from openhands.sdk import get_logger
+from openhands.sdk.critic import (
     AgentFinishedCritic,
     CriticBase,
     EmptyPatchCritic,
     PassCritic,
 )
-from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
