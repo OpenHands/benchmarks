@@ -27,9 +27,7 @@ class EvalMetadata(BaseModel):
     max_attempts: int = Field(
         default=1, ge=1, description="Maximum number of attempts for iterative mode"
     )
-    critic: CriticBase | None = Field(
-        default=None,
-        exclude=True,  # Don't serialize critic instance to JSON
+    critic: CriticBase = Field(
         description=(
             "Critic instance to use for evaluation. "
             "Critics determine whether an agent's output is considered successful "

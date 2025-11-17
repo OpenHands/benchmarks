@@ -182,18 +182,6 @@ class Evaluation(ABC, BaseModel):
         # Check for resume point and load previous outputs
         start_attempt, all_outputs = self._get_resume_start_attempt()
 
-        # Get critic from metadata (should be initialized at entry point)
-        critic = self.metadata.critic
-        if critic is None:
-            # Fall back to PassCritic if none provided
-            from benchmarks.utils.critics import PassCritic
-
-            if self.metadata.max_attempts == 1:
-                logger.info("No critic specified for single attempt, using PassCritic")
-                critic = PassCritic()
-            else:
-                raise ValueError("critic is required for multi-attempt evaluation")
-
         for attempt in range(start_attempt, self.metadata.max_attempts + 1):
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
@@ -206,7 +194,9 @@ class Evaluation(ABC, BaseModel):
                     f"output.critic_attempt_{attempt - 1}.jsonl",
                 )
                 if os.path.exists(prev_file):
-                    target_instances = get_failed_instances(prev_file, critic)
+                    target_instances = get_failed_instances(
+                        prev_file, self.metadata.critic
+                    )
                 else:
                     target_instances = set()
 
@@ -311,7 +301,7 @@ class Evaluation(ABC, BaseModel):
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
             max_attempts=self.metadata.max_attempts,
-            critic=critic,
+            critic=self.metadata.critic,
             final_output_file="output.jsonl",
         )
 
