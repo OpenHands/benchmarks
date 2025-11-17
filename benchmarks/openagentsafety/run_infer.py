@@ -13,6 +13,7 @@ import requests
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.critic_factory import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
@@ -527,6 +528,10 @@ def main() -> None:
         eval_note=args.note,
     )
 
+    # Create critic instance from parsed arguments
+    critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
+
     # Create metadata
     metadata = EvalMetadata(
         llm=llm,
@@ -540,7 +545,7 @@ def main() -> None:
         },
         eval_limit=args.n_limit,
         max_attempts=args.max_attempts,
-        critic_name=args.critic,
+        critic=critic,
         selected_instances_file=args.select,
     )
 
