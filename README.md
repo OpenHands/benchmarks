@@ -10,6 +10,7 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 |-----------|-------------|--------|
 | [SWE-Bench](benchmarks/swe_bench/) | Software engineering tasks from GitHub issues | ✅ Active |
 | [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
+| [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
 
 See the individual benchmark directories for detailed usage instructions.
 
@@ -28,7 +29,7 @@ make build
 
 ### 🧩 1. Initialize the Agent SDK submodule
 
-The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).  
+The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).
 This ensures your code runs against a specific, reproducible commit.
 
 Run once after cloning (already done in `make build` for you):
@@ -87,8 +88,6 @@ to rebuild your environment with the new SDK code.
 
 </details>
 
-## Configuration
-
 ### Configure Your LLM
 
 All benchmarks require an LLM configuration file. Define your LLM config as a JSON following the model fields in the [LLM class](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93).
@@ -111,7 +110,11 @@ uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 
 ## Running Benchmarks
 
-After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions.
+After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
+
+- **[SWE-Bench](benchmarks/swe_bench/)**: Software engineering tasks from GitHub issues
+- **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
+- **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
 ## Workspace Types
 
