@@ -218,6 +218,17 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
             )
+            sanitized_workspace_headers = {}
+            for key, value in workspace._api_headers.items():
+                if isinstance(key, str) and "key" in key.lower() and isinstance(value, str):
+                    sanitized_workspace_headers[key] = f"{value[:4]}… (len={len(value)})"
+                else:
+                    sanitized_workspace_headers[key] = value
+            logger.info(
+                "Workspace runtime_api_key set=%s headers=%s",
+                bool(workspace.runtime_api_key),
+                sanitized_workspace_headers,
+            )
         else:
             raise ValueError(
                 f"Unsupported workspace_type: {self.metadata.workspace_type}"
