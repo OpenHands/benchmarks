@@ -530,7 +530,6 @@ def main() -> None:
 
     # Create critic instance from parsed arguments
     critic = create_critic(args)
-    logger.info(f"Using critic: {type(critic).__name__}")
 
     # Create metadata
     metadata = EvalMetadata(
