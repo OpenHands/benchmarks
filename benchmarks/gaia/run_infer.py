@@ -15,7 +15,7 @@ from PIL import Image
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.critic_factory import create_critic
+from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput

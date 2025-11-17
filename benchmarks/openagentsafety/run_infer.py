@@ -13,7 +13,7 @@ import requests
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.critic_factory import create_critic
+from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
