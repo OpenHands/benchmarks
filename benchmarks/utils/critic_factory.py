@@ -16,17 +16,35 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
+CRITIC_NAME_TO_CLASS = {
+    "pass": PassCritic,
+    "finish_with_patch": AgentFinishedCritic,
+    "empty_patch_critic": EmptyPatchCritic,
+}
+
+
 def add_critic_args(parser: ArgumentParser) -> None:
     """Add critic-related arguments to argparse parser."""
     parser.add_argument(
         "--critic",
         type=str,
         default="pass",
-        help="Critic to use: pass, finish_with_patch, empty_patch_critic, client",
+        help=(
+            "Name of the critic to use for evaluation (default: 'pass'). "
+            "Critics determine whether an agent's output is considered successful "
+            "and whether another attempt should be made in iterative evaluation mode. "
+            "Available critics: "
+            "'pass' - Always accepts the output (no retry logic, suitable for single-attempt runs), "
+            "'finish_with_patch' - Requires both AgentFinishAction and non-empty git patch, "
+            "'empty_patch_critic' - Only requires non-empty git patch. "
+            "For single-attempt runs (default), 'pass' is recommended as the actual evaluation "
+            "is performed by the benchmark's own scoring system."
+        ),
     )
     parser.add_argument(
         "--critic-config",
         type=str,
+        default=None,
         help="Path to JSON config file with critic parameters (e.g., {'api_key': 'xyz', 'timeout': 120})",
     )
 
@@ -68,15 +86,11 @@ def create_critic(args: Namespace) -> CriticBase:
         )
 
     # Create critic (Pydantic will validate the kwargs)
-    if critic_name == "pass":
-        return PassCritic(**kwargs)
-
-    elif critic_name == "finish_with_patch":
-        return AgentFinishedCritic(**kwargs)
-
-    elif critic_name == "empty_patch_critic":
-        return EmptyPatchCritic(**kwargs)
-
+    if critic_name in CRITIC_NAME_TO_CLASS:
+        critic_class = CRITIC_NAME_TO_CLASS[critic_name]
+        critic = critic_class(**kwargs)
+        logger.info(f"Created critic: {critic_name} with args: {kwargs}")
+        return critic
     else:
         raise ValueError(
             f"Unknown critic: {critic_name}. "
