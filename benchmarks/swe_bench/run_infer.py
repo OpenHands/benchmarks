@@ -43,7 +43,13 @@ def _install_runtime_request_logging():
 
     def _logged_send(self, method, url, **kwargs):
         headers = kwargs.get("headers") or {}
-        runtime_api_key_value = getattr(self, "runtime_api_key", None)
+        runtime_api_key_value = getattr(self, "runtime_api_key", None) or os.getenv("RUNTIME_API_KEY")
+        if hasattr(runtime_api_key_value, "get_secret_value"):
+            runtime_api_key_value = runtime_api_key_value.get_secret_value()
+        headers = dict(headers)
+        if runtime_api_key_value and not any("X-API-Key" == k for k in headers):
+            headers["X-API-Key"] = runtime_api_key_value
+            kwargs["headers"] = headers
         sanitized_headers = {}
         for key, value in headers.items():
             if isinstance(key, str) and "key" in key.lower() and isinstance(value, str):
@@ -65,20 +71,6 @@ def _install_runtime_request_logging():
 
     APIRemoteWorkspace._send_api_request = _logged_send
 
-    def _patched_api_headers(self):
-        headers: dict[str, str] = {}
-        key = getattr(self, "runtime_api_key", None)
-        env_key = os.getenv("RUNTIME_API_KEY")
-        resolved_key = key or env_key
-        if hasattr(resolved_key, "get_secret_value"):
-            resolved_key = resolved_key.get_secret_value()
-        if resolved_key:
-            headers["X-API-Key"] = resolved_key
-        else:
-            logger.error("Runtime API key missing when building API headers")
-        return headers
-
-    APIRemoteWorkspace._api_headers = property(_patched_api_headers)
     APIRemoteWorkspace._swebench_request_logging = True
 
 
