@@ -43,15 +43,22 @@ def _install_runtime_request_logging():
 
     def _logged_send(self, method, url, **kwargs):
         headers = kwargs.get("headers") or {}
+        runtime_api_key_value = getattr(self, "runtime_api_key", None)
         sanitized_headers = {}
         for key, value in headers.items():
             if isinstance(key, str) and "key" in key.lower() and isinstance(value, str):
                 sanitized_headers[key] = f"{value[:4]}… (len={len(value)})"
             else:
                 sanitized_headers[key] = value
-        logger.info("Runtime request %s %s headers=%s", method, url, sanitized_headers)
+        logger.info(
+            "Runtime request %s %s headers=%s runtime_api_key_set=%s",
+            method,
+            url,
+            sanitized_headers,
+            bool(runtime_api_key_value),
+        )
         print(
-            f"[runtime-request] {method} {url} headers={sanitized_headers}",
+            f"[runtime-request] {method} {url} headers={sanitized_headers} runtime_api_key={str(runtime_api_key_value)[:4] + '…' if runtime_api_key_value else 'None'}",
             flush=True,
         )
         return original_send(self, method, url, **kwargs)
