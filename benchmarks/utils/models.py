@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,10 @@ class EvalMetadata(BaseModel):
         default=3,
         ge=0,
         description="Maximum number of retries for instances that throw exceptions",
+    )
+    workspace_type: Literal["docker", "remote"] = Field(
+        default="docker",
+        description="Type of workspace to use, e.g., 'docker' or 'remote'",
     )
 
 

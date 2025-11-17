@@ -720,6 +720,20 @@ wheels = [
 ]
 
 [[package]]
+name = "docker-registry-client"
+version = "0.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ecdsa" },
+    { name = "jws" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/82/3c/287104dcdbd6fd3d367b8bc50f1387f8326fb8026312af61b2bcf5c09387/docker-registry-client-0.5.2.tar.gz", hash = "sha256:8482efc9ec9ec708dfb74193cdfa530eee23c93596c63d704c5a3702b049e58f", size = 8037, upload-time = "2017-06-16T16:05:24.387Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/b4/f1b3b2da3024fc20fe1e359871dc3c4f8e0ade1b0bbd85294f244c6a29d7/docker_registry_client-0.5.2-py2.py3-none-any.whl", hash = "sha256:cb6c1c5e72e091ada9b32499c8529850e247bafb2202bc31bbe45e9710bf9038", size = 11731, upload-time = "2017-06-16T16:05:26.057Z" },
+]
+
+[[package]]
 name = "docstring-parser"
 version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -735,6 +749,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/4a/c0/89fe6215b443b919cb98a5002e107cb5026854ed1ccb6b5833e0768419d1/docutils-0.22.2.tar.gz", hash = "sha256:9fdb771707c8784c8f2728b67cb2c691305933d68137ef95a75db5f4dfbc213d", size = 2289092, upload-time = "2025-09-20T17:55:47.994Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/66/dd/f95350e853a4468ec37478414fc04ae2d61dad7a947b3015c3dcc51a09b9/docutils-0.22.2-py3-none-any.whl", hash = "sha256:b0e98d679283fc3bb0ead8a5da7f501baa632654e7056e9c5846842213d674d8", size = 632667, upload-time = "2025-09-20T17:55:43.052Z" },
+]
+
+[[package]]
+name = "ecdsa"
+version = "0.13.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/d8/9c3596fd0f18ae0a76333492a119c00183323d8e64de1a4f4bd642856963/ecdsa-0.13.3.tar.gz", hash = "sha256:163c80b064a763ea733870feb96f9dd9b92216cfcacd374837af18e4e8ec3d4d", size = 60477, upload-time = "2019-10-07T14:05:24.318Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/81/2b170b460c84fdc8700cf08aa077ac6a9ff41f4ad3f05d0b3a64ba9f8f2e/ecdsa-0.13.3-py2.py3-none-any.whl", hash = "sha256:9814e700890991abeceeb2242586024d4758c8fc18445b194a49bd62d85861db", size = 52113, upload-time = "2019-10-07T14:05:22.583Z" },
 ]
 
 [[package]]
@@ -1471,6 +1494,12 @@ wheels = [
 ]
 
 [[package]]
+name = "jws"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/9e/1536d578ed50f5fe8196310ddcc921a3cd8e973312d60ac74488b805d395/jws-0.1.3.tar.gz", hash = "sha256:0e3d4cb06ae7c5c1d16d357b4e7acb5c5ecab0cccb3a4b998035b85052488053", size = 8104, upload-time = "2015-03-10T15:53:37.844Z" }
+
+[[package]]
 name = "lazy-object-proxy"
 version = "1.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1991,6 +2020,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
+    { name = "docker-registry-client" },
     { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "modal" },
@@ -2022,6 +2052,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "datasets" },
+    { name = "docker-registry-client", specifier = ">=0.5.2" },
     { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "modal", specifier = ">=1.1.4" },

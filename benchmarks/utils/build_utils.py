@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import io
 import subprocess
+import time
 import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -19,6 +20,7 @@ from tqdm.auto import tqdm
 
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.image_utils import image_exists
 from openhands.agent_server.docker.build import BuildOptions, TargetType, build
 from openhands.sdk import get_logger
 
@@ -68,8 +70,7 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
         )
         git_ref = result.stdout.strip()
     except subprocess.CalledProcessError:
-        # Not on a branch (detached HEAD), use the SHA
-        git_ref = git_sha
+        git_ref = "unknown"
 
     # Get SDK version from pyproject.toml
     pyproject_path = sdk_path / "openhands-sdk" / "pyproject.toml"
@@ -196,6 +197,11 @@ def build_image(
         git_sha=git_sha,
         sdk_version=sdk_version,
     )
+    for t in opts.all_tags[0]:
+        # Check if image exists or not
+        if image_exists(t):
+            logger.info(f"Image {t} already exists. Skipping build.")
+            return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
@@ -225,6 +231,7 @@ def _build_with_logging(
                 logger.info(
                     f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
                 )
+                time.sleep(2 + attempt * 2)
             result = build_image(base_image, target_image, custom_tag, target, push)
             result.log_path = str(log_path)
             if not result.error:

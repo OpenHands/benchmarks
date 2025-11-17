@@ -20,6 +20,7 @@ dependencies = [
     "modal>=1.1.4",
     "swebench",
     "pyright[nodejs]>=1.1.405",
+    "docker-registry-client>=0.5.2",
 ]
 
 [project.scripts]
