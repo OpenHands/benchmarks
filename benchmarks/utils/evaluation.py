@@ -435,6 +435,7 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
 
     # Set up logger
     log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
+    output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
 
     # Get root logger and remove all existing handlers
     root_logger = logging.getLogger()
@@ -454,8 +455,12 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
 
     # Print one INFO line with helpful hint
     root_logger.info(
-        f"Starting evaluation for instance {instance_id}.\n"
-        f'Hint: run "tail -f {log_file}" to see live logs in a separate shell'
+        f"""
+    === Evaluation Started (instance {instance_id}) ===
+    View live output:
+    • tail -f {log_file}          (logger)
+    • tail -f {output_log_file}   (stdout/stderr)
+    """.strip()
     )
 
     # Now set console to WARNING+ only
