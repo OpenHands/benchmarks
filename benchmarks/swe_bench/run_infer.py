@@ -63,6 +63,9 @@ def get_instruction(
     return instruction
 
 
+BUILD_TARGET = "source-minimal"
+
+
 class SWEBenchEvaluation(Evaluation):
     """
     Process-based SWE-bench evaluation implemented as a child of the
@@ -90,6 +93,26 @@ class SWEBenchEvaluation(Evaluation):
             instances.append(EvalInstance(id=inst_id, data=row.to_dict()))
 
         logger.info("Total instances to process: %d", len(instances))
+        if (
+            self.metadata.workspace_type == "remote"
+            and instances
+            and not self._all_remote_images_exist(instances)
+        ):
+            docs_url = (
+                "https://github.com/All-Hands-AI/benchmarks#swe-bench-workspace-images"
+            )
+            build_cmd = (
+                "uv run benchmarks/swe_bench/build_images.py "
+                f"--dataset {self.metadata.dataset} "
+                f"--split {self.metadata.dataset_split} "
+                f"--image {EVAL_AGENT_SERVER_IMAGE} "
+                f"--target {BUILD_TARGET} --push"
+            )
+            raise RuntimeError(
+                "Missing SWE-Bench workspace images for the current SDK commit. "
+                "Please build and push the required images before running remote "
+                f"evaluations. For instructions see {docs_url} or run:\n  {build_cmd}"
+            )
         return instances
 
     # ---- Hook: prepare a workspace per instance ----------------------------------
@@ -98,15 +121,12 @@ class SWEBenchEvaluation(Evaluation):
         Use DockerWorkspace by default.
         """
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
-        # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
 
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
-            )
+            agent_server_image = self._expected_remote_image_tag(custom_tag, suffix)
             SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
             logger.info(f"SKIP_BUILD={SKIP_BUILD}")
             if not SKIP_BUILD:
@@ -145,8 +165,8 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+            agent_server_image = self._expected_remote_image_tag(
+                custom_tag, suffix, sdk_short_sha
             )
             if not image_exists(agent_server_image):
                 raise RuntimeError(
@@ -177,6 +197,33 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.debug(f"Ran env setup command '{cmd}': {res.stdout}")
         return workspace
+
+    def _expected_remote_image_tag(
+        self, custom_tag: str, suffix: str, sdk_short_sha: str | None = None
+    ) -> str:
+        sha = sdk_short_sha or os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+        return f"{EVAL_AGENT_SERVER_IMAGE}:{sha}-{custom_tag}{suffix}"
+
+    def _all_remote_images_exist(self, instances: List[EvalInstance]) -> bool:
+        missing: list[str] = []
+        suffix = f"-{BUILD_TARGET}" if BUILD_TARGET != "binary" else ""
+        sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+        for inst in instances:
+            custom_tag = extract_custom_tag(get_official_docker_image(inst.id))
+            image_tag = self._expected_remote_image_tag(
+                custom_tag, suffix, sdk_short_sha
+            )
+            if not image_exists(image_tag):
+                missing.append(image_tag)
+        if missing:
+            sample = "\n  - ".join(missing[:5])
+            logger.error(
+                "Missing %d SWE-Bench workspace images. First few:\n  - %s",
+                len(missing),
+                sample,
+            )
+            return False
+        return True
 
     # ---- Hook: evaluate one instance ---------------------------------------------
     def evaluate_instance(
