@@ -1,4 +1,10 @@
 django__django-12155
+django__django-11999
+django__django-13279
+django__django-13670
 django__django-14434
 scikit-learn__scikit-learn-13439
 scikit-learn__scikit-learn-25232
+scikit-learn__scikit-learn-25973
+sympy__sympy-15599
+sphinx-doc__sphinx-7757
