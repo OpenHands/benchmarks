@@ -19,6 +19,8 @@ import pytest
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
+from openhands.sdk.event import MessageEvent
+from openhands.sdk.llm import Message, TextContent
 from openhands.sdk.llm.utils.metrics import Metrics, TokenUsage
 from openhands.sdk.workspace import RemoteWorkspace
 
@@ -228,7 +230,6 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             llm=llm,
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
-            critic_name="test_critic",
             dataset="princeton-nlp/SWE-bench_Lite",
             dataset_split="test",
         )
@@ -237,7 +238,6 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             llm=llm,
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
-            critic_name="test_critic",
             dataset="gaia-benchmark/GAIA",
             dataset_split="test",
             details={"test": True},
@@ -248,7 +248,6 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             llm=llm,
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
-            critic_name="test_critic",
             dataset=f"test/{benchmark_name}",
             dataset_split="test",
         )
@@ -265,11 +264,14 @@ def _setup_mocks_for_benchmark(benchmark_name: str, metrics: Metrics):
 
     if benchmark_name == "gaia":
         # GAIA needs a conversation with an answer in the events
-        mock_event = MagicMock()
-        mock_event.model_dump.return_value = {
-            "type": "agent",
-            "content": "<solution>42</solution>",
-        }
+        # Create a proper MessageEvent instead of MagicMock
+        mock_event = MessageEvent(
+            source="agent",
+            llm_message=Message(
+                role="assistant",
+                content=[TextContent(text="<solution>42</solution>")],
+            ),
+        )
         mock_conversation.state.events = [mock_event]
     else:
         # Default: empty events
