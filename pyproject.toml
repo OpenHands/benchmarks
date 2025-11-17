@@ -19,6 +19,7 @@ dependencies = [
     "openhands-workspace",
     "modal>=1.1.4",
     "swebench",
+    "pyright[nodejs]>=1.1.405",
     "docker-registry-client>=0.5.2",
 ]
 
@@ -27,7 +28,7 @@ validate-cfg = "benchmarks.scripts.validate_cfg:main"
 swebench-infer = "benchmarks.swe_bench.run_infer:main"
 swebench-eval = "benchmarks.swe_bench.eval_infer:main"
 gaia-infer = "benchmarks.gaia.run_infer:main"
-
+openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
