@@ -224,12 +224,14 @@ class SWEBenchEvaluation(Evaluation):
             logger.info(
                 f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
             )
+            runtime_class = os.getenv("RUNTIME_CLASS", "sysbox-runc")
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
+                runtime_class=runtime_class,
                 target_type="source" if "source" in build_target else "binary",
             )
             sanitized_workspace_headers = {}
