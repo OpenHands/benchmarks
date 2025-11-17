@@ -1,8 +1,8 @@
 """
 Critic system for evaluation.
 
-This module re-exports SDK critics and provides utility functions
-for working with EvalOutput in benchmarks.
+This files provides utility functions
+for working with EvalOutput in benchmarks and CriticBase implementations.
 """
 
 import json
@@ -11,28 +11,9 @@ from typing import Set
 
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
-from openhands.sdk.critic import (
-    AgentFinishedCritic,
-    CriticBase,
-    CriticResult,
-    EmptyPatchCritic,
-    PassCritic,
-)
+from openhands.sdk.critic import CriticBase
 from openhands.sdk.event import LLMConvertibleEvent
 
-
-# Re-export SDK critic components for convenience
-__all__ = [
-    "CriticBase",
-    "CriticResult",
-    "AgentFinishedCritic",
-    "EmptyPatchCritic",
-    "PassCritic",
-    "extract_git_patch",
-    "evaluate_output",
-    "get_completed_instances",
-    "get_failed_instances",
-]
 
 logger = get_logger(__name__)
 
@@ -66,24 +47,15 @@ def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
     Returns:
         True if the instance was successfully completed, False otherwise
     """
-    try:
-        # Convert history to events
-        events = eval_output.history
-        llm_events: list[LLMConvertibleEvent] = [
-            e for e in events if isinstance(e, LLMConvertibleEvent)
-        ]
+    events = eval_output.history
+    llm_events: list[LLMConvertibleEvent] = [
+        e for e in events if isinstance(e, LLMConvertibleEvent)
+    ]
 
-        # Extract git patch
-        git_patch = extract_git_patch(eval_output)
+    git_patch = extract_git_patch(eval_output)
+    result = critic.evaluate(llm_events, git_patch)
 
-        # Call the SDK critic
-        result = critic.evaluate(llm_events, git_patch)
-
-        return result.success
-
-    except Exception as e:
-        logger.warning(f"Error evaluating output {eval_output.instance_id}: {e}")
-        return False
+    return result.success
 
 
 def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
