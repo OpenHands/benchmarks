@@ -9,7 +9,7 @@ import json
 import os
 from typing import Set
 
-from benchmarks.utils.critics import CriticBase, CriticRegistry, evaluate_output
+from benchmarks.utils.critics import CriticBase, evaluate_output
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 
@@ -40,7 +40,7 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
             for line_num, line in enumerate(f, 1):
                 try:
                     data = json.loads(line.strip())
-                    output = EvalOutput(**data)
+                    output = EvalOutput.model_validate(data)
 
                     # Evaluate using the critic
                     if not evaluate_output(critic, output):
@@ -65,7 +65,7 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
 def aggregate_results(
     output_dir: str,
     max_attempts: int,
-    critic_name: str,
+    critic: "CriticBase",
     final_output_file: str = "output.jsonl",
 ) -> None:
     """
@@ -77,14 +77,13 @@ def aggregate_results(
     Args:
         output_dir: Directory containing attempt files
         max_attempts: Maximum number of attempts
-        critic_name: Name of the critic to use for evaluation
+        critic: Critic instance to use for evaluation
         final_output_file: Name of the final output file
     """
     logger.info(f"Aggregating results from {max_attempts} attempts")
 
     # Dictionary to store the best result for each instance
     best_results: dict[EvalInstanceID, EvalOutput] = {}
-    critic = CriticRegistry.create_critic(critic_name)
 
     # Work backwards from the last attempt to the first
     for attempt in range(max_attempts, 0, -1):
@@ -103,7 +102,7 @@ def aggregate_results(
                 for line_num, line in enumerate(f, 1):
                     try:
                         data = json.loads(line.strip())
-                        output = EvalOutput(**data)
+                        output = EvalOutput.model_validate(data)
 
                         # Use this result if:
                         # 1. We haven't seen this instance yet, OR

@@ -2,7 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from openhands.sdk import LLM, get_logger
+from openhands.sdk import LLM, Event, get_logger
+from openhands.sdk.critic import CriticBase
 from openhands.sdk.llm import Metrics
 
 
@@ -26,13 +27,14 @@ class EvalMetadata(BaseModel):
     max_attempts: int = Field(
         default=1, ge=1, description="Maximum number of attempts for iterative mode"
     )
-    critic_name: str = Field(
-        default="pass",
+    critic: CriticBase | None = Field(
+        default=None,
+        exclude=True,  # Don't serialize critic instance to JSON
         description=(
-            "Name of the critic to use for evaluation. "
+            "Critic instance to use for evaluation. "
             "Critics determine whether an agent's output is considered successful "
             "and whether another attempt should be made in iterative evaluation mode. "
-            "Default is 'pass' which always accepts the output (suitable for single-attempt runs)."
+            "If None, a PassCritic will be used (always accepts the output)."
         ),
     )
     selected_instances_file: str | None = Field(
@@ -79,7 +81,7 @@ class EvalOutput(BaseModel):
 
     # Interaction info
     metadata: EvalMetadata | None = None
-    history: list[Any] | None = None
+    history: list[Event] = Field(default_factory=list)
     metrics: Metrics | None = None
     error: str | None = None
 

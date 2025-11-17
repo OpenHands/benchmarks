@@ -14,7 +14,6 @@ from openhands.sdk import get_logger
 from openhands.sdk.critic import (
     AgentFinishedCritic,
     CriticBase,
-    CriticRegistry,
     CriticResult,
     EmptyPatchCritic,
     PassCritic,
@@ -26,11 +25,9 @@ from openhands.sdk.event import LLMConvertibleEvent
 __all__ = [
     "CriticBase",
     "CriticResult",
-    "CriticRegistry",
     "AgentFinishedCritic",
     "EmptyPatchCritic",
     "PassCritic",
-    "convert_history_to_events",
     "extract_git_patch",
     "evaluate_output",
     "get_completed_instances",
@@ -38,45 +35,6 @@ __all__ = [
 ]
 
 logger = get_logger(__name__)
-
-
-def convert_history_to_events(history: list | None) -> list[LLMConvertibleEvent]:
-    """
-    Convert EvalOutput history to list of LLMConvertibleEvent.
-
-    Args:
-        history: The history from EvalOutput (list of dicts or Event objects)
-
-    Returns:
-        List of LLMConvertibleEvent objects
-    """
-    if not history:
-        return []
-
-    events = []
-    for item in history:
-        # If it's already an LLMConvertibleEvent, use it directly
-        if isinstance(item, LLMConvertibleEvent):
-            events.append(item)
-        # If it's a dict, try to reconstruct the event
-        elif isinstance(item, dict):
-            # Import event types here to avoid circular imports
-            from openhands.sdk.event import ActionEvent, MessageEvent, ObservationEvent
-
-            kind = item.get("kind")
-            try:
-                if kind == "ActionEvent":
-                    events.append(ActionEvent(**item))
-                elif kind == "MessageEvent":
-                    events.append(MessageEvent(**item))
-                elif kind == "ObservationEvent":
-                    events.append(ObservationEvent(**item))
-                # Add more event types as needed
-            except Exception as e:
-                logger.debug(f"Failed to convert event {kind}: {e}")
-                continue
-
-    return events
 
 
 def extract_git_patch(eval_output: EvalOutput) -> str | None:
@@ -110,13 +68,16 @@ def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
     """
     try:
         # Convert history to events
-        events = convert_history_to_events(eval_output.history)
+        events = eval_output.history
+        llm_events: list[LLMConvertibleEvent] = [
+            e for e in events if isinstance(e, LLMConvertibleEvent)
+        ]
 
         # Extract git patch
         git_patch = extract_git_patch(eval_output)
 
         # Call the SDK critic
-        result = critic.evaluate(events, git_patch)
+        result = critic.evaluate(llm_events, git_patch)
 
         return result.success
 
@@ -146,7 +107,7 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
             for line_num, line in enumerate(f, 1):
                 try:
                     data = json.loads(line.strip())
-                    output = EvalOutput(**data)
+                    output = EvalOutput.model_validate(data)
                     completed_instances.add(output.instance_id)
 
                 except json.JSONDecodeError as e:
@@ -186,7 +147,7 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
             for line_num, line in enumerate(f, 1):
                 try:
                     data = json.loads(line.strip())
-                    output = EvalOutput(**data)
+                    output = EvalOutput.model_validate(data)
 
                     # Evaluate using the critic
                     if not evaluate_output(critic, output):

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
-from benchmarks.utils.critics import CriticRegistry, get_completed_instances
+from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
@@ -94,7 +94,7 @@ class Evaluation(ABC, BaseModel):
             error=(
                 f"Instance failed after {retry_count} retries. Last error: {str(error)}"
             )[:200],
-            history=None,
+            history=[],
             instance=instance.data,
         )
 
@@ -149,7 +149,9 @@ class Evaluation(ABC, BaseModel):
                             with open(a_file, "r", encoding="utf-8") as f:
                                 for line in f:
                                     if line.strip():
-                                        output = EvalOutput(**json.loads(line))
+                                        output = EvalOutput.model_validate(
+                                            json.loads(line)
+                                        )
                                         all_previous_outputs.append(output)
                         except Exception as e:
                             logger.warning(f"Error loading outputs from {a_file}: {e}")
@@ -180,18 +182,17 @@ class Evaluation(ABC, BaseModel):
         # Check for resume point and load previous outputs
         start_attempt, all_outputs = self._get_resume_start_attempt()
 
-        # For single attempts without a critic, use the pass critic
-        critic_name = self.metadata.critic_name
-        if not critic_name:
-            if self.metadata.max_attempts == 1:
-                critic_name = "pass"
-                logger.info(
-                    "No critic specified for single attempt, using 'pass' critic"
-                )
-            else:
-                raise ValueError("critic_name is required for multi-attempt evaluation")
+        # Get critic from metadata (should be initialized at entry point)
+        critic = self.metadata.critic
+        if critic is None:
+            # Fall back to PassCritic if none provided
+            from benchmarks.utils.critics import PassCritic
 
-        critic = CriticRegistry.create_critic(critic_name)
+            if self.metadata.max_attempts == 1:
+                logger.info("No critic specified for single attempt, using PassCritic")
+                critic = PassCritic()
+            else:
+                raise ValueError("critic is required for multi-attempt evaluation")
 
         for attempt in range(start_attempt, self.metadata.max_attempts + 1):
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
@@ -310,7 +311,7 @@ class Evaluation(ABC, BaseModel):
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
             max_attempts=self.metadata.max_attempts,
-            critic_name=critic_name,
+            critic=critic,
             final_output_file="output.jsonl",
         )
 

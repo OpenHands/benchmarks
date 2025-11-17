@@ -11,6 +11,7 @@ from benchmarks.swe_bench.build_images import (
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.critic_factory import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
@@ -237,9 +238,6 @@ class SWEBenchEvaluation(Evaluation):
         conversation.send_message(instruction)
         conversation.run()
 
-        # Collect results
-        history = list(map(lambda event: event.model_dump(), conversation.state.events))
-
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
@@ -269,7 +267,7 @@ class SWEBenchEvaluation(Evaluation):
             },
             instruction=instruction,
             error=None,
-            history=history,
+            history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
         )
         return out
@@ -317,6 +315,10 @@ def main() -> None:
         eval_note=args.note,
     )
 
+    # Create critic instance from parsed arguments
+    critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -328,14 +330,17 @@ def main() -> None:
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
         max_attempts=args.max_attempts,
-        critic_name=args.critic,
+        critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
     )
 
     # Run orchestrator with a simple JSONL writer
-    evaluator = SWEBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
+    evaluator = SWEBenchEvaluation(
+        metadata=metadata,
+        num_workers=args.num_workers,
+    )
 
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
