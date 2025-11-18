@@ -224,7 +224,7 @@ class SWEBenchEvaluation(Evaluation):
             logger.info(
                 f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
             )
-            runtime_class = os.getenv("RUNTIME_CLASS", "gvisor")
+            runtime_class = os.getenv("RUNTIME_CLASS", "sysbox-runc")
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
