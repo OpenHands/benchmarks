@@ -7,6 +7,7 @@ import pytest
 
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
+from openhands.sdk.critic import PassCritic
 
 
 def test_workspace_cleanup_called_on_success():
@@ -43,6 +44,7 @@ def test_workspace_cleanup_called_on_success():
         eval_limit=1,
         max_attempts=1,
         max_retries=0,
+        critic=PassCritic(),
     )
 
     # Create a concrete evaluation class for testing
@@ -92,6 +94,7 @@ def test_workspace_cleanup_called_on_failure():
         eval_limit=1,
         max_attempts=1,
         max_retries=0,
+        critic=PassCritic(),
     )
 
     # Create a concrete evaluation class for testing
@@ -152,6 +155,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
         eval_limit=1,
         max_attempts=1,
         max_retries=0,
+        critic=PassCritic(),
     )
 
     # Create a concrete evaluation class for testing
@@ -206,6 +210,7 @@ def test_workspace_cleanup_with_retries():
         eval_limit=1,
         max_attempts=1,
         max_retries=2,  # Allow 2 retries
+        critic=PassCritic(),
     )
 
     # Track evaluation attempts

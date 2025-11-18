@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
-from benchmarks.utils.critics import CriticRegistry, get_completed_instances
+from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
@@ -94,7 +94,7 @@ class Evaluation(ABC, BaseModel):
             error=(
                 f"Instance failed after {retry_count} retries. Last error: {str(error)}"
             )[:200],
-            history=None,
+            history=[],
             instance=instance.data,
         )
 
@@ -149,7 +149,9 @@ class Evaluation(ABC, BaseModel):
                             with open(a_file, "r", encoding="utf-8") as f:
                                 for line in f:
                                     if line.strip():
-                                        output = EvalOutput(**json.loads(line))
+                                        output = EvalOutput.model_validate(
+                                            json.loads(line)
+                                        )
                                         all_previous_outputs.append(output)
                         except Exception as e:
                             logger.warning(f"Error loading outputs from {a_file}: {e}")
@@ -180,19 +182,6 @@ class Evaluation(ABC, BaseModel):
         # Check for resume point and load previous outputs
         start_attempt, all_outputs = self._get_resume_start_attempt()
 
-        # For single attempts without a critic, use the pass critic
-        critic_name = self.metadata.critic_name
-        if not critic_name:
-            if self.metadata.max_attempts == 1:
-                critic_name = "pass"
-                logger.info(
-                    "No critic specified for single attempt, using 'pass' critic"
-                )
-            else:
-                raise ValueError("critic_name is required for multi-attempt evaluation")
-
-        critic = CriticRegistry.create_critic(critic_name)
-
         for attempt in range(start_attempt, self.metadata.max_attempts + 1):
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
@@ -205,7 +194,9 @@ class Evaluation(ABC, BaseModel):
                     f"output.critic_attempt_{attempt - 1}.jsonl",
                 )
                 if os.path.exists(prev_file):
-                    target_instances = get_failed_instances(prev_file, critic)
+                    target_instances = get_failed_instances(
+                        prev_file, self.metadata.critic
+                    )
                 else:
                     target_instances = set()
 
@@ -310,7 +301,7 @@ class Evaluation(ABC, BaseModel):
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
             max_attempts=self.metadata.max_attempts,
-            critic_name=critic_name,
+            critic=self.metadata.critic,
             final_output_file="output.jsonl",
         )
 
@@ -444,6 +435,7 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
 
     # Set up logger
     log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
+    output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
 
     # Get root logger and remove all existing handlers
     root_logger = logging.getLogger()
@@ -463,8 +455,12 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
 
     # Print one INFO line with helpful hint
     root_logger.info(
-        f"Starting evaluation for instance {instance_id}.\n"
-        f'Hint: run "tail -f {log_file}" to see live logs in a separate shell'
+        f"""
+    === Evaluation Started (instance {instance_id}) ===
+    View live output:
+    • tail -f {log_file}          (logger)
+    • tail -f {output_log_file}   (stdout/stderr)
+    """.strip()
     )
 
     # Now set console to WARNING+ only
