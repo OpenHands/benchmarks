@@ -9,6 +9,7 @@ from unittest.mock import Mock
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
+from openhands.sdk.critic import PassCritic
 from openhands.sdk.workspace import RemoteWorkspace
 
 
@@ -40,12 +41,7 @@ class MockEvaluation(Evaluation):
             test_result={"git_patch": "mock patch"},
             instruction="mock instruction",
             error=None,
-            history=[
-                {
-                    "kind": "ActionEvent",
-                    "action": {"kind": "FinishAction"},
-                }
-            ],
+            history=[],  # Empty history for testing
             instance=instance.data,
         )
 
@@ -86,12 +82,7 @@ def test_iterative_resume_with_expanded_n_limit():
                         test_result={"git_patch": "mock patch"},
                         instruction="mock instruction",
                         error=None,
-                        history=[
-                            {
-                                "kind": "ActionEvent",
-                                "action": {"kind": "FinishAction"},
-                            }
-                        ],
+                        history=[],  # Empty history for testing
                         instance=inst.data,
                     )
                     f.write(output.model_dump_json() + "\n")
@@ -113,7 +104,7 @@ def test_iterative_resume_with_expanded_n_limit():
             eval_limit=200,
             max_attempts=3,
             max_retries=0,
-            critic_name="pass",
+            critic=PassCritic(),
         )
 
         # Create evaluation with expanded instances
@@ -123,20 +114,7 @@ def test_iterative_resume_with_expanded_n_limit():
             instances=all_200_instances,
         )
 
-        # Check resume logic
-        start_attempt, previous_outputs = evaluation._get_resume_start_attempt()
-
-        # Should resume from attempt 3 (last completed attempt)
-        assert start_attempt == 3, f"Expected start_attempt=3, got {start_attempt}"
-
-        # Should have loaded 150 outputs (50 instances * 3 attempts)
-        assert len(previous_outputs) == 150, (
-            f"Expected 150 previous outputs (50 instances * 3 attempts), "
-            f"got {len(previous_outputs)}"
-        )
-
-        # Now test the critical part: _run_iterative_mode should process new instances
-        # We'll track what instances are actually processed
+        # Track what instances are actually processed
         processed_instances = set()
 
         def track_on_result(instance: EvalInstance, output: EvalOutput):
@@ -208,7 +186,7 @@ def test_iterative_resume_with_same_n_limit():
             eval_limit=50,
             max_attempts=3,
             max_retries=0,
-            critic_name="pass",
+            critic=PassCritic(),
         )
 
         # Simulate partial run - only attempt 1 and 2 completed
@@ -223,12 +201,7 @@ def test_iterative_resume_with_same_n_limit():
                         test_result={"git_patch": "mock patch"},
                         instruction="mock instruction",
                         error=None,
-                        history=[
-                            {
-                                "kind": "ActionEvent",
-                                "action": {"kind": "FinishAction"},
-                            }
-                        ],
+                        history=[],  # Empty history for testing
                         instance=inst.data,
                     )
                     f.write(output.model_dump_json() + "\n")
@@ -240,13 +213,22 @@ def test_iterative_resume_with_same_n_limit():
             instances=instances,
         )
 
-        # Check resume logic
-        start_attempt, previous_outputs = evaluation._get_resume_start_attempt()
+        # Track what instances are processed
+        processed_instances = set()
 
-        # Should resume from attempt 2 (last completed attempt)
-        assert start_attempt == 2, f"Expected start_attempt=2, got {start_attempt}"
+        def track_on_result(instance: EvalInstance, output: EvalOutput):
+            processed_instances.add(instance.id)
 
-        # Should have loaded 100 outputs (50 instances * 2 attempts)
-        assert len(previous_outputs) == 100, (
-            f"Expected 100 previous outputs, got {len(previous_outputs)}"
+        # Run evaluation - should only process attempt 3 since 1 and 2 are complete
+        evaluation.run(on_result=track_on_result)
+
+        # All instances should be processed in attempt 3 (since pass critic marks all as success)
+        # Actually, with pass critic, everything succeeds in attempt 1, so attempts 2 and 3 have nothing to do
+        # But since we already have complete results for attempts 1 and 2, attempt 3 should run but find nothing to do
+
+        # With the new design, all attempts iterate, but skip completed work
+        # So no instances should be re-processed
+        assert len(processed_instances) == 0, (
+            f"Expected no instances to be re-processed (all already complete in attempts 1-2), "
+            f"but found: {processed_instances}"
         )
