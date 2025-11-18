@@ -16,7 +16,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from openhands.agent_server.docker.build import SDK_VERSION, _base_slug
+from openhands.agent_server.docker.build import _DEFAULT_PACKAGE_VERSION, _base_slug
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -47,7 +47,7 @@ def get_agent_server_docker_image(
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
         "ghcr.io/openhands/agent-server"
-        + f":v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
+        + f":v{_DEFAULT_PACKAGE_VERSION}_{_base_slug(official_image_name)}_{target}"
     )
 
 
@@ -162,7 +162,6 @@ class SWEBenchEvaluation(Evaluation):
             llm=self.metadata.llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
-            finish_on_message_only=False,  # Don't finish on message-only responses in SWE-bench
             # TODO: we can enable condenser and security analyzer later
             # and have them configurable via EvalMetadata
             # condenser=get_default_condenser(
