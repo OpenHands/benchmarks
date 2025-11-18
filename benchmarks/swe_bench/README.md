@@ -69,9 +69,12 @@ Images must be pre-built and pushed to a **public** container registry before ru
 **Option A: Automated Build via PR Label (Recommended)**
 
 1. Create or update a PR in this repository
-2. Add the `build-swebench` label to the PR
+2. Add one of the following labels to the PR to trigger image builds:
+   - `build-swebench-50`: Build 50 images (quick testing, ~5-10 minutes)
+   - `build-swebench-200`: Build 200 images (medium testing, ~20-40 minutes)
+   - `build-swebench`: Build all images (full evaluation, ~1-2 hours)
 3. The GitHub Action will automatically:
-   - Build agent-server images for all instances in `princeton-nlp/SWE-bench_Verified` (test split)
+   - Build agent-server images for instances in `princeton-nlp/SWE-bench_Verified` (test split)
    - Push images to `ghcr.io/openhands/eval-agent-server` with tags like:
      ```
      ghcr.io/openhands/eval-agent-server:{SDK_SHA}-{INSTANCE_TAG}-source-minimal

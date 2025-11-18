@@ -149,7 +149,10 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
 #### Prerequisites for Remote Workspace
 
 1. **Pre-built Images**: Images must be built and pushed to a public registry
-   - In this repository, add the `build-swebench` label to a PR to trigger image builds
+   - In this repository, add one of the following labels to a PR to trigger image builds:
+     - `build-swebench-50`: Build 50 images (quick testing)
+     - `build-swebench-200`: Build 200 images (medium testing)
+     - `build-swebench`: Build all images (full evaluation)
    - Images are tagged with the SDK SHA from the `vendor/software-agent-sdk` submodule
 
 2. **Runtime API Key**: Set the `RUNTIME_API_KEY` environment variable
