@@ -180,6 +180,32 @@ class Evaluation(ABC, BaseModel):
         # Check for resume point and load previous outputs
         start_attempt, all_outputs = self._get_resume_start_attempt()
 
+        # Check if there are new instances that have never been processed
+        # This can happen when n-limit is expanded between runs
+        if start_attempt > 1:
+            # Get all instance IDs that have been processed in any previous attempt
+            processed_instance_ids: set[EvalInstanceID] = set()
+            for attempt in range(1, start_attempt + 1):
+                attempt_file = os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{attempt}.jsonl",
+                )
+                if os.path.exists(attempt_file):
+                    processed_instance_ids.update(get_completed_instances(attempt_file))
+
+            # Check if there are any instances that have never been processed
+            all_instance_ids = set(inst.id for inst in all_instances)
+            new_instance_ids = all_instance_ids - processed_instance_ids
+
+            if new_instance_ids:
+                logger.info(
+                    f"Found {len(new_instance_ids)} new instances that have never been processed. "
+                    f"Resetting to attempt 1 to process them."
+                )
+                # Reset to attempt 1 to process new instances
+                # The existing logic will skip instances already completed in each attempt
+                start_attempt = 1
+
         # For single attempts without a critic, use the pass critic
         critic_name = self.metadata.critic_name
         if not critic_name:
@@ -198,8 +224,10 @@ class Evaluation(ABC, BaseModel):
 
             # Determine what this attempt should process
             if attempt == 1:
+                # For attempt 1, process all instances from the dataset
                 target_instances = set(inst.id for inst in all_instances)
             else:
+                # For attempts > 1, only process instances that failed in the previous attempt
                 prev_file = os.path.join(
                     self.metadata.eval_output_dir,
                     f"output.critic_attempt_{attempt - 1}.jsonl",
