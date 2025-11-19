@@ -85,7 +85,9 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
     if "setup" in filtered_dataset.columns:
         filtered_dataset = filtered_dataset.drop("setup", axis=1)
 
-    filtered_dataset["instance_id"] = filtered_dataset["repo"].str.split("/").str[1]  # type: ignore[attr-defined]
+    filtered_dataset["instance_id"] = (
+        pd.Series(filtered_dataset["repo"]).str.split("/").str[1]
+    )
 
     return filtered_dataset
 
