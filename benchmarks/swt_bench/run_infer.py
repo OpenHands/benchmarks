@@ -6,6 +6,7 @@ from typing import List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
@@ -16,8 +17,8 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from openhands.agent_server.docker.build import SDK_VERSION, _base_slug
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.agent_server.docker.build import _base_slug
+from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
@@ -48,7 +49,7 @@ def get_agent_server_docker_image(
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
         "ghcr.io/all-hands-ai/agent-server"
-        + f":v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
+        + f":v{__version__}_{_base_slug(official_image_name)}_{target}"
     )
 
 
@@ -227,9 +228,6 @@ class SWTBenchEvaluation(Evaluation):
         conversation.send_message(instruction)
         conversation.run()
 
-        # Collect results
-        history = list(map(lambda event: event.model_dump(), conversation.state.events))
-
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
@@ -251,7 +249,6 @@ class SWTBenchEvaluation(Evaluation):
         )
         git_patch = git_patch_result.stdout
 
-        # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
             test_result={
@@ -259,8 +256,8 @@ class SWTBenchEvaluation(Evaluation):
             },
             instruction=instruction,
             error=None,
-            history=history,
-            metrics=conversation.conversation_stats.get_combined_metrics().get(),
+            history=list(conversation.state.events),
+            metrics=conversation.conversation_stats.get_combined_metrics(),
         )
         return out
 
@@ -308,6 +305,8 @@ def main() -> None:
         eval_note="SWT-" + args.note,
     )
 
+    critic = create_critic(args)
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -319,7 +318,7 @@ def main() -> None:
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
         max_attempts=args.max_attempts,
-        critic_name=args.critic,
+        critic=critic,
         selected_instances_file=args.select,
     )
 
