@@ -217,3 +217,5 @@ workspace/
 # Evaluation outputs
 eval_outputs/
 builds/
+.llm_config/sonnet-4.json
+results/

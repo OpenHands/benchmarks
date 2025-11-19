@@ -26,6 +26,39 @@ from openhands.workspace import DockerWorkspace
 logger = get_logger(__name__)
 
 
+class ServerCompatibleAgent(Agent):
+    """Agent that excludes forbidden LLM fields during serialization for server compatibility.
+
+    The OpenHands server rejects certain LLM fields that are not accepted in the API:
+    - extra_headers
+    - reasoning_summary
+    - litellm_extra_body
+
+    This agent class overrides model_dump to exclude these fields when serializing.
+    """
+
+    def model_dump(self, **kwargs):
+        """Override model_dump to exclude forbidden LLM fields."""
+        # Get the standard dump
+        data = super().model_dump(**kwargs)
+
+        # Clean the LLM fields if present
+        if "llm" in data and isinstance(data["llm"], dict):
+            forbidden_fields = {
+                "extra_headers",
+                "reasoning_summary",
+                "litellm_extra_body",
+            }
+            for field in forbidden_fields:
+                if field in data["llm"]:
+                    logger.debug(
+                        f"Excluding forbidden field '{field}' from agent LLM serialization"
+                    )
+                    del data["llm"][field]
+
+        return data
+
+
 def convert_numpy_types(obj: Any) -> Any:
     """Recursively convert numpy types to Python native types."""
     if isinstance(obj, np.integer):
@@ -256,32 +289,6 @@ def generate_instruction(instance_data: dict, template_path: str | None = None) 
     return instruction
 
 
-def create_server_compatible_llm(llm: LLM) -> LLM:
-    """Create a server-compatible LLM configuration by excluding forbidden fields.
-
-    The OpenHands server rejects certain LLM fields that are not accepted in the API:
-    - extra_headers
-    - reasoning_summary
-    - litellm_extra_body
-
-    This function creates a copy of the LLM with these fields excluded.
-    """
-    # Get the LLM data as a dict
-    llm_data = llm.model_dump(mode="json", context={"expose_secrets": True})
-
-    # Remove forbidden fields that cause 422 errors
-    forbidden_fields = ["extra_headers", "reasoning_summary", "litellm_extra_body"]
-    for field in forbidden_fields:
-        if field in llm_data:
-            logger.debug(
-                f"Removing forbidden field '{field}' from LLM config for server compatibility"
-            )
-            del llm_data[field]
-
-    # Create a new LLM instance with the cleaned data
-    return LLM.model_validate(llm_data)
-
-
 def run_evaluation_in_container(
     workspace, evaluator_code: str, trajectory: str, instance_id: str
 ) -> dict:
@@ -423,11 +430,10 @@ class OpenAgentSafetyEvaluation(Evaluation):
             enable_browser=False,
         )
 
-        # Create server-compatible LLM configuration (excludes forbidden fields)
-        server_compatible_llm = create_server_compatible_llm(self.metadata.llm)
-
-        # Create agent with server-compatible LLM
-        agent = Agent(llm=server_compatible_llm, tools=tools)
+        # Create agent with server-compatible serialization
+        # Note: We use the original LLM but the ServerCompatibleAgent will exclude
+        # forbidden fields during serialization to the server
+        agent = ServerCompatibleAgent(llm=self.metadata.llm, tools=tools)
 
         # Collect events
         received_events = []
