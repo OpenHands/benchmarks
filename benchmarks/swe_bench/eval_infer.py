@@ -212,8 +212,8 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
+        default="openhands",
+        help="Model name to use in the model_name_or_path field (default: openhands)",
     )
 
     parser.add_argument(

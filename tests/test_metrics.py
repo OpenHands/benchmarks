@@ -19,6 +19,9 @@ import pytest
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
+from openhands.sdk.critic import PassCritic
+from openhands.sdk.event import MessageEvent
+from openhands.sdk.llm import Message, TextContent
 from openhands.sdk.llm.utils.metrics import Metrics, TokenUsage
 from openhands.sdk.workspace import RemoteWorkspace
 
@@ -140,7 +143,7 @@ def test_metrics_collection_pattern():
         instruction="test instruction",
         error=None,
         history=[],
-        metrics=metrics.model_dump(),
+        metrics=metrics,
     )
 
     # Verify the output can be serialized properly
@@ -249,6 +252,7 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             critic_name="test_critic",
             dataset="princeton-nlp/SWE-bench_Lite",
             dataset_split="test",
+            critic=PassCritic(),
         )
     elif benchmark_name == "swt_bench":
         return EvalMetadata(
@@ -266,10 +270,10 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             llm=llm,
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
-            critic_name="test_critic",
             dataset="gaia-benchmark/GAIA",
             dataset_split="test",
             details={"test": True},
+            critic=PassCritic(),
         )
     else:
         # Generic metadata for unknown benchmarks
@@ -277,9 +281,9 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             llm=llm,
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
-            critic_name="test_critic",
             dataset=f"test/{benchmark_name}",
             dataset_split="test",
+            critic=PassCritic(),
         )
 
 
@@ -294,11 +298,14 @@ def _setup_mocks_for_benchmark(benchmark_name: str, metrics: Metrics):
 
     if benchmark_name == "gaia":
         # GAIA needs a conversation with an answer in the events
-        mock_event = MagicMock()
-        mock_event.model_dump.return_value = {
-            "type": "agent",
-            "content": "<solution>42</solution>",
-        }
+        # Create a proper MessageEvent instead of MagicMock
+        mock_event = MessageEvent(
+            source="agent",
+            llm_message=Message(
+                role="assistant",
+                content=[TextContent(text="<solution>42</solution>")],
+            ),
+        )
         mock_conversation.state.events = [mock_event]
     else:
         # Default: empty events
@@ -377,20 +384,20 @@ def test_benchmark_metrics_collection(
 
     # Verify metrics were collected
     assert result.metrics is not None, f"{benchmark_name}: Metrics should not be None"
-    assert isinstance(result.metrics, dict), (
-        f"{benchmark_name}: Metrics should be a dictionary"
+    assert isinstance(result.metrics, Metrics), (
+        f"{benchmark_name}: Metrics should be a Metrics object"
     )
-    assert result.metrics["accumulated_cost"] == 1.5, (
+    assert result.metrics.accumulated_cost == 1.5, (
         f"{benchmark_name}: Cost should be 1.5"
     )
 
     # Assert token_usage exists for type checker
-    token_usage = result.metrics["accumulated_token_usage"]
+    token_usage = result.metrics.accumulated_token_usage
     assert token_usage is not None, f"{benchmark_name}: Token usage should not be None"
-    assert token_usage["prompt_tokens"] == 100, (
+    assert token_usage.prompt_tokens == 100, (
         f"{benchmark_name}: Should have 100 prompt tokens"
     )
-    assert token_usage["completion_tokens"] == 50, (
+    assert token_usage.completion_tokens == 50, (
         f"{benchmark_name}: Should have 50 completion tokens"
     )
 
@@ -458,8 +465,8 @@ def test_metrics_with_zero_cost(mock_workspace):
 
     # Verify metrics are collected even with zero cost
     assert result.metrics is not None
-    assert isinstance(result.metrics, dict)
-    assert result.metrics["accumulated_cost"] == 0.0
+    assert isinstance(result.metrics, Metrics)
+    assert result.metrics.accumulated_cost == 0.0
 
     # Verify it can still be serialized to JSON
     json_str = result.model_dump_json()
