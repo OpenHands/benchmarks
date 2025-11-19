@@ -440,6 +440,7 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     View live output:
     • tail -f {log_file}          (logger)
     • tail -f {output_log_file}   (stdout/stderr)
+    ===============================================
     """.strip()
     )
 
