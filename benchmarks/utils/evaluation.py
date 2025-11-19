@@ -23,6 +23,7 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from openhands.sdk import get_logger
+from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
 
 
@@ -118,50 +119,54 @@ class Evaluation(ABC, BaseModel):
         # Use iterative mode for all cases
         return self._run_iterative_mode(on_result=on_result)
 
-    def _get_resume_start_attempt(self) -> Tuple[int, List[EvalOutput]]:
+    def _get_instances_for_attempt(
+        self,
+        attempt: int,
+        all_instances: List[EvalInstance],
+        critic: CriticBase,
+    ) -> List[EvalInstance]:
         """
-        Find where to resume and load previous outputs.
+        Determine which instances need processing for a specific attempt.
+
+        This method handles all resume scenarios naturally without special cases:
+        - New instances: Not completed in attempt 1 yet → include them
+        - Resume: Already completed in this attempt → exclude them
+        - Expansion: Just more instances not in attempt 1 yet → include them
+
+        Args:
+            attempt: The attempt number (1-indexed)
+            all_instances: All instances in the dataset
+            critic: The critic to use for determining failures
 
         Returns:
-            Tuple of (start_attempt, previous_outputs)
-            - start_attempt: Which attempt to start from (1 for fresh start)
-            - previous_outputs: All outputs from previous attempts
+            List of instances that need processing for this attempt
         """
-        all_previous_outputs = []
+        attempt_file = os.path.join(
+            self.metadata.eval_output_dir,
+            f"output.critic_attempt_{attempt}.jsonl",
+        )
+        completed_in_attempt = get_completed_instances(attempt_file)
 
-        # Check backwards from max_attempts to find the last attempt with results
-        for attempt in range(self.metadata.max_attempts, 0, -1):
-            attempt_file = os.path.join(
-                self.metadata.eval_output_dir, f"output.critic_attempt_{attempt}.jsonl"
+        if attempt == 1:
+            # Attempt 1: Process everything not yet completed in attempt 1
+            return [
+                inst for inst in all_instances if inst.id not in completed_in_attempt
+            ]
+        else:
+            # Attempt N: Process what failed in N-1 and isn't completed in N
+            prev_file = os.path.join(
+                self.metadata.eval_output_dir,
+                f"output.critic_attempt_{attempt - 1}.jsonl",
             )
-            if os.path.exists(attempt_file) and os.path.getsize(attempt_file) > 0:
-                # Found the last attempt with results, resume from here
-                logger.info(f"Found existing results up to attempt {attempt}")
+            if not os.path.exists(prev_file):
+                return []
 
-                # Load ALL previous outputs from attempts 1 to attempt
-                for a in range(1, attempt + 1):
-                    a_file = os.path.join(
-                        self.metadata.eval_output_dir,
-                        f"output.critic_attempt_{a}.jsonl",
-                    )
-                    if os.path.exists(a_file):
-                        try:
-                            with open(a_file, "r", encoding="utf-8") as f:
-                                for line in f:
-                                    if line.strip():
-                                        output = EvalOutput.model_validate(
-                                            json.loads(line)
-                                        )
-                                        all_previous_outputs.append(output)
-                        except Exception as e:
-                            logger.warning(f"Error loading outputs from {a_file}: {e}")
-
-                logger.info(f"Loaded {len(all_previous_outputs)} previous outputs")
-                return attempt, all_previous_outputs
-
-        # No existing files found, start fresh
-        logger.info("No existing results found, starting fresh")
-        return 1, []
+            failed_in_prev = get_failed_instances(prev_file, critic)
+            return [
+                inst
+                for inst in all_instances
+                if inst.id in failed_in_prev and inst.id not in completed_in_attempt
+            ]
 
     def _run_iterative_mode(
         self,
@@ -169,7 +174,6 @@ class Evaluation(ABC, BaseModel):
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
         """Run evaluation with support for single or multiple attempts."""
-        # Get all instances first
         all_instances = self.prepare_instances()
 
         total_instances = len(all_instances)
@@ -179,39 +183,15 @@ class Evaluation(ABC, BaseModel):
             logger.warning("No instances to process.")
             return []
 
-        # Check for resume point and load previous outputs
-        start_attempt, all_outputs = self._get_resume_start_attempt()
+        critic = self.metadata.critic
+        all_outputs: List[EvalOutput] = []
 
-        for attempt in range(start_attempt, self.metadata.max_attempts + 1):
+        for attempt in range(1, self.metadata.max_attempts + 1):
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
-            # Determine what this attempt should process
-            if attempt == 1:
-                target_instances = set(inst.id for inst in all_instances)
-            else:
-                prev_file = os.path.join(
-                    self.metadata.eval_output_dir,
-                    f"output.critic_attempt_{attempt - 1}.jsonl",
-                )
-                if os.path.exists(prev_file):
-                    target_instances = get_failed_instances(
-                        prev_file, self.metadata.critic
-                    )
-                else:
-                    target_instances = set()
-
-            # Exclude already completed in current attempt
-            completed = get_completed_instances(
-                os.path.join(
-                    self.metadata.eval_output_dir,
-                    f"output.critic_attempt_{attempt}.jsonl",
-                )
+            instances_to_process = self._get_instances_for_attempt(
+                attempt, all_instances, critic
             )
-            instances_to_process = [
-                inst
-                for inst in all_instances
-                if inst.id in target_instances and inst.id not in completed
-            ]
 
             logger.info(f"Processing {len(instances_to_process)} instances")
 
