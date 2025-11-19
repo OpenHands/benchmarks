@@ -85,7 +85,7 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
     if "setup" in filtered_dataset.columns:
         filtered_dataset = filtered_dataset.drop("setup", axis=1)
 
-    filtered_dataset["instance_id"] = filtered_dataset["repo"].str.split("/").str[1]
+    filtered_dataset["instance_id"] = filtered_dataset["repo"].str.split("/").str[1]  # type: ignore[attr-defined]
 
     return filtered_dataset
 
@@ -124,11 +124,10 @@ class Commit0Evaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up Commit0 evaluation data")
 
-        dataset_name = self.metadata.details.get(
-            "dataset_name", "wentingzhao/commit0_combined"
-        )
-        dataset_split = self.metadata.details.get("dataset_split", "test")
-        repo_split = self.metadata.details.get("repo_split", "lite")
+        details = self.metadata.details or {}
+        dataset_name = details.get("dataset_name", "wentingzhao/commit0_combined")
+        dataset_split = details.get("dataset_split", "test")
+        repo_split = details.get("repo_split", "lite")
 
         dataset = load_dataset(dataset_name, split=dataset_split)
         df = commit0_setup(dataset, repo_split)
@@ -297,7 +296,15 @@ class Commit0Evaluation(Evaluation):
             timeout=600,
         )
 
-        eval_result = {}
+        # Initialize eval_result with default values
+        eval_result = {
+            "name": workspace_dir_name,
+            "sum": 0,
+            "passed": 0,
+            "num_passed": 0,
+            "num_tests": len(test_ids),
+        }
+
         if report_result.exit_code == 0:
             try:
                 report = json.loads(report_result.stdout.strip())
@@ -332,13 +339,7 @@ class Commit0Evaluation(Evaluation):
                 }
             except json.JSONDecodeError:
                 logger.error("Failed to parse test report JSON")
-                eval_result = {
-                    "name": workspace_dir_name,
-                    "sum": 0,
-                    "passed": 0,
-                    "num_passed": 0,
-                    "num_tests": len(test_ids),
-                }
+                # eval_result already has default values, no need to reassign
 
         # Save workspace as zip (if supported by workspace implementation)
         zip_dest = os.path.join(
@@ -349,7 +350,7 @@ class Commit0Evaluation(Evaluation):
         # Try to copy workspace directory if the method is available
         try:
             if hasattr(workspace, "download_directory"):
-                temp_zip = workspace.download_directory(repo_path)
+                temp_zip = workspace.download_directory(repo_path)  # type: ignore[attr-defined]
                 if temp_zip and os.path.exists(temp_zip):
                     import shutil
 
