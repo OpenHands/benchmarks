@@ -1,8 +1,22 @@
-# OpenHands Benchmarks Migration
+# OpenHands Benchmarks
 
-⚠️ **Migration in Progress**: We are currently migrating the benchmarks infrastructure from [OpenHands](https://github.com/OpenHands/OpenHands/) to work with the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).
+This repository contains benchmark evaluation infrastructure for [OpenHands](https://github.com/OpenHands/OpenHands/) agents. It provides standardized evaluation pipelines for testing agent capabilities across various real-world tasks.
 
-## Prerequisites
+⚠️ **Migration in Progress**: We are currently migrating the [benchmarks from OpenHands V0](https://github.com/OpenHands/OpenHands/tree/main/evaluation) to work with the [OpenHands Software Agent SDK](https://github.com/OpenHands/software-agent-sdk) infrastructure in V1.
+
+## Available Benchmarks
+
+| Benchmark | Description | Status |
+|-----------|-------------|--------|
+| [SWE-Bench](benchmarks/swe_bench/) | Software engineering tasks from GitHub issues | ✅ Active |
+| [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
+| [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
+
+See the individual benchmark directories for detailed usage instructions.
+
+## Quick Start
+
+### Prerequisites
 
 Before running any benchmarks, you need to set up the environment and ensure the local Agent SDK submodule is initialized.
 
@@ -15,7 +29,7 @@ make build
 
 ### 🧩 1. Initialize the Agent SDK submodule
 
-The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).  
+The Benchmarks project uses a **local git submodule** for the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk).
 This ensures your code runs against a specific, reproducible commit.
 
 Run once after cloning (already done in `make build` for you):
@@ -74,11 +88,11 @@ to rebuild your environment with the new SDK code.
 
 </details>
 
-## Quick Start
+### Configure Your LLM
 
-### 1. Configure Your LLM
+All benchmarks require an LLM configuration file. Define your LLM config as a JSON following the model fields in the [LLM class](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93).
 
-Define your LLM config as a JSON following the model fields type in the [LLM class](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93), [for example](.llm_config/example.json), you can write the following to `.llm_config/example.json`:
+**Example** (`.llm_config/example.json`):
 
 ```json
 {
@@ -88,66 +102,69 @@ Define your LLM config as a JSON following the model fields type in the [LLM cla
 }
 ```
 
-You may validate the correctness of your config by running `uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json`
-
-### 2. Build Docker Images for SWE-Bench Evaluation
-Build ALL docker images for SWE-Bench.
-```bash
-uv run benchmarks/swe_bench/build_images.py \
-  --dataset princeton-nlp/SWE-bench_Verified --split test \
-  --critic pass \
-  --image ghcr.io/openhands/agent-server --target binary-minimal
-```
-
-
-### 3. Run SWE-Bench Inference
-```bash
-# Run evaluation with your configured LLM
-uv run swebench-infer .llm_config/sonnet-4.json
-```
-
-### 4. Selecting Specific Instances
-
-You can run evaluation on a specific subset of instances using the `--select` option:
-
-1. Create a text file with one instance ID per line:
-
-**instances.txt:**
-```
-django__django-11333
-astropy__astropy-12345
-requests__requests-5555
-```
-
-2. Run evaluation with the selection file:
-```bash
-python -m benchmarks.swe_bench.run_infer \
-    --agent-cls CodeActAgent \
-    --llm-config llm_config.toml \
-    --max-iterations 30 \
-    --select instances.txt \
-    --eval-output-dir ./evaluation_results
-```
-
-This will only evaluate the instances listed in the file.
-
-### 5. Evaluate SWE-Bench Results
-After running inference, evaluate the results using the official SWE-Bench evaluation:
+Validate your configuration:
 
 ```bash
-# Convert output format and run SWE-Bench evaluation
-uv run swebench-eval output.jsonl
-
-# Or specify custom dataset and output file
-uv run swebench-eval output.jsonl --dataset princeton-nlp/SWE-bench_Lite --output-file results.swebench.jsonl
-
-# Only convert format without running evaluation
-uv run swebench-eval output.jsonl --skip-evaluation
+uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 ```
 
-The script will:
-1. Convert OpenHands output format to SWE-Bench prediction format
-2. Run the official SWE-Bench evaluation harness
+## Running Benchmarks
+
+After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
+
+- **[SWE-Bench](benchmarks/swe_bench/)**: Software engineering tasks from GitHub issues
+- **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
+- **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
+
+## Workspace Types
+
+Benchmarks support two workspace types for running evaluations:
+
+### Docker Workspace (Default)
+
+Uses local Docker containers to run agent evaluations. Images are built locally on-demand.
+
+- **Pros**: No additional setup required, works offline
+- **Cons**: Resource-intensive on local machine, slower for large-scale evaluations
+- **Use case**: Development, testing, small-scale evaluations
+
+### Remote Workspace
+
+Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-coding-agents-on-swe-bench-at-30x-speed) to provision containers in a cloud environment, enabling massive parallelization.
+
+- **Pros**: Scalable to hundreds of parallel workers, no local resource constraints
+- **Cons**: Requires pre-built images and API access
+- **Use case**: Large-scale evaluations, benchmarking runs
+
+#### How Remote Runtime Works
+
+1. **Pre-build Agent Images**: Agent-server images must be pre-built for a specific SDK commit (SHA) and pushed to a public container registry (e.g., `ghcr.io/openhands/eval-agent-server`)
+   
+2. **Runtime API**: The remote workspace connects to a runtime API service (default: `https://runtime.eval.all-hands.dev`) that provisions containers on-demand
+
+3. **Image Resolution**: Before starting evaluation, the system verifies that the required image exists in the registry with the correct tag format: `{IMAGE}:{SDK_SHA}-{CUSTOM_TAG}{SUFFIX}`
+
+4. **Parallel Execution**: Each evaluation instance runs in its own isolated container, allowing for massive parallelization (e.g., 32+ concurrent workers)
+
+#### Prerequisites for Remote Workspace
+
+1. **Pre-built Images**: Images must be built and pushed to a public registry
+   - In this repository, add one of the following labels to a PR to trigger image builds:
+     - `build-swebench-50`: Build 50 images (quick testing)
+     - `build-swebench-200`: Build 200 images (medium testing)
+     - `build-swebench`: Build all images (full evaluation)
+   - Images are tagged with the SDK SHA from the `vendor/software-agent-sdk` submodule
+
+2. **Runtime API Key**: Set the `RUNTIME_API_KEY` environment variable
+   ```bash
+   export RUNTIME_API_KEY="your-api-key-here"
+   ```
+
+3. **Optional Configuration**:
+   - `RUNTIME_API_URL`: Override the default API endpoint (default: `https://runtime.eval.all-hands.dev`)
+   - `SDK_SHORT_SHA`: Override the SDK SHA for image selection (default: auto-detected from submodule)
+
+See individual benchmark READMEs for specific usage examples.
 
 ## Links
 

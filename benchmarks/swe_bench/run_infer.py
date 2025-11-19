@@ -4,51 +4,34 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swe_bench.build_images import (
+    extract_custom_tag,
+    get_official_docker_image,
+)
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from openhands.agent_server.docker.build import SDK_VERSION, _base_slug
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
-
-
-def get_official_docker_image(
-    instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
-) -> str:
-    # Official SWE-Bench image
-    # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
-    repo, name = instance_id.split("__")
-    official_image_name = docker_image_prefix.rstrip("/")
-    official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-    logger.debug(f"Official SWE-Bench image: {official_image_name}")
-    return official_image_name
-
-
-def get_agent_server_docker_image(
-    instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
-    target: str = "source-minimal",
-) -> str:
-    official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
-    return (
-        "ghcr.io/openhands/agent-server"
-        + f":v{SDK_VERSION}_{_base_slug(official_image_name)}_{target}"
-    )
 
 
 def get_instruction(
@@ -115,28 +98,78 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
         """
-        SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-        logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-        if SKIP_BUILD:
-            agent_server_image = get_agent_server_docker_image(instance.id)
+        official_docker_image = get_official_docker_image(instance.id)
+        build_target = "source-minimal"
+        custom_tag = extract_custom_tag(official_docker_image)
+        # For non-binary targets, append target suffix
+        suffix = f"-{build_target}" if build_target != "binary" else ""
+
+        if self.metadata.workspace_type == "docker":
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+            )
+            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
+            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+            if not SKIP_BUILD:
+                logger.info(
+                    f"Building workspace from {official_docker_image} "
+                    f"for instance {instance.id}. "
+                    "This may take a while...\n"
+                    "You can run benchmarks/swe_bench/build_images.py and set "
+                    "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
+                    "agent-server image."
+                )
+                output = build_image(
+                    base_image=official_docker_image,
+                    target_image=EVAL_AGENT_SERVER_IMAGE,
+                    custom_tag=custom_tag,
+                    target=build_target,
+                    push=False,
+                )
+                logger.info(f"Image build output: {output}")
+                assert output.error is None, f"Image build failed: {output.error}"
+                if agent_server_image not in output.tags:
+                    raise RuntimeError(
+                        f"Built image tags {output.tags} do not include expected tag "
+                        f"{agent_server_image}"
+                    )
+
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
             )
-        else:
-            official_docker_image = get_official_docker_image(instance.id)
-            workspace = DockerWorkspace(
-                base_image=official_docker_image,
-                working_dir="/workspace",
-                target="source-minimal",
+        elif self.metadata.workspace_type == "remote":
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                )
+
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
             )
+            if not image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
+                    "make sure to build, push it, and make it public accessible before using remote workspace."
+                )
             logger.info(
-                f"Building workspace from {official_docker_image}. "
-                "This may take a while...\n"
-                "You can run benchmarks/swe_bench/build_images.py and set "
-                "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
-                "agent-server image."
+                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
             )
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=os.getenv(
+                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                ),
+                runtime_api_key=runtime_api_key,
+                server_image=agent_server_image,
+                target_type="source" if "source" in build_target else "binary",
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
+
         for cmd in self.metadata.env_setup_commands or []:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
@@ -205,9 +238,6 @@ class SWEBenchEvaluation(Evaluation):
         conversation.send_message(instruction)
         conversation.run()
 
-        # Collect results
-        history = list(map(lambda event: event.model_dump(), conversation.state.events))
-
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
@@ -237,7 +267,8 @@ class SWEBenchEvaluation(Evaluation):
             },
             instruction=instruction,
             error=None,
-            history=history,
+            history=list(conversation.state.events),
+            metrics=conversation.conversation_stats.get_combined_metrics(),
         )
         return out
 
@@ -284,6 +315,10 @@ def main() -> None:
         eval_note=args.note,
     )
 
+    # Create critic instance from parsed arguments
+    critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -295,13 +330,17 @@ def main() -> None:
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
         max_attempts=args.max_attempts,
-        critic_name=args.critic,
+        critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        workspace_type=args.workspace,
     )
 
     # Run orchestrator with a simple JSONL writer
-    evaluator = SWEBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
+    evaluator = SWEBenchEvaluation(
+        metadata=metadata,
+        num_workers=args.num_workers,
+    )
 
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
