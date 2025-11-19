@@ -349,8 +349,9 @@ class Commit0Evaluation(Evaluation):
 
         # Try to copy workspace directory if the method is available
         try:
-            if hasattr(workspace, "download_directory"):
-                temp_zip = workspace.download_directory(repo_path)  # type: ignore[attr-defined]
+            download_directory = getattr(workspace, "download_directory", None)
+            if download_directory is not None:
+                temp_zip = download_directory(repo_path)
                 if temp_zip and os.path.exists(temp_zip):
                     import shutil
 
