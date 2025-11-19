@@ -201,6 +201,15 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "environment_setup_commit": "abc123",
             },
         )
+    elif benchmark_name == "swt_bench":
+        return EvalInstance(
+            id="test-instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test-instance-1",
+                "base_commit": "abc123",
+            },
+        )
     elif benchmark_name == "gaia":
         return EvalInstance(
             id="test-instance-1",
@@ -232,6 +241,15 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
             dataset="princeton-nlp/SWE-bench_Lite",
+            dataset_split="test",
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "swt_bench":
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="swe-bench/SWT-bench",
             dataset_split="test",
             critic=PassCritic(),
         )
