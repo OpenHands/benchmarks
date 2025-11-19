@@ -12,6 +12,9 @@ import pandas as pd
 import requests
 from jinja2 import Environment, FileSystemLoader
 
+# Monkey-patch observation types to allow extra fields from server
+from pydantic import ConfigDict
+
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -19,8 +22,20 @@ from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
+from openhands.tools.file_editor.definition import FileEditorObservation
+from openhands.tools.task_tracker.definition import TaskTrackerObservation
+
+# Import and patch the observation classes to allow extra fields
+from openhands.tools.terminal.definition import ExecuteBashObservation
+
+# from openhands.tools.preset.default import get_default_tools  # Not needed - using server-compatible tool names
 from openhands.workspace import DockerWorkspace
+
+
+# Monkey-patch the model configs to allow extra fields
+ExecuteBashObservation.model_config = ConfigDict(extra="allow")
+FileEditorObservation.model_config = ConfigDict(extra="allow")
+TaskTrackerObservation.model_config = ConfigDict(extra="allow")
 
 
 logger = get_logger(__name__)
@@ -34,11 +49,16 @@ class ServerCompatibleAgent(Agent):
     - reasoning_summary
     - litellm_extra_body
 
+    Additionally, the server expects the 'kind' field to be exactly 'Agent', not 'ServerCompatibleAgent'.
+
     This agent class overrides model_dump to exclude these fields when serializing.
     """
 
+    # Override the kind field to report as 'Agent' instead of 'ServerCompatibleAgent'
+    kind: str = "Agent"
+
     def model_dump(self, **kwargs):
-        """Override model_dump to exclude forbidden LLM fields."""
+        """Override model_dump to exclude forbidden LLM fields and fix kind field."""
         # Get the standard dump
         data = super().model_dump(**kwargs)
 
@@ -55,6 +75,9 @@ class ServerCompatibleAgent(Agent):
                         f"Excluding forbidden field '{field}' from agent LLM serialization"
                     )
                     del data["llm"][field]
+
+        # Ensure the kind field is set to 'Agent' for server compatibility
+        data["kind"] = "Agent"
 
         return data
 
@@ -425,14 +448,17 @@ class OpenAgentSafetyEvaluation(Evaluation):
 
         from pydantic import ValidationError
 
-        # Setup tools
-        tools = get_default_tools(
-            enable_browser=False,
-        )
+        # Use the correct tool names that the server supports
+        # Server supports: ["BashTool","FileEditorTool","TaskTrackerTool","BrowserToolSet"]
+        from openhands.sdk import Tool
+
+        tools = [
+            Tool(name="BashTool", params={}),
+            Tool(name="FileEditorTool", params={}),
+            Tool(name="TaskTrackerTool", params={}),
+        ]
 
         # Create agent with server-compatible serialization
-        # Note: We use the original LLM but the ServerCompatibleAgent will exclude
-        # forbidden fields during serialization to the server
         agent = ServerCompatibleAgent(llm=self.metadata.llm, tools=tools)
 
         # Collect events
