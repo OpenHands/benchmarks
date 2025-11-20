@@ -6,22 +6,25 @@ from typing import List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
 )
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.agent_server.docker.build import _base_slug
 from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -36,7 +39,7 @@ def get_official_docker_image(
     repo, name = instance_id.split("__")
     official_image_name = docker_image_prefix.rstrip("/")
     official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-    logger.debug(f"Official SWE-Bench image: {official_image_name}")
+    logger.debug(f"Using official SWE-Bench image: {official_image_name}")
     return official_image_name
 
 
@@ -134,30 +137,75 @@ class SWTBenchEvaluation(Evaluation):
     # ---- Hook: prepare a workspace per instance ----------------------------------
     def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
         """
-        Use DockerWorkspace by default.
+        Create workspace based on workspace_type (docker or remote).
         """
-        SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-        logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-        if SKIP_BUILD:
-            agent_server_image = get_agent_server_docker_image(instance.id)
-            workspace = DockerWorkspace(
+        official_docker_image = get_official_docker_image(instance.id)
+        build_target = "source-minimal"
+
+        # Create a custom tag for the image
+        name_tag = official_docker_image.split("/")[-1]
+        custom_tag = name_tag.split(":")[0]
+        # For non-binary targets, append target suffix
+        suffix = f"-{build_target}" if build_target != "binary" else ""
+
+        if self.metadata.workspace_type == "docker":
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+            )
+            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
+            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+            if not SKIP_BUILD:
+                logger.info(
+                    f"Building workspace from {official_docker_image} "
+                    f"for instance {instance.id}. "
+                    "This may take a while...\n"
+                    "You can run benchmarks/swt_bench/build_images.py and set "
+                    "SKIP_BUILD=1 to skip building and use pre-built "
+                    "agent-server image."
+                )
+                # For SWT-bench, we use the old method with DockerWorkspace base_image
+                workspace = DockerWorkspace(
+                    base_image=official_docker_image,
+                    working_dir="/workspace",
+                    target=build_target,
+                )
+            else:
+                workspace = DockerWorkspace(
+                    server_image=agent_server_image,
+                    working_dir="/workspace",
+                )
+        elif self.metadata.workspace_type == "remote":
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                )
+
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+            )
+            if not image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
+                    "make sure to build, push it, and make it public accessible before using remote workspace."
+                )
+            logger.info(
+                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
+            )
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=os.getenv(
+                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                ),
+                runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
-                working_dir="/workspace",
+                target_type="source" if "source" in build_target else "binary",
             )
         else:
-            official_docker_image = get_official_docker_image(instance.id)
-            workspace = DockerWorkspace(
-                base_image=official_docker_image,
-                working_dir="/workspace",
-                target="source-minimal",
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
             )
-            logger.info(
-                f"Building workspace from {official_docker_image}. "
-                "This may take a while...\n"
-                "You can run benchmarks/swt_bench/build_images.py and set "
-                "SWT_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
-                "agent-server image."
-            )
+
         for cmd in self.metadata.env_setup_commands or []:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
@@ -320,6 +368,8 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
+        workspace_type=args.workspace,
     )
 
     # Run orchestrator with a simple JSONL writer
