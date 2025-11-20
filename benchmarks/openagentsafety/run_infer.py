@@ -82,6 +82,28 @@ class ServerCompatibleAgent(Agent):
         return data
 
 
+def create_server_compatible_llm(llm: LLM) -> LLM:
+    """Create a server-compatible LLM by excluding forbidden fields.
+
+    The OpenHands server rejects certain LLM fields that are not accepted in the API:
+    - extra_headers
+    - reasoning_summary
+    - litellm_extra_body
+
+    This function creates a new LLM instance with these fields set to None/empty.
+    """
+    # Get the current LLM data
+    llm_data = llm.model_dump()
+
+    # Set forbidden fields to None or empty values
+    llm_data["extra_headers"] = None
+    llm_data["reasoning_summary"] = None
+    llm_data["litellm_extra_body"] = {}
+
+    # Create a new LLM instance with the cleaned data
+    return LLM(**llm_data)
+
+
 def convert_numpy_types(obj: Any) -> Any:
     """Recursively convert numpy types to Python native types."""
     if isinstance(obj, np.integer):
