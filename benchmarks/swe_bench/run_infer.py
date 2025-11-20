@@ -239,11 +239,15 @@ class SWEBenchEvaluation(Evaluation):
         conversation.send_message(instruction)
         conversation.run()
 
-        # Persist conversation trajectory if available (remote workspace stores under /workspace/conversations)
+        # Persist conversation trajectory from the remote runtime (workspace/conversations)
         try:
-            tar_cmd = workspace.execute_command(
-                "cd /workspace && if [ -d conversations ]; then tar -czf - conversations | base64; else echo ''; fi"
+            conv_cmd = (
+                "cd / && "
+                "if [ -d workspace/conversations ]; then "
+                "tar -czf - workspace/conversations | base64; "
+                "else echo ''; fi"
             )
+            tar_cmd = workspace.execute_command(conv_cmd)
             if tar_cmd.exit_code == 0 and tar_cmd.stdout.strip():
                 conv_tar_path = (
                     Path(self.metadata.eval_output_dir) / "conversation.tar.gz"
@@ -252,7 +256,9 @@ class SWEBenchEvaluation(Evaluation):
                 conv_tar_path.write_bytes(base64.b64decode(tar_cmd.stdout))
                 logger.info("Saved conversation archive to %s", conv_tar_path)
             else:
-                logger.warning("Conversation archive not created; command output empty")
+                logger.warning(
+                    "Conversation archive not created; command output empty or missing"
+                )
         except Exception as e:
             logger.warning("Failed to capture conversation trajectory: %s", e)
 
