@@ -20,6 +20,7 @@ dependencies = [
     "modal>=1.1.4",
     "swebench",
     "commit0",
+    "pytest-json-report",
 ]
 
 [project.scripts]

@@ -77,7 +77,7 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
 
     filtered_dataset = pd.concat(
         [
-            df[df["repo"].str.split("/").str[1] == repo]
+            df[pd.Series(df["repo"]).str.split("/").str[1] == repo]
             for repo in SPLIT.get(repo_split, [])
         ]
     )
@@ -192,6 +192,30 @@ class Commit0Evaluation(Evaluation):
             raise RuntimeError(f"Failed to install commit0: {res.stderr}")
         logger.info("Installed commit0")
 
+        # Install pytest and required plugins for test reporting
+        plugin_install_cmd = f"cd /workspace/{workspace_dir_name} && (uv pip install pytest pytest-json-report pytest-cov || pip install pytest pytest-json-report pytest-cov)"
+        res = workspace.execute_command(plugin_install_cmd, timeout=600)
+        if res.exit_code != 0:
+            raise RuntimeError(f"Failed to install pytest and plugins: {res.stderr}")
+        logger.info("Installed pytest and required plugins")
+
+        # Verify pytest and plugin installation
+        verify_pytest_cmd = f"cd /workspace/{workspace_dir_name} && pytest --version"
+        verify_pytest_res = workspace.execute_command(verify_pytest_cmd, timeout=60)
+        logger.info(f"Pytest verification exit code: {verify_pytest_res.exit_code}")
+        if verify_pytest_res.exit_code == 0:
+            logger.info(f"Pytest available: {verify_pytest_res.stdout.strip()}")
+        else:
+            logger.warning(f"Pytest verification failed: {verify_pytest_res.stderr}")
+
+        verify_plugin_cmd = f"cd /workspace/{workspace_dir_name} && python -c 'import pytest_jsonreport; print(\"Plugin available\")'"
+        verify_plugin_res = workspace.execute_command(verify_plugin_cmd, timeout=60)
+        logger.info(f"Plugin verification exit code: {verify_plugin_res.exit_code}")
+        if verify_plugin_res.exit_code == 0:
+            logger.info("pytest-json-report plugin verified successfully")
+        else:
+            logger.warning(f"Plugin verification failed: {verify_plugin_res.stderr}")
+
         return workspace
 
     def evaluate_instance(
@@ -260,10 +284,16 @@ class Commit0Evaluation(Evaluation):
         # Run tests
         test_cmd = instance.data["test"]["test_cmd"]
         test_dir = instance.data["test"]["test_dir"]
-        test_result = workspace.execute_command(
-            f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1",
-            timeout=600,
-        )
+        # Use python -m pytest instead of pytest command to avoid permission issues
+        if test_cmd.strip() == "pytest":
+            test_cmd = "python -m pytest"
+        full_test_cmd = f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
+        logger.info(f"Running test command: {full_test_cmd}")
+        test_result = workspace.execute_command(full_test_cmd, timeout=600)
+        logger.info(f"Test command exit code: {test_result.exit_code}")
+        if test_result.exit_code != 0:
+            logger.warning(f"Test command failed with stderr: {test_result.stderr}")
+            logger.warning(f"Test command failed with stdout: {test_result.stdout}")
 
         # Read test output
         test_output_result = workspace.execute_command(
@@ -292,11 +322,34 @@ class Commit0Evaluation(Evaluation):
             else []
         )
 
+        # Debug logging
+        logger.info(f"Test IDs command exit code: {test_ids_result.exit_code}")
+        logger.info(
+            f"Test IDs found: {len(test_ids)} - {test_ids[:3] if test_ids else 'None'}"
+        )  # Show first 3
+
         # Read test report
         report_result = workspace.execute_command(
             f"cd {repo_path} && cat report.json",
             timeout=600,
         )
+
+        # Debug logging for report
+        logger.info(f"Report read exit code: {report_result.exit_code}")
+        if report_result.exit_code == 0:
+            logger.info(f"Report content length: {len(report_result.stdout)}")
+            logger.info(
+                f"Report preview: {report_result.stdout[:200]}..."
+            )  # First 200 chars
+        else:
+            logger.info(f"Failed to read report.json: {report_result.stderr}")
+            # Check if file exists
+            check_file = workspace.execute_command(
+                f"cd {repo_path} && ls -la report.json", timeout=60
+            )
+            logger.info(
+                f"File check: {check_file.stdout if check_file.exit_code == 0 else check_file.stderr}"
+            )
 
         # Initialize eval_result with default values
         eval_result = {
@@ -310,7 +363,22 @@ class Commit0Evaluation(Evaluation):
         if report_result.exit_code == 0:
             try:
                 report = json.loads(report_result.stdout.strip())
+                logger.info(
+                    f"JSON report parsed successfully. Keys: {list(report.keys())}"
+                )
+                if "tests" in report:
+                    logger.info(f"Found {len(report['tests'])} test entries in report")
+                else:
+                    logger.warning("No 'tests' key found in report")
                 tests = {x["nodeid"]: x["call"] for x in report["tests"] if "call" in x}
+                logger.info(f"Extracted {len(tests)} tests with 'call' data")
+
+                # If test_ids is empty (commit0 get-tests failed), use test IDs from JSON report
+                if not test_ids and tests:
+                    test_ids = list(tests.keys())
+                    logger.info(
+                        f"Using test IDs from JSON report: {len(test_ids)} tests"
+                    )
 
                 status = []
                 runtimes = []
@@ -332,6 +400,15 @@ class Commit0Evaluation(Evaluation):
                 )
                 passed_ratio = num_passed / len(status) if status else 0
 
+                # Debug logging for final calculations
+                logger.info(f"Status counts: {dict(status_counts)}")
+                logger.info(
+                    f"Total runtime: {total_runtime}, Num passed: {num_passed}, Passed ratio: {passed_ratio}"
+                )
+                logger.info(
+                    f"Total test IDs: {len(test_ids)}, Status list length: {len(status)}"
+                )
+
                 eval_result = {
                     "name": workspace_dir_name,
                     "sum": total_runtime,
@@ -339,9 +416,20 @@ class Commit0Evaluation(Evaluation):
                     "num_passed": num_passed,
                     "num_tests": len(test_ids),
                 }
-            except json.JSONDecodeError:
-                logger.error("Failed to parse test report JSON")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse test report JSON: {e}")
+                logger.error(
+                    f"Raw JSON content: {report_result.stdout[:500]}..."
+                )  # First 500 chars
                 # eval_result already has default values, no need to reassign
+        else:
+            logger.warning(
+                f"Report reading failed with exit code {report_result.exit_code}"
+            )
+            logger.warning(f"Report stderr: {report_result.stderr}")
+
+        # Final debug log
+        logger.info(f"Final eval_result: {eval_result}")
 
         # Save workspace as zip (if supported by workspace implementation)
         zip_dest = os.path.join(
