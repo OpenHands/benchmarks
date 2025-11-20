@@ -26,8 +26,7 @@ requests__requests-5555
 
 2. Run evaluation with the selection file:
 ```bash
-python -m benchmarks.swe_bench.run_infer \
-    --agent-cls CodeActAgent \
+python -m benchmarks.swt_bench.run_infer \
     --llm-config llm_config.toml \
     --max-iterations 30 \
     --select instances.txt \
