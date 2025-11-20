@@ -11,6 +11,7 @@ each one implements metrics collection properly.
 import importlib
 import inspect
 import json
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -315,16 +316,31 @@ def test_benchmark_metrics_collection(
     # Setup benchmark-specific mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
-    # Mock common dependencies to avoid actual LLM calls
-    with (
+    # Import the benchmark module to check what functions exist
+    import importlib
+
+    benchmark_module = importlib.import_module(f"benchmarks.{benchmark_name}.run_infer")
+
+    # Build list of patches - only patch functions that exist in the module
+    patches = [
         patch(
             f"benchmarks.{benchmark_name}.run_infer.Conversation",
             return_value=mock_conversation,
         ),
         patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
-        patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools"),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
-    ):
+    ]
+
+    # Only patch get_default_tools if it exists in the module
+    if hasattr(benchmark_module, "get_default_tools"):
+        patches.append(
+            patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools")
+        )
+
+    # Mock common dependencies to avoid actual LLM calls
+    with ExitStack() as stack:
+        for patch_obj in patches:
+            stack.enter_context(patch_obj)
         # Add benchmark-specific patches
         if benchmark_name == "swe_bench":
             with patch(
