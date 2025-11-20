@@ -15,6 +15,7 @@ from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 from openhands.sdk.critic import (
     AgentFinishedCritic,
+    APIBasedCritic,
     CriticBase,
     EmptyPatchCritic,
     PassCritic,
@@ -29,6 +30,7 @@ CRITIC_NAME_TO_CLASS = {
     "pass": PassCritic,
     "finish_with_patch": AgentFinishedCritic,
     "empty_patch_critic": EmptyPatchCritic,
+    "api": APIBasedCritic,
 }
 
 
