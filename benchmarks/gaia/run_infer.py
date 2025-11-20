@@ -1,4 +1,3 @@
-import fcntl
 import os
 import re
 import tempfile
@@ -17,7 +16,10 @@ from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_u
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.evaluation_utils import (
+    construct_eval_output_dir,
+    get_default_on_result_writer,
+)
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import (
     LLM,
@@ -435,18 +437,8 @@ def main() -> None:
     # Create evaluator
     evaluator = GAIAEvaluation(metadata=metadata, num_workers=args.num_workers)
 
-    # Define result writer
-    def _default_on_result_writer(eval_output_dir: str):
-        def _cb(instance: EvalInstance, out: EvalOutput) -> None:
-            with open(evaluator.output_path, "a") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                f.write(out.model_dump_json() + "\n")
-                fcntl.flock(f, fcntl.LOCK_UN)
-
-        return _cb
-
     # Run evaluation
-    evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
+    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
     logger.info(f"Results written to: {evaluator.output_path}")
