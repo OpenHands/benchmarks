@@ -12,7 +12,7 @@ dependencies = [
     "Pillow",
     "toml",
     "tqdm",
-    "openhands-sdk",
+    "openhands-sdk[critic]",
     "openhands-tools",
     "unidiff>=0.7.5,<0.8.0",
     "openhands-agent-server",
