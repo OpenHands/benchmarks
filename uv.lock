@@ -504,7 +504,8 @@ dependencies = [
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a4/25/a45fdc46056f033ec9df463ace94f6815005a77c50bc5cf521a57b3e7da2/commit0-0.1.8.tar.gz", hash = "sha256:fd6402381df7daf29f3d5d423c1e1d7b26e8e9e9b506d5dfa7a3f0e724ec87fd", size = 25187644, upload-time = "2024-11-22T04:34:06.457Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/77/c75d378f784c9e6ecc488721841aac19596763d78370e5ff160409b29564/commit0-0.1.8-py3-none-any.whl", hash = "sha256:b5369d7c814d2f2b82f39da60849f7b8519f277a05c5ed91a591b800c4b4d431", size = 1027671, upload-time = "2024-11-22T04:34:01.125Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/77/c75d378f784c9e6ecc488721841aac19596763d78370e5ff160409b29564/commit0-0.1.8-py3-none-any.whl", hash = "sha256:b5369d7c814d2f2b82f39da60849f7b8519f277a05c5ed91a591b800c4b4d431", size = 1027671, upload-time = "2024-11-22T04:34:01.125Z" }
+]
 
 [[package]]
 name = "coverage"
