@@ -9,6 +9,7 @@ from datasets import load_dataset
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
@@ -253,7 +254,7 @@ class Commit0Evaluation(Evaluation):
         conversation.send_message(instruction)
         conversation.run()
 
-        history = list(map(lambda event: event.model_dump(), conversation.state.events))
+        history = list(conversation.state.events)
 
         # Complete runtime: git add, commit, diff, run tests
         workspace.execute_command(f"cd {repo_path} && git add .", timeout=600)
@@ -494,6 +495,7 @@ class Commit0Evaluation(Evaluation):
             instruction=instruction,
             error=None,
             history=history,
+            metrics=conversation.conversation_stats.get_combined_metrics(),
         )
         return out
 
@@ -548,6 +550,10 @@ def main() -> None:
         eval_note=args.note,
     )
 
+    # Create critic instance from parsed arguments
+    critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -559,7 +565,7 @@ def main() -> None:
         eval_limit=args.n_limit,
         env_setup_commands=None,
         max_attempts=args.max_attempts,
-        critic_name=args.critic,
+        critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
     )
