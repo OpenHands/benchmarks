@@ -1,6 +1,6 @@
+import base64
 import os
 from pathlib import Path
-import base64
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
