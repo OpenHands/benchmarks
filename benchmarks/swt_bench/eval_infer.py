@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-SWE-Bench Evaluation Script
+SWT-Bench Evaluation Script
 
-This script converts OpenHands output.jsonl format to SWE-Bench prediction format
-and runs the SWE-Bench evaluation.
+This script converts OpenHands output.jsonl format to SWT-Bench prediction format
+and runs the SWT-Bench evaluation.
 
 Usage:
-    uv run swebench-eval <path_to_output.jsonl>
+    uv run swtbench-eval <path_to_output.jsonl>
 """
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -22,15 +24,15 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def convert_to_swebench_format(
+def convert_to_swtbench_format(
     input_file: str, output_file: str, model_name: str = "OpenHands"
 ) -> None:
     """
-    Convert OpenHands output.jsonl to SWE-Bench prediction format.
+    Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
     OpenHands format:
     {
-        "instance_id": "django__django-11333",
+        "instance_id": "sympy__sympy-20590",
         "test_result": {
             "git_patch": "diff --git a/file.py b/file.py\n..."
         },
@@ -39,14 +41,14 @@ def convert_to_swebench_format(
         "history": [...]
     }
 
-    SWE-Bench format:
+    SWT-Bench format:
     {
-        "instance_id": "django__django-11333",
+        "instance_id": "sympy__sympy-20590",
         "model_patch": "diff --git a/file.py b/file.py\n...",
         "model_name_or_path": "OpenHands"
     }
     """
-    logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
+    logger.info(f"Converting {input_file} to SWT-Bench format: {output_file}")
 
     converted_count = 0
     error_count = 0
@@ -82,15 +84,15 @@ def convert_to_swebench_format(
                 setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
                 git_patch = remove_files_from_patch(git_patch, setup_files)
 
-                # Create SWE-Bench format entry
-                swebench_entry = {
+                # Create SWT-Bench format entry
+                swtbench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
                     "model_name_or_path": model_name,
                 }
 
                 # Write to output file
-                outfile.write(json.dumps(swebench_entry) + "\n")
+                outfile.write(json.dumps(swtbench_entry) + "\n")
                 converted_count += 1
 
             except json.JSONDecodeError as e:
@@ -109,83 +111,135 @@ def convert_to_swebench_format(
         raise ValueError("No valid entries were converted")
 
 
-def run_swebench_evaluation(
+def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "princeton-nlp/SWE-bench_Verified",
     workers: str = "12",
 ) -> None:
     """
-    Run SWE-Bench evaluation on the predictions file.
+    Run SWT-Bench evaluation on the predictions file.
+
+    Note: The swt-bench package is included as a dependency in pyproject.toml
+    to ensure all its dependencies are available, but the package itself is not
+    properly structured for import. We use subprocess to run it from a cached
+    clone since that's how the upstream package is designed to work.
 
     Args:
-        predictions_file: Path to the SWE-Bench format predictions file
-        dataset: SWE-Bench dataset to evaluate against
+        predictions_file: Path to the SWT-Bench format predictions file
+        dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
     """
-    logger.info(f"Running SWE-Bench evaluation on {predictions_file}")
+    logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
-        # Get the directory of the predictions file
-        predictions_path = Path(predictions_file)
-        predictions_dir = predictions_path.parent
+        # Use a global cache directory for SWT-Bench source
+        cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
+        swt_bench_dir = cache_dir / "swt-bench"
+
+        # Clone SWT-Bench repository if it doesn't exist
+        if not swt_bench_dir.exists():
+            logger.info("Setting up SWT-Bench source in global cache...")
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+            logger.info("Cloning SWT-Bench repository...")
+            clone_cmd = [
+                "git",
+                "clone",
+                "https://github.com/logic-star-ai/swt-bench.git",
+                str(swt_bench_dir),
+            ]
+            result = subprocess.run(clone_cmd, text=True)
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, clone_cmd)
+
+            logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
+
+        # Get the directory and filename of the predictions file
+        predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
 
-        # Run SWE-Bench evaluation using global python (not UV environment)
-        # since swebench is installed globally
+        # Copy predictions file to swt-bench directory
+        swt_predictions_file = swt_bench_dir / predictions_filename
+        shutil.copy2(predictions_file, swt_predictions_file)
+
+        # Run SWT-Bench evaluation by running python directly from the swt-bench directory
+        # but using the uv environment's python executable which has all dependencies
+        benchmarks_dir = Path(__file__).parent.parent.parent
+
+        # Get the python executable from the uv environment
+        python_executable = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--directory",
+                str(benchmarks_dir),
+                "python",
+                "-c",
+                "import sys; print(sys.executable)",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=benchmarks_dir,
+        ).stdout.strip()
+
+        # Set up environment with PYTHONPATH to include swt-bench directory
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(swt_bench_dir)
+
         cmd = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "swebench.harness.run_evaluation",
+            python_executable,
+            "src/main.py",  # Run as script instead of module
             "--dataset_name",
             dataset,
             "--predictions_path",
             predictions_filename,
+            "--filter_swt",
             "--max_workers",
             str(workers),
             "--run_id",
             f"eval_{predictions_path.stem}",
         ]
 
+        logger.info(f"Using Python executable: {python_executable}")
         logger.info(f"Running command: {' '.join(cmd)}")
-        logger.info(f"Working directory: {predictions_dir}")
-        logger.info("SWE-Bench evaluation output:")
+        logger.info(f"Working directory: {swt_bench_dir}")
+        logger.info(f"PYTHONPATH: {env['PYTHONPATH']}")
+        logger.info("SWT-Bench evaluation output:")
         print("-" * 80)
 
-        # Stream output directly to console, running from predictions file directory
-        result = subprocess.run(cmd, text=True, cwd=predictions_dir)
+        # Stream output directly to console, running from swt-bench directory
+        result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
 
         print("-" * 80)
         if result.returncode == 0:
-            logger.info("SWE-Bench evaluation completed successfully")
+            logger.info("SWT-Bench evaluation completed successfully")
         else:
             logger.error(
-                f"SWE-Bench evaluation failed with return code {result.returncode}"
+                f"SWT-Bench evaluation failed with return code {result.returncode}"
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
 
     except FileNotFoundError:
         logger.error(
-            "SWE-Bench evaluation command not found. "
-            "Make sure SWE-Bench is properly installed."
+            "SWT-Bench evaluation command not found. "
+            "Make sure git and python are available."
         )
         raise
     except Exception as e:
-        logger.error(f"Error running SWE-Bench evaluation: {e}")
+        logger.error(f"Error running SWT-Bench evaluation: {e}")
         raise
 
 
 def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Convert OpenHands output to SWE-Bench format and run evaluation",
+        description="Convert OpenHands output to SWT-Bench format and run evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    uv run swebench-eval output.jsonl
-    uv run swebench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swebench-eval output.jsonl --model-name "MyModel-v1.0"
+    uv run swtbench-eval output.jsonl
+    uv run swtbench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
+    uv run swtbench-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
@@ -194,14 +248,14 @@ Examples:
     parser.add_argument(
         "--dataset",
         default="princeton-nlp/SWE-bench_Verified",
-        help="SWE-Bench dataset to evaluate against "
+        help="SWT-Bench dataset to evaluate against "
         "(default: princeton-nlp/SWE-bench_Verified)",
     )
 
     parser.add_argument(
         "--output-file",
-        help="Output file for SWE-Bench format "
-        "(default: input_file with .swebench.jsonl extension)",
+        help="Output file for SWT-Bench format "
+        "(default: input_file with .swtbench.jsonl extension)",
     )
 
     parser.add_argument(
@@ -212,8 +266,8 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        default="OpenHands",
+        help="Model name to use in the model_name_or_path field (default: OpenHands)",
     )
 
     parser.add_argument(
@@ -237,7 +291,7 @@ Examples:
     if args.output_file:
         output_file = Path(args.output_file)
     else:
-        output_file = input_file.with_suffix(".swebench.jsonl")
+        output_file = input_file.with_suffix(".swtbench.jsonl")
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
@@ -246,11 +300,11 @@ Examples:
 
     try:
         # Convert format
-        convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
+        convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
         if not args.skip_evaluation:
             # Run evaluation
-            run_swebench_evaluation(str(output_file), args.dataset, args.workers)
+            run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
 
         logger.info("Script completed successfully!")
 

@@ -5,6 +5,7 @@ import os
 from typing import Callable
 
 from benchmarks.utils.models import EvalInstance, EvalOutput
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 
 
@@ -20,10 +21,10 @@ def construct_eval_output_dir(
 ) -> str:
     """Construct the structured evaluation output directory path."""
     # Format: eval_out/<dataset>-<split>/<agent_config>/
-    # <llm>_maxiter_<maxiter>_N_<version>-<hint>-<exp_name>-run_<run_number>
+    # <llm>_sdk_<sdk_short_sha>_maxiter_<maxiter>_N_<user_note>/
 
     # Create LLM config string
-    folder = f"{model_name}_maxiter_{max_iterations}"
+    folder = f"{model_name}_sdk_{SDK_SHORT_SHA}_maxiter_{max_iterations}"
     if eval_note:
         folder += f"_N_{eval_note}"
 

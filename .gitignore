@@ -205,7 +205,7 @@ cython_debug/
 workspace/
 
 # IDE and editor directories
-.openhands/
+.openhands/*
 !.openhands/setup.sh
 !.openhands/microagents/
 .vscode/
@@ -215,5 +215,5 @@ workspace/
 !.llm_config/example.json
 
 # Evaluation outputs
-./eval_outputs
-./builds
+eval_outputs/
+builds/
