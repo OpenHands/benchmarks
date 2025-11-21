@@ -12,6 +12,9 @@ import pandas as pd
 import requests
 from jinja2 import Environment, FileSystemLoader
 
+# Monkey-patch observation types to allow extra fields from server
+from pydantic import ConfigDict
+
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -20,11 +23,86 @@ from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
+from openhands.tools.file_editor.definition import FileEditorObservation
+from openhands.tools.task_tracker.definition import TaskTrackerObservation
+
+# Import and patch the observation classes to allow extra fields
+from openhands.tools.terminal.definition import ExecuteBashObservation
+
+# from openhands.tools.preset.default import get_default_tools  # Not needed - using server-compatible tool names
 from openhands.workspace import DockerWorkspace
 
 
+# Monkey-patch the model configs to allow extra fields
+ExecuteBashObservation.model_config = ConfigDict(extra="allow")
+FileEditorObservation.model_config = ConfigDict(extra="allow")
+TaskTrackerObservation.model_config = ConfigDict(extra="allow")
+
+
 logger = get_logger(__name__)
+
+
+class ServerCompatibleAgent(Agent):
+    """Agent that excludes forbidden LLM fields during serialization for server compatibility.
+
+    The OpenHands server rejects certain LLM fields that are not accepted in the API:
+    - extra_headers
+    - reasoning_summary
+    - litellm_extra_body
+
+    Additionally, the server expects the 'kind' field to be exactly 'Agent', not 'ServerCompatibleAgent'.
+
+    This agent class overrides model_dump to exclude these fields when serializing.
+    """
+
+    # Override the kind field to report as 'Agent' instead of 'ServerCompatibleAgent'
+    kind: str = "Agent"
+
+    def model_dump(self, **kwargs):
+        """Override model_dump to exclude forbidden LLM fields and fix kind field."""
+        # Get the standard dump
+        data = super().model_dump(**kwargs)
+
+        # Clean the LLM fields if present
+        if "llm" in data and isinstance(data["llm"], dict):
+            forbidden_fields = {
+                "extra_headers",
+                "reasoning_summary",
+                "litellm_extra_body",
+            }
+            for field in forbidden_fields:
+                if field in data["llm"]:
+                    logger.debug(
+                        f"Excluding forbidden field '{field}' from agent LLM serialization"
+                    )
+                    del data["llm"][field]
+
+        # Ensure the kind field is set to 'Agent' for server compatibility
+        data["kind"] = "Agent"
+
+        return data
+
+
+def create_server_compatible_llm(llm: LLM) -> LLM:
+    """Create a server-compatible LLM by excluding forbidden fields.
+
+    The OpenHands server rejects certain LLM fields that are not accepted in the API:
+    - extra_headers
+    - reasoning_summary
+    - litellm_extra_body
+
+    This function creates a new LLM instance with these fields set to None/empty.
+    """
+    # Get the current LLM data
+    llm_data = llm.model_dump()
+
+    # Set forbidden fields to None or empty values
+    llm_data["extra_headers"] = None
+    llm_data["reasoning_summary"] = None
+    llm_data["litellm_extra_body"] = {}
+
+    # Create a new LLM instance with the cleaned data
+    return LLM(**llm_data)
 
 
 def convert_numpy_types(obj: Any) -> Any:
@@ -393,13 +471,18 @@ class OpenAgentSafetyEvaluation(Evaluation):
 
         from pydantic import ValidationError
 
-        # Setup tools
-        tools = get_default_tools(
-            enable_browser=False,
-        )
+        # Use the correct tool names that the server supports
+        # Server supports: ["BashTool","FileEditorTool","TaskTrackerTool","BrowserToolSet"]
+        from openhands.sdk import Tool
 
-        # Create agent
-        agent = Agent(llm=self.metadata.llm, tools=tools)
+        tools = [
+            Tool(name="BashTool", params={}),
+            Tool(name="FileEditorTool", params={}),
+            Tool(name="TaskTrackerTool", params={}),
+        ]
+
+        # Create agent with server-compatible serialization
+        agent = ServerCompatibleAgent(llm=self.metadata.llm, tools=tools)
 
         # Collect events
         received_events = []
