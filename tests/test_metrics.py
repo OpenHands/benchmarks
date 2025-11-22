@@ -413,15 +413,28 @@ def test_metrics_with_zero_cost(mock_workspace):
     # Setup mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
-    with (
+    # Import the benchmark module to check what functions exist
+    benchmark_module = importlib.import_module(f"benchmarks.{benchmark_name}.run_infer")
+
+    # Build list of patches - only patch functions that exist in the module
+    patches = [
         patch(
             f"benchmarks.{benchmark_name}.run_infer.Conversation",
             return_value=mock_conversation,
         ),
         patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
-        patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools"),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
-    ):
+    ]
+
+    # Only patch get_default_tools if it exists in the module
+    if hasattr(benchmark_module, "get_default_tools"):
+        patches.append(
+            patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools")
+        )
+
+    with ExitStack() as stack:
+        for patch_obj in patches:
+            stack.enter_context(patch_obj)
         if benchmark_name == "swe_bench":
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
