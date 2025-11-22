@@ -2,14 +2,14 @@
 
 from pydantic import SecretStr
 
-from benchmarks.openagentsafety.run_infer import create_server_compatible_llm
-from openhands.sdk import LLM
+from benchmarks.openagentsafety.run_infer import ServerCompatibleAgent
+from openhands.sdk import LLM, Tool
 
 
-def test_create_server_compatible_llm_removes_forbidden_fields():
-    """Test that create_server_compatible_llm removes forbidden fields."""
+def test_server_compatible_agent_removes_forbidden_llm_fields():
+    """Test that ServerCompatibleAgent.model_dump() excludes forbidden LLM fields."""
     # Create an LLM with forbidden fields
-    original_llm = LLM(
+    llm = LLM(
         model="test-model",
         api_key=SecretStr("test-key"),
         extra_headers={"X-Custom": "value"},
@@ -18,54 +18,59 @@ def test_create_server_compatible_llm_removes_forbidden_fields():
         temperature=0.7,
     )
 
-    # Create server-compatible version
-    compatible_llm = create_server_compatible_llm(original_llm)
+    # Create agent with this LLM
+    tools = [Tool(name="BashTool", params={})]
+    agent = ServerCompatibleAgent(llm=llm, tools=tools)
 
-    # Verify forbidden fields are set to None/empty (effectively removed)
-    compatible_data = compatible_llm.model_dump()
-    assert compatible_data["extra_headers"] is None
-    assert compatible_data["reasoning_summary"] is None
-    assert compatible_data["litellm_extra_body"] == {}
+    # Serialize the agent as would be sent to server
+    agent_data = agent.model_dump()
 
-    # Verify other fields are preserved
-    assert compatible_data["model"] == "test-model"
-    assert compatible_data["temperature"] == 0.7
+    # Verify forbidden LLM fields are excluded
+    assert "extra_headers" not in agent_data["llm"]
+    assert "reasoning_summary" not in agent_data["llm"]
+    assert "litellm_extra_body" not in agent_data["llm"]
+
+    # Verify other LLM fields are preserved
+    assert agent_data["llm"]["model"] == "test-model"
+    assert agent_data["llm"]["temperature"] == 0.7
+
+    # Verify the kind field is set to "Agent" for server compatibility
+    assert agent_data["kind"] == "Agent"
 
 
-def test_create_server_compatible_llm_handles_missing_fields():
-    """Test that the function handles LLMs without forbidden fields gracefully."""
-    # Create an LLM without forbidden fields
-    original_llm = LLM(
+def test_server_compatible_agent_with_minimal_llm():
+    """Test that the agent works with an LLM without forbidden fields."""
+    # Create a minimal LLM
+    llm = LLM(
         model="test-model",
         temperature=0.5,
     )
 
-    # Create server-compatible version
-    compatible_llm = create_server_compatible_llm(original_llm)
+    # Create agent
+    tools = [Tool(name="BashTool", params={})]
+    agent = ServerCompatibleAgent(llm=llm, tools=tools)
 
-    # Verify it works without errors
-    compatible_data = compatible_llm.model_dump()
-    assert compatible_data["model"] == "test-model"
-    assert compatible_data["temperature"] == 0.5
+    # Verify it serializes without errors
+    agent_data = agent.model_dump()
+    assert agent_data["llm"]["model"] == "test-model"
+    assert agent_data["llm"]["temperature"] == 0.5
+    assert agent_data["kind"] == "Agent"
 
 
-def test_create_server_compatible_llm_preserves_secrets():
-    """Test that secrets are properly handled during the conversion."""
-    # Create an LLM with secrets
-    original_llm = LLM(
-        model="test-model",
-        api_key=SecretStr("secret-key"),
-        aws_access_key_id=SecretStr("aws-key"),
-        extra_headers={"X-Custom": "value"},  # This should be removed
-    )
+def test_server_compatible_agent_preserves_tools():
+    """Test that tools are properly preserved in serialization."""
+    # Create agent with multiple tools
+    llm = LLM(model="test-model")
+    tools = [
+        Tool(name="BashTool", params={}),
+        Tool(name="FileEditorTool", params={}),
+        Tool(name="TaskTrackerTool", params={}),
+    ]
+    agent = ServerCompatibleAgent(llm=llm, tools=tools)
 
-    # Create server-compatible version
-    compatible_llm = create_server_compatible_llm(original_llm)
-
-    # Verify secrets are preserved
-    assert compatible_llm.api_key is not None
-    assert compatible_llm.aws_access_key_id is not None
-
-    # Verify forbidden field is set to None (effectively removed)
-    compatible_data = compatible_llm.model_dump()
-    assert compatible_data["extra_headers"] is None
+    # Serialize and verify tools are preserved
+    agent_data = agent.model_dump()
+    assert len(agent_data["tools"]) == 3
+    assert agent_data["tools"][0]["name"] == "BashTool"
+    assert agent_data["tools"][1]["name"] == "FileEditorTool"
+    assert agent_data["tools"][2]["name"] == "TaskTrackerTool"

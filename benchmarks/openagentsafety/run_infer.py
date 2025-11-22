@@ -12,9 +12,6 @@ import pandas as pd
 import requests
 from jinja2 import Environment, FileSystemLoader
 
-# Monkey-patch observation types to allow extra fields from server
-from pydantic import ConfigDict
-
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -22,20 +19,7 @@ from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.file_editor.definition import FileEditorObservation
-from openhands.tools.task_tracker.definition import TaskTrackerObservation
-
-# Import and patch the observation classes to allow extra fields
-from openhands.tools.terminal.definition import ExecuteBashObservation
-
-# from openhands.tools.preset.default import get_default_tools  # Not needed - using server-compatible tool names
 from openhands.workspace import DockerWorkspace
-
-
-# Monkey-patch the model configs to allow extra fields
-ExecuteBashObservation.model_config = ConfigDict(extra="allow")
-FileEditorObservation.model_config = ConfigDict(extra="allow")
-TaskTrackerObservation.model_config = ConfigDict(extra="allow")
 
 
 logger = get_logger(__name__)
@@ -49,16 +33,15 @@ class ServerCompatibleAgent(Agent):
     - reasoning_summary
     - litellm_extra_body
 
-    Additionally, the server expects the 'kind' field to be exactly 'Agent', not 'ServerCompatibleAgent'.
-
     This agent class overrides model_dump to exclude these fields when serializing.
+
+    TODO: This is a temporary workaround. The proper fix should be in the SDK itself,
+    where Agent.model_dump() should have an option to exclude server-incompatible fields.
+    See: https://github.com/OpenHands/benchmarks/issues/100
     """
 
-    # Override the kind field to report as 'Agent' instead of 'ServerCompatibleAgent'
-    kind: str = "Agent"
-
     def model_dump(self, **kwargs):
-        """Override model_dump to exclude forbidden LLM fields and fix kind field."""
+        """Override model_dump to exclude forbidden LLM fields."""
         # Get the standard dump
         data = super().model_dump(**kwargs)
 
@@ -77,31 +60,10 @@ class ServerCompatibleAgent(Agent):
                     del data["llm"][field]
 
         # Ensure the kind field is set to 'Agent' for server compatibility
+        # (in case the parent class uses the actual class name)
         data["kind"] = "Agent"
 
         return data
-
-
-def create_server_compatible_llm(llm: LLM) -> LLM:
-    """Create a server-compatible LLM by excluding forbidden fields.
-
-    The OpenHands server rejects certain LLM fields that are not accepted in the API:
-    - extra_headers
-    - reasoning_summary
-    - litellm_extra_body
-
-    This function creates a new LLM instance with these fields set to None/empty.
-    """
-    # Get the current LLM data
-    llm_data = llm.model_dump()
-
-    # Set forbidden fields to None or empty values
-    llm_data["extra_headers"] = None
-    llm_data["reasoning_summary"] = None
-    llm_data["litellm_extra_body"] = {}
-
-    # Create a new LLM instance with the cleaned data
-    return LLM(**llm_data)
 
 
 def convert_numpy_types(obj: Any) -> Any:
