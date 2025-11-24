@@ -66,17 +66,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
 
-      # Update SDK submodule to specific commit if provided
-      - name: Update SDK submodule
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
-        run: |
-          cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
-          git checkout FETCH_HEAD
-          SDK_SHA=$(git rev-parse HEAD)
-          cd ../..
-          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
-
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -121,6 +110,18 @@ jobs:
       - name: Install dependencies
         run: |
           make build
+
+      # Update SDK submodule to specific commit if provided
+      # Must run AFTER install dependencies, as make build resets submodules
+      - name: Update SDK submodule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        run: |
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          SDK_SHA=$(git rev-parse HEAD)
+          cd ../..
+          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
       - name: Build and push SWE-Bench images
         run: |
