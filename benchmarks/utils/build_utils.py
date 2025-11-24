@@ -40,8 +40,7 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
     sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
 
     # Get submodule SHA directly from the checked-out submodule
-    # This reads the actual HEAD commit, not the parent repo's git index
-    # (which may be stale if the submodule was updated without staging)
+    # This is more direct than parsing git submodule status output
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
