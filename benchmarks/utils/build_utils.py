@@ -37,20 +37,20 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
     """
     # Find the benchmarks repo root (where this file lives)
     benchmarks_root = Path(__file__).resolve().parent.parent.parent
+    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
 
-    # Get submodule SHA
+    # Get submodule SHA directly from the checked-out submodule
+    # This reads the actual HEAD commit, not the parent repo's git index
+    # (which may be stale if the submodule was updated without staging)
     try:
         result = subprocess.run(
-            ["git", "submodule", "status", "vendor/software-agent-sdk"],
-            cwd=benchmarks_root,
+            ["git", "rev-parse", "HEAD"],
+            cwd=sdk_path,
             capture_output=True,
             text=True,
             check=True,
         )
-        # Output format: " <sha> vendor/software-agent-sdk (<description>)"
-        # or "+<sha>" if modified, "-<sha>" if uninitialized
-        sha_line = result.stdout.strip().split()[0]
-        git_sha = sha_line.lstrip("+-")
+        git_sha = result.stdout.strip()
     except subprocess.CalledProcessError:
         logger.warning(
             "Failed to get SDK submodule SHA, using 'unknown'. "
@@ -59,7 +59,6 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
         git_sha = "unknown"
 
     # Get submodule ref (current branch or HEAD)
-    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
     try:
         result = subprocess.run(
             ["git", "symbolic-ref", "-q", "--short", "HEAD"],
