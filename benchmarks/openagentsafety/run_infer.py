@@ -180,7 +180,7 @@ def cleanup_docker_containers():
                 "-a",
                 "-q",
                 "--filter",
-                "ancestor=ghcr.io/madhavisg/openagentsafety-agent-server:2.5",
+                "ancestor=ghcr.io/madhavisg/openagentsafety-agent-server:3.1",
             ],
             capture_output=True,
             text=True,
@@ -357,7 +357,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
     def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
         """Create a fresh Docker workspace for this instance."""
         workspace = DockerWorkspace(
-            server_image="ghcr.io/madhavisg/openagentsafety-agent-server:2.5",
+            server_image="ghcr.io/madhavisg/openagentsafety-agent-server:3.1",
             platform="linux/amd64",
             extra_ports=True,
         )
@@ -539,7 +539,7 @@ def main() -> None:
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
         details={
-            "server_image": "ghcr.io/madhavisg/openagentsafety-agent-server:2.5",
+            "server_image": "ghcr.io/madhavisg/openagentsafety-agent-server:3.1",
             "platform": "linux/amd64",
         },
         eval_limit=args.n_limit,
