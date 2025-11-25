@@ -55,10 +55,6 @@ on:
         required: false
         default: ''
         type: string
-    secrets:
-      GITHUB_TOKEN:
-        description: 'GitHub token for authentication'
-        required: true
     outputs:
       images_built:
         description: 'Number of images successfully built'
