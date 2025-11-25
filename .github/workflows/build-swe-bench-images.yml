@@ -108,6 +108,15 @@ jobs:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           submodules: recursive
 
+      # Sanitization: Override repository context when called via workflow_call
+      # This ensures Blacksmith and other tools use the benchmarks repo context
+      - name: Override repository context for workflow_call
+        if: github.event_name == 'workflow_call'
+        run: |
+          echo "GITHUB_REPOSITORY=OpenHands/benchmarks" >> "$GITHUB_ENV"
+          echo "GITHUB_REPOSITORY_OWNER=OpenHands" >> "$GITHUB_ENV"
+          echo "Repository context sanitized to: OpenHands/benchmarks"
+
       # If this was a manual dispatch or workflow_call, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' }}
