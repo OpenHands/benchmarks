@@ -108,17 +108,6 @@ jobs:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           submodules: recursive
 
-      # Sanitization: Override repository context when called via workflow_call
-      # GitHub Actions passes the CALLING repo's context to reusable workflows,
-      # so we detect this by checking if github.repository doesn't match our repo
-      - name: Override repository context for workflow_call
-        if: github.repository != 'OpenHands/benchmarks'
-        run: |
-          echo "::notice::Detected workflow_call from ${{ github.repository }}"
-          echo "GITHUB_REPOSITORY=OpenHands/benchmarks" >> "$GITHUB_ENV"
-          echo "GITHUB_REPOSITORY_OWNER=OpenHands" >> "$GITHUB_ENV"
-          echo "Repository context sanitized to: OpenHands/benchmarks"
-
       # If this was a manual dispatch or workflow_call, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' }}
@@ -166,25 +155,19 @@ jobs:
           echo "sdk_commit=$SDK_SHA" >> "$GITHUB_OUTPUT"
           echo "Using SDK commit: $SDK_SHA"
 
-      # Clear potentially corrupted buildkit databases from shared sticky disk
-      # When called via workflow_call, the disk may contain incompatible data
-      - name: Clear buildkit cache if corrupted
-        run: |
-          if [ -d "/var/lib/buildkit" ]; then
-            echo "::notice::Found existing buildkit directory, checking for corruption"
-            # Remove database files that might be corrupted from different repo context
-            sudo rm -f /var/lib/buildkit/history.db /var/lib/buildkit/cache.db
-            echo "Cleared potentially corrupted database files"
-          else
-            echo "No existing buildkit directory found"
-          fi
-
-      - name: Set up Docker Buildx with Blacksmith
-        uses: useblacksmith/setup-docker-builder@v1
+      # Mount dedicated sticky disk for SWE-Bench BuildKit cache
+      # Using explicit key ensures consistent cache regardless of caller repository
+      - name: Mount SWE-Bench BuildKit cache
+        uses: useblacksmith/stickydisk@v1
         with:
-          nofallback: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          skip-integrity-check: true
+          key: swebench-buildkit-cache
+          path: /var/lib/buildkit
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
