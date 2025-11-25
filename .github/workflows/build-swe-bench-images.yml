@@ -30,6 +30,41 @@ on:
         required: false
         default: ''
         type: string
+  workflow_call:
+    inputs:
+      dataset:
+        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
+        required: true
+        type: string
+      split:
+        description: 'Dataset split (e.g., test, dev)'
+        required: true
+        type: string
+      max-workers:
+        description: 'Number of concurrent builds'
+        required: false
+        default: '32'
+        type: string
+      n-limit:
+        description: 'Limit number of images to build (for testing). Leave blank for no limit.'
+        required: false
+        default: ''
+        type: string
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
+        required: false
+        default: ''
+        type: string
+    outputs:
+      images_built:
+        description: 'Number of images successfully built'
+        value: ${{ jobs.build-and-push.outputs.images_built }}
+      sdk_commit:
+        description: 'Actual SDK commit used for the build'
+        value: ${{ jobs.build-and-push.outputs.sdk_commit }}
+      image_base_name:
+        description: 'Base name of the built images'
+        value: ${{ jobs.build-and-push.outputs.image_base_name }}
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
@@ -46,6 +81,7 @@ jobs:
   build-and-push:
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' ||
       (github.event_name == 'pull_request_target' &&
        (github.event.label.name == 'build-swebench' ||
         github.event.label.name == 'build-swebench-50' ||
@@ -59,6 +95,11 @@ jobs:
       contents: read
       packages: write
       issues: write
+
+    outputs:
+      images_built: ${{ steps.build-summary.outputs.images_built }}
+      sdk_commit: ${{ steps.sdk-info.outputs.sdk_commit }}
+      image_base_name: ${{ steps.build-summary.outputs.image_base_name }}
 
     steps:
       - uses: actions/checkout@v4
@@ -95,7 +136,7 @@ jobs:
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly
       - name: Update SDK submodule
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.sdk-commit != '' }}
         run: |
           cd vendor/software-agent-sdk
           git fetch origin ${{ inputs.sdk-commit }}
@@ -105,6 +146,13 @@ jobs:
           # Stage the submodule reference update so make build uses it
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+
+      - name: Capture SDK info
+        id: sdk-info
+        run: |
+          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
+          echo "sdk_commit=$SDK_SHA" >> "$GITHUB_OUTPUT"
+          echo "Using SDK commit: $SDK_SHA"
 
       - name: Set up Docker Buildx with Blacksmith
         uses: useblacksmith/setup-docker-builder@v1
@@ -146,6 +194,36 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+
+      - name: Capture build summary
+        id: build-summary
+        if: always()
+        run: |
+          # Find all manifest.jsonl files
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null || echo "")
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            echo "images_built=0" >> "$GITHUB_OUTPUT"
+            echo "image_base_name=ghcr.io/openhands/eval-agent-server" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          # Count successful builds
+          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
+          import sys
+          import json
+          count = 0
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is None and len(data.get('tags', [])) > 0:
+                  count += 1
+          print(count)
+          ")
+          
+          echo "images_built=$SUCCESSES" >> "$GITHUB_OUTPUT"
+          echo "image_base_name=ghcr.io/openhands/eval-agent-server" >> "$GITHUB_OUTPUT"
+          echo "Successfully built $SUCCESSES images"
 
       - name: Archive build logs
         if: always()
