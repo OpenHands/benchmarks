@@ -166,6 +166,19 @@ jobs:
           echo "sdk_commit=$SDK_SHA" >> "$GITHUB_OUTPUT"
           echo "Using SDK commit: $SDK_SHA"
 
+      # Clear potentially corrupted buildkit databases from shared sticky disk
+      # When called via workflow_call, the disk may contain incompatible data
+      - name: Clear buildkit cache if corrupted
+        run: |
+          if [ -d "/var/lib/buildkit" ]; then
+            echo "::notice::Found existing buildkit directory, checking for corruption"
+            # Remove database files that might be corrupted from different repo context
+            sudo rm -f /var/lib/buildkit/history.db /var/lib/buildkit/cache.db
+            echo "Cleared potentially corrupted database files"
+          else
+            echo "No existing buildkit directory found"
+          fi
+
       - name: Set up Docker Buildx with Blacksmith
         uses: useblacksmith/setup-docker-builder@v1
         with:
