@@ -9,7 +9,6 @@ import json
 import os
 from typing import Set
 
-from benchmarks.utils.critics import CriticBase, evaluate_output
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 
@@ -17,13 +16,12 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstanceID]:
+def get_failed_instances(output_file: str) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
 
     Args:
         output_file: Path to the JSONL output file
-        critic: SDK critic to use for evaluation
 
     Returns:
         Set of instance IDs that failed
@@ -42,8 +40,8 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
                     data = json.loads(line.strip())
                     output = EvalOutput.model_validate(data)
 
-                    # Evaluate using the critic
-                    if not evaluate_output(critic, output):
+                    # Check critic result (already set during evaluation)
+                    if not output.critic_result.success:
                         failed_instances.add(output.instance_id)
 
                 except json.JSONDecodeError as e:
@@ -65,7 +63,6 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
 def aggregate_results(
     output_dir: str,
     max_attempts: int,
-    critic: "CriticBase",
     final_output_file: str = "output.jsonl",
 ) -> None:
     """
@@ -77,7 +74,6 @@ def aggregate_results(
     Args:
         output_dir: Directory containing attempt files
         max_attempts: Maximum number of attempts
-        critic: Critic instance to use for evaluation
         final_output_file: Name of the final output file
     """
     logger.info(f"Aggregating results from {max_attempts} attempts")
@@ -109,7 +105,7 @@ def aggregate_results(
                         # 2. This attempt is the first one to succeed
                         instance_id = output.instance_id
 
-                        is_successful = evaluate_output(critic, output)
+                        is_successful = output.critic_result.success
 
                         if instance_id not in best_results:
                             # First time seeing this instance
@@ -117,10 +113,7 @@ def aggregate_results(
                         elif is_successful:
                             # This attempt succeeded, check if we should replace
                             current_best = best_results[instance_id]
-                            current_is_successful = evaluate_output(
-                                critic, current_best
-                            )
-                            if not current_is_successful:
+                            if not current_best.critic_result.success:
                                 # Replace failed result with successful one
                                 best_results[instance_id] = output
 

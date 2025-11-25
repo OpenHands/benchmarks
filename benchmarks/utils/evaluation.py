@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
-from benchmarks.utils.critics import get_completed_instances
+from benchmarks.utils.critics import extract_git_patch, get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
@@ -23,7 +23,8 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from openhands.sdk import get_logger
-from openhands.sdk.critic import CriticBase
+from openhands.sdk.critic import CriticBase, CriticResult
+from openhands.sdk.event import LLMConvertibleEvent
 from openhands.sdk.workspace import RemoteWorkspace
 
 
@@ -88,15 +89,24 @@ class Evaluation(ABC, BaseModel):
         self, instance: EvalInstance, error: Exception, retry_count: int
     ) -> EvalOutput:
         """Create an EvalOutput object for a failed instance."""
+        error_msg = (
+            f"Instance failed after {retry_count} retries. Last error: {str(error)}"
+        )[:200]
+
+        # Create critic result with score=0 and error message
+        critic_result = CriticResult(
+            score=0.0,
+            message=error_msg,
+        )
+
         return EvalOutput(
             instance_id=instance.id,
             test_result={},
             instruction=None,
-            error=(
-                f"Instance failed after {retry_count} retries. Last error: {str(error)}"
-            )[:200],
+            error=error_msg,
             history=[],
             instance=instance.data,
+            critic_result=critic_result,
         )
 
     # --- Runner ---
@@ -161,7 +171,7 @@ class Evaluation(ABC, BaseModel):
             if not os.path.exists(prev_file):
                 return []
 
-            failed_in_prev = get_failed_instances(prev_file, critic)
+            failed_in_prev = get_failed_instances(prev_file)
             return [
                 inst
                 for inst in all_instances
@@ -281,7 +291,6 @@ class Evaluation(ABC, BaseModel):
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
             max_attempts=self.metadata.max_attempts,
-            critic=self.metadata.critic,
             final_output_file="output.jsonl",
         )
 
@@ -350,6 +359,16 @@ class Evaluation(ABC, BaseModel):
                 try:
                     workspace = self.prepare_workspace(instance)
                     out = self.evaluate_instance(instance, workspace)
+
+                    # Evaluate with critic and save result
+                    llm_events = [
+                        e for e in out.history if isinstance(e, LLMConvertibleEvent)
+                    ]
+                    git_patch = extract_git_patch(out)
+                    out.critic_result = self.metadata.critic.evaluate(
+                        llm_events, git_patch
+                    )
+
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:

@@ -3,7 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from openhands.sdk import LLM, Event, get_logger
-from openhands.sdk.critic import CriticBase
+from openhands.sdk.critic import CriticBase, CriticResult
 from openhands.sdk.llm import Metrics
 
 
@@ -85,3 +85,6 @@ class EvalOutput(BaseModel):
 
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
+
+    # Critic's evaluation result (always set during evaluation)
+    critic_result: CriticResult

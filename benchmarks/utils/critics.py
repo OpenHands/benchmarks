@@ -20,7 +20,6 @@ from openhands.sdk.critic import (
     EmptyPatchCritic,
     PassCritic,
 )
-from openhands.sdk.event import LLMConvertibleEvent
 
 
 logger = get_logger(__name__)
@@ -124,31 +123,6 @@ def extract_git_patch(eval_output: EvalOutput) -> str | None:
     return eval_output.test_result.get("git_patch")
 
 
-def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
-    """
-    Evaluate an EvalOutput using a critic.
-
-    This is a convenience function that extracts history and git_patch
-    from EvalOutput and calls the critic's evaluate method.
-
-    Args:
-        critic: The SDK critic to use
-        eval_output: The evaluation output to check
-
-    Returns:
-        True if the instance was successfully completed, False otherwise
-    """
-    events = eval_output.history
-    llm_events: list[LLMConvertibleEvent] = [
-        e for e in events if isinstance(e, LLMConvertibleEvent)
-    ]
-
-    git_patch = extract_git_patch(eval_output)
-    result = critic.evaluate(llm_events, git_patch)
-
-    return result.success
-
-
 def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     """
     Get all instance IDs present in output file
@@ -188,13 +162,12 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     return completed_instances
 
 
-def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstanceID]:
+def get_failed_instances(output_file: str) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
 
     Args:
         output_file: Path to the JSONL output file
-        critic: SDK critic to use for evaluation
 
     Returns:
         Set of instance IDs that failed
@@ -212,8 +185,8 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
                     data = json.loads(line.strip())
                     output = EvalOutput.model_validate(data)
 
-                    # Evaluate using the critic
-                    if not evaluate_output(critic, output):
+                    # Check critic result (already set during evaluation)
+                    if not output.critic_result.success:
                         failed_instances.add(output.instance_id)
 
                 except json.JSONDecodeError as e:
