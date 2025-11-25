@@ -108,6 +108,14 @@ jobs:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           submodules: recursive
 
+      # Debug: Print GitHub context to understand workflow_call behavior
+      - name: Debug GitHub context
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "GITHUB_REPOSITORY env: ${GITHUB_REPOSITORY:-not set}"
+
       # Sanitization: Override repository context when called via workflow_call
       # This ensures Blacksmith and other tools use the benchmarks repo context
       - name: Override repository context for workflow_call
