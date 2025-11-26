@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 from tqdm import tqdm
@@ -24,8 +24,9 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from openhands.sdk import get_logger
-from openhands.sdk.critic import CriticBase
+from openhands.sdk import Event, get_logger
+from openhands.sdk.critic import CriticBase, CriticResult
+from openhands.sdk.event import LLMConvertibleEvent
 from openhands.sdk.workspace import RemoteWorkspace
 
 
@@ -86,19 +87,36 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
+    def critic_evaluate(
+        self, history: list[Event], test_result: dict[str, Any]
+    ) -> CriticResult:
+        """Evaluate the instance using the configured critic."""
+        llm_events = [e for e in history if isinstance(e, LLMConvertibleEvent)]
+        git_patch = test_result.get("git_patch")
+        return self.metadata.critic.evaluate(llm_events, git_patch)
+
     def _create_error_output(
         self, instance: EvalInstance, error: Exception, retry_count: int
     ) -> EvalOutput:
         """Create an EvalOutput object for a failed instance."""
+        error_msg = (
+            f"Instance failed after {retry_count} retries. Last error: {str(error)}"
+        )[:1000]
+
+        # Create critic result with score=0 and error message
+        critic_result = CriticResult(
+            score=0.0,
+            message=error_msg,
+        )
+
         return EvalOutput(
             instance_id=instance.id,
             test_result={},
             instruction=None,
-            error=(
-                f"Instance failed after {retry_count} retries. Last error: {str(error)}"
-            )[:200],
+            error=error_msg,
             history=[],
             instance=instance.data,
+            critic_result=critic_result,
         )
 
     def _capture_conversation_archive(
@@ -217,7 +235,7 @@ class Evaluation(ABC, BaseModel):
             if not os.path.exists(prev_file):
                 return []
 
-            failed_in_prev = get_failed_instances(prev_file, critic)
+            failed_in_prev = get_failed_instances(prev_file)
             return [
                 inst
                 for inst in all_instances
@@ -337,7 +355,6 @@ class Evaluation(ABC, BaseModel):
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
             max_attempts=self.metadata.max_attempts,
-            critic=self.metadata.critic,
             final_output_file="output.jsonl",
         )
 
