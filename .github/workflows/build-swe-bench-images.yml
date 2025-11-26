@@ -30,6 +30,11 @@ on:
         required: false
         default: ''
         type: string
+      unique-dispatch-id:
+        description: 'Unique identifier for this workflow dispatch (used for tracking)'
+        required: false
+        default: ''
+        type: string
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
@@ -65,6 +70,13 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
+
+      # Log unique dispatch ID if provided (used for tracking workflow runs)
+      - name: Log unique dispatch ID
+        if: ${{ inputs.unique-dispatch-id != '' }}
+        run: |
+          echo "Unique dispatch ID: ${{ inputs.unique-dispatch-id }}"
+          echo "UNIQUE_DISPATCH_ID=${{ inputs.unique-dispatch-id }}" >> "$GITHUB_ENV"
 
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
