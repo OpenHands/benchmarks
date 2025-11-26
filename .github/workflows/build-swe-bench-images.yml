@@ -31,7 +31,7 @@ on:
         default: ''
         type: string
       unique-dispatch-id:
-        description: 'Unique ID to identify this workflow dispatch (for tracking)'
+        description: 'Unique identifier for this dispatch (used for workflow run matching)'
         required: false
         default: ''
         type: string
