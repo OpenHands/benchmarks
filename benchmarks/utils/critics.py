@@ -108,21 +108,6 @@ def create_critic(args: Namespace) -> CriticBase:
         )
 
 
-def extract_git_patch(eval_output: EvalOutput) -> str | None:
-    """
-    Extract git patch from EvalOutput.
-
-    Args:
-        eval_output: The evaluation output
-
-    Returns:
-        Git patch string or None if not present
-    """
-    if not eval_output.test_result:
-        return None
-    return eval_output.test_result.get("git_patch")
-
-
 def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     """
     Get all instance IDs present in output file

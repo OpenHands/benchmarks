@@ -259,16 +259,20 @@ class SWEBenchEvaluation(Evaluation):
         )
         git_patch = git_patch_result.stdout
 
+        history = list(conversation.state.events)
+        test_result = {
+            "git_patch": git_patch,
+        }
+
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
-            test_result={
-                "git_patch": git_patch,
-            },
+            test_result=test_result,
             instruction=instruction,
             error=None,
-            history=list(conversation.state.events),
+            history=history,
             metrics=conversation.conversation_stats.get_combined_metrics(),
+            critic_result=self.critic_evaluate(history, test_result=test_result),
         )
         return out
 

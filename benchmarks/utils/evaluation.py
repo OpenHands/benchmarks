@@ -8,13 +8,13 @@ import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
-from benchmarks.utils.critics import extract_git_patch, get_completed_instances
+from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
@@ -22,7 +22,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from openhands.sdk import get_logger
+from openhands.sdk import Event, get_logger
 from openhands.sdk.critic import CriticBase, CriticResult
 from openhands.sdk.event import LLMConvertibleEvent
 from openhands.sdk.workspace import RemoteWorkspace
@@ -84,6 +84,14 @@ class Evaluation(ABC, BaseModel):
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
+
+    def critic_evaluate(
+        self, history: list[Event], test_result: dict[str, Any]
+    ) -> CriticResult:
+        """Evaluate the instance using the configured critic."""
+        llm_events = [e for e in history if isinstance(e, LLMConvertibleEvent)]
+        git_patch = test_result.get("git_patch")
+        return self.metadata.critic.evaluate(llm_events, git_patch)
 
     def _create_error_output(
         self, instance: EvalInstance, error: Exception, retry_count: int
@@ -359,16 +367,6 @@ class Evaluation(ABC, BaseModel):
                 try:
                     workspace = self.prepare_workspace(instance)
                     out = self.evaluate_instance(instance, workspace)
-
-                    # Evaluate with critic and save result
-                    llm_events = [
-                        e for e in out.history if isinstance(e, LLMConvertibleEvent)
-                    ]
-                    git_patch = extract_git_patch(out)
-                    out.critic_result = self.metadata.critic.evaluate(
-                        llm_events, git_patch
-                    )
-
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
