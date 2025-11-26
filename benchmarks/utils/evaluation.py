@@ -99,7 +99,7 @@ class Evaluation(ABC, BaseModel):
         """Create an EvalOutput object for a failed instance."""
         error_msg = (
             f"Instance failed after {retry_count} retries. Last error: {str(error)}"
-        )[:200]
+        )[:1000]
 
         # Create critic result with score=0 and error message
         critic_result = CriticResult(
