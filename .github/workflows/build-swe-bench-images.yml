@@ -25,6 +25,11 @@ on:
         required: false
         default: ''
         type: string
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
+        required: false
+        default: ''
+        type: string
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
@@ -86,6 +91,20 @@ jobs:
             echo "N_LIMIT=" >> "$GITHUB_ENV"
             echo "Building all images based on label: build-swebench"
           fi
+
+      # Update SDK submodule to specific commit if provided
+      # Must run BEFORE install dependencies so git submodule update works correctly
+      - name: Update SDK submodule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        run: |
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          SDK_SHA=$(git rev-parse HEAD)
+          cd ../..
+          # Stage the submodule reference update so make build uses it
+          git add vendor/software-agent-sdk
+          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
       - name: Set up Docker Buildx with Blacksmith
         uses: useblacksmith/setup-docker-builder@v1
