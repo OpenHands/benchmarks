@@ -30,6 +30,11 @@ on:
         required: false
         default: ''
         type: string
+      unique-dispatch-id:
+        description: 'Unique ID to identify this workflow dispatch (for tracking)'
+        required: false
+        default: ''
+        type: string
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
