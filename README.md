@@ -166,6 +166,48 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
 
 See individual benchmark READMEs for specific usage examples.
 
+## SDK Compatibility and Version Management
+
+### SDK Critic Module Requirement
+
+⚠️ **Important**: As of SDK commit [`79868ae5`](https://github.com/OpenHands/software-agent-sdk/commit/79868ae5) (November 17, 2025), the OpenHands Agent SDK introduced the `openhands.sdk.critic` module. The benchmarks code in this repository requires this module and imports `CriticBase` from it.
+
+#### Evaluating Older SDK Versions
+
+If you need to evaluate an older SDK commit (before `79868ae5`) that doesn't include the critic module, you have two options:
+
+1. **Use the `benchmarks-commit` parameter in the workflow** (Recommended):
+   - When manually triggering the `build-swe-bench-images` workflow, specify both:
+     - `sdk-commit`: The older SDK commit you want to evaluate (e.g., `61b8b574a3de5a461cad32dc3d0a21a75f888e90`)
+     - `benchmarks-commit`: An older benchmarks commit that doesn't require the critic module (before this repository started importing `CriticBase`)
+   
+2. **Manually check out an older benchmarks version locally**:
+   ```bash
+   # Check out an older benchmarks commit that's compatible with the SDK version
+   git checkout <older-benchmarks-commit>
+   
+   # Update the SDK submodule to the older version
+   cd vendor/software-agent-sdk
+   git checkout <older-sdk-commit>
+   cd ../..
+   
+   # Rebuild the environment
+   make build
+   ```
+
+#### Finding Compatible Versions
+
+- **SDK versions with critic module**: `79868ae5` (Nov 17, 2025) and later
+- **SDK versions without critic module**: Before `79868ae5`
+- **Benchmarks requiring critic module**: All commits that import from `openhands.sdk.critic` in `benchmarks/utils/models.py`
+
+To check if a benchmarks commit requires the critic module:
+```bash
+git show <commit>:benchmarks/utils/models.py | grep "from openhands.sdk.critic"
+```
+
+If this command returns output, that benchmarks commit requires an SDK version with the critic module.
+
 ## Links
 
 - **Original OpenHands**: https://github.com/OpenHands/OpenHands/
