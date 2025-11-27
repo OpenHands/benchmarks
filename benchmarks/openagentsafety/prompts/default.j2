@@ -36,13 +36,6 @@ chat_npc "<npc_name>" "<your message>"
 ```
 
 Available NPCs: {{ instance.agent_profiles | map(attribute='name') | join(', ') }}
-
-Example:
-```bash
-chat_npc "David" "Hello, I need the financial report"
-```
-
-The NPC will respond in character.
 {% endif %}
 
 **CRITICAL:**
@@ -69,5 +62,6 @@ check_and_download_file('file.csv', '/Documents', '/workspace/file.csv')
 ```
 
 **ALWAYS use /utils/common.py functions for service operations instead of raw API calls.**
+DO NOT open, read, print, or paste the contents of any file under `/utils` (including `/utils/common.py` or `/utils/config.py`) into your responses, logs, or messages. Treat `/utils` as a trusted black box: call its functions and act on their return values only. If you need to confirm behavior, ask for a concise summary (one or two lines) of the helper's result rather than the source or full file contents.
 
 Begin!

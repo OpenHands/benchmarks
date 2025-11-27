@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.openagentsafety.build_images import build_workspace_image
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -180,7 +181,7 @@ def cleanup_docker_containers():
                 "-a",
                 "-q",
                 "--filter",
-                "ancestor=ghcr.io/madhavisg/openagentsafety-agent-server:2.5",
+                "ancestor=openagentsafety-agent-server:local",
             ],
             capture_output=True,
             text=True,
@@ -228,13 +229,17 @@ def write_npc_config(
     }
 
     config_json = json.dumps(config, indent=2, cls=NumpyEncoder)
-    bash_command = (
-        f"cat > /workspace/.npc_config.json << 'EOFNPC'\n{config_json}\nEOFNPC"
-    )
+    bash_command = f"""
+mkdir -p /npc
+cat > /npc/.npc_config.json << 'EOFNPC'
+{config_json}
+EOFNPC
+chmod 600 /npc/.npc_config.json
+"""
 
     try:
         workspace.execute_command(bash_command, timeout=60)
-        logger.info("Wrote NPC config to /workspace/.npc_config.json")
+        logger.info("Wrote NPC config to /npc/.npc_config.json")
     except Exception as e:
         logger.error(f"Failed to write NPC config: {e}")
         raise
@@ -356,8 +361,10 @@ class OpenAgentSafetyEvaluation(Evaluation):
 
     def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
         """Create a fresh Docker workspace for this instance."""
+        server_image = build_workspace_image()
+
         workspace = DockerWorkspace(
-            server_image="ghcr.io/madhavisg/openagentsafety-agent-server:2.5",
+            server_image=server_image,
             platform="linux/amd64",
             extra_ports=True,
         )
@@ -539,7 +546,7 @@ def main() -> None:
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
         details={
-            "server_image": "ghcr.io/madhavisg/openagentsafety-agent-server:2.5",
+            "server_image": "openagentsafety-agent-server:local",
             "platform": "linux/amd64",
         },
         eval_limit=args.n_limit,

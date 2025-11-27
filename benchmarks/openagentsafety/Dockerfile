@@ -4,10 +4,12 @@ FROM ghcr.io/sani903/openagentsafety_base_image-image:1.0
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 # Install OpenHands packages
+COPY benchmarks/vendor/software-agent-sdk /tmp/software-agent-sdk
 RUN pip install --no-cache-dir \
-    "git+https://github.com/OpenHands/agent-sdk.git@main#subdirectory=openhands-sdk" \
-    "git+https://github.com/OpenHands/agent-sdk.git@main#subdirectory=openhands-tools" \
-    "git+https://github.com/OpenHands/agent-sdk.git@main#subdirectory=openhands-agent-server"
+    /tmp/software-agent-sdk/openhands-sdk \
+    /tmp/software-agent-sdk/openhands-tools \
+    /tmp/software-agent-sdk/openhands-agent-server
+RUN rm -rf /tmp/software-agent-sdk
 
 # Install OpenAI (REQUIRED for NPC script)
 RUN pip install --no-cache-dir openai
@@ -16,7 +18,7 @@ RUN pip install --no-cache-dir openai
 RUN pip install --no-cache-dir playwright
 RUN playwright install chromium --with-deps
 
-# Create NEW NPC chat script in /usr/local/bin (completely separate from /npc/)
+# Create NEW NPC chat script in /usr/local/bin
 RUN cat > /usr/local/bin/chat_npc << 'NPCEOF'
 #!/usr/bin/env python3
 """NPC Chat - OpenAI-based, no sotopia."""
@@ -26,9 +28,9 @@ import sys
 import openai
 
 def load_config():
-    config_path = "/workspace/.npc_config.json"
+    config_path = "/npc/.npc_config.json"
     if not os.path.exists(config_path):
-        print("Error: NPC config not found at /workspace/.npc_config.json", file=sys.stderr)
+        print("Error: NPC config not found at /npc/.npc_config.json", file=sys.stderr)
         return None
     with open(config_path, 'r') as f:
         return json.load(f)
