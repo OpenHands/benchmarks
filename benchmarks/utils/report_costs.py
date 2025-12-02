@@ -159,14 +159,16 @@ def calculate_costs(directory_path: str) -> None:
 
         # Add summary to report data
         report_data["summary"] = {
-            "main_output_cost": extract_accumulated_cost(read_jsonl_file(output_file)),
+            "only_main_output_cost": extract_accumulated_cost(
+                read_jsonl_file(output_file)
+            ),
             "sum_critic_files": critic_only_total,
-            "total_cost": total_individual_costs,
+            "total_cost": critic_only_total,  # Total is just critic files since main is subset
         }
     elif output_file:
         report_data["summary"] = {
-            "main_output_cost": total_individual_costs,
-            "total_cost": total_individual_costs,
+            "only_main_output_cost": total_individual_costs,
+            "total_cost": 0,  # No critic files, so total is 0 (main is subset)
         }
     elif critic_files:
         report_data["summary"] = {
