@@ -6,15 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: 'Dataset Name'  # <-- FIXED: This was missing
+        description: 'Dataset Name'
         required: true
         default: 'princeton-nlp/SWE-bench_Lite'
-        type: string
       split:
-        description: 'Split Name'    # <-- FIXED: This was missing
+        description: 'Split Name'
         required: true
         default: 'test'
-        type: string
 
 env:
   DATASET: princeton-nlp/SWE-bench_Lite
@@ -23,9 +21,6 @@ env:
   N_LIMIT: ''
 
 jobs:
-  # ====================================================
-  # RUNNER 1: The First Leg
-  # ====================================================
   batch-1:
     runs-on: ubuntu-latest
     permissions:
@@ -33,7 +28,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-        with: { submodules: recursive, ref: ${{ github.event.pull_request.head.sha }} }
+        with:
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha }}
       
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
@@ -47,25 +44,30 @@ jobs:
           swap-storage: false
 
       - uses: docker/login-action@v3
-        with: { username: ${{ secrets.DOCKERHUB_USERNAME }}, password: ${{ secrets.DOCKERHUB_TOKEN }} }
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
       - uses: docker/login-action@v3
-        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
       - uses: docker/setup-buildx-action@v3
       - uses: astral-sh/setup-uv@v7
       - run: make build
 
       - name: Build Batch 1
         continue-on-error: true
-        # FIXED: Changed single quotes ' ' to double quotes " " so variables work
         run: |
           uv run benchmarks/swe_bench/build_images.py \
-            --dataset "${DATASET}" --split "${SPLIT}" \
+            --dataset "${DATASET}" \
+            --split "${SPLIT}" \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
-            --push --max-workers "${MAX_WORKERS}"
+            --push \
+            --max-workers "${MAX_WORKERS}"
 
-  # ====================================================
-  # RUNNER 2: The Second Leg (Resume)
-  # ====================================================
   batch-2:
     needs: batch-1
     if: always()
@@ -75,7 +77,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-        with: { submodules: recursive, ref: ${{ github.event.pull_request.head.sha }} }
+        with:
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha }}
+      
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -88,9 +93,16 @@ jobs:
           swap-storage: false
 
       - uses: docker/login-action@v3
-        with: { username: ${{ secrets.DOCKERHUB_USERNAME }}, password: ${{ secrets.DOCKERHUB_TOKEN }} }
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
       - uses: docker/login-action@v3
-        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
       - uses: docker/setup-buildx-action@v3
       - uses: astral-sh/setup-uv@v7
       - run: make build
@@ -100,13 +112,12 @@ jobs:
         run: |
           echo "Resuming build..."
           uv run benchmarks/swe_bench/build_images.py \
-            --dataset "${DATASET}" --split "${SPLIT}" \
+            --dataset "${DATASET}" \
+            --split "${SPLIT}" \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
-            --push --max-workers "${MAX_WORKERS}"
+            --push \
+            --max-workers "${MAX_WORKERS}"
 
-  # ====================================================
-  # RUNNER 3: The Final Leg
-  # ====================================================
   batch-3:
     needs: batch-2
     if: always()
@@ -116,7 +127,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-        with: { submodules: recursive, ref: ${{ github.event.pull_request.head.sha }} }
+        with:
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha }}
+      
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -129,9 +143,16 @@ jobs:
           swap-storage: false
       
       - uses: docker/login-action@v3
-        with: { username: ${{ secrets.DOCKERHUB_USERNAME }}, password: ${{ secrets.DOCKERHUB_TOKEN }} }
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
       - uses: docker/login-action@v3
-        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
       - uses: docker/setup-buildx-action@v3
       - uses: astral-sh/setup-uv@v7
       - run: make build
@@ -140,6 +161,8 @@ jobs:
         run: |
           echo "Final cleanup pass..."
           uv run benchmarks/swe_bench/build_images.py \
-            --dataset "${DATASET}" --split "${SPLIT}" \
+            --dataset "${DATASET}" \
+            --split "${SPLIT}" \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
-            --push --max-workers "${MAX_WORKERS}"
+            --push \
+            --max-workers "${MAX_WORKERS}"
