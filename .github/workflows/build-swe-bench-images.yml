@@ -76,12 +76,14 @@ jobs:
             echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
             echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
+            # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
             echo "ref=" >> "$GITHUB_OUTPUT"
-            echo "Using default branch (no ref specified)"
+            echo "Using default ref (the commit that triggered this workflow)"
           fi
       
       - uses: actions/checkout@v4
         with:
+          # When ref is empty, actions/checkout uses the commit that triggered the workflow
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
 
