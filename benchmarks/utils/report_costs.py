@@ -186,6 +186,31 @@ def calculate_costs(directory_path: str) -> None:
         print(f"\n⚠️  Warning: Could not save cost report to {report_file}: {e}")
 
 
+def generate_cost_report(input_file: str) -> None:
+    """
+    Generate cost report for the evaluation directory.
+
+    This function is designed to be called from other evaluation scripts
+    to automatically generate cost reports after evaluation completion.
+
+    Args:
+        input_file: Path to the input output.jsonl file
+    """
+    try:
+        from pathlib import Path
+
+        input_path = Path(input_file)
+        directory = input_path.parent
+
+        # Use the calculate_costs function to generate the report
+        calculate_costs(str(directory))
+
+    except Exception as e:
+        # Don't fail the entire script if cost reporting fails
+        # Just print a warning and continue
+        print(f"Warning: Failed to generate cost report: {e}", file=sys.stderr)
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
