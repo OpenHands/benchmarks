@@ -32,18 +32,20 @@ def read_jsonl_file(file_path: Path) -> List[Dict]:
 
 
 def extract_accumulated_cost(jsonl_data: List[Dict]) -> float:
-    """Extract the last accumulated cost from JSONL data."""
+    """Sum the accumulated costs from each line in JSONL data."""
     if not jsonl_data:
         return 0.0
 
-    # Get the last entry (which should have the final accumulated cost)
-    last_entry = jsonl_data[-1]
+    total_cost = 0.0
 
-    # Extract accumulated cost from metrics
-    metrics = last_entry.get("metrics", {})
-    accumulated_cost = metrics.get("accumulated_cost", 0.0)
+    # Sum accumulated costs from each line
+    for entry in jsonl_data:
+        metrics = entry.get("metrics", {})
+        accumulated_cost = metrics.get("accumulated_cost", 0.0)
+        if accumulated_cost is not None:
+            total_cost += float(accumulated_cost)
 
-    return float(accumulated_cost) if accumulated_cost is not None else 0.0
+    return total_cost
 
 
 def find_output_files(directory: Path) -> Tuple[Optional[Path], List[Path]]:
