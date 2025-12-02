@@ -18,7 +18,7 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '10' 
+        default: '3'
       n-limit:
         description: 'Limit number of images to build. Leave blank for no limit.'
         required: false
@@ -33,8 +33,9 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  # Reduced workers from 32 to 10 because ubuntu-latest is not as powerful as Blacksmith
-  MAX_WORKERS: '10' 
+  # CRITICAL: Keep this at 3 for ubuntu-latest runners. 
+  # Higher numbers (10+) will cause Out Of Memory crashes.
+  MAX_WORKERS: '3' 
   N_LIMIT: '500'
 
 concurrency:
@@ -50,7 +51,6 @@ jobs:
         github.event.label.name == 'build-swebench-50' ||
         github.event.label.name == 'build-swebench-200'))
 
-    # CHANGED: Use standard GitHub runner
     runs-on: ubuntu-latest
 
     permissions:
@@ -79,10 +79,13 @@ jobs:
           LABEL_NAME="${{ github.event.label.name }}"
           if [ "$LABEL_NAME" = "build-swebench-50" ]; then
             echo "N_LIMIT=50" >> "$GITHUB_ENV"
+            echo "Building 50 images based on label: build-swebench-50"
           elif [ "$LABEL_NAME" = "build-swebench-200" ]; then
             echo "N_LIMIT=200" >> "$GITHUB_ENV"
+            echo "Building 200 images based on label: build-swebench-200"
           elif [ "$LABEL_NAME" = "build-swebench" ]; then
             echo "N_LIMIT=" >> "$GITHUB_ENV"
+            echo "Building all images based on label: build-swebench"
           fi
 
       - name: Update SDK submodule
@@ -96,16 +99,27 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA"
 
-      # CHANGED: Use standard Docker Setup
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # --- AUTHENTICATION STEPS ---
+      
+      # 1. Login to Docker Hub (Fixes 429 Too Many Requests)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # 2. Login to GitHub Container Registry (Where we save images)
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- BUILD SETUP ---
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -116,14 +130,13 @@ jobs:
         run: |
           make build
 
+      # --- MAIN BUILD COMMAND ---
+
       - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
           
-          # CHANGED: Pointing image to your repository owner (tsljgj) automatically
-          # NOTE: Lowercase conversion is handled by python script usually, 
-          # but ensuring the repo owner is passed correctly is key.
-          
+          # This automatically points to ghcr.io/YOUR_USERNAME/eval-agent-server
           CMD="uv run benchmarks/swe_bench/build_images.py \
             --dataset '${DATASET}' \
             --split '${SPLIT}' \
@@ -141,6 +154,8 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
+      # --- LOGGING AND REPORTING ---
+
       - name: Archive build logs
         if: always()
         run: |
@@ -157,7 +172,7 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Comment on PR or Issue
+      - name: Comment on PR
         if: success()
         run: |
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
@@ -179,9 +194,10 @@ jobs:
           **Dataset:** \`${DATASET}\`
           **Images Built:** ${TOTAL_IMAGES}
           **Location:** \`ghcr.io/${{ github.repository_owner }}/eval-agent-server\`
+          **SDK Version:** \`${SDK_SHA:0:7}\`
 
           <details>
-          <summary>Built Tags</summary>
+          <summary>Click to view built Image Tags</summary>
 
           ${TAGS}
 
@@ -189,14 +205,15 @@ jobs:
           EOF
           )
           
-          # CHANGED: Attempt to comment on the PR first, fallback to Issue 81 (if PR number doesn't exist)
+          # Try to post to the PR that triggered this
           PR_NUMBER="${{ github.event.pull_request.number }}"
           
           if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
              TARGET_URL="${{ github.api_url }}/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
           else
-             # Fallback just in case
-             TARGET_URL="${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments"
+             # Fallback: if manual run, just echo to logs
+             echo "Not a PR run, skipping comment post."
+             exit 0
           fi
 
           echo "Posting comment to: $TARGET_URL"
@@ -206,6 +223,6 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "$TARGET_URL" \
-            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')" || echo "Failed to post comment, check if PR or Issue exists"
+            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
