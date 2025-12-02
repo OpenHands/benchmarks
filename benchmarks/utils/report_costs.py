@@ -3,8 +3,9 @@
 Script to calculate costs from JSONL evaluation output files.
 
 This script processes JSONL files containing evaluation results and calculates:
-1. Individual costs for each JSONL file (using the last accumulated cost from each line)
+1. Individual costs for each JSONL file (summing accumulated_cost from all lines)
 2. Aggregated cost for critic files (excluding the main output.jsonl)
+3. Saves a detailed cost report as cost_report.jsonl in the same directory
 
 Usage:
     python report_costs.py <directory_path>
@@ -12,11 +13,16 @@ Usage:
 The script looks for files matching:
 - output.jsonl (main output file)
 - output.critic_attempt_*.jsonl (critic attempt files)
+
+Output:
+- Console report with detailed cost breakdown
+- cost_report.jsonl file with structured cost data
 """
 
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -87,6 +93,15 @@ def calculate_costs(directory_path: str) -> None:
     print(f"Cost Report for: {directory_path}")
     print("=" * 80)
 
+    # Initialize data structures for JSON report
+    report_data = {
+        "directory": str(directory_path),
+        "timestamp": datetime.now().isoformat(),
+        "main_output": None,
+        "critic_files": [],
+        "summary": {},
+    }
+
     total_individual_costs = 0.0
 
     # Process main output file
@@ -101,10 +116,17 @@ def calculate_costs(directory_path: str) -> None:
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
 
+        # Add to report data
+        report_data["main_output"] = {
+            "filename": output_file.name,
+            "lines": len(jsonl_data),
+            "cost": cost,
+        }
+
     # Process critic files individually
+    critic_total = 0.0
     if critic_files:
         print("\nCritic Attempt Files:")
-        critic_total = 0.0
 
         for critic_file in critic_files:
             print(f"  {critic_file.name}")
@@ -116,6 +138,11 @@ def calculate_costs(directory_path: str) -> None:
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
+
+            # Add to report data
+            report_data["critic_files"].append(
+                {"filename": critic_file.name, "lines": len(jsonl_data), "cost": cost}
+            )
 
         print(f"\n  Total Critic Files Cost: ${critic_total:.6f}")
 
@@ -130,13 +157,43 @@ def calculate_costs(directory_path: str) -> None:
         )
         print(f"  Sum Critic Files: ${critic_only_total:.6f}")
 
+        # Add summary to report data
+        report_data["summary"] = {
+            "main_output_cost": extract_accumulated_cost(read_jsonl_file(output_file)),
+            "sum_critic_files": critic_only_total,
+            "total_cost": total_individual_costs,
+        }
+    elif output_file:
+        report_data["summary"] = {
+            "main_output_cost": total_individual_costs,
+            "total_cost": total_individual_costs,
+        }
+    elif critic_files:
+        report_data["summary"] = {
+            "sum_critic_files": critic_total,
+            "total_cost": critic_total,
+        }
+
+    # Save JSON report
+    report_file = directory / "cost_report.jsonl"
+    try:
+        with open(report_file, "w") as f:
+            json.dump(report_data, f, indent=2)
+        print(f"\n📊 Cost report saved to: {report_file}")
+    except Exception as e:
+        print(f"\n⚠️  Warning: Could not save cost report to {report_file}: {e}")
+
 
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Calculate costs from JSONL evaluation output files",
+        description="Calculate costs from JSONL evaluation output files and save detailed report",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+This script processes JSONL files and generates:
+1. Console output with detailed cost breakdown
+2. cost_report.jsonl file with structured cost data in the same directory
+
 Examples:
   python report_costs.py ./eval_outputs/my_experiment/
   python report_costs.py /path/to/evaluation/results/
