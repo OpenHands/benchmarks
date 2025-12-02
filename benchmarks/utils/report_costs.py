@@ -91,7 +91,7 @@ def calculate_costs(directory_path: str) -> None:
 
     # Process main output file
     if output_file:
-        print("\nMain Output File:")
+        print("\nSelected instance in Main output.jsonl only:")
         print(f"  {output_file.name}")
 
         jsonl_data = read_jsonl_file(output_file)
@@ -122,14 +122,13 @@ def calculate_costs(directory_path: str) -> None:
     # Summary
     print("\n" + "=" * 80)
     print("SUMMARY:")
-    print(f"  Total Individual Files Cost: ${total_individual_costs:.6f}")
 
     if output_file and critic_files:
         # Calculate cost excluding main output.jsonl (only critic files)
         critic_only_total = total_individual_costs - extract_accumulated_cost(
             read_jsonl_file(output_file)
         )
-        print(f"  Total Critic Files Only: ${critic_only_total:.6f}")
+        print(f"  Sum Critic Files: ${critic_only_total:.6f}")
 
 
 def main():
