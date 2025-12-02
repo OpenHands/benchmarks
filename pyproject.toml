@@ -37,6 +37,7 @@ swtbench-infer = "benchmarks.swt_bench.run_infer:main"
 swebench-eval = "benchmarks.swe_bench.eval_infer:main"
 swtbench-eval = "benchmarks.swt_bench.eval_infer:main"
 gaia-infer = "benchmarks.gaia.run_infer:main"
+gaia-eval = "benchmarks.gaia.eval_infer:main"
 openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
 
 [build-system]
