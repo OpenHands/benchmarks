@@ -18,24 +18,23 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '32'
-        type: string
+        default: '10' 
       n-limit:
-        description: 'Limit number of images to build (for testing). Leave blank for no limit.'
+        description: 'Limit number of images to build. Leave blank for no limit.'
         required: false
         default: ''
         type: string
       sdk-commit:
-        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
+        description: 'Software Agent SDK commit/ref. Leave blank to use default.'
         required: false
         default: ''
         type: string
 
-# Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '32'
+  # Reduced workers from 32 to 10 because ubuntu-latest is not as powerful as Blacksmith
+  MAX_WORKERS: '10' 
   N_LIMIT: '500'
 
 concurrency:
@@ -51,14 +50,14 @@ jobs:
         github.event.label.name == 'build-swebench-50' ||
         github.event.label.name == 'build-swebench-200'))
 
-    runs-on:
-      labels: blacksmith-32vcpu-ubuntu-2204
+    # CHANGED: Use standard GitHub runner
+    runs-on: ubuntu-latest
 
-    # Allow pushing to GHCR and commenting on issues
     permissions:
       contents: read
       packages: write
       issues: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -66,34 +65,26 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
 
-      # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
 
-      # Set N_LIMIT based on the label that triggered the workflow
       - name: Set N_LIMIT based on label
         if: ${{ github.event_name == 'pull_request_target' }}
         run: |
           LABEL_NAME="${{ github.event.label.name }}"
           if [ "$LABEL_NAME" = "build-swebench-50" ]; then
             echo "N_LIMIT=50" >> "$GITHUB_ENV"
-            echo "Building 50 images based on label: build-swebench-50"
           elif [ "$LABEL_NAME" = "build-swebench-200" ]; then
             echo "N_LIMIT=200" >> "$GITHUB_ENV"
-            echo "Building 200 images based on label: build-swebench-200"
           elif [ "$LABEL_NAME" = "build-swebench" ]; then
             echo "N_LIMIT=" >> "$GITHUB_ENV"
-            echo "Building all images based on label: build-swebench"
           fi
 
-      # Update SDK submodule to specific commit if provided
-      # Must run BEFORE install dependencies so git submodule update works correctly
       - name: Update SDK submodule
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
         run: |
@@ -102,12 +93,12 @@ jobs:
           git checkout FETCH_HEAD
           SDK_SHA=$(git rev-parse HEAD)
           cd ../..
-          # Stage the submodule reference update so make build uses it
           git add vendor/software-agent-sdk
-          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+          echo "Updated SDK submodule to $SDK_SHA"
 
-      - name: Set up Docker Buildx with Blacksmith
-        uses: useblacksmith/setup-docker-builder@v1
+      # CHANGED: Use standard Docker Setup
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -128,15 +119,18 @@ jobs:
       - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
-
+          
+          # CHANGED: Pointing image to your repository owner (tsljgj) automatically
+          # NOTE: Lowercase conversion is handled by python script usually, 
+          # but ensuring the repo owner is passed correctly is key.
+          
           CMD="uv run benchmarks/swe_bench/build_images.py \
             --dataset '${DATASET}' \
             --split '${SPLIT}' \
-            --image ghcr.io/openhands/eval-agent-server \
+            --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
             --push \
             --max-workers '${MAX_WORKERS}'"
 
-          # Only include --n-limit if provided (non-empty)
           if [ -n "${N_LIMIT}" ]; then
             CMD="$CMD --n-limit '${N_LIMIT}'"
           fi
@@ -151,11 +145,7 @@ jobs:
         if: always()
         run: |
           if [ -d builds ]; then
-            # Create tar archive to avoid filename restrictions (colons, etc.)
             tar -czf build-logs.tar.gz builds/
-            echo "Build logs archived successfully"
-          else
-            echo "No builds directory found"
           fi
 
       - name: Upload build logs
@@ -167,110 +157,31 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Display build summary
-        if: always()
-        run: |
-          # Find all manifest.jsonl files
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
-          
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "No manifest.jsonl files found"
-            exit 0
-          fi
-          
-          # Generate summary from manifest files
-          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          # Count successes and failures
-          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
-          import sys
-          import json
-          count = 0
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('error') is None and len(data.get('tags', [])) > 0:
-                  count += 1
-          print(count)
-          ")
-          FAILURES=$((TOTAL - SUCCESSES))
-          
-          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          # Show failed builds if any
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            cat $MANIFEST_FILES | python -c "
-          import sys
-          import json
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('error') is not None or len(data.get('tags', [])) == 0:
-                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
-          " >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Comment on tracker issue
+      - name: Comment on PR or Issue
         if: success()
         run: |
-          # Get SDK version from submodule
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
-          
-          # Find all manifest.jsonl files
           MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
           
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "No manifest.jsonl files found in builds directory"
-            echo "Build may have completed but produced no images"
-            exit 0
-          fi
-          
-          # Count total images built
+          if [ -z "$MANIFEST_FILES" ]; then exit 0; fi
           TOTAL_IMAGES=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
+          if [ "$TOTAL_IMAGES" -eq 0 ]; then exit 0; fi
           
-          if [ "$TOTAL_IMAGES" -eq 0 ]; then
-            echo "No images found in manifest files"
-            echo "Skipping comment as there are no built images to report"
-            exit 0
-          fi
-          
-          # Extract all tags and format them as a markdown list (one tag per image)
           TAGS=$(cat $MANIFEST_FILES | python -c "
-          import sys
-          import json
+          import sys, json
           for line in sys.stdin:
               data = json.loads(line.strip())
-              if data.get('tags') and len(data['tags']) > 0:
-                  # Only show the first tag per image to reduce clutter
-                  print(f'- \`{data[\"tags\"][0]}\`')
+              if data.get('tags'): print(f'- \`{data['tags'][0]}\`')
           ")
           
-          # Determine how the workflow was triggered
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TRIGGER="Manual trigger (workflow_dispatch)"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
-          else
-            TRIGGER="${{ github.event_name }}"
-          fi
-          
-          # Create the comment body
           COMMENT_BODY=$(cat <<EOF
           ## Build Complete ✅
-
           **Dataset:** \`${DATASET}\`
-          **Split:** \`${SPLIT}\`
-          **SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
-          **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          **Triggered by:** ${TRIGGER}
+          **Images Built:** ${TOTAL_IMAGES}
+          **Location:** \`ghcr.io/${{ github.repository_owner }}/eval-agent-server\`
 
           <details>
-          <summary>Built Tags (${TOTAL_IMAGES} images)</summary>
+          <summary>Built Tags</summary>
 
           ${TAGS}
 
@@ -278,12 +189,23 @@ jobs:
           EOF
           )
           
-          # Post comment to issue #81
+          # CHANGED: Attempt to comment on the PR first, fallback to Issue 81 (if PR number doesn't exist)
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+             TARGET_URL="${{ github.api_url }}/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
+          else
+             # Fallback just in case
+             TARGET_URL="${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments"
+          fi
+
+          echo "Posting comment to: $TARGET_URL"
+
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments" \
-            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
+            "$TARGET_URL" \
+            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')" || echo "Failed to post comment, check if PR or Issue exists"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
