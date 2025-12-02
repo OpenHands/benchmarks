@@ -168,40 +168,39 @@ See individual benchmark READMEs for specific usage examples.
 
 ## SDK Compatibility and Version Management
 
-### SDK Critic Module Requirement
+⚠️ **Important**: The benchmarks repository depends on the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk), and **not every version of the benchmarks is compatible with every version of the SDK**. As the SDK evolves and introduces new features, the benchmarks code may adopt these features, creating version dependencies.
 
-⚠️ **Important**: As of SDK commit [`79868ae5`](https://github.com/OpenHands/software-agent-sdk/commit/79868ae5) (November 17, 2025), the OpenHands Agent SDK introduced the `openhands.sdk.critic` module. The benchmarks code in this repository requires this module and imports `CriticBase` from it.
+### Evaluating Different SDK Versions
 
-#### Evaluating Older SDK Versions
-
-If you need to evaluate an older SDK commit (before `79868ae5`) that doesn't include the critic module, you have two options:
+When evaluating a specific SDK version, you need to ensure the benchmarks code is compatible with that SDK version. You have two options:
 
 1. **Use the `benchmarks-commit` parameter in the workflow** (Recommended):
    - When manually triggering the `build-swe-bench-images` workflow, specify both:
-     - `sdk-commit`: The older SDK commit you want to evaluate (e.g., `61b8b574a3de5a461cad32dc3d0a21a75f888e90`)
-     - `benchmarks-commit`: An older benchmarks commit that doesn't require the critic module (before this repository started importing `CriticBase`)
+     - `sdk-commit`: The SDK version you want to evaluate
+     - `benchmarks-commit`: A benchmarks commit that's compatible with that SDK version
    
-2. **Manually check out an older benchmarks version locally**:
+2. **Manually check out compatible versions locally**:
    ```bash
-   # Check out an older benchmarks commit that's compatible with the SDK version
-   git checkout <older-benchmarks-commit>
+   # Check out a benchmarks commit that's compatible with your target SDK version
+   git checkout <benchmarks-commit>
    
-   # Update the SDK submodule to the older version
+   # Update the SDK submodule to your target version
    cd vendor/software-agent-sdk
-   git checkout <older-sdk-commit>
+   git checkout <sdk-commit>
    cd ../..
    
    # Rebuild the environment
    make build
    ```
 
-#### Finding Compatible Versions
+### Example: SDK Critic Module
 
-- **SDK versions with critic module**: `79868ae5` (Nov 17, 2025) and later
-- **SDK versions without critic module**: Before `79868ae5`
-- **Benchmarks requiring critic module**: All commits that import from `openhands.sdk.critic` in `benchmarks/utils/models.py`
+A notable example of version dependency is the SDK critic module. As of SDK commit [`79868ae5`](https://github.com/OpenHands/software-agent-sdk/commit/79868ae5) (November 17, 2025), the OpenHands Agent SDK introduced the `openhands.sdk.critic` module. Current benchmarks code imports `CriticBase` from this module, which means:
 
-To check if a benchmarks commit requires the critic module:
+- **SDK versions ≥ `79868ae5`**: Compatible with current benchmarks code
+- **SDK versions < `79868ae5`**: Require an older benchmarks commit (before the critic import was added)
+
+To check if a specific benchmarks commit requires the critic module:
 ```bash
 git show <commit>:benchmarks/utils/models.py | grep "from openhands.sdk.critic"
 ```
