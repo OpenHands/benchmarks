@@ -6,20 +6,25 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
+        description: 'Dataset Name'  # <-- FIXED: This was missing
+        required: true
         default: 'princeton-nlp/SWE-bench_Lite'
+        type: string
       split:
+        description: 'Split Name'    # <-- FIXED: This was missing
+        required: true
         default: 'test'
+        type: string
 
 env:
   DATASET: princeton-nlp/SWE-bench_Lite
   SPLIT: test
-  MAX_WORKERS: '3'   # Keep low to prevent RAM crash
-  N_LIMIT: ''        # Empty = Build ALL 300 images
+  MAX_WORKERS: '3'
+  N_LIMIT: ''
 
 jobs:
   # ====================================================
   # RUNNER 1: The First Leg
-  # Expected to build images 1-120 before disk fills up
   # ====================================================
   batch-1:
     runs-on: ubuntu-latest
@@ -30,7 +35,6 @@ jobs:
       - uses: actions/checkout@v4
         with: { submodules: recursive, ref: ${{ github.event.pull_request.head.sha }} }
       
-      # 1. MAXIMIZE DISK SPACE (Gives +30GB)
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -42,7 +46,6 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      # 2. STANDARD SETUP
       - uses: docker/login-action@v3
         with: { username: ${{ secrets.DOCKERHUB_USERNAME }}, password: ${{ secrets.DOCKERHUB_TOKEN }} }
       - uses: docker/login-action@v3
@@ -51,22 +54,21 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: make build
 
-      # 3. BUILD COMMAND (Will likely crash eventually)
       - name: Build Batch 1
-        continue-on-error: true  # Don't mark the workflow as red if this crashes!
+        continue-on-error: true
+        # FIXED: Changed single quotes ' ' to double quotes " " so variables work
         run: |
           uv run benchmarks/swe_bench/build_images.py \
-            --dataset '${DATASET}' --split '${SPLIT}' \
+            --dataset "${DATASET}" --split "${SPLIT}" \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
-            --push --max-workers '${MAX_WORKERS}'
+            --push --max-workers "${MAX_WORKERS}"
 
   # ====================================================
-  # RUNNER 2: The Second Leg
-  # Starts FRESH. Skips existing images. Builds 121-240.
+  # RUNNER 2: The Second Leg (Resume)
   # ====================================================
   batch-2:
-    needs: batch-1             # Waits for batch-1 to finish
-    if: always()               # Runs even if batch-1 crashed!
+    needs: batch-1
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -96,15 +98,14 @@ jobs:
       - name: Build Batch 2 (Resume)
         continue-on-error: true
         run: |
-          echo "Resuming build... Previously built images will be skipped in seconds."
+          echo "Resuming build..."
           uv run benchmarks/swe_bench/build_images.py \
-            --dataset '${DATASET}' --split '${SPLIT}' \
+            --dataset "${DATASET}" --split "${SPLIT}" \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
-            --push --max-workers '${MAX_WORKERS}'
+            --push --max-workers "${MAX_WORKERS}"
 
   # ====================================================
-  # RUNNER 3: The Anchor Leg
-  # Starts FRESH. Finishes whatever is left (241-300).
+  # RUNNER 3: The Final Leg
   # ====================================================
   batch-3:
     needs: batch-2
@@ -139,6 +140,6 @@ jobs:
         run: |
           echo "Final cleanup pass..."
           uv run benchmarks/swe_bench/build_images.py \
-            --dataset '${DATASET}' --split '${SPLIT}' \
+            --dataset "${DATASET}" --split "${SPLIT}" \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
-            --push --max-workers '${MAX_WORKERS}'
+            --push --max-workers "${MAX_WORKERS}"
