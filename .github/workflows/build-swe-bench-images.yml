@@ -1,4 +1,4 @@
-name: Build SWE-Bench Images
+name: Build SWE-Bench Lite (Relay Strategy)
 
 on:
   pull_request_target:
@@ -6,223 +6,139 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
-        required: true
-        default: 'princeton-nlp/SWE-bench_Verified'
-        type: string
+        default: 'princeton-nlp/SWE-bench_Lite'
       split:
-        description: 'Dataset split (e.g., test, dev)'
-        required: true
         default: 'test'
-        type: string
-      max-workers:
-        description: 'Number of concurrent builds'
-        required: false
-        default: '3'
-      n-limit:
-        description: 'Limit number of images to build. Leave blank for no limit.'
-        required: false
-        default: ''
-        type: string
-      sdk-commit:
-        description: 'Software Agent SDK commit/ref. Leave blank to use default.'
-        required: false
-        default: ''
-        type: string
 
 env:
-  DATASET: princeton-nlp/SWE-bench_Verified
+  DATASET: princeton-nlp/SWE-bench_Lite
   SPLIT: test
-  # CRITICAL: Keep this at 3 for ubuntu-latest runners. 
-  # Higher numbers (10+) will cause Out Of Memory crashes.
-  MAX_WORKERS: '3' 
-  N_LIMIT: '500'
-
-concurrency:
-  group: build-swe-bench-${{ github.ref }}
-  cancel-in-progress: false
+  MAX_WORKERS: '3'   # Keep low to prevent RAM crash
+  N_LIMIT: ''        # Empty = Build ALL 300 images
 
 jobs:
-  build-and-push:
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request_target' &&
-       (github.event.label.name == 'build-swebench' ||
-        github.event.label.name == 'build-swebench-50' ||
-        github.event.label.name == 'build-swebench-200'))
-
+  # ====================================================
+  # RUNNER 1: The First Leg
+  # Expected to build images 1-120 before disk fills up
+  # ====================================================
+  batch-1:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: read
       packages: write
-      issues: write
-      pull-requests: write
-
+      contents: read
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          submodules: recursive
-
-      - name: Apply workflow_dispatch overrides (if any)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
-
-      - name: Set N_LIMIT based on label
-        if: ${{ github.event_name == 'pull_request_target' }}
-        run: |
-          LABEL_NAME="${{ github.event.label.name }}"
-          if [ "$LABEL_NAME" = "build-swebench-50" ]; then
-            echo "N_LIMIT=50" >> "$GITHUB_ENV"
-            echo "Building 50 images based on label: build-swebench-50"
-          elif [ "$LABEL_NAME" = "build-swebench-200" ]; then
-            echo "N_LIMIT=200" >> "$GITHUB_ENV"
-            echo "Building 200 images based on label: build-swebench-200"
-          elif [ "$LABEL_NAME" = "build-swebench" ]; then
-            echo "N_LIMIT=" >> "$GITHUB_ENV"
-            echo "Building all images based on label: build-swebench"
-          fi
-
-      - name: Update SDK submodule
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
-        run: |
-          cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
-          git checkout FETCH_HEAD
-          SDK_SHA=$(git rev-parse HEAD)
-          cd ../..
-          git add vendor/software-agent-sdk
-          echo "Updated SDK submodule to $SDK_SHA"
-
-      # --- AUTHENTICATION STEPS ---
+        with: { submodules: recursive, ref: ${{ github.event.pull_request.head.sha }} }
       
-      # 1. Login to Docker Hub (Fixes 429 Too Many Requests)
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      # 1. MAXIMIZE DISK SPACE (Gives +30GB)
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
 
-      # 2. Login to GitHub Container Registry (Where we save images)
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # 2. STANDARD SETUP
+      - uses: docker/login-action@v3
+        with: { username: ${{ secrets.DOCKERHUB_USERNAME }}, password: ${{ secrets.DOCKERHUB_TOKEN }} }
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v7
+      - run: make build
 
-      # --- BUILD SETUP ---
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
+      # 3. BUILD COMMAND (Will likely crash eventually)
+      - name: Build Batch 1
+        continue-on-error: true  # Don't mark the workflow as red if this crashes!
         run: |
-          make build
-
-      # --- MAIN BUILD COMMAND ---
-
-      - name: Build and push SWE-Bench images
-        run: |
-          set -euo pipefail
-          
-          # This automatically points to ghcr.io/YOUR_USERNAME/eval-agent-server
-          CMD="uv run benchmarks/swe_bench/build_images.py \
-            --dataset '${DATASET}' \
-            --split '${SPLIT}' \
+          uv run benchmarks/swe_bench/build_images.py \
+            --dataset '${DATASET}' --split '${SPLIT}' \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
-            --push \
-            --max-workers '${MAX_WORKERS}'"
+            --push --max-workers '${MAX_WORKERS}'
 
-          if [ -n "${N_LIMIT}" ]; then
-            CMD="$CMD --n-limit '${N_LIMIT}'"
-          fi
-
-          echo "Running: $CMD"
-          eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-
-      # --- LOGGING AND REPORTING ---
-
-      - name: Archive build logs
-        if: always()
-        run: |
-          if [ -d builds ]; then
-            tar -czf build-logs.tar.gz builds/
-          fi
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
+  # ====================================================
+  # RUNNER 2: The Second Leg
+  # Starts FRESH. Skips existing images. Builds 121-240.
+  # ====================================================
+  batch-2:
+    needs: batch-1             # Waits for batch-1 to finish
+    if: always()               # Runs even if batch-1 crashed!
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive, ref: ${{ github.event.pull_request.head.sha }} }
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
         with:
-          name: build-logs-${{ github.run_id }}
-          path: build-logs.tar.gz
-          retention-days: 7
-          if-no-files-found: warn
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
 
-      - name: Comment on PR
-        if: success()
+      - uses: docker/login-action@v3
+        with: { username: ${{ secrets.DOCKERHUB_USERNAME }}, password: ${{ secrets.DOCKERHUB_TOKEN }} }
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v7
+      - run: make build
+
+      - name: Build Batch 2 (Resume)
+        continue-on-error: true
         run: |
-          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
-          
-          if [ -z "$MANIFEST_FILES" ]; then exit 0; fi
-          TOTAL_IMAGES=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-          if [ "$TOTAL_IMAGES" -eq 0 ]; then exit 0; fi
-          
-          TAGS=$(cat $MANIFEST_FILES | python -c "
-          import sys, json
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('tags'): print(f'- \`{data['tags'][0]}\`')
-          ")
-          
-          COMMENT_BODY=$(cat <<EOF
-          ## Build Complete ✅
-          **Dataset:** \`${DATASET}\`
-          **Images Built:** ${TOTAL_IMAGES}
-          **Location:** \`ghcr.io/${{ github.repository_owner }}/eval-agent-server\`
-          **SDK Version:** \`${SDK_SHA:0:7}\`
+          echo "Resuming build... Previously built images will be skipped in seconds."
+          uv run benchmarks/swe_bench/build_images.py \
+            --dataset '${DATASET}' --split '${SPLIT}' \
+            --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
+            --push --max-workers '${MAX_WORKERS}'
 
-          <details>
-          <summary>Click to view built Image Tags</summary>
+  # ====================================================
+  # RUNNER 3: The Anchor Leg
+  # Starts FRESH. Finishes whatever is left (241-300).
+  # ====================================================
+  batch-3:
+    needs: batch-2
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive, ref: ${{ github.event.pull_request.head.sha }} }
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
+      
+      - uses: docker/login-action@v3
+        with: { username: ${{ secrets.DOCKERHUB_USERNAME }}, password: ${{ secrets.DOCKERHUB_TOKEN }} }
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v7
+      - run: make build
 
-          ${TAGS}
-
-          </details>
-          EOF
-          )
-          
-          # Try to post to the PR that triggered this
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          
-          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
-             TARGET_URL="${{ github.api_url }}/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
-          else
-             # Fallback: if manual run, just echo to logs
-             echo "Not a PR run, skipping comment post."
-             exit 0
-          fi
-
-          echo "Posting comment to: $TARGET_URL"
-
-          curl -L -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$TARGET_URL" \
-            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Batch 3 (Final)
+        run: |
+          echo "Final cleanup pass..."
+          uv run benchmarks/swe_bench/build_images.py \
+            --dataset '${DATASET}' --split '${SPLIT}' \
+            --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
+            --push --max-workers '${MAX_WORKERS}'
