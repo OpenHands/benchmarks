@@ -49,6 +49,23 @@ class EvalMetadata(BaseModel):
         default="docker",
         description="Type of workspace to use, e.g., 'docker' or 'remote'",
     )
+    workflow_memory_mode: Literal[
+        "none", "offline_no_retrieve", "offline_retrieve", "online"
+    ] = Field(
+        default="none",
+        description=(
+            "Workflow memory mode: none (disabled), offline_no_retrieve (static), "
+            "offline_retrieve (RAG-based), online (future)"
+        ),
+    )
+    workflow_memory_path: str | None = Field(
+        default=None,
+        description="Path to workflow memory file or directory",
+    )
+    workflow_retrieval_top_k: int = Field(
+        default=3,
+        description="Number of workflows to retrieve in offline_retrieve mode",
+    )
 
 
 EvalInstanceID = str

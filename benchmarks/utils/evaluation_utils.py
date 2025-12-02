@@ -18,13 +18,19 @@ def construct_eval_output_dir(
     model_name: str,
     max_iterations: int,
     eval_note: str,
+    workflow_memory_mode: str = "none",
 ) -> str:
     """Construct the structured evaluation output directory path."""
     # Format: eval_out/<dataset>-<split>/<agent_config>/
-    # <llm>_sdk_<sdk_short_sha>_maxiter_<maxiter>_N_<user_note>/
+    # <llm>_sdk_<sdk_short_sha>_maxiter_<maxiter>_wfmem_<mode>_N_<user_note>/
 
     # Create LLM config string
     folder = f"{model_name}_sdk_{SDK_SHORT_SHA}_maxiter_{max_iterations}"
+
+    # Add workflow memory mode if not "none"
+    if workflow_memory_mode != "none":
+        folder += f"_wfmem_{workflow_memory_mode}"
+
     if eval_note:
         folder += f"_N_{eval_note}"
 

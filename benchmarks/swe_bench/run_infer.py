@@ -25,7 +25,9 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.workflow_memory import load_workflow_memory
 from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk.context import AgentContext
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -191,10 +193,27 @@ class SWEBenchEvaluation(Evaluation):
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
+
+        # Load workflow memory as a skill
+        skills = []
+        if self.metadata.workflow_memory_mode != "none":
+            workflow_skill = load_workflow_memory(
+                mode=self.metadata.workflow_memory_mode,
+                workflow_path=self.metadata.workflow_memory_path,
+                instance_data=instance.data,
+                top_k=self.metadata.workflow_retrieval_top_k,
+            )
+            if workflow_skill:
+                skills.append(workflow_skill)
+
+        # Create agent context with workflow memory
+        agent_context = AgentContext(skills=skills) if skills else None
+
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            agent_context=agent_context,
             # TODO: we can enable condenser and security analyzer later
             # and have them configurable via EvalMetadata
             # condenser=get_default_condenser(
@@ -313,6 +332,7 @@ def main() -> None:
         model_name=llm.model,
         max_iterations=args.max_iterations,
         eval_note=args.note,
+        workflow_memory_mode=args.workflow_memory_mode,
     )
 
     # Create critic instance from parsed arguments
@@ -334,6 +354,9 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        workflow_memory_mode=args.workflow_memory_mode,
+        workflow_memory_path=args.workflow_memory_path,
+        workflow_retrieval_top_k=args.workflow_retrieval_top_k,
     )
 
     # Run orchestrator with a simple JSONL writer

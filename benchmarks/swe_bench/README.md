@@ -36,8 +36,8 @@ uv run python -m benchmarks.swe_bench.build_images \
 Run evaluation using the built Docker images:
 
 ```bash
-uv run swebench-infer path/to/llm_config.json \
-    --dataset princeton-nlp/SWE-bench_Verified \
+uv run swebench-infer /home/tsljgj/private/benchmarks/.llm_config/kimi-k2.json \
+    --dataset princeton-nlp/SWE-bench_Lite \
     --split test \
     --max-iterations 100 \
     --workspace docker

@@ -75,4 +75,26 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=3,
         help="Maximum retries for instances that throw exceptions (default: 3)",
     )
+
+    # Workflow memory arguments
+    parser.add_argument(
+        "--workflow-memory-mode",
+        type=str,
+        default="none",
+        choices=["none", "offline_no_retrieve", "offline_retrieve", "online"],
+        help="Workflow memory mode (default: none)",
+    )
+    parser.add_argument(
+        "--workflow-memory-path",
+        type=str,
+        default=None,
+        help="Path to workflow memory file (default: CAWM/workflow/offline_workflow.txt)",
+    )
+    parser.add_argument(
+        "--workflow-retrieval-top-k",
+        type=int,
+        default=3,
+        help="Number of workflows to retrieve in offline_retrieve mode (default: 3)",
+    )
+
     return parser

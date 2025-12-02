@@ -1,0 +1,123 @@
+{
+  "version": "1.0",
+  "extraction_method": "llm_based",
+  "llm_provider": "openai",
+  "llm_model": "gpt-4",
+  "created_at": "2025-12-01T03:28:23.443824",
+  "config": {
+    "temperature": 0.0,
+    "max_trajectories": 5,
+    "only_successful": true
+  },
+  "workflow_count": 4,
+  "workflows": [
+    {
+      "id": "wf-llm-63212499",
+      "description": "Use this workflow when you need to locate the relevant code in the codebase that might be causing the issue.",
+      "category": "exploration",
+      "steps": [
+        {
+          "env_description": "You have access to the codebase.",
+          "reasoning": "To find the relevant code, you need to search for it in the codebase.",
+          "action": "cd {repo} && find . -type f -name \"*.py\" | grep -E \"{search_pattern}\" | head -20",
+          "action_type": "terminal"
+        },
+        {
+          "env_description": "You have a list of potential files.",
+          "reasoning": "To narrow down the search, you need to find the specific class or function that might be causing the issue.",
+          "action": "cd {repo} && grep -r \"class {class_name}\" --include=\"*.py\"",
+          "action_type": "terminal"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "terminal",
+        "terminal"
+      ]
+    },
+    {
+      "id": "wf-llm-eba8ff6d",
+      "description": "Use this workflow when you have made a potential fix and need to verify it.",
+      "category": "fix_and_verify",
+      "steps": [
+        {
+          "env_description": "You have made a potential fix in the code.",
+          "reasoning": "To verify the fix, you need to run the code.",
+          "action": "cd {repo} && source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python {test_file}",
+          "action_type": "terminal"
+        },
+        {
+          "env_description": "You have run the code and observed the output.",
+          "reasoning": "To ensure the fix doesn't break anything else, you need to run the existing test suite.",
+          "action": "cd {repo} && source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python -m pytest {existing_test_file} -v",
+          "action_type": "terminal"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "terminal",
+        "terminal"
+      ]
+    },
+    {
+      "id": "wf-llm-5fae8df2",
+      "description": "Use this workflow when you need to create a regression test to ensure the issue doesn't reoccur.",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "You have fixed the issue and verified it.",
+          "reasoning": "To ensure the issue doesn't reoccur, you need to create a regression test.",
+          "action": "[create] {repo}/{regression_test_file}",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "You have created a regression test.",
+          "reasoning": "To ensure the regression test works, you need to run it.",
+          "action": "cd {repo} && source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python -m pytest {regression_test_file} -v",
+          "action_type": "terminal"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "file_edit",
+        "terminal"
+      ]
+    },
+    {
+      "id": "wf-llm-c87d8144",
+      "description": "Use this workflow when you need to run specific test cases to verify the fix.",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "You have fixed the issue and verified it.",
+          "reasoning": "To ensure the fix works for specific cases, you need to run specific test cases.",
+          "action": "cd {repo} && source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python -c \"{test_case_code}\"",
+          "action_type": "terminal"
+        },
+        {
+          "env_description": "You have run the specific test cases and observed the output.",
+          "reasoning": "To ensure the fix doesn't break anything else, you need to run the existing test suite.",
+          "action": "cd {repo} && source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python -m pytest {existing_test_file} -v",
+          "action_type": "terminal"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "terminal",
+        "terminal"
+      ]
+    }
+  ]
+}

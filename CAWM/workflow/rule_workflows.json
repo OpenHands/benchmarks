@@ -1,0 +1,1194 @@
+{
+  "version": "1.0",
+  "extraction_method": "rule_based",
+  "created_at": "2025-12-01T03:28:17.073409",
+  "config": {
+    "min_pattern_length": 2,
+    "max_pattern_length": 6,
+    "min_frequency": 2,
+    "only_successful": true
+  },
+  "workflow_count": 20,
+  "workflows": [
+    {
+      "id": "wf-rule-a76f2dfe",
+      "description": "Examine source code (extended)",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/tests/migrations/test_writer.py:\n   725\t    def test_deconstruct_class_arguments(self):\n   726\t        # Yes, it doesn't make sense to use a ",
+          "reasoning": "",
+          "action": "view({repo}/tests/migrations/{test_file}.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "The file /workspace/django/django/db/migrations/serializer.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/migrations/serializer.py:\n    88\t      ",
+          "reasoning": "I see the issue. The test is failing because my `_serialize_path` change doesn't properly handle simple class names without module paths. Let me fix that:",
+          "action": "str_replace({repo}/django/db/migrations/serializer.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_deconstruct_class.py",
+          "reasoning": "Let me understand what's happening in this test. The issue is that the class `DeconstructibleInstances` is defined inside the test method, so its `__qualname__` includes `<locals>`. Let me check what the deconstruct method returns:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/django/django/db/migrations/serializer.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/migrations/serializer.py:\n   298\t      ",
+          "reasoning": "I see the issue now. The local class in the test has a `__qualname__` that includes `<locals>`, and my TypeSerializer is now correctly preserving the qualified name. However, this test expects the old behavior where local classes weren't fully qualified.\n\nThe right approach is to make TypeSerializer",
+          "action": "str_replace({repo}/django/db/migrations/serializer.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_makemigrations_simulation.py",
+          "reasoning": "Excellent! All migration tests pass. Now let's create a comprehensive test that closely mimics the exact issue from the problem statement:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/test_makemigrations_simulation.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/test_makemigrations_simulation.py:\n    49\t    state_choices = St",
+          "reasoning": "Let me fix the test script:",
+          "action": "str_replace(/workspace/{test_file}.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        }
+      ],
+      "source_instances": [
+        "django__django-12125",
+        "django__django-12284",
+        "django__django-12700",
+        "django__django-13315",
+        "django__django-13590"
+      ],
+      "frequency": 16,
+      "pattern": [
+        "file_view",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit"
+      ]
+    },
+    {
+      "id": "wf-rule-9eb6ff1b",
+      "description": "Workflow: modify code",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "The file /workspace/django/django/db/migrations/serializer.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/migrations/serializer.py:\n    88\t      ",
+          "reasoning": "I see the issue. The test is failing because my `_serialize_path` change doesn't properly handle simple class names without module paths. Let me fix that:",
+          "action": "str_replace({repo}/django/db/migrations/serializer.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_deconstruct_class.py",
+          "reasoning": "Let me understand what's happening in this test. The issue is that the class `DeconstructibleInstances` is defined inside the test method, so its `__qualname__` includes `<locals>`. Let me check what the deconstruct method returns:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/django/django/db/migrations/serializer.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/migrations/serializer.py:\n   298\t      ",
+          "reasoning": "I see the issue now. The local class in the test has a `__qualname__` that includes `<locals>`, and my TypeSerializer is now correctly preserving the qualified name. However, this test expects the old behavior where local classes weren't fully qualified.\n\nThe right approach is to make TypeSerializer",
+          "action": "str_replace({repo}/django/db/migrations/serializer.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_makemigrations_simulation.py",
+          "reasoning": "Excellent! All migration tests pass. Now let's create a comprehensive test that closely mimics the exact issue from the problem statement:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/test_makemigrations_simulation.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/test_makemigrations_simulation.py:\n    49\t    state_choices = St",
+          "reasoning": "Let me fix the test script:",
+          "action": "str_replace(/workspace/{test_file}.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_simple_issue.py",
+          "reasoning": "",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        }
+      ],
+      "source_instances": [
+        "django__django-12125",
+        "django__django-12284",
+        "django__django-12286",
+        "django__django-13315",
+        "django__django-13447"
+      ],
+      "frequency": 13,
+      "pattern": [
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit"
+      ]
+    },
+    {
+      "id": "wf-rule-12982b94",
+      "description": "Workflow: examine, modify code",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "File created successfully at: /workspace/test_deconstruct_class.py",
+          "reasoning": "Let me understand what's happening in this test. The issue is that the class `DeconstructibleInstances` is defined inside the test method, so its `__qualname__` includes `<locals>`. Let me check what the deconstruct method returns:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/django/django/db/migrations/serializer.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/migrations/serializer.py:\n   298\t      ",
+          "reasoning": "I see the issue now. The local class in the test has a `__qualname__` that includes `<locals>`, and my TypeSerializer is now correctly preserving the qualified name. However, this test expects the old behavior where local classes weren't fully qualified.\n\nThe right approach is to make TypeSerializer",
+          "action": "str_replace({repo}/django/db/migrations/serializer.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_makemigrations_simulation.py",
+          "reasoning": "Excellent! All migration tests pass. Now let's create a comprehensive test that closely mimics the exact issue from the problem statement:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/test_makemigrations_simulation.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/test_makemigrations_simulation.py:\n    49\t    state_choices = St",
+          "reasoning": "Let me fix the test script:",
+          "action": "str_replace(/workspace/{test_file}.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_simple_issue.py",
+          "reasoning": "",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/migrations/serializer.py:\n   301\tclass TypeSerializer(BaseSerializer):\n   302\t    def serialize(self):\n   303\t        special_cases",
+          "reasoning": "Great! All tests pass. Now let's create a final summary and verify our changes:",
+          "action": "view({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "django__django-12125",
+        "django__django-12284",
+        "django__django-12286",
+        "django__django-13590",
+        "django__django-14017"
+      ],
+      "frequency": 11,
+      "pattern": [
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-614040bd",
+      "description": "Examine source code (extended)",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/migrations/serializer.py:\n     1\timport builtins\n     2\timport collections.abc\n     3\timport datetime\n     4\timport decimal\n     5\t",
+          "reasoning": "",
+          "action": "view({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/migrations/serializer.py:\n     1\timport builtins\n     2\timport collections.abc\n     3\timport datetime\n     4\timport decimal\n     5\t",
+          "reasoning": "",
+          "action": "view({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_field_import.py",
+          "reasoning": "Let me investigate the issue with the field instance serialization more carefully. The output shows the serialized form is correct, but the import statement is wrong:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Invalid `path` parameter: /workspace/django/django/db/migrations/serializer.py. File already exists at: /workspace/django/django/db/migrations/serializer.py. Cannot overwrite files using command `crea",
+          "reasoning": "Now I see the second part of the issue! The `_serialize_path` method in `DeconstructableSerializer` needs to properly handle nested class paths. When it gets `__main__.Outer.Inner`, it should import `__main__` as the module, not `__main__.Outer`.\n\nLet me fix this:",
+          "action": "create({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/django/django/db/migrations/serializer.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/migrations/serializer.py:\n    88\t      ",
+          "reasoning": "",
+          "action": "str_replace({repo}/django/db/migrations/serializer.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/test_real_scenario.py",
+          "reasoning": "Good! The imports are now correct. Test 2 shows \"Match: False\" because of the test script's expectations, not because of the actual functionality. Let me create a better test to verify the fix works for the exact scenario described in the issue:",
+          "action": "create(/workspace/{test_file}.py)",
+          "action_type": "file_edit"
+        }
+      ],
+      "source_instances": [
+        "django__django-12125",
+        "django__django-13315",
+        "django__django-13658",
+        "django__django-13933",
+        "django__django-14238"
+      ],
+      "frequency": 10,
+      "pattern": [
+        "file_view",
+        "file_view",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit"
+      ]
+    },
+    {
+      "id": "wf-rule-ee4d08c4",
+      "description": "Search the codebase (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" --include=\"*.py\" . | head -10",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "./core/handlers/base.py:            wrapped_callback = self.make_view_atomic(callback)\n./core/handlers/base.py:                response = wrapped_callback(request, *callback_args, **callback_kwargs)",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" --include=\"*.py\" . | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/core/handlers/base.py:\n     1\timport logging\n     2\timport types\n     3\t\n     4\tfrom django.conf import settings\n     5\tfrom django.co",
+          "reasoning": "",
+          "action": "view({repo}/django/core/handlers/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "./urls/resolvers.py:373:class URLResolver:",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" --include=\"*.py\" .",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/urls/resolvers.py:\n     1\t\"\"\"\n     2\tThis module converts requested URLs to callback view functions.\n     3\t\n     4\tURLResolver is the",
+          "reasoning": "",
+          "action": "view({repo}/django/urls/resolvers.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "322:class URLPattern:",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" urls/resolvers.py",
+          "action_type": "exploration"
+        }
+      ],
+      "source_instances": [
+        "django__django-12184",
+        "django__django-12453",
+        "django__django-12470",
+        "django__django-13158",
+        "django__django-13590"
+      ],
+      "frequency": 10,
+      "pattern": [
+        "exploration",
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view",
+        "exploration"
+      ]
+    },
+    {
+      "id": "wf-rule-2b034e69",
+      "description": "Search the codebase (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "767:            if not hasattr(cls, 'get_%s_display' % self.name):\n770:                    'get_%s_display' % self.name,",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/fields/__init__.py | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/fields/__init__.py:\n   760\t        if self.column:\n   761\t            # Don't override classmethods with the descriptor. Thi",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/fields/__init__.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "418:         * The name of the field on the model, if contribute_to_class() has\n750:    def contribute_to_class(self, cls, name, private_only=False):\n1194:    def contribute_to_class(self, cls, name, ",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/fields/__init__.py | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/fields/__init__.py:\n   750\t    def contribute_to_class(self, cls, name, private_only=False):\n   751\t        \"\"\"\n   752\t     ",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/fields/__init__.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "bash: syntax error near unexpected token `|'",
+          "reasoning": "",
+          "action": "find tests -name \"*.py\" -exec grep {options} \"{pattern}\" {} \\; | head -10",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "find: missing argument to `-exec'",
+          "reasoning": "",
+          "action": "find tests -name \"*.py\" -exec grep {options} \"{pattern}\" {} \\; 2>/dev/null | head -10",
+          "action_type": "exploration"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-12470",
+        "django__django-13158",
+        "django__django-13590",
+        "django__django-13710"
+      ],
+      "frequency": 9,
+      "pattern": [
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view",
+        "exploration",
+        "exploration"
+      ]
+    },
+    {
+      "id": "wf-rule-942c6188",
+      "description": "Workflow: examine, modify code",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_mask_issue.py",
+          "reasoning": "Now let me create a reproduction script to verify the issue:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   515\t        # If only one mask is present we need not bother about any type checks\n   516\t        ",
+          "reasoning": "Now let me look at the current logic more carefully. I need to understand what's happening:",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "The file /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   51",
+          "reasoning": "Now I understand the issue! Let me trace through the logic:\n\nIn the failing case (mask * no_mask):\n- `self.mask` is not None (has an actual mask)\n- `operand` is not None (it's an NDDataRef object)\n- `operand.mask` is None (the operand has no mask)\n\nLine 520 checks `elif self.mask is None and operand",
+          "action": "str_replace({repo}/astropy/nddata/mixins/ndarithmetic.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_mask_edge_cases.py",
+          "reasoning": "Perfect! The fix works for all test cases. Now let me create a more comprehensive test to cover edge cases:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_nddata_mask_regression.py",
+          "reasoning": "Perfect! All tests pass. Now let me create a proper test that can be added to the test suite to ensure this issue doesn't regress:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/FIX_SUMMARY.md",
+          "reasoning": "Perfect! All tests pass. Let me now create a summary document to explain the fix:",
+          "action": "create({repo}/FIX_SUMMARY.md)",
+          "action_type": "file_edit"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12284",
+        "django__django-12700",
+        "django__django-13590"
+      ],
+      "frequency": 8,
+      "pattern": [
+        "file_edit",
+        "file_view",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit"
+      ]
+    },
+    {
+      "id": "wf-rule-911956a0",
+      "description": "Search the codebase (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "./core/handlers/base.py:            wrapped_callback = self.make_view_atomic(callback)\n./core/handlers/base.py:                response = wrapped_callback(request, *callback_args, **callback_kwargs)",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" --include=\"*.py\" . | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/core/handlers/base.py:\n     1\timport logging\n     2\timport types\n     3\t\n     4\tfrom django.conf import settings\n     5\tfrom django.co",
+          "reasoning": "",
+          "action": "view({repo}/django/core/handlers/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "./urls/resolvers.py:373:class URLResolver:",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" --include=\"*.py\" .",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/urls/resolvers.py:\n     1\t\"\"\"\n     2\tThis module converts requested URLs to callback view functions.\n     3\t\n     4\tURLResolver is the",
+          "reasoning": "",
+          "action": "view({repo}/django/urls/resolvers.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "322:class URLPattern:",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" urls/resolvers.py",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/urls/resolvers.py:\n   322\tclass URLPattern:\n   323\t    def __init__(self, pattern, callback, default_args=None, name=None):\n   324\t   ",
+          "reasoning": "",
+          "action": "view({repo}/django/urls/resolvers.py)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "django__django-12184",
+        "django__django-12284",
+        "django__django-12453",
+        "django__django-12470",
+        "django__django-13158"
+      ],
+      "frequency": 8,
+      "pattern": [
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-a24e69be",
+      "description": "Workflow: examine, modify code",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "The file /workspace/django/test_inheritance_display.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/test_inheritance_display.py:\n     1\t\"\"\"\n     2\tTest scri",
+          "reasoning": "",
+          "action": "str_replace({repo}/{test_file}.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Ran into [Errno 2] No such file or directory: '/workspace/django/myapp/__init__.py' while trying to write to /workspace/django/myapp/__init__.py",
+          "reasoning": "",
+          "action": "create({repo}/myapp/__init__.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/django/myapp/models.py",
+          "reasoning": "",
+          "action": "create({repo}/myapp/models.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/django/test_display_bug.py",
+          "reasoning": "",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/fields/__init__.py:\n   750\t    def contribute_to_class(self, cls, name, private_only=False):\n   751\t        \"\"\"\n   752\t     ",
+          "reasoning": "Now let me implement the fix. The issue is that when a child model overrides a field with choices, the `hasattr` check prevents the display method from being updated to use the new field:",
+          "action": "view({repo}/django/db/models/fields/__init__.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "The file /workspace/django/django/db/models/fields/__init__.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/models/fields/__init__.py:\n   763\t    ",
+          "reasoning": "",
+          "action": "str_replace({repo}/django/db/models/fields/__init__.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-12286",
+        "django__django-13590",
+        "django__django-14238",
+        "django__django-15814"
+      ],
+      "frequency": 7,
+      "pattern": [
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_view",
+        "file_edit"
+      ]
+    },
+    {
+      "id": "wf-rule-3f989c1d",
+      "description": "Search the codebase (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "find django/db/models -name \"*.py\" -exec grep -l \"get_.*_display\" {} \\;\ndjango/db/models/base.py\ndjango/db/models/fields/__init__.py",
+          "reasoning": "",
+          "action": "find django/db/models -name \"*.py\" -exec grep {options} \"{pattern}\" {} \\;",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the files and directories up to 2 levels deep in /workspace/django/django/db/models, excluding hidden items:\n/workspace/django/django/db/models/\n/workspace/django/django/db/models/__init__.py\n/",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n     1\timport copy\n     2\timport inspect\n     3\timport warnings\n     4\tfrom functools import partialmethod\n     5\tf",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "946:    def _get_FIELD_display(self, field):",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/base.py",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n   940\t        collector = Collector(using=using)\n   941\t        collector.collect([self], keep_parents=keep_parent",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "767:            if not hasattr(cls, 'get_%s_display' % self.name):\n770:                    'get_%s_display' % self.name,",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/fields/__init__.py | head -20",
+          "action_type": "exploration"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-12497",
+        "django__django-13158",
+        "django__django-14608",
+        "django__django-14787"
+      ],
+      "frequency": 7,
+      "pattern": [
+        "exploration",
+        "file_view",
+        "file_view",
+        "exploration",
+        "file_view",
+        "exploration"
+      ]
+    },
+    {
+      "id": "wf-rule-b3114727",
+      "description": "Examine source code (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n     1\timport copy\n     2\timport inspect\n     3\timport warnings\n     4\tfrom functools import partialmethod\n     5\tf",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "946:    def _get_FIELD_display(self, field):",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/base.py",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n   940\t        collector = Collector(using=using)\n   941\t        collector.collect([self], keep_parents=keep_parent",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "767:            if not hasattr(cls, 'get_%s_display' % self.name):\n770:                    'get_%s_display' % self.name,",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/fields/__init__.py | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/fields/__init__.py:\n   760\t        if self.column:\n   761\t            # Don't override classmethods with the descriptor. Thi",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/fields/__init__.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "418:         * The name of the field on the model, if contribute_to_class() has\n750:    def contribute_to_class(self, cls, name, private_only=False):\n1194:    def contribute_to_class(self, cls, name, ",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/fields/__init__.py | head -20",
+          "action_type": "exploration"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-12470",
+        "django__django-12497",
+        "django__django-13158",
+        "django__django-14017"
+      ],
+      "frequency": 7,
+      "pattern": [
+        "file_view",
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view",
+        "exploration"
+      ]
+    },
+    {
+      "id": "wf-rule-5ef85ead",
+      "description": "Examine source code (extended)",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   330\t            if self.mask is None:\n   331\t                kwargs[\"mask\"] = deepcopy(operand.mas",
+          "reasoning": "",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_mask_issue.py",
+          "reasoning": "Now let me create a reproduction script to verify the issue:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   515\t        # If only one mask is present we need not bother about any type checks\n   516\t        ",
+          "reasoning": "Now let me look at the current logic more carefully. I need to understand what's happening:",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "The file /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   51",
+          "reasoning": "Now I understand the issue! Let me trace through the logic:\n\nIn the failing case (mask * no_mask):\n- `self.mask` is not None (has an actual mask)\n- `operand` is not None (it's an NDDataRef object)\n- `operand.mask` is None (the operand has no mask)\n\nLine 520 checks `elif self.mask is None and operand",
+          "action": "str_replace({repo}/astropy/nddata/mixins/ndarithmetic.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_mask_edge_cases.py",
+          "reasoning": "Perfect! The fix works for all test cases. Now let me create a more comprehensive test to cover edge cases:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_nddata_mask_regression.py",
+          "reasoning": "Perfect! All tests pass. Now let me create a proper test that can be added to the test suite to ensure this issue doesn't regress:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-12125",
+        "django__django-13590",
+        "django__django-14672",
+        "django__django-15814"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "file_view",
+        "file_edit",
+        "file_view",
+        "file_edit",
+        "file_edit",
+        "file_edit"
+      ]
+    },
+    {
+      "id": "wf-rule-ebf82f5d",
+      "description": "Workflow: examine, modify code",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "The file /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   51",
+          "reasoning": "Now I understand the issue! Let me trace through the logic:\n\nIn the failing case (mask * no_mask):\n- `self.mask` is not None (has an actual mask)\n- `operand` is not None (it's an NDDataRef object)\n- `operand.mask` is None (the operand has no mask)\n\nLine 520 checks `elif self.mask is None and operand",
+          "action": "str_replace({repo}/astropy/nddata/mixins/ndarithmetic.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_mask_edge_cases.py",
+          "reasoning": "Perfect! The fix works for all test cases. Now let me create a more comprehensive test to cover edge cases:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/test_nddata_mask_regression.py",
+          "reasoning": "Perfect! All tests pass. Now let me create a proper test that can be added to the test suite to ensure this issue doesn't regress:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/astropy/FIX_SUMMARY.md",
+          "reasoning": "Perfect! All tests pass. Let me now create a summary document to explain the fix:",
+          "action": "create({repo}/FIX_SUMMARY.md)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   485\t    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):\n   486\t   ",
+          "reasoning": "Now let me verify the fix one final time by reviewing the modified code:",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/docs/nddata/mixins/ndarithmetic.rst:\n     1\t.. _nddata_arithmetic:\n     2\t\n     3\tNDData Arithmetic\n     4\t*****************\n     5\t\n     6\t",
+          "reasoning": "",
+          "action": "view({repo}/docs/nddata/mixins/ndarithmetic.rst)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-12125",
+        "django__django-13658",
+        "django__django-14017",
+        "django__django-14672"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_edit",
+        "file_view",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-3eef832f",
+      "description": "Examine source code (extended)",
+      "category": "general",
+      "steps": [
+        {
+          "env_description": "Here's the files and directories up to 2 levels deep in /workspace/astropy/astropy/nddata, excluding hidden items:\n/workspace/astropy/astropy/nddata/\n/workspace/astropy/astropy/nddata/__init__.py\n/wor",
+          "reasoning": "",
+          "action": "view({repo}/astropy/nddata)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n     1\t# Licensed under a 3-clause BSD style license - see LICENSE.rst\n     2\t# This module implement",
+          "reasoning": "",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   485\t    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):\n   486\t   ",
+          "reasoning": "",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   515\t        # If only one mask is present we need not bother about any type checks\n   516\t        ",
+          "reasoning": "Now let me look at the specific area where the issue occurs. Let me see the full _arithmetic_mask method more carefully:",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   165\t\n   166\t    def _arithmetic(\n   167\t        self,\n   168\t        operation,\n   169\t        ope",
+          "reasoning": "Let me check how this method is called in the _arithmetic method:",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/astropy/astropy/nddata/mixins/ndarithmetic.py:\n   330\t            if self.mask is None:\n   331\t                kwargs[\"mask\"] = deepcopy(operand.mas",
+          "reasoning": "",
+          "action": "view({repo}/astropy/nddata/mixins/ndarithmetic.py)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-12286",
+        "django__django-13551",
+        "django__django-13658",
+        "django__django-14238"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "file_view",
+        "file_view",
+        "file_view",
+        "file_view",
+        "file_view",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-ac7c7fd5",
+      "description": "Search the codebase (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "/workspace/django/tests/migrations/test_writer.py",
+          "reasoning": "",
+          "action": "find {repo_path} -type f -name \"*writer*.py\" -o -name \"*serializer*.py\" | grep migration",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/tests/migrations/test_writer.py:\n     1\timport datetime\n     2\timport decimal\n     3\timport enum\n     4\timport functools\n     5\timport math\n ",
+          "reasoning": "",
+          "action": "view({repo}/tests/migrations/{test_file}.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "124:            '%s.%s[%r]' % (module, enum_class.__qualname__, self.value.name),\n155:        if '<' not in self.value.__qualname__:  # Qualname can include <locals>\n156:            return '%s.%s' % (",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" {repo_path}",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/migrations/serializer.py:\n   258\tclass TypeSerializer(BaseSerializer):\n   259\t    def serialize(self):\n   260\t        special_cases",
+          "reasoning": "",
+          "action": "view({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/migrations/serializer.py:\n    91\t    @staticmethod\n    92\t    def _serialize_path(path):\n    93\t        module, name = path.rsplit(",
+          "reasoning": "",
+          "action": "view({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/tests/migrations/models.py:\n     1\tfrom django.apps.registry import Apps\n     2\tfrom django.db import models\n     3\t\n     4\t\n     5\tclass Cus",
+          "reasoning": "",
+          "action": "view({repo}/tests/{test_path}.py)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "django__django-12125",
+        "django__django-12453",
+        "django__django-13158",
+        "django__django-14608",
+        "django__django-14672"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view",
+        "file_view",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-bb957bf1",
+      "description": "Examine source code (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/migrations/serializer.py:\n     1\timport builtins\n     2\timport collections.abc\n     3\timport datetime\n     4\timport decimal\n     5\t",
+          "reasoning": "",
+          "action": "view({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "/workspace/django/tests/migration_test_data_persistence/models.py\n/workspace/django/tests/migration_test_data_persistence/__init__.py\n/workspace/django/tests/migration_test_data_persistence/migrations",
+          "reasoning": "",
+          "action": "find {repo_path} -type f -name \"*.py\" -path \"*/tests/*\" | grep {options} \"{pattern}\" | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "/workspace/django/tests/migrations/test_writer.py",
+          "reasoning": "",
+          "action": "find {repo_path} -type f -name \"*writer*.py\" -o -name \"*serializer*.py\" | grep migration",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/tests/migrations/test_writer.py:\n     1\timport datetime\n     2\timport decimal\n     3\timport enum\n     4\timport functools\n     5\timport math\n ",
+          "reasoning": "",
+          "action": "view({repo}/tests/migrations/{test_file}.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "124:            '%s.%s[%r]' % (module, enum_class.__qualname__, self.value.name),\n155:        if '<' not in self.value.__qualname__:  # Qualname can include <locals>\n156:            return '%s.%s' % (",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" {repo_path}",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/migrations/serializer.py:\n   258\tclass TypeSerializer(BaseSerializer):\n   259\t    def serialize(self):\n   260\t        special_cases",
+          "reasoning": "",
+          "action": "view({repo}/django/db/migrations/serializer.py)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "django__django-12125",
+        "django__django-12453",
+        "django__django-12470",
+        "django__django-13158",
+        "django__django-13710"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "file_view",
+        "exploration",
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-0b5b367d",
+      "description": "Examine source code (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "Here's the files and directories up to 2 levels deep in /workspace/django/django/db/models, excluding hidden items:\n/workspace/django/django/db/models/\n/workspace/django/django/db/models/__init__.py\n/",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n     1\timport copy\n     2\timport inspect\n     3\timport warnings\n     4\tfrom functools import partialmethod\n     5\tf",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "946:    def _get_FIELD_display(self, field):",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/base.py",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n   940\t        collector = Collector(using=using)\n   941\t        collector.collect([self], keep_parents=keep_parent",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "767:            if not hasattr(cls, 'get_%s_display' % self.name):\n770:                    'get_%s_display' % self.name,",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/fields/__init__.py | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/fields/__init__.py:\n   760\t        if self.column:\n   761\t            # Don't override classmethods with the descriptor. Thi",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/fields/__init__.py)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-12497",
+        "django__django-13158",
+        "django__django-14787",
+        "django__django-15789"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "file_view",
+        "file_view",
+        "exploration",
+        "file_view",
+        "exploration",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-6a813db4",
+      "description": "Search the codebase (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "django/db/models/base.py:    def _get_FIELD_display(self, field):\ndjango/db/models/fields/__init__.py:            if not hasattr(cls, 'get_%s_display' % self.name):\ndjango/db/models/fields/__init__.py",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" --include=\"*.py\" django/ | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "find django/db/models -name \"*.py\" -exec grep -l \"get_.*_display\" {} \\;\ndjango/db/models/base.py\ndjango/db/models/fields/__init__.py",
+          "reasoning": "",
+          "action": "find django/db/models -name \"*.py\" -exec grep {options} \"{pattern}\" {} \\;",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the files and directories up to 2 levels deep in /workspace/django/django/db/models, excluding hidden items:\n/workspace/django/django/db/models/\n/workspace/django/django/db/models/__init__.py\n/",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n     1\timport copy\n     2\timport inspect\n     3\timport warnings\n     4\tfrom functools import partialmethod\n     5\tf",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "946:    def _get_FIELD_display(self, field):",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" django/db/models/base.py",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/base.py:\n   940\t        collector = Collector(using=using)\n   941\t        collector.collect([self], keep_parents=keep_parent",
+          "reasoning": "",
+          "action": "view({repo}/django/db/models/base.py)",
+          "action_type": "file_view"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-13158",
+        "django__django-13658",
+        "django__django-14017",
+        "django__django-14787"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "exploration",
+        "exploration",
+        "file_view",
+        "file_view",
+        "exploration",
+        "file_view"
+      ]
+    },
+    {
+      "id": "wf-rule-fb72b31e",
+      "description": "Workflow: examine, modify code",
+      "category": "modification",
+      "steps": [
+        {
+          "env_description": "File created successfully at: /workspace/django/myapp/models.py",
+          "reasoning": "",
+          "action": "create({repo}/myapp/models.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/django/test_display_bug.py",
+          "reasoning": "",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/django/db/models/fields/__init__.py:\n   750\t    def contribute_to_class(self, cls, name, private_only=False):\n   751\t        \"\"\"\n   752\t     ",
+          "reasoning": "Now let me implement the fix. The issue is that when a child model overrides a field with choices, the `hasattr` check prevents the display method from being updated to use the new field:",
+          "action": "view({repo}/django/db/models/fields/__init__.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "The file /workspace/django/django/db/models/fields/__init__.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/django/db/models/fields/__init__.py:\n   763\t    ",
+          "reasoning": "",
+          "action": "str_replace({repo}/django/db/models/fields/__init__.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "File created successfully at: /workspace/django/test_comprehensive_display.py",
+          "reasoning": "Excellent! The fix works. Now let's create more comprehensive tests to ensure we haven't broken anything:",
+          "action": "create({repo}/{test_file}.py)",
+          "action_type": "file_edit"
+        },
+        {
+          "env_description": "The file /workspace/django/test_comprehensive_display.py has been edited. Here's the result of running `cat -n` on a snippet of /workspace/django/test_comprehensive_display.py:\n    34\tfrom django.db i",
+          "reasoning": "I need to fix the test - Django doesn't allow overriding fields in concrete (non-abstract) inheritance, only in abstract inheritance:",
+          "action": "str_replace({repo}/{test_file}.py, {old_code}, {new_code})",
+          "action_type": "file_edit"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-12286",
+        "django__django-12700",
+        "django__django-13447",
+        "django__django-16041"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "file_edit",
+        "file_edit",
+        "file_view",
+        "file_edit",
+        "file_edit",
+        "file_edit"
+      ]
+    },
+    {
+      "id": "wf-rule-5063439f",
+      "description": "Search the codebase (extended)",
+      "category": "investigation",
+      "steps": [
+        {
+          "env_description": "find: missing argument to `-exec'",
+          "reasoning": "",
+          "action": "find tests -name \"*.py\" -exec grep {options} \"{pattern}\" {} \\; 2>/dev/null | head -10",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "tests/model_regress/tests.py:        self.assertIs(a.get_status_display(), None)\ntests/admin_utils/test_logentry.py:                self.assertEqual(log.get_action_flag_display(), display_name)\ntests/",
+          "reasoning": "",
+          "action": "grep {options} \"{pattern}\" tests/ --include=\"*.py\" | head -20",
+          "action_type": "exploration"
+        },
+        {
+          "env_description": "Here's the files and directories up to 2 levels deep in /workspace/django/tests/model_fields, excluding hidden items:\n/workspace/django/tests/model_fields/\n/workspace/django/tests/model_fields/4x8.png",
+          "reasoning": "",
+          "action": "view({repo}/tests/model_fields)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/tests/model_fields/tests.py:\n     1\timport pickle\n     2\t\n     3\tfrom django import forms\n     4\tfrom django.core.exceptions import Validatio",
+          "reasoning": "",
+          "action": "view({repo}/tests/{test_path}.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "Here's the result of running `cat -n` on /workspace/django/tests/model_fields/models.py:\n     1\timport os\n     2\timport tempfile\n     3\timport uuid\n     4\t\n     5\tfrom django.contrib.contenttypes.fiel",
+          "reasoning": "",
+          "action": "view({repo}/tests/{test_path}.py)",
+          "action_type": "file_view"
+        },
+        {
+          "env_description": "__init__.py  models.py  test_abstract_inheritance.py  tests.py",
+          "reasoning": "",
+          "action": "ls tests/model_inheritance/",
+          "action_type": "exploration"
+        }
+      ],
+      "source_instances": [
+        "django__django-12284",
+        "django__django-13033",
+        "django__django-13710",
+        "django__django-15400",
+        "django__django-15819"
+      ],
+      "frequency": 6,
+      "pattern": [
+        "exploration",
+        "exploration",
+        "file_view",
+        "file_view",
+        "file_view",
+        "exploration"
+      ]
+    }
+  ]
+}
