@@ -30,6 +30,11 @@ on:
         required: false
         default: ''
         type: string
+      benchmarks-commit:
+        description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch. Useful for evaluating older SDK versions that are incompatible with current benchmarks code (e.g., SDK versions before the critic module was added in commit 79868ae5).'
+        required: false
+        default: ''
+        type: string
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
@@ -61,9 +66,25 @@ jobs:
       issues: write
 
     steps:
+      - name: Determine checkout ref
+        id: checkout-ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
+            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          else
+            # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            echo "Using default ref (the commit that triggered this workflow)"
+          fi
+      
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          # When ref is empty, actions/checkout uses the commit that triggered the workflow
+          ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
 
       # If this was a manual dispatch, override defaults with provided inputs.
