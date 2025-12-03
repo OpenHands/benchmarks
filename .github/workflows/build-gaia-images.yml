@@ -5,40 +5,17 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
-      dataset:
-        description: 'Dataset name (ignored for GAIA - accepts for compatibility)'
-        required: false
-        default: 'gaia-benchmark/GAIA'
-        type: string
-      split:
-        description: 'Dataset split (ignored for GAIA - accepts for compatibility)'
-        required: false
-        default: 'validation'
-        type: string
-      max-workers:
-        description: 'Number of concurrent builds (ignored for GAIA - accepts for compatibility)'
-        required: false
-        default: '1'
-        type: string
-      n-limit:
-        description: 'Limit number of images (ignored for GAIA - accepts for compatibility)'
-        required: false
-        default: ''
-        type: string
       sdk-commit:
-        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
-        required: false
-        default: ''
+        description: 'Software Agent SDK commit/ref to use'
+        required: true
         type: string
       target:
-        description: 'Build target'
+        description: 'Build target (default: binary-minimal)'
         required: false
         default: 'binary-minimal'
         type: choice
         options:
-          - binary
           - binary-minimal
-          - source
           - source-minimal
 
 concurrency:
@@ -146,75 +123,63 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null || true)
+          # GAIA builds a single universal image, so we just show success/failure
+          MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
 
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "No manifest.jsonl files found"
+          if [ -z "$MANIFEST_FILE" ]; then
+            echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ Build failed - no manifest found" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          # Read the single line from the manifest
+          BUILD_DATA=$(cat "$MANIFEST_FILE")
+
+          echo "## GAIA Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python3 -c "
-import sys
-import json
-count = 0
-for line in sys.stdin:
-    data = json.loads(line.strip())
-    if data.get('error') is None and len(data.get('tags', [])) > 0:
-        count += 1
-print(count)
-          ")
-          FAILURES=$((TOTAL - SUCCESSES))
-
-          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
+          # Check if build succeeded
+          if echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); sys.exit(0 if data.get('error') is None and len(data.get('tags', [])) > 0 else 1)"; then
+            TAGS=$(echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); print('\n'.join([f'- \`{tag}\`' for tag in data.get('tags', [])]))")
+            echo "✅ **Build Successful**" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            cat $MANIFEST_FILES | python3 -c "
-import sys
-import json
-for line in sys.stdin:
-    data = json.loads(line.strip())
-    if data.get('error') is not None or len(data.get('tags', [])) == 0:
-        print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
-            " >> "$GITHUB_STEP_SUMMARY"
+            echo "**Built Image:**" >> "$GITHUB_STEP_SUMMARY"
+            echo "$TAGS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            ERROR=$(echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); print(data.get('error', 'Unknown error'))")
+            echo "❌ **Build Failed**" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Error:** $ERROR" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Comment on tracker issue
         if: success()
         run: |
+          # Get SDK version
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
 
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null || true)
+          # Read the single manifest file
+          MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
 
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "No manifest.jsonl files found"
+          if [ -z "$MANIFEST_FILE" ]; then
+            echo "No manifest file found"
             exit 0
           fi
 
-          TOTAL_IMAGES=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-
-          if [ "$TOTAL_IMAGES" -eq 0 ]; then
-            echo "No images found in manifest files"
-            exit 0
-          fi
-
-          TAGS=$(cat $MANIFEST_FILES | python3 -c "
-import sys
-import json
-for line in sys.stdin:
-    data = json.loads(line.strip())
-    if data.get('tags') and len(data['tags']) > 0:
-        print(f'- \`{data[\"tags\"][0]}\`')
+          # Extract the image tag from the manifest
+          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+tags = data.get('tags', [])
+print(tags[0] if tags else 'unknown')
           ")
 
+          if [ "$IMAGE_TAG" = "unknown" ]; then
+            echo "No valid image tag found in manifest"
+            exit 0
+          fi
+
+          # Determine trigger source
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -223,19 +188,14 @@ for line in sys.stdin:
             TRIGGER="${{ github.event_name }}"
           fi
 
+          # Post comment
           COMMENT_BODY=$(cat <<EOF
-## GAIA Build Complete ✅
+## GAIA Image Build Complete ✅
 
 **SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
+**Image Tag:** \`${IMAGE_TAG}\`
 **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 **Triggered by:** ${TRIGGER}
-
-<details>
-<summary>Built Tags (${TOTAL_IMAGES} image)</summary>
-
-${TAGS}
-
-</details>
 EOF
           )
 
