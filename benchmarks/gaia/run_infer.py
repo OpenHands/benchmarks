@@ -14,13 +14,16 @@ from PIL import Image
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import (
     LLM,
     Agent,
@@ -32,9 +35,9 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
-from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
+from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -116,41 +119,41 @@ class GAIAEvaluation(Evaluation):
         """Create workspace and copy necessary files."""
         logger.info(f"Preparing workspace for instance {instance.id}")
 
-        # Create workspace based on workspace_type
-        if self.metadata.workspace_type == "local":
-            # Use LocalWorkspace - runs commands directly on host filesystem
-            # This is ideal for GAIA since all instances use the same environment
-            logger.info("Using local workspace (in-process execution)")
-            workspace = LocalWorkspace(working_dir="/workspace")
-        elif self.metadata.workspace_type == "docker":
-            workspace = DockerWorkspace(
-                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                working_dir="/workspace",
-            )
-        elif self.metadata.workspace_type == "remote":
-            runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            if not runtime_api_key:
-                raise ValueError(
-                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
-                )
-
-            runtime_api_url = os.getenv(
-                "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-            )
-            server_image = "nikolaik/python-nodejs:python3.12-nodejs22"
-
-            logger.info(
-                f"Using remote workspace with image {server_image}"
-            )
-            workspace = APIRemoteWorkspace(
-                runtime_api_url=runtime_api_url,
-                runtime_api_key=runtime_api_key,
-                server_image=server_image,
-            )
-        else:
+        # GAIA uses remote workspace with a universal agent server image
+        # (unlike SWE-bench which needs per-instance images)
+        if self.metadata.workspace_type != "remote":
             raise ValueError(
-                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+                f"GAIA only supports workspace_type='remote', got '{self.metadata.workspace_type}'"
             )
+
+        runtime_api_key = os.getenv("RUNTIME_API_KEY")
+        sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+        if not runtime_api_key:
+            raise ValueError(
+                "RUNTIME_API_KEY environment variable is not set for remote workspace"
+            )
+
+        # GAIA uses a universal agent server image (one image for all instances)
+        # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
+        agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary-minimal"
+
+        if not image_exists(agent_server_image):
+            raise RuntimeError(
+                f"Agent server image {agent_server_image} does not exist in container registry. "
+                f"Run 'benchmarks/gaia/build_images.py --push' to build and push it first."
+            )
+
+        logger.info(
+            f"Using remote workspace with GAIA image {agent_server_image} (sdk sha: {sdk_short_sha})"
+        )
+        workspace = APIRemoteWorkspace(
+            runtime_api_url=os.getenv(
+                "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+            ),
+            runtime_api_key=runtime_api_key,
+            server_image=agent_server_image,
+            target_type="binary",  # GAIA images use binary target
+        )
 
         # Create workspace directory
         workspace.execute_command("mkdir -p /workspace")
