@@ -457,6 +457,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        workspace_type=args.workspace,
     )
 
     # Create evaluator
