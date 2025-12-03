@@ -1,0 +1,41 @@
+CAWM Workflow Extraction Summary
+========================================
+
+Status: completed
+Generated: 2025-12-03T00:24:20.385542
+Trajectories processed: 5
+Experiences extracted: 5
+
+Configuration:
+  Compression: key_step_extraction
+  Clustering: action_sequence (threshold=0.5)
+  Level: GENERAL
+  Model: moonshotai/kimi-k2-0905
+
+Experiences:
+----------------------------------------
+
+1. When NDDataRef mask propagation fails with 'handle_mask=np.bitwise_or' and one operand lacks a mask → The arithmetic mixin assumes both operands have masks when applying bitwise operations, causing Attr
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Check if operand.mask is None before applying handle_mask, a...
+
+2. When encountering intermittent 'ValueError: embedded null byte' during StatReloader auto-reloading → Pathlib's stat() can fail on filesystems with corrupted filenames containing null bytes, which os.wa
+   Category: debugging
+   Steps: 1
+     1. [debugging] Wrap pathlib operations in try/except and fall back to os.pa...
+
+3. When parse_http_date misinterprets two-digit years (e.g., interpreting '50' as 1950 instead of 2050) → RFC 7231 specifies that two-digit years 00-69 map to 2000-2069, while 70-99 map to 1970-1999, but th
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Use RFC 7231-compliant year mapping: if 0 <= year < 70 add 2...
+
+4. When makemigrations generates incorrect import paths for inner classes (e.g., 'module.Class.InnerClass' instead of 'module.Class.InnerClass') → Migration serializer uses __name__ for inner classes, which loses the outer class qualification, whi
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Replace __name__ with __qualname__ in migration serializer w...
+
+5. When optional URL parameters (like (?P<format>...)?) cause view function crashes with 'takes X positional arguments but Y were given' → Regex pattern with optional groups creates capturing groups that may be None, but the resolver doesn
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Filter out None values from regex matches before passing to ...

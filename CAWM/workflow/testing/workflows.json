@@ -1,0 +1,147 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:24:20.385108",
+    "status": "completed",
+    "num_trajectories": 5,
+    "config": {
+      "compression": "key_step_extraction",
+      "clustering": "action_sequence",
+      "threshold": 0.5,
+      "level": "GENERAL",
+      "model": "moonshotai/kimi-k2-0905"
+    }
+  },
+  "workflows": [
+    {
+      "id": "exp-general-b26814ac",
+      "description": "When NDDataRef mask propagation fails with 'handle_mask=np.bitwise_or' and one operand lacks a mask → The arithmetic mixin assumes both operands have masks when applying bitwise operations, causing Attr",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When NDDataRef mask propagation fails with 'handle_mask=np.bitwise_or' and one operand lacks a mask",
+          "reasoning": "The arithmetic mixin assumes both operands have masks when applying bitwise operations, causing AttributeError when accessing None.mask",
+          "action": "Check if operand.mask is None before applying handle_mask, and create a default mask (zeros or ones) when missing",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11583",
+        "django__django-11848",
+        "django__django-12125",
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-e7155cff",
+      "description": "When encountering intermittent 'ValueError: embedded null byte' during StatReloader auto-reloading → Pathlib's stat() can fail on filesystems with corrupted filenames containing null bytes, which os.wa",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When encountering intermittent 'ValueError: embedded null byte' during StatReloader auto-reloading",
+          "reasoning": "Pathlib's stat() can fail on filesystems with corrupted filenames containing null bytes, which os.walk() silently skips but pathlib doesn't handle",
+          "action": "Wrap pathlib operations in try/except and fall back to os.path for problematic filenames, or filter out filenames with null bytes before processing",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11583",
+        "django__django-11848",
+        "django__django-12125",
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-137f052b",
+      "description": "When parse_http_date misinterprets two-digit years (e.g., interpreting '50' as 1950 instead of 2050) → RFC 7231 specifies that two-digit years 00-69 map to 2000-2069, while 70-99 map to 1970-1999, but th",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When parse_http_date misinterprets two-digit years (e.g., interpreting '50' as 1950 instead of 2050)",
+          "reasoning": "RFC 7231 specifies that two-digit years 00-69 map to 2000-2069, while 70-99 map to 1970-1999, but the implementation uses incorrect boundary logic",
+          "action": "Use RFC 7231-compliant year mapping: if 0 <= year < 70 add 2000, elif 70 <= year < 100 add 1900, else use as-is",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11583",
+        "django__django-11848",
+        "django__django-12125",
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-ab8649f2",
+      "description": "When makemigrations generates incorrect import paths for inner classes (e.g., 'module.Class.InnerClass' instead of 'module.Class.InnerClass') → Migration serializer uses __name__ for inner classes, which loses the outer class qualification, whi",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When makemigrations generates incorrect import paths for inner classes (e.g., 'module.Class.InnerClass' instead of 'module.Class.InnerClass')",
+          "reasoning": "Migration serializer uses __name__ for inner classes, which loses the outer class qualification, while __qualname__ preserves the full dotted path",
+          "action": "Replace __name__ with __qualname__ in migration serializer when handling inner classes to preserve full qualified name",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11583",
+        "django__django-11848",
+        "django__django-12125",
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-c7eac59c",
+      "description": "When optional URL parameters (like (?P<format>...)?) cause view function crashes with 'takes X positional arguments but Y were given' → Regex pattern with optional groups creates capturing groups that may be None, but the resolver doesn",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When optional URL parameters (like (?P<format>...)?) cause view function crashes with 'takes X positional arguments but Y were given'",
+          "reasoning": "Regex pattern with optional groups creates capturing groups that may be None, but the resolver doesn't properly handle missing optional captures",
+          "action": "Filter out None values from regex matches before passing to view function, ensuring only matched parameters are included",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11583",
+        "django__django-11848",
+        "django__django-12125",
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    }
+  ],
+  "count": 5
+}

@@ -1,0 +1,51 @@
+CAWM Workflow Extraction Summary
+========================================
+
+Status: completed
+Generated: 2025-12-03T00:37:38.605980
+Trajectories processed: 3
+Experiences extracted: 7
+
+Configuration:
+  Compression: key_step_extraction
+  Clustering: action_sequence (threshold=0.7)
+  Level: GENERAL
+  Model: moonshotai/kimi-k2-0905
+
+Experiences:
+----------------------------------------
+
+1. When NDDataRef mask propagation fails with `handle_mask=np.bitwise_or` and one operand lacks a mask → The issue occurs because bitwise operations require both operands to have mask arrays, but the code 
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Before applying bitwise operations, ensure both operands hav...
+
+2. When implementing arithmetic operations on maskable data structures with optional masks → The mask propagation logic needs to handle cases where operands may not have masks defined, requirin
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] In arithmetic operations with mask propagation, initialize m...
+
+3. When HTTP date parsing fails for two-digit years where 00-69 map to 2000-2069 instead of 1970-1999 → RFC 7231 specifies that two-digit years 00-69 should be interpreted as 2000-2069, while 70-99 remain
+   Category: configuration
+   Steps: 1
+     1. [configuration] Implement year ranges as: if year < 70 then year += 2000 eli...
+
+4. When datetime parsing logic needs to handle legacy RFC 850 format while maintaining RFC 7231 compliance → The parsing function must correctly interpret two-digit years according to RFC 7231 rules, which ove
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Update the two-digit year handling logic to check if year < ...
+
+5. When intermittently seeing "ValueError: embedded null byte" in StatReloader → Pathlib.stat() can raise null-byte errors on transient filesystem race conditions
+   Category: debugging
+   Steps: 1
+     1. [debugging] Wrap pathlib.stat() calls with a broad ValueError handler an...
+
+6. If an autoreloader module starts failing only on CI but not locally → Python's `-X` dev-mode or `PYTHONDEVMODE` leaks into the spawned reloader subprocess and triggers re
+   Category: testing
+   Steps: 1
+     1. [testing] Run the same test explicitly with `export PYTHONDEVMODE=1` o...
+
+7. When a test runner hangs or gives opaque results for TestIterModulesAndFiles → Those tests use subprocess tricks to mutate sys.modules(), so std-unittest discovery must be skipped
+   Category: testing
+   Steps: 1
+     1. [testing] Execute the reproducer via `python -m unittest tests.utils_t...

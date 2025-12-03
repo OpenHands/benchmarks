@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:37:35.061663",
+    "status": "completed",
+    "clustering_method": "action_sequence",
+    "threshold": 0.7,
+    "num_clusters": 2,
+    "total_trajectories": 3
+  },
+  "clusters": [
+    {
+      "cluster_id": "seq_cluster_0",
+      "label": "Action Sequence Cluster 0",
+      "size": 2,
+      "trajectories": [
+        {
+          "instance_id": "astropy__astropy-14995",
+          "repository": "astropy",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/astropy/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descripti...",
+          "num_events": 74,
+          "action_types": [
+            "FILE_VIEW",
+            "OTHER",
+            "TESTING",
+            "NAVIGATION",
+            "THINK",
+            "EXPLORATION",
+            "FILE_EDIT"
+          ]
+        },
+        {
+          "instance_id": "django__django-11848",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 84,
+          "action_types": [
+            "FILE_VIEW",
+            "OTHER",
+            "TESTING",
+            "NAVIGATION",
+            "THINK",
+            "EXPLORATION",
+            "FILE_EDIT"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_1",
+      "label": "Action Sequence Cluster 1",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-11583",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 60,
+          "action_types": [
+            "FILE_VIEW",
+            "OTHER",
+            "TESTING",
+            "TERMINAL",
+            "NAVIGATION",
+            "THINK",
+            "EXPLORATION",
+            "FILE_EDIT"
+          ]
+        }
+      ]
+    }
+  ]
+}

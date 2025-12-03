@@ -1,0 +1,383 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:13:06.338107",
+    "workflow_level": "GENERAL",
+    "num_clusters_processed": 9,
+    "total_experiences": 33
+  },
+  "cluster_results": [
+    {
+      "cluster_id": "seq_cluster_0",
+      "cluster_label": "Action Sequence Cluster 0",
+      "num_trajectories": 2,
+      "trajectory_ids": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "num_experiences_extracted": 4,
+      "experiences": [
+        {
+          "id": "exp-general-421938e4",
+          "description": "When NDDataRef arithmetic operations fail with 'NoneType' object has no attribute 'dtype' or similar mask-related errors → The mask propagation logic assumes both operands have masks, but when one operand lacks a mask, atte",
+          "category": "debugging",
+          "trigger": "When NDDataRef arithmetic operations fail with 'NoneType' object has no attribute 'dtype' or similar mask-related errors",
+          "insight": "The mask propagation logic assumes both operands have masks, but when one operand lacks a mask, attempting operations like np.bitwise_or fails on None",
+          "action": "Add explicit None checks before mask operations: if mask1 is None, treat it as False/all-zero mask; if mask2 is None, treat similarly"
+        },
+        {
+          "id": "exp-general-ba17e1e4",
+          "description": "When django.utils.http.parse_http_date incorrectly interprets two-digit years (00-69) as 1900s instead of 2000s → RFC 7231 specifies that years 00-69 should map to 2000-2069, while 70-99 map to 1970-1999",
+          "category": "api_usage",
+          "trigger": "When django.utils.http.parse_http_date incorrectly interprets two-digit years (00-69) as 1900s instead of 2000s",
+          "insight": "RFC 7231 specifies that years 00-69 should map to 2000-2069, while 70-99 map to 1970-1999",
+          "action": "Implement year adjustment logic: if parsed_year < 50, add 2000; else add 1900, but be aware of existing behavior dependencies"
+        },
+        {
+          "id": "exp-general-bb97a824",
+          "description": "When numpy arithmetic operations like np.bitwise_or fail on mixed types (structured vs non-structured arrays) → The error occurs because numpy can't determine dtype compatibility when one array is structured and ",
+          "category": "refactoring",
+          "trigger": "When numpy arithmetic operations like np.bitwise_or fail on mixed types (structured vs non-structured arrays)",
+          "insight": "The error occurs because numpy can't determine dtype compatibility when one array is structured and the other is not",
+          "action": "Convert both arrays to regular boolean arrays before operations like: regular_arr = view_as_arrays.astype(np.uint8).astype(bool)"
+        },
+        {
+          "id": "exp-general-15e574d0",
+          "description": "When changes to datetime parsing affect existing test cases that rely on current (incorrect) behavior → Fixing the two-digit year interpretation will break backward compatibility for dates in the ranges 2",
+          "category": "configuration",
+          "trigger": "When changes to datetime parsing affect existing test cases that rely on current (incorrect) behavior",
+          "insight": "Fixing the two-digit year interpretation will break backward compatibility for dates in the ranges 29-31 December 1999 vs 2029-2031",
+          "action": "Implement a deprecation path: maintain old behavior initially with warnings, provide configuration flag to enable new behavior"
+        }
+      ],
+      "duration_seconds": 2.0046520233154297
+    },
+    {
+      "cluster_id": "seq_cluster_1",
+      "cluster_label": "Action Sequence Cluster 1",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-11583"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-427d1959",
+          "description": "When StatReloader intermittently throws \"ValueError: embedded null byte\" during auto-reload → Pathlib's Path.resolve() can encounter filesystem entries with embedded null bytes that Python's str",
+          "category": "debugging",
+          "trigger": "When StatReloader intermittently throws \"ValueError: embedded null byte\" during auto-reload",
+          "insight": "Pathlib's Path.resolve() can encounter filesystem entries with embedded null bytes that Python's str() can't represent, causing the ValueError",
+          "action": "Wrap Path.resolve() calls in a try/except for ValueError and fall back to the original path string to skip problematic entries"
+        },
+        {
+          "id": "exp-general-14225042",
+          "description": "If an autoreloader test fails with an opaque ValueError on a pathlib operation → The error is likely triggered by a directory entry containing a null byte (e.g., a malformed symlink",
+          "category": "testing",
+          "trigger": "If an autoreloader test fails with an opaque ValueError on a pathlib operation",
+          "insight": "The error is likely triggered by a directory entry containing a null byte (e.g., a malformed symlink or special file), not by normal Python code",
+          "action": "Ensure test environments clean up or skip such entries by filtering paths through os.fsdecode() before pathlib operations"
+        },
+        {
+          "id": "exp-general-67b25169",
+          "description": "When migrating legacy os.path code to pathlib in watcher utilities → Pathlib is stricter about invalid filesystem bytes; null-byte paths that os.path ignored will now ra",
+          "category": "refactoring",
+          "trigger": "When migrating legacy os.path code to pathlib in watcher utilities",
+          "insight": "Pathlib is stricter about invalid filesystem bytes; null-byte paths that os.path ignored will now raise exceptions",
+          "action": "Sanitize paths with os.fsdecode() and catch ValueError on resolve/stat to maintain the old lenient behavior"
+        }
+      ],
+      "duration_seconds": 1.5347821712493896
+    },
+    {
+      "cluster_id": "seq_cluster_2",
+      "cluster_label": "Action Sequence Cluster 2",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12125"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-5ce34a0f",
+          "description": "If makemigrations saves an inner-class field with an incorrect dotted path that cannot be imported later → Field.deconstruct() stores '__name__' which is just the inner-class name, but migration serializatio",
+          "category": "migration_serialization",
+          "trigger": "If makemigrations saves an inner-class field with an incorrect dotted path that cannot be imported later",
+          "insight": "Field.deconstruct() stores '__name__' which is just the inner-class name, but migration serialization needs the fully-qualified dotted path (e.g. 'MyOuter.MyInner') to re-import it",
+          "action": "Replace '__name__' with '__qualname__' in the field’s deconstruct() tuple so the serializer writes the full dotted path that can be located by importlib at migration time"
+        },
+        {
+          "id": "exp-general-d22f35aa",
+          "description": "When a migration fails on FieldDoesNotExist after you added a custom inner-class field → Migration files contain imports of the form 'from {module} import {path}'.  If the stored path lacks",
+          "category": "debugging",
+          "trigger": "When a migration fails on FieldDoesNotExist after you added a custom inner-class field",
+          "insight": "Migration files contain imports of the form 'from {module} import {path}'.  If the stored path lacks the outer classname (because '__name__' was used), the import succeeds but the name is undefined, causing the Field class lookup to fail",
+          "action": "Before running the migration, manually patch the generated migration file’s import line so that it uses the full dotted path (outer.inner) or regenerate it after applying the '__qualname__' fix"
+        },
+        {
+          "id": "exp-general-f41f6756",
+          "description": "If you cannot reproduce the inner-class migration bug in a minimal test, even though it fails in the real project → Many inner-class serialization issues surface only when you have a field instance inside a Model cla",
+          "category": "testing",
+          "trigger": "If you cannot reproduce the inner-class migration bug in a minimal test, even though it fails in the real project",
+          "insight": "Many inner-class serialization issues surface only when you have a field instance inside a Model class and then run makemigrations. A pure create-test-then-deconstruct sequence may not expose the problem",
+          "action": "Inside your reproduction test, create a real model using the inner-class field, call makemigrations (or serializer.py directly) and assert that the round-trip import succeeds, not just that deconstruct() returns a value"
+        }
+      ],
+      "duration_seconds": 1.9998719692230225
+    },
+    {
+      "cluster_id": "seq_cluster_3",
+      "cluster_label": "Action Sequence Cluster 3",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12184"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-14a2b6f5",
+          "description": "If optional named regex groups like (?P<format>…)? cause missing-keyword crashes in Django 2.2+ → Django’s resolver started to drop None-captures from kwargs, so the view no longer receives the para",
+          "category": "api_usage",
+          "trigger": "If optional named regex groups like (?P<format>…)? cause missing-keyword crashes in Django 2.2+",
+          "insight": "Django’s resolver started to drop None-captures from kwargs, so the view no longer receives the param at all",
+          "action": "Make the regex group non-optional ((?P<format>…)) and handle the fallback inside the view, or switch to path converters instead of regex"
+        },
+        {
+          "id": "exp-general-7bd58009",
+          "description": "When a view expecting a default kwarg suddenly gets **no** value after a Django upgrade → The URL resolver now removes keys whose capture group matched None, so the default is never applied",
+          "category": "debugging",
+          "trigger": "When a view expecting a default kwarg suddenly gets **no** value after a Django upgrade",
+          "insight": "The URL resolver now removes keys whose capture group matched None, so the default is never applied",
+          "action": "Check the resolver’s return value for missing keys and set the default in the view if absent"
+        },
+        {
+          "id": "exp-general-8a3c0495",
+          "description": "If urlpatterns with optional regex groups work in ≤2.1 but fail in ≥2.2 → The regression is in django/urls/resolvers.py where None-captures are filtered out before calling th",
+          "category": "configuration",
+          "trigger": "If urlpatterns with optional regex groups work in ≤2.1 but fail in ≥2.2",
+          "insight": "The regression is in django/urls/resolvers.py where None-captures are filtered out before calling the view",
+          "action": "Patch the resolver to keep keys even when their value is None, or avoid optional regex groups entirely"
+        }
+      ],
+      "duration_seconds": 1.4825830459594727
+    },
+    {
+      "cluster_id": "seq_cluster_4",
+      "cluster_label": "Action Sequence Cluster 4",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12284"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-013ad6e2",
+          "description": "When Model.get_FOO_display() returns incorrect results after child model overrides inherited choices → The display name is looked up on the model class where the field was originally defined, not the chi",
+          "category": "api_usage",
+          "trigger": "When Model.get_FOO_display() returns incorrect results after child model overrides inherited choices",
+          "insight": "The display name is looked up on the model class where the field was originally defined, not the child class that overrides choices",
+          "action": "Override get_FOO_display() on the child model to force lookup against the child class by calling self.__class__._meta.get_field(...)"
+        },
+        {
+          "id": "exp-general-3d631884",
+          "description": "When get_FOO_display() returns the raw value instead of the choice display name on inherited fields → The inherited field's cache in Options._field_cache still points to the base field, which holds the ",
+          "category": "debugging",
+          "trigger": "When get_FOO_display() returns the raw value instead of the choice display name on inherited fields",
+          "insight": "The inherited field's cache in Options._field_cache still points to the base field, which holds the base choices",
+          "action": "Ensure the child model redefines the field (not just choices) so Django recreates the field with child choices in the cache"
+        },
+        {
+          "id": "exp-general-894706d7",
+          "description": "When overriding choices in a child model but display values still come from parent → Choices are bound to the Field instance at class creation time; inheriting the field also inherits t",
+          "category": "refactoring",
+          "trigger": "When overriding choices in a child model but display values still come from parent",
+          "insight": "Choices are bound to the Field instance at class creation time; inheriting the field also inherits the original choices list",
+          "action": "Re-declare the field in the child model rather than only overriding choices attribute to get a fresh field with new choices"
+        }
+      ],
+      "duration_seconds": 1.435176134109497
+    },
+    {
+      "cluster_id": "seq_cluster_5",
+      "cluster_label": "Action Sequence Cluster 5",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12286"
+      ],
+      "num_experiences_extracted": 4,
+      "experiences": [
+        {
+          "id": "exp-general-1abe35af",
+          "description": "When Django check E004 flags a sub-language (e.g. 'de-at') but the base language ('de') is installed → The check was treating 'de-at' as a completely separate language, ignoring the fallback rule that do",
+          "category": "configuration",
+          "trigger": "When Django check E004 flags a sub-language (e.g. 'de-at') but the base language ('de') is installed",
+          "insight": "The check was treating 'de-at' as a completely separate language, ignoring the fallback rule that documentedly maps sub-languages to their base.",
+          "action": "Test the installed-languages set for both exact match and, on failure, for a parent/base language match before emitting E004. In practice use 'lang.startswith(base + \\\"-\\\")' after 'base in settings.LANGUAGES'."
+        },
+        {
+          "id": "exp-general-8219a3a1",
+          "description": "If a system check's docstring says 'Languages in LANGUAGES setting must be available in locale directory' and your code has variants like 'en-gb' vs 'en' → The check’s validation does not account for sub-language fallback; it fails when the check is strict",
+          "category": "debugging",
+          "trigger": "If a system check's docstring says 'Languages in LANGUAGES setting must be available in locale directory' and your code has variants like 'en-gb' vs 'en'",
+          "insight": "The check’s validation does not account for sub-language fallback; it fails when the check is stricter than the dispatcher’s documented policy.",
+          "action": "When writing translation checks, duplicate the fallback rules used by the run-time resolver so that sub-language strings are validated against their base language."
+        },
+        {
+          "id": "exp-general-0ffe798d",
+          "description": "Need to reproduce a check-framework failure without touching the test-suite run → Check framework classes are just Python callables that receive an app_configs list; you can instanti",
+          "category": "debugging",
+          "trigger": "Need to reproduce a check-framework failure without touching the test-suite run",
+          "insight": "Check framework classes are just Python callables that receive an app_configs list; you can instantiate and call them directly outside of pytest.",
+          "action": "Create a minimal reproduce script that imports E004 check function and feeds it the mis-configured settings on disk; wrap in '__debug__' context to silence stdout noise and obtain direct return messages."
+        },
+        {
+          "id": "exp-general-5373dd6b",
+          "description": "A language code fails locale normalization and you suspect the wrong separator (underscore vs hyphen) → django.utils.translation.to_locale converts hyphens to underscores (en-us → en_US). Only the convert",
+          "category": "api_usage",
+          "trigger": "A language code fails locale normalization and you suspect the wrong separator (underscore vs hyphen)",
+          "insight": "django.utils.translation.to_locale converts hyphens to underscores (en-us → en_US). Only the converted form must exist in locale dirs even though the settings use hyphens.",
+          "action": "Always apply 'to_locale' before disk lookup: if os.path.exists(os.path.join(dir, to_locale(lang), 'LC_MESSAGES')) then emit OK else keep checking base language."
+        }
+      ],
+      "duration_seconds": 2.497821807861328
+    },
+    {
+      "cluster_id": "seq_cluster_6",
+      "cluster_label": "Action Sequence Cluster 6",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12453"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-889ac0be",
+          "description": "If `TransactionTestCase.serialized_rollback=True` raises IntegrityError on restore, examine the order that fixtures are deserialized → Dependant objects (FK, M2M) must be inserted after the rows they reference; the natural key round-tr",
+          "category": "testing",
+          "trigger": "If `TransactionTestCase.serialized_rollback=True` raises IntegrityError on restore, examine the order that fixtures are deserialized",
+          "insight": "Dependant objects (FK, M2M) must be inserted after the rows they reference; the natural key round-trip may re-order rows incorrectly",
+          "action": "When you construct test data, add `class Meta: ordering = ['pk']` or sort `serializers.serialize()` output so parents appear before children"
+        },
+        {
+          "id": "exp-general-2717ea46",
+          "description": "When custom user-defined primary keys are used, objects can’t be reliably identified by nat-key only; deserialization may recreate them with new pks → Deserialization uses `(model, natural-key)`, but the re-created row gets a fresh pk; children with f",
+          "category": "testing",
+          "trigger": "When custom user-defined primary keys are used, objects can’t be reliably identified by nat-key only; deserialization may recreate them with new pks",
+          "insight": "Deserialization uses `(model, natural-key)`, but the re-created row gets a fresh pk; children with foreign keys still point to the old value",
+          "action": "Serialize with primary keys (`fields='__all__'`) instead of natural keys, or sort objects to ensure parents are inserted before children"
+        },
+        {
+          "id": "exp-general-4fa0404b",
+          "description": "After saving a fixture, check `connection.ops.sql_table_creation_suffix()` in the backend’s `create_test_db` → If the suffix contains `DEFERRABLE INITIALLY DEFERRED`, foreign-key checks can be postponed; if it d",
+          "category": "configuration",
+          "trigger": "After saving a fixture, check `connection.ops.sql_table_creation_suffix()` in the backend’s `create_test_db`",
+          "insight": "If the suffix contains `DEFERRABLE INITIALLY DEFERRED`, foreign-key checks can be postponed; if it does not, ordering is strictly enforced at insert",
+          "action": "In your custom backend method, explicitly add `DEFERRABLE INITIALLY DEFERRED` or wrap the insertion in `SET CONSTRAINTS ALL DEFERRED` before deserializing"
+        },
+        {
+          "id": "exp-general-7d03309a",
+          "description": "If you’re writing a regression test that needs `serialized_rollback=True`, preload the database once and call `loaddata` manually instead of letting the test runner do it → Manual invocation lets you pass `--verbosity=3` to inspect the exact order used and discover fk-orde",
+          "category": "debugging",
+          "trigger": "If you’re writing a regression test that needs `serialized_rollback=True`, preload the database once and call `loaddata` manually instead of letting the test runner do it",
+          "insight": "Manual invocation lets you pass `--verbosity=3` to inspect the exact order used and discover fk-ordering failures before they fail inside the test",
+          "action": "Create a simple management command or standalone script that calls `loaddata` exactly as the test framework would and print each deserialized object"
+        },
+        {
+          "id": "exp-general-62f4fbe3",
+          "description": "When fixing ordering on SQLite, notice that `PRAGMA foreign_keys=OFF` does not persist across the single SQL statement executed by `cursor.execute()` → It is restored at the end of each statement; you must wrap entire fixture loading in one big SQL blo",
+          "category": "api_usage",
+          "trigger": "When fixing ordering on SQLite, notice that `PRAGMA foreign_keys=OFF` does not persist across the single SQL statement executed by `cursor.execute()`",
+          "insight": "It is restored at the end of each statement; you must wrap entire fixture loading in one big SQL block or use temporary deferred constraints",
+          "action": "Execute `cursor.executescript('PRAGMA foreign_keys=OFF; -- full fixture SQL -- PRAGMA foreign_keys=ON;')` so the pragma stays on through the whole script"
+        }
+      ],
+      "duration_seconds": 2.878156900405884
+    },
+    {
+      "cluster_id": "seq_cluster_7",
+      "cluster_label": "Action Sequence Cluster 7",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12470"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-b4c5e31e",
+          "description": "When Child model inherits from Parent with Meta.ordering = [\"-pk\"] and queries return wrong order → The SQL compiler was building the ORDER BY clause against the parent table's alias but referring to ",
+          "category": "debugging",
+          "trigger": "When Child model inherits from Parent with Meta.ordering = [\"-pk\"] and queries return wrong order",
+          "insight": "The SQL compiler was building the ORDER BY clause against the parent table's alias but referring to a column name that only exists in the child table's pk field",
+          "action": "In sql/compiler.py, use self.query.get_meta().db_table to determine the correct table alias for ordering column references instead of assuming it's always the parent's alias"
+        },
+        {
+          "id": "exp-general-691bd93f",
+          "description": "When debugging 'pk' column resolution in multi-table inheritance queries → Django multi-table inheritance stores the child's primary key in its own table and creates a one-to-",
+          "category": "debugging",
+          "trigger": "When debugging 'pk' column resolution in multi-table inheritance queries",
+          "insight": "Django multi-table inheritance stores the child's primary key in its own table and creates a one-to-one relation to the parent, so 'pk' column exists only in the child's table",
+          "action": "Check the generated SQL to confirm the ORDER BY clause references the correct table alias that contains the actual pk column"
+        },
+        {
+          "id": "exp-general-12137276",
+          "description": "When inherited model Meta options don't apply correctly in SQL generation → Meta.ordering gets inherited but the SQL compiler may use the wrong table context when resolving the",
+          "category": "refactoring",
+          "trigger": "When inherited model Meta options don't apply correctly in SQL generation",
+          "insight": "Meta.ordering gets inherited but the SQL compiler may use the wrong table context when resolving the ordering fields",
+          "action": "Override get_meta() or ensure the query's get_meta() returns the correct model metadata for the child model, not the parent"
+        }
+      ],
+      "duration_seconds": 1.491020917892456
+    },
+    {
+      "cluster_id": "seq_cluster_8",
+      "cluster_label": "Action Sequence Cluster 8",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12497"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-037355d5",
+          "description": "If a 'many-to-many intermediary model with more than 2 ForeignKeys' raises a hint about 'recursive relationships' that does not mention through_fields → Django was re-using the generic recursive-relation hint instead of the specific m2m multi-FK hint me",
+          "category": "debugging",
+          "trigger": "If a 'many-to-many intermediary model with more than 2 ForeignKeys' raises a hint about 'recursive relationships' that does not mention through_fields",
+          "insight": "Django was re-using the generic recursive-relation hint instead of the specific m2m multi-FK hint mentioning through_fields",
+          "action": "Inside django.db.models.fields.related.ManyToManyField._check_terminating_field(), ensure the error message switches from RECURSIVE_RELATIONSHIP_INVALID to FIELD_NAME_CLASH when through_fields is unset and more than 2 FKs exist"
+        },
+        {
+          "id": "exp-general-b60d65b7",
+          "description": "When the error message for 'through=' is 'None' → The string path for the error message is cached and will be reused in templates; changing the messag",
+          "category": "debugging",
+          "trigger": "When the error message for 'through=' is 'None'",
+          "insight": "The string path for the error message is cached and will be reused in templates; changing the message text does not flush the cache",
+          "action": "After editing the hint text, forcibly call django.utils.translation._make_lazy_string() on the new string to ensure the template renders the new wording on the next test run"
+        },
+        {
+          "id": "exp-general-9061e0d6",
+          "description": "If adding a ManyToManyField on a dynamically created model for testing the hint message → The field’s system checks run only when the model is prepared; creating the model in the test may no",
+          "category": "testing",
+          "trigger": "If adding a ManyToManyField on a dynamically created model for testing the hint message",
+          "insight": "The field’s system checks run only when the model is prepared; creating the model in the test may not trigger checks until models are registered with apps",
+          "action": "Wrap the new Field instance with Model.add_to_class() and explicitly call _check_lazy_fail() or collect errors via field.check(); both force the checks without migrating"
+        },
+        {
+          "id": "exp-general-40361bd9",
+          "description": "When the hint says 'recursively' but the relation is not actually recursive → Django’s message constant RECURSIVE_RELATIONSHIP_INVALID overlaps with the case where multiple FKs e",
+          "category": "refactoring",
+          "trigger": "When the hint says 'recursively' but the relation is not actually recursive",
+          "insight": "Django’s message constant RECURSIVE_RELATIONSHIP_INVALID overlaps with the case where multiple FKs exist on the m2m through model",
+          "action": "Replace the constant with FIELD_NAME_CLASH (or a new constant) and update the message to read something like '(fields.E340) The intermediary model %s has more than two foreign keys; you must specify which two to use via through_fields.'"
+        },
+        {
+          "id": "exp-general-5b62ef47",
+          "description": "If a Django error message test fails after the fix string appears to be in place → The admin template string uses %(hint)s interpolation; a tiny trailing period or space difference wi",
+          "category": "testing",
+          "trigger": "If a Django error message test fails after the fix string appears to be in place",
+          "insight": "The admin template string uses %(hint)s interpolation; a tiny trailing period or space difference will make the assertion mismatch",
+          "action": "Strip punctuation and newlines from both expected and actual strings before asserting equality in the test, or compare only the key part of the message that mentions 'through_fields'"
+        }
+      ],
+      "duration_seconds": 2.7173709869384766
+    }
+  ]
+}

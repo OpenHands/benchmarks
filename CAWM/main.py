@@ -88,16 +88,16 @@ Examples:
     # Clustering
     parser.add_argument(
         "--clustering", "-k",
-        choices=["action_sequence", "problem_description", "code_modification", "random"],
-        default="action_sequence",
-        help="Clustering method (default: action_sequence)"
+        choices=["action_sequence", "problem_description", "code_modification", "repository", "random"],
+        default="problem_description",
+        help="Clustering method (default: problem_description)"
     )
 
     parser.add_argument(
         "--threshold", "-t",
         type=float,
-        default=0.5,
-        help="Clustering similarity threshold [0-1] (default: 0.5)"
+        default=0.2,
+        help="Clustering similarity threshold [0-1] (default: 0.2)"
     )
 
     # Induction
@@ -178,13 +178,12 @@ def main():
     # Create output directory
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / "workflows.json"
 
     logger.info("=" * 60)
     logger.info("CAWM Pipeline Configuration")
     logger.info("=" * 60)
     logger.info(f"  Input:        {args.input}")
-    logger.info(f"  Output:       {output_file}")
+    logger.info(f"  Output:       {output_dir}/")
     logger.info(f"  Compression:  {args.compression}")
     logger.info(f"  Clustering:   {args.clustering} (threshold={args.threshold})")
     logger.info(f"  Level:        {args.level}")
@@ -221,6 +220,7 @@ def main():
         "action_sequence": SimilarityMethod.ACTION_SEQUENCE,
         "problem_description": SimilarityMethod.PROBLEM_DESCRIPTION,
         "code_modification": SimilarityMethod.CODE_MODIFICATION,
+        "repository": SimilarityMethod.REPOSITORY,
         "random": SimilarityMethod.RANDOM,
     }
 
@@ -247,74 +247,42 @@ def main():
 
     # Create and run pipeline
     logger.info("Creating pipeline...")
-    pipeline = CAWMPipeline(llm_client=llm_client, config=config)
+    pipeline = CAWMPipeline(
+        llm_client=llm_client,
+        config=config,
+        output_dir=str(output_dir)  # Pass output dir for intermediate state saving
+    )
 
     logger.info("Running pipeline...")
     logger.info("  Step 1/3: Clustering trajectories...")
+    logger.info("  (Intermediate states will be saved to output directory)")
     # Note: Pipeline.run() does compress -> cluster -> induce internally
 
     workflows = pipeline.run(trajectories)
 
-    logger.info(f"Pipeline complete. Extracted {len(workflows)} workflows.")
-
-    # Save results
-    logger.info(f"Saving workflows to {output_file}...")
-
-    output_data = {
-        "metadata": {
-            "generated_at": datetime.now().isoformat(),
-            "input_file": args.input,
-            "num_trajectories": len(trajectories),
-            "config": {
-                "compression": args.compression,
-                "clustering": args.clustering,
-                "threshold": args.threshold,
-                "level": args.level,
-                "model": args.model,
-            }
-        },
-        "workflows": [w.to_dict() for w in workflows],
-        "count": len(workflows),
-    }
-
-    with open(output_file, "w") as f:
-        json.dump(output_data, f, indent=2, ensure_ascii=False)
-
-    # Also save a summary
-    summary_file = output_dir / "summary.txt"
-    with open(summary_file, "w") as f:
-        f.write(f"CAWM Workflow Extraction Summary\n")
-        f.write(f"{'=' * 40}\n\n")
-        f.write(f"Generated: {datetime.now().isoformat()}\n")
-        f.write(f"Input: {args.input}\n")
-        f.write(f"Trajectories processed: {len(trajectories)}\n")
-        f.write(f"Workflows extracted: {len(workflows)}\n\n")
-        f.write(f"Configuration:\n")
-        f.write(f"  Compression: {args.compression}\n")
-        f.write(f"  Clustering: {args.clustering} (threshold={args.threshold})\n")
-        f.write(f"  Level: {args.level}\n")
-        f.write(f"  Model: {args.model}\n\n")
-        f.write(f"Workflows:\n")
-        f.write(f"{'-' * 40}\n")
-        for i, wf in enumerate(workflows, 1):
-            f.write(f"\n{i}. {wf.description}\n")
-            f.write(f"   Category: {wf.category}\n")
-            f.write(f"   Steps: {len(wf.steps)}\n")
-            for j, step in enumerate(wf.steps, 1):
-                f.write(f"     {j}. [{step.action_type}] {step.action[:60]}...\n" if len(step.action) > 60 else f"     {j}. [{step.action_type}] {step.action}\n")
-
-    logger.info(f"Summary saved to {summary_file}")
+    logger.info(f"Pipeline complete. Extracted {len(workflows)} experiences.")
+    # Note: All output files (workflows.json, summary.txt, clusters.json,
+    # induction_details.json, pipeline_stats.json) are written by the
+    # pipeline's OutputManager during execution.
 
     # Print summary to console
     print("\n" + "=" * 60)
-    print(f"SUCCESS: Extracted {len(workflows)} workflows")
+    print(f"SUCCESS: Extracted {len(workflows)} experiences")
     print("=" * 60)
-    print(f"\nOutput files:")
-    print(f"  - {output_file}")
-    print(f"  - {summary_file}")
-    print("\nWorkflows:")
-    for i, wf in enumerate(workflows, 1):
-        print(f"  {i}. [{wf.category}] {wf.description[:50]}... ({len(wf.steps)} steps)")
+    print(f"\nOutput directory: {output_dir}")
+    print(f"\nOutput files (all created at start, updated progressively):")
+    print(f"  Main outputs:")
+    print(f"    - workflows.json")
+    print(f"    - summary.txt")
+    print(f"  Intermediate states (for debugging/analysis):")
+    print(f"    - clusters.json (clustering details)")
+    print(f"    - induction_details.json (per-cluster induction)")
+    print(f"    - pipeline_stats.json (timing & statistics)")
+    print("\nExperiences preview:")
+    for i, wf in enumerate(workflows[:10], 1):
+        print(f"  {i}. [{wf.category}] {wf.description[:60]}...")
+    if len(workflows) > 10:
+        print(f"  ... and {len(workflows) - 10} more")
 
     print("\n" + "=" * 60)
 

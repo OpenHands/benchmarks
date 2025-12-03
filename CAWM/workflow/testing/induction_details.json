@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:24:20.384423",
+    "status": "completed",
+    "workflow_level": "GENERAL",
+    "num_clusters_processed": 1,
+    "total_experiences": 5
+  },
+  "cluster_results": [
+    {
+      "cluster_id": "seq_cluster_0",
+      "cluster_label": "Action Sequence Cluster 0",
+      "num_trajectories": 5,
+      "trajectory_ids": [
+        "astropy__astropy-14995",
+        "django__django-11583",
+        "django__django-11848",
+        "django__django-12125",
+        "django__django-12184"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-b26814ac",
+          "description": "When NDDataRef mask propagation fails with 'handle_mask=np.bitwise_or' and one operand lacks a mask → The arithmetic mixin assumes both operands have masks when applying bitwise operations, causing Attr",
+          "category": "refactoring",
+          "trigger": "When NDDataRef mask propagation fails with 'handle_mask=np.bitwise_or' and one operand lacks a mask",
+          "insight": "The arithmetic mixin assumes both operands have masks when applying bitwise operations, causing AttributeError when accessing None.mask",
+          "action": "Check if operand.mask is None before applying handle_mask, and create a default mask (zeros or ones) when missing"
+        },
+        {
+          "id": "exp-general-e7155cff",
+          "description": "When encountering intermittent 'ValueError: embedded null byte' during StatReloader auto-reloading → Pathlib's stat() can fail on filesystems with corrupted filenames containing null bytes, which os.wa",
+          "category": "debugging",
+          "trigger": "When encountering intermittent 'ValueError: embedded null byte' during StatReloader auto-reloading",
+          "insight": "Pathlib's stat() can fail on filesystems with corrupted filenames containing null bytes, which os.walk() silently skips but pathlib doesn't handle",
+          "action": "Wrap pathlib operations in try/except and fall back to os.path for problematic filenames, or filter out filenames with null bytes before processing"
+        },
+        {
+          "id": "exp-general-137f052b",
+          "description": "When parse_http_date misinterprets two-digit years (e.g., interpreting '50' as 1950 instead of 2050) → RFC 7231 specifies that two-digit years 00-69 map to 2000-2069, while 70-99 map to 1970-1999, but th",
+          "category": "api_usage",
+          "trigger": "When parse_http_date misinterprets two-digit years (e.g., interpreting '50' as 1950 instead of 2050)",
+          "insight": "RFC 7231 specifies that two-digit years 00-69 map to 2000-2069, while 70-99 map to 1970-1999, but the implementation uses incorrect boundary logic",
+          "action": "Use RFC 7231-compliant year mapping: if 0 <= year < 70 add 2000, elif 70 <= year < 100 add 1900, else use as-is"
+        },
+        {
+          "id": "exp-general-ab8649f2",
+          "description": "When makemigrations generates incorrect import paths for inner classes (e.g., 'module.Class.InnerClass' instead of 'module.Class.InnerClass') → Migration serializer uses __name__ for inner classes, which loses the outer class qualification, whi",
+          "category": "refactoring",
+          "trigger": "When makemigrations generates incorrect import paths for inner classes (e.g., 'module.Class.InnerClass' instead of 'module.Class.InnerClass')",
+          "insight": "Migration serializer uses __name__ for inner classes, which loses the outer class qualification, while __qualname__ preserves the full dotted path",
+          "action": "Replace __name__ with __qualname__ in migration serializer when handling inner classes to preserve full qualified name"
+        },
+        {
+          "id": "exp-general-c7eac59c",
+          "description": "When optional URL parameters (like (?P<format>...)?) cause view function crashes with 'takes X positional arguments but Y were given' → Regex pattern with optional groups creates capturing groups that may be None, but the resolver doesn",
+          "category": "api_usage",
+          "trigger": "When optional URL parameters (like (?P<format>...)?) cause view function crashes with 'takes X positional arguments but Y were given'",
+          "insight": "Regex pattern with optional groups creates capturing groups that may be None, but the resolver doesn't properly handle missing optional captures",
+          "action": "Filter out None values from regex matches before passing to view function, ensuring only matched parameters are included"
+        }
+      ],
+      "duration_seconds": 2.32
+    }
+  ]
+}

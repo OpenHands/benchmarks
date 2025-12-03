@@ -77,89 +77,138 @@ class InductionModule:
         }
 
     def _build_prompt(self, trajectories: List[Trajectory], level: WorkflowLevel) -> str:
-        """Build the prompt for LLM."""
-        
+        """Build the prompt for LLM to extract experiences."""
+
+        # Process more trajectories (up to 10) to get diverse experiences
         traj_text = []
-        for i, traj in enumerate(trajectories[:5]): # Limit context window
+        for i, traj in enumerate(trajectories[:10]):
             events_str = []
-            for e in traj.events:
+            for e in traj.events[:20]:  # Limit events per trajectory
                 summary = e.get_action_summary()
-                events_str.append(f"- [{e.action_type.value}] {summary}")
-            
-            traj_text.append(f"Trajectory {i+1} ({traj.instance_id}):\nTask: {traj.instruction[:200]}...\nSteps:\n" + "\n".join(events_str))
-            
+                events_str.append(f"  - [{e.action_type.value}] {summary}")
+
+            # Include more context: instruction and key actions
+            traj_text.append(
+                f"=== Trajectory {i+1}: {traj.instance_id} ===\n"
+                f"Problem: {traj.instruction[:500]}\n"
+                f"Key Actions:\n" + "\n".join(events_str[:15])
+            )
+
         context = "\n\n".join(traj_text)
-        
+
         level_instruction = ""
         if level == WorkflowLevel.GENERAL:
             level_instruction = (
-                "Extract HIGH-LEVEL, GENERAL workflows applicable across any software project.\n"
-                "Abstract away all specific file names, function names, and paths (use placeholders like {{file}}, {{func}})"
+                "Extract experiences that could apply to similar problems across different projects.\n"
+                "Use placeholders like {file}, {function}, {module} for specific names."
             )
         else:
             level_instruction = (
-                "Extract SPECIFIC workflows that capture detailed coding patterns or debugging strategies.\n"
-                "You can retain common patterns but abstract specific instance values."
+                "Extract detailed, specific experiences that capture exact patterns and strategies.\n"
+                "Include specific error types, module names, and debugging approaches."
             )
 
-        return f"""
-Analyze the following execution trajectories of AI agents fixing software bugs.
+        return f"""You are analyzing successful bug-fixing trajectories from AI coding agents.
+
+Your task: Extract SPECIFIC EXPERIENCES and LESSONS LEARNED that would help solve similar problems in the future.
+
 {level_instruction}
 
-Output the workflows in the following JSON format:
+IMPORTANT:
+- Each experience should be a CONCRETE, ACTIONABLE insight
+- NOT generic steps like "write tests" or "read the code"
+- Focus on WHAT was learned, not the process of learning it
+- Extract 3-5 experiences per trajectory group
+
+Good experience examples:
+- "When encountering 'FieldError: Cannot resolve keyword', check if the field name conflicts with a reverse relation defined in related models"
+- "For HTTP date parsing issues, ensure the year interpretation follows RFC 7231 - years 00-69 map to 2000-2069, years 70-99 map to 1970-1999"
+- "When inner class references fail during migration serialization, use __qualname__ instead of __name__ to get the full dotted path"
+
+Bad experience examples (too generic):
+- "First reproduce the bug" (obvious)
+- "Write tests before fixing" (generic advice)
+- "Read the error message carefully" (not actionable)
+
+Output JSON format:
 {{
-    "workflows": [
+    "experiences": [
         {{
-            "name": "Workflow Name",
-            "category": "exploration|investigation|modification|fix_and_verify|testing",
-            "description": "When to use this",
-            "steps": [
-                {{
-                    "env_description": "State before step",
-                    "reasoning": "Why take this step",
-                    "action": "Abstracted command",
-                    "action_type": "exploration|file_view|file_edit|testing|terminal"
-                }}
-            ]
+            "trigger": "When/If <specific situation or error>",
+            "insight": "The key discovery or root cause",
+            "action": "Specific recommended approach or fix",
+            "category": "debugging|refactoring|testing|configuration|api_usage"
         }}
     ]
 }}
 
-Trajectories:
+Trajectories to analyze:
 {context}
 """
 
     def _parse_response(self, response: str, level: WorkflowLevel) -> List[Workflow]:
-        """Parse LLM JSON response."""
+        """Parse LLM JSON response - handles both old workflow and new experience formats."""
         try:
             data = self.llm_client.parse_structured_response(response)
             workflows = []
-            
-            for item in data.get("workflows", []):
-                steps = []
-                for s in item.get("steps", []):
-                    steps.append(WorkflowStep(
-                        env_description=s.get("env_description", ""),
-                        reasoning=s.get("reasoning", ""),
-                        action=s.get("action", ""),
-                        action_type=s.get("action_type", "other")
-                    ))
-                
-                # Generate ID
-                wf_id = f"wf-{level.name.lower()}-{hashlib.md5(item.get('name', '').encode()).hexdigest()[:8]}"
-                
-                wf = Workflow(
-                    id=wf_id,
-                    description=item.get("description", item.get("name", "")),
-                    category=item.get("category", "general"),
-                    steps=steps,
-                    level=level.value,
-                    pattern=tuple(s.action_type for s in steps)
-                )
-                workflows.append(wf)
-                
+
+            # Handle new "experiences" format
+            if "experiences" in data:
+                for item in data.get("experiences", []):
+                    # Convert experience to Workflow format for compatibility
+                    trigger = item.get("trigger", "")
+                    insight = item.get("insight", "")
+                    action = item.get("action", "")
+                    category = item.get("category", "debugging")
+
+                    # Create a single-step workflow representing this experience
+                    step = WorkflowStep(
+                        env_description=trigger,
+                        reasoning=insight,
+                        action=action,
+                        action_type=category
+                    )
+
+                    # Generate ID from trigger
+                    wf_id = f"exp-{level.name.lower()}-{hashlib.md5(trigger.encode()).hexdigest()[:8]}"
+
+                    wf = Workflow(
+                        id=wf_id,
+                        description=f"{trigger} → {insight[:100]}",
+                        category=category,
+                        steps=[step],
+                        level=level.value,
+                        pattern=(category,)
+                    )
+                    workflows.append(wf)
+
+            # Handle old "workflows" format for backward compatibility
+            elif "workflows" in data:
+                for item in data.get("workflows", []):
+                    steps = []
+                    for s in item.get("steps", []):
+                        steps.append(WorkflowStep(
+                            env_description=s.get("env_description", ""),
+                            reasoning=s.get("reasoning", ""),
+                            action=s.get("action", ""),
+                            action_type=s.get("action_type", "other")
+                        ))
+
+                    wf_id = f"wf-{level.name.lower()}-{hashlib.md5(item.get('name', '').encode()).hexdigest()[:8]}"
+
+                    wf = Workflow(
+                        id=wf_id,
+                        description=item.get("description", item.get("name", "")),
+                        category=item.get("category", "general"),
+                        steps=steps,
+                        level=level.value,
+                        pattern=tuple(s.action_type for s in steps)
+                    )
+                    workflows.append(wf)
+
             return workflows
-            
+
         except Exception as e:
-            logger.error(f"Error parsing workflow response: {e}")
+            logger.error(f"Error parsing response: {e}")
+            logger.debug(f"Raw response: {response[:500]}")
             return []

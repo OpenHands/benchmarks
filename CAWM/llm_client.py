@@ -35,14 +35,14 @@ class LLMClient:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         temperature: float = 0.0,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,  # None = use provider's default (no limit)
         timeout: float = 60.0,
         max_retries: int = 3,
     ):
         self.provider = provider
         self.model = model
         self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.max_tokens = max_tokens  # None means no limit, use provider's max
         self.base_url = base_url
         self.timeout = timeout
         self.max_retries = max_retries
@@ -126,19 +126,23 @@ class LLMClient:
         """OpenAI API completion."""
         if not HAS_OPENAI:
              raise ImportError("openai package missing")
-             
+
         client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
-        
-        response = client.chat.completions.create(
-            model=self.model,
-            messages=[
+
+        # Build request kwargs, only include max_tokens if explicitly set
+        request_kwargs = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
-        
+            "temperature": self.temperature,
+        }
+        if self.max_tokens is not None:
+            request_kwargs["max_tokens"] = self.max_tokens
+
+        response = client.chat.completions.create(**request_kwargs)
+
         return response.choices[0].message.content or ""
 
     def _complete_openrouter(self, prompt: str, system: str) -> str:
@@ -154,7 +158,7 @@ class LLMClient:
             "X-Title": "OpenHands Benchmarks CAWM",
         }
 
-        # Build request kwargs
+        # Build request kwargs, only include max_tokens if explicitly set
         request_kwargs = {
             "model": self.model,
             "messages": [
@@ -162,9 +166,10 @@ class LLMClient:
                 {"role": "user", "content": prompt},
             ],
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
             "extra_headers": extra_headers,
         }
+        if self.max_tokens is not None:
+            request_kwargs["max_tokens"] = self.max_tokens
 
         # Add provider routing for Kimi K2 models
         # Priority: Groq > Moonshot (Groq has better throughput)
@@ -185,12 +190,15 @@ class LLMClient:
         """Anthropic API completion."""
         if not HAS_ANTHROPIC:
              raise ImportError("anthropic package missing")
-             
+
         client = anthropic.Anthropic(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
-        
+
+        # Anthropic requires max_tokens; use 8192 as default (high enough for most use cases)
+        max_tokens = self.max_tokens if self.max_tokens is not None else 8192
+
         response = client.messages.create(
             model=self.model,
-            max_tokens=self.max_tokens,
+            max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": prompt}],
             temperature=self.temperature,

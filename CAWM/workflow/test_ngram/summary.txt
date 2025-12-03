@@ -1,0 +1,391 @@
+CAWM Workflow Extraction Summary
+========================================
+
+Generated: 2025-12-03T00:09:16.552644
+Input: CAWM/trajectories/resolved_trajectories.jsonl
+Trajectories processed: 41
+Workflows extracted: 75
+
+Configuration:
+  Compression: key_step_extraction
+  Clustering: action_sequence (threshold=0.7)
+  Level: general
+  Model: moonshotai/kimi-k2-0905
+
+Workflows:
+----------------------------------------
+
+1. When NDDataRef mask propagation fails with handle_mask=np.bitwise_or and one operand lacks a mask → The mask propagation logic assumes both operands have masks, causing AttributeError when accessing m
+   Category: debugging
+   Steps: 1
+     1. [debugging] Check if operand.mask exists before accessing properties, us...
+
+2. When django.utils.http.parse_http_date incorrectly interprets two-digit years (00-69 as 1900-1969 instead of 2000-2069) → RFC 7231 specifies that two-digit years 00-69 should map to 2000-2069, not 1900-1969
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Adjust year parsing logic: if two-digit year < 70, add 2000;...
+
+3. When django.views.debug.SafeExceptionReporterFilter.get_safe_settings() exposes uncleaned values → The cleanse_setting() function only checks for exact matches against sensitive patterns, missing var
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Implement fuzzy pattern matching using any(keyword in name.u...
+
+4. When Django migration crashes deleting index_together that shares fields with unique_together → PostgreSQL drops the unique index when index_together is removed, causing unique_together constraint
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Check for overlapping unique_together constraints before rem...
+
+5. When namedtuple arguments to __range filter cause TypeError after Django 2.2→3.0 upgrade → Django 3.0 changed field processing logic, attempting to call len() on namedtuple which returns a me
+   Category: debugging
+   Steps: 1
+     1. [debugging] Check if the object is a namedtuple using hasattr(value, '_f...
+
+6. When ManagementUtility fails to pass computed prog argument to CommandParser → CommandParser expects 'prog' parameter but ManagementUtility.__init__ doesn't forward it despite com
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Pass self.prog explicitly when instantiating CommandParser: ...
+
+7. When messages framework converts extra_tags='' to None during serialization/deserialization → MessageEncoder checks if extra_tags is True/falsy, converting empty string to None in the JSON encod
+   Category: debugging
+   Steps: 1
+     1. [debugging] Explicitly check for empty string: if getattr(message, 'extr...
+
+8. When PostgreSQL dbshell fails with additional parameters after database name → psql requires all options to precede the database name, parameters after dbname are treated as datab
+   Category: configuration
+   Steps: 1
+     1. [configuration] Construct the command list with all parameters before the da...
+
+9. If StatReloader sporadically raises 'ValueError: embedded null byte' during auto-reload → Pathlib may encounter filesystem paths that contain or return null bytes when queried by stat() on c
+   Category: debugging
+   Steps: 1
+     1. [debugging] Wrap pathlib stat() calls in a try/except that catches Value...
+
+10. When migrating file-watching code from os.path to pathlib → pathlib.Path.stat() can surface low-level C library errors (e.g., null bytes) that os.stat() silentl
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Audit every pathlib stat() usage in {file} and guard it with...
+
+11. If a test that triggers StatReloader intermittently fails with 'embedded null byte' locally but passes in CI → The issue is environmental—certain local filesystems or antivirus filters can inject spurious null b
+   Category: testing
+   Steps: 1
+     1. [testing] Add a targeted regression test that mocks pathlib.Path.stat ...
+
+12. When inner class references fail during migration serialization → Using __name__ only gives the class name without its containing context, causing import path resolut
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Use __qualname__ instead of __name__ to get the fully qualif...
+
+13. When DEFAULT_AUTO_FIELD subclass check incorrectly rejects BigAutoField/SmallAutoField subclasses → The isinstance check needs to be broadened to accept subclasses of the expected field types, not jus
+   Category: configuration
+   Steps: 1
+     1. [configuration] Update validation logic to use isinstance(field, (BigAutoFie...
+
+14. When admin password reset links break with to_field references → The admin URL generation doesn't account for custom lookup parameters passed through to_field, causi
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Build admin URLs that preserve the original lookup parameter...
+
+15. When model field deconstruct() generates incorrect import paths for nested classes → The deconstruct method builds import paths using module.class notation, but nested classes need modu
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Ensure deconstruct() properly handles nested class paths by ...
+
+16. When custom auto-field subclasses get rejected by Django's settings validation → Settings validation often performs overly strict class checking that doesn't permit subclassing of b
+   Category: configuration
+   Steps: 1
+     1. [configuration] Replace class equality checks with isinstance() checks to pr...
+
+17. When optional URL parameters cause reverse() failures with 'No URL pattern matches' even though the pattern exists → Reverse resolution fails when the pattern's optional capture group makes it impossible to distinguis
+   Category: debugging
+   Steps: 1
+     1. [debugging] Add explicit tests for patterns like r'module(/?)(?P<format>...
+
+18. When extending a Django utility function like json_script() to accept new parameters → The template filter wrapper in defaultfilters.py must mirror the new signature and pass the paramete
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Update both django/utils/html.py:json_script() AND django/te...
+
+19. When fixing regex URL patterns that optionally capture empty strings → The resolver's handling of captured None vs empty string affects the {module} vs {module-} ambiguity
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Modify the resolver's pattern matching logic to normalize em...
+
+20. When adding encoder support to JSON utilities in Django templates → Default filter arguments must be explicitly handled in the template filter registration to maintain 
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Use register.filter('json_script', json_script) without deco...
+
+21. When get_FOO_display() returns the raw stored value instead of the human-readable choice label → The choices attribute on a child model shadows the parent's choices completely, so Django's display 
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Ensure the child's choices extend the parent's choices (e.g....
+
+22. If running tests with pytest and Django's test runner reports unexpected 'app not ready' or module errors → pytest-django does not auto-discover apps in the same way Django's test runner does; the test file m
+   Category: testing
+   Steps: 1
+     1. [testing] Place test file under Django's standard test hierarchy (insi...
+
+23. When select_related().only() on a proxy model crashes with AttributeError about missing fields → only() on a proxy model relies on model._meta.get_field(), but proxy models don't recreate field ins
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Make sure that queryset.only() is called from the concrete m...
+
+24. If migration serializes an inner class and the reference fails with AttributeError: 'Inner' not found after migration → __name__ loses inner-class scope; Django migration needs the dotted import path.
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] 
+
+25. When a quick reproduction script passes, but the real test file inside the test suite fails with similar code → The project's test harness patches or alters settings (e.g., modifies model registration or connecti
+   Category: debugging
+   Steps: 1
+     1. [debugging] Always replicate the exact test environment—import from the ...
+
+26. If Django raises translation.E004 on a sublanguage (e.g. de-at) but a base language (de) locale directory exists → The check should treat sublanguage code fall‐back to base as successful; the strict one-to-one compa
+   Category: debugging
+   Steps: 1
+     1. [debugging] In the translation_check function, normalize the lang tag to...
+
+27. When a self-referenced FK ordering contains '_id' (e.g. 'parent_id') and SQL ordering breaks → If ordering field names are not promoted-to-refs early, Django may try to ORDER BY an unavailable jo
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Inside the QuerySet setup_joins call for the ordering, add t...
+
+28. After combining querysets with '|' or union(), calling .none() unexpectedly keeps rows → none() is translated to an empty WHERE subquery for the first QuerySet, but union() later merges it 
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Override none() for combined querysets to return a genuine E...
+
+29. Deprecation message about 'default.html' shows up even when the user template never mentions it → ManagementForm rendering internally chooses its own template at runtime; wrap its render() with djan
+   Category: debugging
+   Steps: 1
+     1. [debugging] Import ignore_warnings and decorate ManagementForm.render(),...
+
+30. Accessing formset.empty_form and KeyError occurs after passing 'empty_permitted' via form_kwargs → The empty_form template expects 'empty_permitted' to be present, but form_kwargs injection overwrite
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Ensure the empty_forms are instantiated with the union of de...
+
+31. When TransactionTestCase.serialized_rollback fails to restore objects due to ordering constraints → The issue occurs because serialized rollback processes objects in alphabetical order by model name, 
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Sort models by topological order based on their dependencies...
+
+32. When Admin Inline verbose_name_plural is not based on verbose_name but defaults to model's verbose_name_plural → The Inline class inherits the verbose_name_plural from the model's Meta class instead of deriving it
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Override the verbose_name_plural property in Inline classes ...
+
+33. When FormSet non-form errors don't have the expected 'nonform' CSS class → FormSet errors use 'top_level_error' CSS class while individual form errors use 'nonfield' class, cr
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Add 'nonform' CSS class to FormSet.non_form_errors() output ...
+
+34. When ManyToManyRel objects fail to hash due to unhashable through_fields → The identity property attempts to hash through_fields tuple which may contain unhashable elements, c
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Apply make_hashable() to through_fields before including the...
+
+35. When AutocompleteJsonView needs to include extra fields in autocomplete response → The view hardcodes response fields (id, text) in serialize_result() method, preventing customization
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Refactor serialize_result() to use a configurable get_result...
+
+36. If you find Django’s ManyToManyField validation warning mentioning 'recursive relationship' but your model isn't actually recursive → The validation logic uses the generic word 'recursive' for any self-referencing relation, even when 
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Replace the hard-coded string 'recursive relationship' with ...
+
+37. When Django raises the error about ambiguous foreign keys in through={model} without through_fields → The template string used for the help text references 'self' even when the relation is not recursive
+   Category: debugging
+   Steps: 1
+     1. [debugging] Change the template from 'If you want to create a recursive ...
+
+38. If you add a new variable inside a Django Field .contribute_to_class or validation method → Importing the variable inside the function or referencing it via locals avoids late-import loop issu
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Move variable definition into the formatting scope or use lo...
+
+39. While writing a regression test for an incorrect error message, and the string is generated in validation code → You can isolate the test in invalid_models_tests and simply assertIn on the new wording rather than 
+   Category: testing
+   Steps: 1
+     1. [testing] Put the test in tests/invalid_models_tests/test_relative_fie...
+
+40. When extending {django.contrib.syndication.views.add_item} to accept a new parameter like comments → The RSS2 feed template already references {item.comments}, meaning the new parameter must be written
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Add the parameter directly to the local `item_dict` under th...
+
+41. When {pytest} reports 'AttributeError: {SyndicationFeedTest} has no attribute {test_rss2_feed}' → A typo or name-mismatch in the test method or class attribute prevents the test from being discovere
+   Category: testing
+   Steps: 1
+     1. [testing] Verify the exact spelling of the test method and parent clas...
+
+42. When {inspectdb} generates reverse accessors for two foreign-keys that point to the same model and both lack {related_name} → Django raises fields.E304 because the default accessor name '{model}_set' collides between the two f
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Force {inspectdb} to emit {related_name='%s_%s' % (field.nam...
+
+43. When running {django} management commands inside a test with {call_command()} and the command writes to stdout → Tests that compare generated output need to capture stdout via a custom StringIO or the output compa
+   Category: testing
+   Steps: 1
+     1. [testing] Pass {stdout=StringIO()} into {call_command} and read {stdou...
+
+44. When {django.db.backends.sqlite3} auto-generates foreign-key constraints but the introspected model already has a self-relation → SQLite introspection can produce two identical column definitions for the same logical relation, cau
+   Category: debugging
+   Steps: 1
+     1. [debugging] Filter duplicate rows in the {TableInfo} result set before p...
+
+45. When a ForeignKey with limit_choices_to containing joins produces duplicate choices in a form field → The formfield queryset uses select_related() and multiple joins can generate redundant rows; the ORM
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Call .distinct() on the queryset inside django.forms.models....
+
+46. If get_queryset() in ModelChoiceField filters with Q objects spanning relations and duplicates appear → Duplicate rows arise because the SQL join multiplies rows; filtering alone does not deduplicate them
+   Category: debugging
+   Steps: 1
+     1. [debugging] Append .distinct() right after filtering the queryset within...
+
+47. When writing a regression test for choice duplication caused by joins on a ForeignKey with limit_choices_to → The test must build two objects linked by the same relation; the formfield queryset should return on
+   Category: testing
+   Steps: 1
+     1. [testing] Assert that formfield.choices.count(entity) equals 1 for eac...
+
+48. After patching ModelChoiceField.distinct, if formfields in other apps unexpectedly raise 'OperationalError: too many columns' in SQLite → Using distinct() on wide joins may exceed SQLite column limit when many related fields get loaded; d
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Only apply distinct() when limit_choices_to actually forces ...
+
+49. When you need to extend the admin’s app_list context to expose the actual model class instead of only a serialized dict → The original list builds dicts via model_admin._build_app_dict(); adding a lightweight 'model' key w
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Inside each per-model dict insertion add entry 'model': mode...
+
+50. If existing tests for admin_templates assert exact key sets on the app_list dicts (e.g. checking that only name, object_name, ... exist) → Those tests will break as soon as you introduce an extra key like 'model'; update the assertion to i
+   Category: testing
+   Steps: 1
+     1. [testing] When you expand the context dict, refactor related unit-test...
+
+51. When your new context key passes a live Django class into the template and you later hit 'is not JSON serializable' or pickling errors → Model classes contain rich references (meta, fields, connections) that standard serialization cannot
+   Category: configuration
+   Steps: 1
+     1. [configuration] Document the new key as template-only; if you must serialize...
+
+52. When password-reset tokens remain valid after a user changes their email → The default token-generation logic uses only the user’s primary-key and timestamp, so any later emai
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Override {PasswordResetTokenGenerator} to include the user’s...
+
+53. When a subclass of {PasswordResetTokenGenerator} omits an email field (custom user model without email) → TokenGenerator.get_token still works, but token verification silently fails with ‘invalid token’ bec
+   Category: configuration
+   Steps: 1
+     1. [configuration] In your subclass override {make_hash_value} and guard with h...
+
+54. When unit-testing token invalidation you assert both True and False results in the same test method → Timing precision (1-second window) can cause the two successive calls to fall on different seconds, 
+   Category: testing
+   Steps: 1
+     1. [testing] Force the same timestamp for both calls (mock datetime or se...
+
+55. When modifying contrib.auth.tokens you need to keep backward compatibility for migrations → Changing the hash composition can break password-reset links already in users’ inboxes
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Provide fallback check: accept both old hash formula (withou...
+
+56. When a Q(...) / Exists(...) combination raises a TypeError in Django but Exists(...) / Q(...) works → The root cause is a missing or incorrect __and__ implementation on Q() that does not accept an Exist
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Ensure the left-hand operand’s __and__ overload supports rhs...
+
+57. When a binary operator raises TypeError on a custom Expression class → Check if the class lacks or overrides a __<op>__ method that should delegate to the base Expression 
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Explicitly call super().__<op>(rhs) or reuse base_expression...
+
+58. When existing tests pass in tests/expressions/tests.py yet a new Q vs Expression scenario fails → The test-suite only covered one operator order; the reverse order uncovered a subtle asymmetry in Ex
+   Category: testing
+   Steps: 1
+     1. [testing] Mirror test cases by testing both orders (lhs & rhs vs rhs &...
+
+59. If a new migration fails because it cannot serialize a nested lambda or unhashable expression → Django migration writer demands an unambiguous dotted path of nested classes; using inner class’s __
+   Category: configuration
+   Steps: 1
+     1. [configuration] Replace inner_class.__name__ with inner_class.__qualname__ i...
+
+60. When adding new Expression combinations that must serialize safely through migrations → Add a serialization unit test that tries both directions of binary operators on Expressions/Q object
+   Category: testing
+   Steps: 1
+     1. [testing] Include in the test plan both serialization scenarios plus r...
+
+61. When os.path.basename() is called on a directory path ending with a trailing slash (e.g. '/path/to/dir/') → basename returns an empty string instead of the directory name
+   Category: debugging
+   Steps: 1
+     1. [debugging] Strip trailing path separators before calling os.path.basena...
+
+62. When implementing a create/add command that accepts either a directory name or falls back to the current directory → Path manipulation must be done consistently for every target supplied by the user including path com
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Immediately normalize the user-provided target with os.path....
+
+63. When you want to add a regression test for file-system operations triggered from the CLI → StartAppCommand.make_directory() throws CommandError for invalid inputs and does not create any file
+   Category: testing
+   Steps: 1
+     1. [testing] Import the Command class and call make_directory inside a se...
+
+64. If makemigrations hits NameError: name 'models' is not defined for a custom Field or Model inner class → The migration serializer was trying to import the inner class directly by __name__, losing its paren
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Replace cls.__name__ with cls.__qualname__ in serializer.py ...
+
+65. When serializing any Django component that contains an inner class whose parent module is needed at runtime → Using __name__ strips the module hierarchy and can drop required imports; __qualname__ keeps the ful
+   Category: debugging
+   Steps: 1
+     1. [debugging] Always use obj.__qualname__ instead of obj.__name__ whenever...
+
+66. When method_decorator() loses __name__, __module__ or __doc__ from the original function → The decorator receives a functools.partial object, not the original function, so attribute access fa
+   Category: debugging
+   Steps: 1
+     1. [debugging] Use func.func if isinstance(func, partial) to unwrap the rea...
+
+67. If functools.update_wrapper or @wraps appears to skip attributes on decorated methods → A partial object hides the underlying function’s metadata; unwrap it first with func.func
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] In {function} that wraps views, add a check: wrapped = getat...
+
+68. When decorating class methods and the resulting wrapper lacks __name__ or __qualname__ → django.utils.decorators.method_decorator passes a partial to the decorator, so attribute copying mus
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Inside the decorator, pull the true callable via: if hasattr...
+
+69. When SimpleLazyObject fails to handle __radd__ and other reflected (right-hand) magic methods → Python's data model expects both __add__ and __radd__ (or __mul__ and __rmul__, etc.); a generic pro
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Dynamically generate the six reflected operators on the prox...
+
+70. When Django's system check check_for_template_tags_with_the_same_name triggers spurious 'duplicate' warnings for libraries listed in TEMPLATES['OPTIONS']['libraries'] → The check compares app-label + tag-lib name; explicitly mapped libraries have no app so they all col
+   Category: debugging
+   Steps: 1
+     1. [debugging] In the check function, give every explicit entry a pseudo-ap...
+
+71. When adding new dunder methods to a Python proxy class and the interpreter still claims the method is missing → The new methods must exist on the class itself; attaching them to the instance after creation is too
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Patch the class (or a dedicated mixin) and make the assignme...
+
+72. When a template-tag check runs while configuring settings and crashes because the setting is not yet installed → Checks run during django.setup(), but they may import template libraries that try to read settings; 
+   Category: configuration
+   Steps: 1
+     1. [configuration] Guard any code inside the check with apps.ready and settings...
+
+73. When an 'If-Modified-Since' header is received with an empty string → The empty string silently passes through parsing and later crashes inside http_date() which expects 
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Check the header value first with 'if modified_since:' to ig...
+
+74. If a test starts failing after a recent Django commit but a prior release → The regression appeared at commit d6aff369ad3; examining that commit pinpoints the new code path tha
+   Category: debugging
+   Steps: 1
+     1. [debugging] Look at the specific diff in d6aff369ad3, note that it used ...
+
+75. When fixing a header-validation edge case in Django static-serve code → The StaticServlet only needs a timestamp to compare; an empty header is logically equivalent to 'no 
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Wrap the header read in 'if modified_since: ...', otherwise ...

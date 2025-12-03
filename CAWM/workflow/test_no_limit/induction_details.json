@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:37:38.604918",
+    "status": "completed",
+    "workflow_level": "GENERAL",
+    "num_clusters_processed": 2,
+    "total_experiences": 7
+  },
+  "cluster_results": [
+    {
+      "cluster_id": "seq_cluster_0",
+      "cluster_label": "Action Sequence Cluster 0",
+      "num_trajectories": 2,
+      "trajectory_ids": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "num_experiences_extracted": 4,
+      "experiences": [
+        {
+          "id": "exp-general-48b737d7",
+          "description": "When NDDataRef mask propagation fails with `handle_mask=np.bitwise_or` and one operand lacks a mask → The issue occurs because bitwise operations require both operands to have mask arrays, but the code ",
+          "category": "api_usage",
+          "trigger": "When NDDataRef mask propagation fails with `handle_mask=np.bitwise_or` and one operand lacks a mask",
+          "insight": "The issue occurs because bitwise operations require both operands to have mask arrays, but the code path assumes presence when one operand has no mask",
+          "action": "Before applying bitwise operations, ensure both operands have mask arrays by initializing missing masks as zeros with appropriate dtype and shape matching the data"
+        },
+        {
+          "id": "exp-general-f998de89",
+          "description": "When implementing arithmetic operations on maskable data structures with optional masks → The mask propagation logic needs to handle cases where operands may not have masks defined, requirin",
+          "category": "refactoring",
+          "trigger": "When implementing arithmetic operations on maskable data structures with optional masks",
+          "insight": "The mask propagation logic needs to handle cases where operands may not have masks defined, requiring null-object pattern or default mask initialization",
+          "action": "In arithmetic operations with mask propagation, initialize missing masks as False arrays when encountering None or absent masks, then apply the combine operation uniformly"
+        },
+        {
+          "id": "exp-general-aa98316d",
+          "description": "When HTTP date parsing fails for two-digit years where 00-69 map to 2000-2069 instead of 1970-1999 → RFC 7231 specifies that two-digit years 00-69 should be interpreted as 2000-2069, while 70-99 remain",
+          "category": "configuration",
+          "trigger": "When HTTP date parsing fails for two-digit years where 00-69 map to 2000-2069 instead of 1970-1999",
+          "insight": "RFC 7231 specifies that two-digit years 00-69 should be interpreted as 2000-2069, while 70-99 remain 1970-1999, which differs from common assumptions",
+          "action": "Implement year ranges as: if year < 70 then year += 2000 elif year < 100 then year += 1900, matching RFC 7231 specifications"
+        },
+        {
+          "id": "exp-general-5a53b08e",
+          "description": "When datetime parsing logic needs to handle legacy RFC 850 format while maintaining RFC 7231 compliance → The parsing function must correctly interpret two-digit years according to RFC 7231 rules, which ove",
+          "category": "api_usage",
+          "trigger": "When datetime parsing logic needs to handle legacy RFC 850 format while maintaining RFC 7231 compliance",
+          "insight": "The parsing function must correctly interpret two-digit years according to RFC 7231 rules, which override the older RFC 850 interpretation",
+          "action": "Update the two-digit year handling logic to check if year < 70 and add 2000, otherwise add 1900 for years 70-99"
+        }
+      ],
+      "duration_seconds": 1.96
+    },
+    {
+      "cluster_id": "seq_cluster_1",
+      "cluster_label": "Action Sequence Cluster 1",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-11583"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-2b5fdbea",
+          "description": "When intermittently seeing \"ValueError: embedded null byte\" in StatReloader → Pathlib.stat() can raise null-byte errors on transient filesystem race conditions",
+          "category": "debugging",
+          "trigger": "When intermittently seeing \"ValueError: embedded null byte\" in StatReloader",
+          "insight": "Pathlib.stat() can raise null-byte errors on transient filesystem race conditions",
+          "action": "Wrap pathlib.stat() calls with a broad ValueError handler and fall back to mtime 0 to avoid crashing the autoloader loop"
+        },
+        {
+          "id": "exp-general-46ec01f9",
+          "description": "If an autoreloader module starts failing only on CI but not locally → Python's `-X` dev-mode or `PYTHONDEVMODE` leaks into the spawned reloader subprocess and triggers re",
+          "category": "testing",
+          "trigger": "If an autoreloader module starts failing only on CI but not locally",
+          "insight": "Python's `-X` dev-mode or `PYTHONDEVMODE` leaks into the spawned reloader subprocess and triggers re-validation of bytecode, exposing hidden stat() failures",
+          "action": "Run the same test explicitly with `export PYTHONDEVMODE=1` on local workstation to reproduce stochastic CI failures"
+        },
+        {
+          "id": "exp-general-af344200",
+          "description": "When a test runner hangs or gives opaque results for TestIterModulesAndFiles → Those tests use subprocess tricks to mutate sys.modules(), so std-unittest discovery must be skipped",
+          "category": "testing",
+          "trigger": "When a test runner hangs or gives opaque results for TestIterModulesAndFiles",
+          "insight": "Those tests use subprocess tricks to mutate sys.modules(), so std-unittest discovery must be skipped and the exact test-case name is required as an argument",
+          "action": "Execute the reproducer via `python -m unittest tests.utils_tests.test_autoreloader.TestIterModulesAndFiles.test_file_added` instead of letting the runner discover it"
+        }
+      ],
+      "duration_seconds": 1.58
+    }
+  ]
+}

@@ -1,0 +1,1767 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:09:16.541357",
+    "input_file": "CAWM/trajectories/resolved_trajectories.jsonl",
+    "num_trajectories": 41,
+    "config": {
+      "compression": "key_step_extraction",
+      "clustering": "action_sequence",
+      "threshold": 0.7,
+      "level": "general",
+      "model": "moonshotai/kimi-k2-0905"
+    }
+  },
+  "workflows": [
+    {
+      "id": "exp-general-0d6abbe9",
+      "description": "When NDDataRef mask propagation fails with handle_mask=np.bitwise_or and one operand lacks a mask → The mask propagation logic assumes both operands have masks, causing AttributeError when accessing m",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When NDDataRef mask propagation fails with handle_mask=np.bitwise_or and one operand lacks a mask",
+          "reasoning": "The mask propagation logic assumes both operands have masks, causing AttributeError when accessing mask.is_owner on None",
+          "action": "Check if operand.mask exists before accessing properties, use getattr(operand, 'mask', None) and handle the None case explicitly",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-eed43105",
+      "description": "When django.utils.http.parse_http_date incorrectly interprets two-digit years (00-69 as 1900-1969 instead of 2000-2069) → RFC 7231 specifies that two-digit years 00-69 should map to 2000-2069, not 1900-1969",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When django.utils.http.parse_http_date incorrectly interprets two-digit years (00-69 as 1900-1969 instead of 2000-2069)",
+          "reasoning": "RFC 7231 specifies that two-digit years 00-69 should map to 2000-2069, not 1900-1969",
+          "action": "Adjust year parsing logic: if two-digit year < 70, add 2000; if >= 70, add 1900",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-ed93a3f3",
+      "description": "When django.views.debug.SafeExceptionReporterFilter.get_safe_settings() exposes uncleaned values → The cleanse_setting() function only checks for exact matches against sensitive patterns, missing var",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When django.views.debug.SafeExceptionReporterFilter.get_safe_settings() exposes uncleaned values",
+          "reasoning": "The cleanse_setting() function only checks for exact matches against sensitive patterns, missing variations like 'API_KEY' vs 'APIKEY'",
+          "action": "Implement fuzzy pattern matching using any(keyword in name.upper() for keyword in ['KEY', 'SECRET', 'PASSWORD'])",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-ff906f39",
+      "description": "When Django migration crashes deleting index_together that shares fields with unique_together → PostgreSQL drops the unique index when index_together is removed, causing unique_together constraint",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When Django migration crashes deleting index_together that shares fields with unique_together",
+          "reasoning": "PostgreSQL drops the unique index when index_together is removed, causing unique_together constraint violation",
+          "action": "Check for overlapping unique_together constraints before removing index_together, recreate the unique index if necessary",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-b56f25a3",
+      "description": "When namedtuple arguments to __range filter cause TypeError after Django 2.2→3.0 upgrade → Django 3.0 changed field processing logic, attempting to call len() on namedtuple which returns a me",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When namedtuple arguments to __range filter cause TypeError after Django 2.2→3.0 upgrade",
+          "reasoning": "Django 3.0 changed field processing logic, attempting to call len() on namedtuple which returns a method, not length",
+          "action": "Check if the object is a namedtuple using hasattr(value, '_fields') before processing as a sequence",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-914c54ff",
+      "description": "When ManagementUtility fails to pass computed prog argument to CommandParser → CommandParser expects 'prog' parameter but ManagementUtility.__init__ doesn't forward it despite com",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When ManagementUtility fails to pass computed prog argument to CommandParser",
+          "reasoning": "CommandParser expects 'prog' parameter but ManagementUtility.__init__ doesn't forward it despite computing it",
+          "action": "Pass self.prog explicitly when instantiating CommandParser: CommandParser(..., prog=self.prog)",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-fd78afe8",
+      "description": "When messages framework converts extra_tags='' to None during serialization/deserialization → MessageEncoder checks if extra_tags is True/falsy, converting empty string to None in the JSON encod",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When messages framework converts extra_tags='' to None during serialization/deserialization",
+          "reasoning": "MessageEncoder checks if extra_tags is True/falsy, converting empty string to None in the JSON encoding process",
+          "action": "Explicitly check for empty string: if getattr(message, 'extra_tags', None) == '', preserve it as ''",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-26993bb9",
+      "description": "When PostgreSQL dbshell fails with additional parameters after database name → psql requires all options to precede the database name, parameters after dbname are treated as datab",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "When PostgreSQL dbshell fails with additional parameters after database name",
+          "reasoning": "psql requires all options to precede the database name, parameters after dbname are treated as database connection attempts",
+          "action": "Construct the command list with all parameters before the database name: [psql] + parameters + [dbname] if dbname provided",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848",
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-a4bc215d",
+      "description": "If StatReloader sporadically raises 'ValueError: embedded null byte' during auto-reload → Pathlib may encounter filesystem paths that contain or return null bytes when queried by stat() on c",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "If StatReloader sporadically raises 'ValueError: embedded null byte' during auto-reload",
+          "reasoning": "Pathlib may encounter filesystem paths that contain or return null bytes when queried by stat() on certain platforms or network drives",
+          "action": "Wrap pathlib stat() calls in a try/except that catches ValueError and treats the path as unreadable rather than letting the null-byte propagate",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-c40f44df",
+      "description": "When migrating file-watching code from os.path to pathlib → pathlib.Path.stat() can surface low-level C library errors (e.g., null bytes) that os.stat() silentl",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When migrating file-watching code from os.path to pathlib",
+          "reasoning": "pathlib.Path.stat() can surface low-level C library errors (e.g., null bytes) that os.stat() silently suppressed or never triggered",
+          "action": "Audit every pathlib stat() usage in {file} and guard it with the same exception handling formerly applied to os.stat()",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-50fd5a1e",
+      "description": "If a test that triggers StatReloader intermittently fails with 'embedded null byte' locally but passes in CI → The issue is environmental—certain local filesystems or antivirus filters can inject spurious null b",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "If a test that triggers StatReloader intermittently fails with 'embedded null byte' locally but passes in CI",
+          "reasoning": "The issue is environmental—certain local filesystems or antivirus filters can inject spurious null bytes into stat() results",
+          "action": "Add a targeted regression test that mocks pathlib.Path.stat to raise ValueError and asserts the reloader skips the problematic path instead of crashing",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-d4ba3eb2",
+      "description": "When inner class references fail during migration serialization → Using __name__ only gives the class name without its containing context, causing import path resolut",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When inner class references fail during migration serialization",
+          "reasoning": "Using __name__ only gives the class name without its containing context, causing import path resolution to fail for nested classes",
+          "action": "Use __qualname__ instead of __name__ to get the fully qualified dotted path including parent classes",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125",
+        "django__django-14238",
+        "django__django-16139"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-bb454bed",
+      "description": "When DEFAULT_AUTO_FIELD subclass check incorrectly rejects BigAutoField/SmallAutoField subclasses → The isinstance check needs to be broadened to accept subclasses of the expected field types, not jus",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "When DEFAULT_AUTO_FIELD subclass check incorrectly rejects BigAutoField/SmallAutoField subclasses",
+          "reasoning": "The isinstance check needs to be broadened to accept subclasses of the expected field types, not just exact matches",
+          "action": "Update validation logic to use isinstance(field, (BigAutoField, SmallAutoField)) instead of checking the exact class name",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125",
+        "django__django-14238",
+        "django__django-16139"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-aa613c78",
+      "description": "When admin password reset links break with to_field references → The admin URL generation doesn't account for custom lookup parameters passed through to_field, causi",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When admin password reset links break with to_field references",
+          "reasoning": "The admin URL generation doesn't account for custom lookup parameters passed through to_field, causing URL pattern mismatches",
+          "action": "Build admin URLs that preserve the original lookup parameters used to access the admin interface",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125",
+        "django__django-14238",
+        "django__django-16139"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-b7c1b9b9",
+      "description": "When model field deconstruct() generates incorrect import paths for nested classes → The deconstruct method builds import paths using module.class notation, but nested classes need modu",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When model field deconstruct() generates incorrect import paths for nested classes",
+          "reasoning": "The deconstruct method builds import paths using module.class notation, but nested classes need module.parent.inner path resolution",
+          "action": "Ensure deconstruct() properly handles nested class paths by checking __qualname__ and building correct dotted imports",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125",
+        "django__django-14238",
+        "django__django-16139"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-14dd7cf7",
+      "description": "When custom auto-field subclasses get rejected by Django's settings validation → Settings validation often performs overly strict class checking that doesn't permit subclassing of b",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "When custom auto-field subclasses get rejected by Django's settings validation",
+          "reasoning": "Settings validation often performs overly strict class checking that doesn't permit subclassing of built-in field types",
+          "action": "Replace class equality checks with isinstance() checks to properly support custom field subclasses",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125",
+        "django__django-14238",
+        "django__django-16139"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-99657680",
+      "description": "When optional URL parameters cause reverse() failures with 'No URL pattern matches' even though the pattern exists → Reverse resolution fails when the pattern's optional capture group makes it impossible to distinguis",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When optional URL parameters cause reverse() failures with 'No URL pattern matches' even though the pattern exists",
+          "reasoning": "Reverse resolution fails when the pattern's optional capture group makes it impossible to distinguish between 'format' and 'format-' as valid endings",
+          "action": "Add explicit tests for patterns like r'module(/?)(?P<format>(html|json|xml))?' to ensure reverse() correctly handles the optional capture group's effect on pattern matching",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184",
+        "django__django-15789"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-000a3582",
+      "description": "When extending a Django utility function like json_script() to accept new parameters → The template filter wrapper in defaultfilters.py must mirror the new signature and pass the paramete",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When extending a Django utility function like json_script() to accept new parameters",
+          "reasoning": "The template filter wrapper in defaultfilters.py must mirror the new signature and pass the parameter through, not just the core utility function",
+          "action": "Update both django/utils/html.py:json_script() AND django/template/defaultfilters.py:json_script filter with matching signatures to prevent template rendering errors",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184",
+        "django__django-15789"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-4f8f488c",
+      "description": "When fixing regex URL patterns that optionally capture empty strings → The resolver's handling of captured None vs empty string affects the {module} vs {module-} ambiguity",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When fixing regex URL patterns that optionally capture empty strings",
+          "reasoning": "The resolver's handling of captured None vs empty string affects the {module} vs {module-} ambiguity in reverse URL generation",
+          "action": "Modify the resolver's pattern matching logic to normalize empty captures to None before comparison, ensuring consistent reverse resolution",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184",
+        "django__django-15789"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-b032f7a6",
+      "description": "When adding encoder support to JSON utilities in Django templates → Default filter arguments must be explicitly handled in the template filter registration to maintain ",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When adding encoder support to JSON utilities in Django templates",
+          "reasoning": "Default filter arguments must be explicitly handled in the template filter registration to maintain backward compatibility when encoder=None",
+          "action": "Use register.filter('json_script', json_script) without decorator arguments to preserve the function's default parameter behavior",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184",
+        "django__django-15789"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-7980f55c",
+      "description": "When get_FOO_display() returns the raw stored value instead of the human-readable choice label → The choices attribute on a child model shadows the parent's choices completely, so Django's display ",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When get_FOO_display() returns the raw stored value instead of the human-readable choice label",
+          "reasoning": "The choices attribute on a child model shadows the parent's choices completely, so Django's display logic only sees the child's choices list.",
+          "action": "Ensure the child's choices extend the parent's choices (e.g., Child.CHOICES = Parent.CHOICES + extra_choices) rather than re-defining choices from scratch.",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12284",
+        "django__django-15814"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-e3a8d7e9",
+      "description": "If running tests with pytest and Django's test runner reports unexpected 'app not ready' or module errors → pytest-django does not auto-discover apps in the same way Django's test runner does; the test file m",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "If running tests with pytest and Django's test runner reports unexpected 'app not ready' or module errors",
+          "reasoning": "pytest-django does not auto-discover apps in the same way Django's test runner does; the test file must live inside the correct tests package that Django's test discovery expects.",
+          "action": "Place test file under Django's standard test hierarchy (inside tests/ package under an installed app) or explicitly add the file's app to INSTALLED_APPS before import.",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12284",
+        "django__django-15814"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-354ff7b4",
+      "description": "When select_related().only() on a proxy model crashes with AttributeError about missing fields → only() on a proxy model relies on model._meta.get_field(), but proxy models don't recreate field ins",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When select_related().only() on a proxy model crashes with AttributeError about missing fields",
+          "reasoning": "only() on a proxy model relies on model._meta.get_field(), but proxy models don't recreate field instances; they reference their parent model's fields which may not be found without the correct parent model.",
+          "action": "Make sure that queryset.only() is called from the concrete model, not the proxy, or explicitly include all proxy-traversed fields in the only list by their full dotted name.",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12284",
+        "django__django-15814"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-4fb811ff",
+      "description": "If migration serializes an inner class and the reference fails with AttributeError: 'Inner' not found after migration → __name__ loses inner-class scope; Django migration needs the dotted import path.",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "If migration serializes an inner class and the reference fails with AttributeError: 'Inner' not found after migration",
+          "reasoning": "__name__ loses inner-class scope; Django migration needs the dotted import path.",
+          "action": "",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12284",
+        "django__django-15814"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-12eaf5a8",
+      "description": "When a quick reproduction script passes, but the real test file inside the test suite fails with similar code → The project's test harness patches or alters settings (e.g., modifies model registration or connecti",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When a quick reproduction script passes, but the real test file inside the test suite fails with similar code",
+          "reasoning": "The project's test harness patches or alters settings (e.g., modifies model registration or connection) that your standalone script does not replicate.",
+          "action": "Always replicate the exact test environment—import from the same tests module or copy the environment setup at the top of the reproduction script to keep parity with the suite.",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12284",
+        "django__django-15814"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-5ad68142",
+      "description": "If Django raises translation.E004 on a sublanguage (e.g. de-at) but a base language (de) locale directory exists → The check should treat sublanguage code fall‐back to base as successful; the strict one-to-one compa",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "If Django raises translation.E004 on a sublanguage (e.g. de-at) but a base language (de) locale directory exists",
+          "reasoning": "The check should treat sublanguage code fall‐back to base as successful; the strict one-to-one compare is the bug.",
+          "action": "In the translation_check function, normalize the lang tag to its base by stripping the last hyphen‐suffix before checking locale directories, so the sublanguage test passes when base is present.",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12286",
+        "django__django-13033",
+        "django__django-13158",
+        "django__django-15902",
+        "django__django-16041"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-d1c00da6",
+      "description": "When a self-referenced FK ordering contains '_id' (e.g. 'parent_id') and SQL ordering breaks → If ordering field names are not promoted-to-refs early, Django may try to ORDER BY an unavailable jo",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When a self-referenced FK ordering contains '_id' (e.g. 'parent_id') and SQL ordering breaks",
+          "reasoning": "If ordering field names are not promoted-to-refs early, Django may try to ORDER BY an unavailable join key; explicit promotion fixes the alias resolution.",
+          "action": "Inside the QuerySet setup_joins call for the ordering, add the ordering fields to qs.promoted_joins before compiling so proper table aliases are generated, or detect a self-descending path and promote join immediately.",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12286",
+        "django__django-13033",
+        "django__django-13158",
+        "django__django-15902",
+        "django__django-16041"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-1e273d9e",
+      "description": "After combining querysets with '|' or union(), calling .none() unexpectedly keeps rows → none() is translated to an empty WHERE subquery for the first QuerySet, but union() later merges it ",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "After combining querysets with '|' or union(), calling .none() unexpectedly keeps rows",
+          "reasoning": "none() is translated to an empty WHERE subquery for the first QuerySet, but union() later merges it with a non-empty counterpart, so no row is marked for exclusion.",
+          "action": "Override none() for combined querysets to return a genuine EmptyResultSet rather than a wrapper that can be merged away.",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12286",
+        "django__django-13033",
+        "django__django-13158",
+        "django__django-15902",
+        "django__django-16041"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-4a14a8d7",
+      "description": "Deprecation message about 'default.html' shows up even when the user template never mentions it → ManagementForm rendering internally chooses its own template at runtime; wrap its render() with djan",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "Deprecation message about 'default.html' shows up even when the user template never mentions it",
+          "reasoning": "ManagementForm rendering internally chooses its own template at runtime; wrap its render() with django.utils.deprecation.ignore_warnings to silence the warning, but keep warning when the user explicitly calls the deprecated forms API.",
+          "action": "Import ignore_warnings and decorate ManagementForm.render(), ensuring projects using ManagementForm only suppress internal warning, not public API warning.",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12286",
+        "django__django-13033",
+        "django__django-13158",
+        "django__django-15902",
+        "django__django-16041"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-33ff4407",
+      "description": "Accessing formset.empty_form and KeyError occurs after passing 'empty_permitted' via form_kwargs → The empty_form template expects 'empty_permitted' to be present, but form_kwargs injection overwrite",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "Accessing formset.empty_form and KeyError occurs after passing 'empty_permitted' via form_kwargs",
+          "reasoning": "The empty_form template expects 'empty_permitted' to be present, but form_kwargs injection overwrites the internal Empty form’s initial data without guarding for the key.",
+          "action": "Ensure the empty_forms are instantiated with the union of default values and user-supplied form_kwargs, instead of replacing defaults wholesale.",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12286",
+        "django__django-13033",
+        "django__django-13158",
+        "django__django-15902",
+        "django__django-16041"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-6eb15166",
+      "description": "When TransactionTestCase.serialized_rollback fails to restore objects due to ordering constraints → The issue occurs because serialized rollback processes objects in alphabetical order by model name, ",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When TransactionTestCase.serialized_rollback fails to restore objects due to ordering constraints",
+          "reasoning": "The issue occurs because serialized rollback processes objects in alphabetical order by model name, but foreign key relationships require specific ordering to maintain referential integrity",
+          "action": "Sort models by topological order based on their dependencies rather than using alphabetical ordering in get_serialized_model_order() method",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12453",
+        "django__django-13710",
+        "django__django-14608",
+        "django__django-14672",
+        "django__django-14752"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-5f39300e",
+      "description": "When Admin Inline verbose_name_plural is not based on verbose_name but defaults to model's verbose_name_plural → The Inline class inherits the verbose_name_plural from the model's Meta class instead of deriving it",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When Admin Inline verbose_name_plural is not based on verbose_name but defaults to model's verbose_name_plural",
+          "reasoning": "The Inline class inherits the verbose_name_plural from the model's Meta class instead of deriving it from the Inline's own verbose_name attribute",
+          "action": "Override the verbose_name_plural property in Inline classes to use get_text_list with the Inline's verbose_name when it differs from the model's default",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12453",
+        "django__django-13710",
+        "django__django-14608",
+        "django__django-14672",
+        "django__django-14752"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-134f9204",
+      "description": "When FormSet non-form errors don't have the expected 'nonform' CSS class → FormSet errors use 'top_level_error' CSS class while individual form errors use 'nonfield' class, cr",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When FormSet non-form errors don't have the expected 'nonform' CSS class",
+          "reasoning": "FormSet errors use 'top_level_error' CSS class while individual form errors use 'nonfield' class, creating inconsistency in error styling",
+          "action": "Add 'nonform' CSS class to FormSet.non_form_errors() output to match the pattern used for individual form non-field errors",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12453",
+        "django__django-13710",
+        "django__django-14608",
+        "django__django-14672",
+        "django__django-14752"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-d1bc154d",
+      "description": "When ManyToManyRel objects fail to hash due to unhashable through_fields → The identity property attempts to hash through_fields tuple which may contain unhashable elements, c",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When ManyToManyRel objects fail to hash due to unhashable through_fields",
+          "reasoning": "The identity property attempts to hash through_fields tuple which may contain unhashable elements, causing TypeError in 3.2+ identity property implementation",
+          "action": "Apply make_hashable() to through_fields before including them in the identity tuple, similar to how limit_choices_to is handled",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12453",
+        "django__django-13710",
+        "django__django-14608",
+        "django__django-14672",
+        "django__django-14752"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-921b34d4",
+      "description": "When AutocompleteJsonView needs to include extra fields in autocomplete response → The view hardcodes response fields (id, text) in serialize_result() method, preventing customization",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When AutocompleteJsonView needs to include extra fields in autocomplete response",
+          "reasoning": "The view hardcodes response fields (id, text) in serialize_result() method, preventing customization for additional data attributes",
+          "action": "Refactor serialize_result() to use a configurable get_result_data() method that subclasses can override to include extra fields while maintaining backward compatibility",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12453",
+        "django__django-13710",
+        "django__django-14608",
+        "django__django-14672",
+        "django__django-14752"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-9db9a1e4",
+      "description": "If you find Django’s ManyToManyField validation warning mentioning 'recursive relationship' but your model isn't actually recursive → The validation logic uses the generic word 'recursive' for any self-referencing relation, even when ",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "If you find Django’s ManyToManyField validation warning mentioning 'recursive relationship' but your model isn't actually recursive",
+          "reasoning": "The validation logic uses the generic word 'recursive' for any self-referencing relation, even when the issue is simply too many foreign keys in the intermediary model",
+          "action": "Replace the hard-coded string 'recursive relationship' with the placeholder string '{relationship_model}' so Django prints the actual model name instead of the inaccurate hint",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12497"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-8d971412",
+      "description": "When Django raises the error about ambiguous foreign keys in through={model} without through_fields → The template string used for the help text references 'self' even when the relation is not recursive",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When Django raises the error about ambiguous foreign keys in through={model} without through_fields",
+          "reasoning": "The template string used for the help text references 'self' even when the relation is not recursive, causing misleading guidance",
+          "action": "Change the template from 'If you want to create a recursive relationship...' to 'If you want to create a {relationship_model} relationship...' and pass relationship_model=model._meta.object_name into the formatting call",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12497"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-9b9bc060",
+      "description": "If you add a new variable inside a Django Field .contribute_to_class or validation method → Importing the variable inside the function or referencing it via locals avoids late-import loop issu",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "If you add a new variable inside a Django Field .contribute_to_class or validation method",
+          "reasoning": "Importing the variable inside the function or referencing it via locals avoids late-import loop issues but still surfaces it for string formatting",
+          "action": "Move variable definition into the formatting scope or use locals() safely instead of assuming global template context",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12497"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-1b9e078c",
+      "description": "While writing a regression test for an incorrect error message, and the string is generated in validation code → You can isolate the test in invalid_models_tests and simply assertIn on the new wording rather than ",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "While writing a regression test for an incorrect error message, and the string is generated in validation code",
+          "reasoning": "You can isolate the test in invalid_models_tests and simply assertIn on the new wording rather than needing to render the full exception page",
+          "action": "Put the test in tests/invalid_models_tests/test_relative_fields.py, create a minimal model with three ForeignKeys to the same related model in the through table, and assert that the check report contains the corrected phrase without the word 'recursive'",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12497"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-a12733c1",
+      "description": "When extending {django.contrib.syndication.views.add_item} to accept a new parameter like comments → The RSS2 feed template already references {item.comments}, meaning the new parameter must be written",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When extending {django.contrib.syndication.views.add_item} to accept a new parameter like comments",
+          "reasoning": "The RSS2 feed template already references {item.comments}, meaning the new parameter must be written into the same feed item dictionary that the existing code populates",
+          "action": "Add the parameter directly to the local `item_dict` under the key that the template expects (e.g., `item_dict['comments'] = comments`) rather than creating a new structure",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13230",
+        "django__django-15819"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-04383df3",
+      "description": "When {pytest} reports 'AttributeError: {SyndicationFeedTest} has no attribute {test_rss2_feed}' → A typo or name-mismatch in the test method or class attribute prevents the test from being discovere",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When {pytest} reports 'AttributeError: {SyndicationFeedTest} has no attribute {test_rss2_feed}'",
+          "reasoning": "A typo or name-mismatch in the test method or class attribute prevents the test from being discovered even if the module file is correctly imported",
+          "action": "Verify the exact spelling of the test method and parent class against the calling string; copy the exact method name into the pytest selector to ensure discovery",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13230",
+        "django__django-15819"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-bfc21d2a",
+      "description": "When {inspectdb} generates reverse accessors for two foreign-keys that point to the same model and both lack {related_name} → Django raises fields.E304 because the default accessor name '{model}_set' collides between the two f",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When {inspectdb} generates reverse accessors for two foreign-keys that point to the same model and both lack {related_name}",
+          "reasoning": "Django raises fields.E304 because the default accessor name '{model}_set' collides between the two fields",
+          "action": "Force {inspectdb} to emit {related_name='%s_%s' % (field.name, table)} (or any unique pattern) so each back-reference obtains a distinct name",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13230",
+        "django__django-15819"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-d2f1574e",
+      "description": "When running {django} management commands inside a test with {call_command()} and the command writes to stdout → Tests that compare generated output need to capture stdout via a custom StringIO or the output compa",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When running {django} management commands inside a test with {call_command()} and the command writes to stdout",
+          "reasoning": "Tests that compare generated output need to capture stdout via a custom StringIO or the output comparison will fail with an empty string",
+          "action": "Pass {stdout=StringIO()} into {call_command} and read {stdout.getvalue()} instead of checking the console",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13230",
+        "django__django-15819"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-2e24efe0",
+      "description": "When {django.db.backends.sqlite3} auto-generates foreign-key constraints but the introspected model already has a self-relation → SQLite introspection can produce two identical column definitions for the same logical relation, cau",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When {django.db.backends.sqlite3} auto-generates foreign-key constraints but the introspected model already has a self-relation",
+          "reasoning": "SQLite introspection can produce two identical column definitions for the same logical relation, causing a collision in model fields",
+          "action": "Filter duplicate rows in the {TableInfo} result set before processing columns in {inspectdb} to ensure each relation is only processed once",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13230",
+        "django__django-15819"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-9ae03db9",
+      "description": "When a ForeignKey with limit_choices_to containing joins produces duplicate choices in a form field → The formfield queryset uses select_related() and multiple joins can generate redundant rows; the ORM",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When a ForeignKey with limit_choices_to containing joins produces duplicate choices in a form field",
+          "reasoning": "The formfield queryset uses select_related() and multiple joins can generate redundant rows; the ORM's default DISTINCT is not applied when limit_choices_to is a Q object that forces joins",
+          "action": "Call .distinct() on the queryset inside django.forms.models.ModelChoiceField.__init__ when limit_choices_to involves joins",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13315"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-51c12b37",
+      "description": "If get_queryset() in ModelChoiceField filters with Q objects spanning relations and duplicates appear → Duplicate rows arise because the SQL join multiplies rows; filtering alone does not deduplicate them",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "If get_queryset() in ModelChoiceField filters with Q objects spanning relations and duplicates appear",
+          "reasoning": "Duplicate rows arise because the SQL join multiplies rows; filtering alone does not deduplicate them",
+          "action": "Append .distinct() right after filtering the queryset within ModelChoiceField.get_queryset() before caching",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13315"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-c7ac44e4",
+      "description": "When writing a regression test for choice duplication caused by joins on a ForeignKey with limit_choices_to → The test must build two objects linked by the same relation; the formfield queryset should return on",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When writing a regression test for choice duplication caused by joins on a ForeignKey with limit_choices_to",
+          "reasoning": "The test must build two objects linked by the same relation; the formfield queryset should return one option per candidate object despite joins multiplying SQL rows",
+          "action": "Assert that formfield.choices.count(entity) equals 1 for each expected id, and that len(formfield.choices) equals expected unique set size",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13315"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-707c16fc",
+      "description": "After patching ModelChoiceField.distinct, if formfields in other apps unexpectedly raise 'OperationalError: too many columns' in SQLite → Using distinct() on wide joins may exceed SQLite column limit when many related fields get loaded; d",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "After patching ModelChoiceField.distinct, if formfields in other apps unexpectedly raise 'OperationalError: too many columns' in SQLite",
+          "reasoning": "Using distinct() on wide joins may exceed SQLite column limit when many related fields get loaded; distinct() with select_related() multiplies selected columns",
+          "action": "Only apply distinct() when limit_choices_to actually forces joins; wrap the call in a check such as queryset.query.tables > 1",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13315"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-3e450a9b",
+      "description": "When you need to extend the admin’s app_list context to expose the actual model class instead of only a serialized dict → The original list builds dicts via model_admin._build_app_dict(); adding a lightweight 'model' key w",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When you need to extend the admin’s app_list context to expose the actual model class instead of only a serialized dict",
+          "reasoning": "The original list builds dicts via model_admin._build_app_dict(); adding a lightweight 'model' key with value model_class keeps every downstream template/key intact while giving consumers programmatic access to the class",
+          "action": "Inside each per-model dict insertion add entry 'model': model_class, after verifying the model_class is hashable and serializable for the context",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13447"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-d53ae220",
+      "description": "If existing tests for admin_templates assert exact key sets on the app_list dicts (e.g. checking that only name, object_name, ... exist) → Those tests will break as soon as you introduce an extra key like 'model'; update the assertion to i",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "If existing tests for admin_templates assert exact key sets on the app_list dicts (e.g. checking that only name, object_name, ... exist)",
+          "reasoning": "Those tests will break as soon as you introduce an extra key like 'model'; update the assertion to ignore unknown keys or to check a known subset rather than exact equality",
+          "action": "When you expand the context dict, refactor related unit-tests to assert {'name': app['name'], ...} <= expected_subset or use dict comparison that allows extra keys",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13447"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-ef5a68ed",
+      "description": "When your new context key passes a live Django class into the template and you later hit 'is not JSON serializable' or pickling errors → Model classes contain rich references (meta, fields, connections) that standard serialization cannot",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "When your new context key passes a live Django class into the template and you later hit 'is not JSON serializable' or pickling errors",
+          "reasoning": "Model classes contain rich references (meta, fields, connections) that standard serialization cannot handle; limit the key to views where you will not immediately serialize the context to JSON",
+          "action": "Document the new key as template-only; if you must serialize downstream, replace with a proxy string such as model_class.__name__ or the dotted app_label.Model path",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13447"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-128c9e29",
+      "description": "When password-reset tokens remain valid after a user changes their email → The default token-generation logic uses only the user’s primary-key and timestamp, so any later emai",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When password-reset tokens remain valid after a user changes their email",
+          "reasoning": "The default token-generation logic uses only the user’s primary-key and timestamp, so any later email change does not invalidate the hash",
+          "action": "Override {PasswordResetTokenGenerator} to include the user’s current email in the hash (e.g., hash_update(str(user.email))) so that changing the email re-computes a new expected hash and rejects old tokens",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13551"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-6b8a17a7",
+      "description": "When a subclass of {PasswordResetTokenGenerator} omits an email field (custom user model without email) → TokenGenerator.get_token still works, but token verification silently fails with ‘invalid token’ bec",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "When a subclass of {PasswordResetTokenGenerator} omits an email field (custom user model without email)",
+          "reasoning": "TokenGenerator.get_token still works, but token verification silently fails with ‘invalid token’ because the base class expects an email value",
+          "action": "In your subclass override {make_hash_value} and guard with hasattr(user, 'email'); only call update if the attribute exists to keep hash stable for email-less User models",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13551"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-6ebeb65f",
+      "description": "When unit-testing token invalidation you assert both True and False results in the same test method → Timing precision (1-second window) can cause the two successive calls to fall on different seconds, ",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When unit-testing token invalidation you assert both True and False results in the same test method",
+          "reasoning": "Timing precision (1-second window) can cause the two successive calls to fall on different seconds, leading to flaky assertions",
+          "action": "Force the same timestamp for both calls (mock datetime or set to fixed value) when asserting token validity changes",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13551"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-65236652",
+      "description": "When modifying contrib.auth.tokens you need to keep backward compatibility for migrations → Changing the hash composition can break password-reset links already in users’ inboxes",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When modifying contrib.auth.tokens you need to keep backward compatibility for migrations",
+          "reasoning": "Changing the hash composition can break password-reset links already in users’ inboxes",
+          "action": "Provide fallback check: accept both old hash formula (without email field) and new formula for one release, logging a deprecation warning",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-13551"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-676d0223",
+      "description": "When a Q(...) / Exists(...) combination raises a TypeError in Django but Exists(...) / Q(...) works → The root cause is a missing or incorrect __and__ implementation on Q() that does not accept an Exist",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When a Q(...) / Exists(...) combination raises a TypeError in Django but Exists(...) / Q(...) works",
+          "reasoning": "The root cause is a missing or incorrect __and__ implementation on Q() that does not accept an Exists expression directly",
+          "action": "Ensure the left-hand operand’s __and__ overload supports rhs types beyond Q objects (specifically, handle rhs that are subclasses of Expression through their base_expression.__and__)",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14017"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-1ef9abcf",
+      "description": "When a binary operator raises TypeError on a custom Expression class → Check if the class lacks or overrides a __<op>__ method that should delegate to the base Expression ",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When a binary operator raises TypeError on a custom Expression class",
+          "reasoning": "Check if the class lacks or overrides a __<op>__ method that should delegate to the base Expression class",
+          "action": "Explicitly call super().__<op>(rhs) or reuse base_expression.py’s implementation, ensuring subclasses inherit the expected commutative behavior",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14017"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-6125a5fe",
+      "description": "When existing tests pass in tests/expressions/tests.py yet a new Q vs Expression scenario fails → The test-suite only covered one operator order; the reverse order uncovered a subtle asymmetry in Ex",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When existing tests pass in tests/expressions/tests.py yet a new Q vs Expression scenario fails",
+          "reasoning": "The test-suite only covered one operator order; the reverse order uncovered a subtle asymmetry in Expression.__and__ delegation",
+          "action": "Mirror test cases by testing both orders (lhs & rhs vs rhs & lhs) for any expression combination",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14017"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-be09f5a4",
+      "description": "If a new migration fails because it cannot serialize a nested lambda or unhashable expression → Django migration writer demands an unambiguous dotted path of nested classes; using inner class’s __",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "If a new migration fails because it cannot serialize a nested lambda or unhashable expression",
+          "reasoning": "Django migration writer demands an unambiguous dotted path of nested classes; using inner class’s __name__ omits the enclosing module path",
+          "action": "Replace inner_class.__name__ with inner_class.__qualname__ in the migration serialization code to restore the full dotted path",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14017"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-2eb390bb",
+      "description": "When adding new Expression combinations that must serialize safely through migrations → Add a serialization unit test that tries both directions of binary operators on Expressions/Q object",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When adding new Expression combinations that must serialize safely through migrations",
+          "reasoning": "Add a serialization unit test that tries both directions of binary operators on Expressions/Q objects and verifies get_source_respects_depth() matches expected output",
+          "action": "Include in the test plan both serialization scenarios plus round-trip migrations to catch __qualname__ serialization failures early",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14017"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-0ed4cf7d",
+      "description": "When os.path.basename() is called on a directory path ending with a trailing slash (e.g. '/path/to/dir/') → basename returns an empty string instead of the directory name",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When os.path.basename() is called on a directory path ending with a trailing slash (e.g. '/path/to/dir/')",
+          "reasoning": "basename returns an empty string instead of the directory name",
+          "action": "Strip trailing path separators before calling os.path.basename() to get the last pathname component even for directories",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14382"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-960e902c",
+      "description": "When implementing a create/add command that accepts either a directory name or falls back to the current directory → Path manipulation must be done consistently for every target supplied by the user including path com",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When implementing a create/add command that accepts either a directory name or falls back to the current directory",
+          "reasoning": "Path manipulation must be done consistently for every target supplied by the user including path completion edge cases",
+          "action": "Immediately normalize the user-provided target with os.path.normpath() and/or rstrip(os.sep) so subsequent validations apply to the cleaned path",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14382"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-044ef589",
+      "description": "When you want to add a regression test for file-system operations triggered from the CLI → StartAppCommand.make_directory() throws CommandError for invalid inputs and does not create any file",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When you want to add a regression test for file-system operations triggered from the CLI",
+          "reasoning": "StartAppCommand.make_directory() throws CommandError for invalid inputs and does not create any file-system entries, letting you test error cases quickly in-memory",
+          "action": "Import the Command class and call make_directory inside a self-isolated management call with capture=True to verify that expected errors are raised without side-effects",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14382"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-10540e23",
+      "description": "If makemigrations hits NameError: name 'models' is not defined for a custom Field or Model inner class → The migration serializer was trying to import the inner class directly by __name__, losing its paren",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "If makemigrations hits NameError: name 'models' is not defined for a custom Field or Model inner class",
+          "reasoning": "The migration serializer was trying to import the inner class directly by __name__, losing its parent module context; the Django model namespace models is then missing inside the generated migration",
+          "action": "Replace cls.__name__ with cls.__qualname__ in serializer.py get_import_path() so the dotted path (e.g. models.EmailField) is preserved, ensuring the models import remains available inside the generated migration",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14580"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-1f484639",
+      "description": "When serializing any Django component that contains an inner class whose parent module is needed at runtime → Using __name__ strips the module hierarchy and can drop required imports; __qualname__ keeps the ful",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When serializing any Django component that contains an inner class whose parent module is needed at runtime",
+          "reasoning": "Using __name__ strips the module hierarchy and can drop required imports; __qualname__ keeps the full dotted path the interpreter uses",
+          "action": "Always use obj.__qualname__ instead of obj.__name__ whenever the surrounding module context must be preserved for later import resolution",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14580"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-471c658e",
+      "description": "When method_decorator() loses __name__, __module__ or __doc__ from the original function → The decorator receives a functools.partial object, not the original function, so attribute access fa",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When method_decorator() loses __name__, __module__ or __doc__ from the original function",
+          "reasoning": "The decorator receives a functools.partial object, not the original function, so attribute access fails",
+          "action": "Use func.func if isinstance(func, partial) to unwrap the real function before copying attributes",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14787"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-a0fccb2a",
+      "description": "If functools.update_wrapper or @wraps appears to skip attributes on decorated methods → A partial object hides the underlying function’s metadata; unwrap it first with func.func",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "If functools.update_wrapper or @wraps appears to skip attributes on decorated methods",
+          "reasoning": "A partial object hides the underlying function’s metadata; unwrap it first with func.func",
+          "action": "In {function} that wraps views, add a check: wrapped = getattr(func, 'func', func) before update_wrapper(wrapped, …)",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14787"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-eb401809",
+      "description": "When decorating class methods and the resulting wrapper lacks __name__ or __qualname__ → django.utils.decorators.method_decorator passes a partial to the decorator, so attribute copying mus",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When decorating class methods and the resulting wrapper lacks __name__ or __qualname__",
+          "reasoning": "django.utils.decorators.method_decorator passes a partial to the decorator, so attribute copying must target the inner function",
+          "action": "Inside the decorator, pull the true callable via: if hasattr(func, 'func'): func = func.func before calling wraps(func)",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-14787"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-eb8eb3f5",
+      "description": "When SimpleLazyObject fails to handle __radd__ and other reflected (right-hand) magic methods → Python's data model expects both __add__ and __radd__ (or __mul__ and __rmul__, etc.); a generic pro",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When SimpleLazyObject fails to handle __radd__ and other reflected (right-hand) magic methods",
+          "reasoning": "Python's data model expects both __add__ and __radd__ (or __mul__ and __rmul__, etc.); a generic proxy like SimpleLazyObject only forwards __add__, so the interpreter never finds __radd__ when the RHS is the proxy",
+          "action": "Dynamically generate the six reflected operators on the proxy class and bind them to the same helper that forwards the call to the wrapped object, e.g. for op in ('__radd__', '__rsub__', '__rmul__', '__rtruediv__', '__rfloordiv__', '__rmod__'): setattr(cls, op, curry(_delegate_binary))",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-15400",
+        "django__django-15790"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-5f203b60",
+      "description": "When Django's system check check_for_template_tags_with_the_same_name triggers spurious 'duplicate' warnings for libraries listed in TEMPLATES['OPTIONS']['libraries'] → The check compares app-label + tag-lib name; explicitly mapped libraries have no app so they all col",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When Django's system check check_for_template_tags_with_the_same_name triggers spurious 'duplicate' warnings for libraries listed in TEMPLATES['OPTIONS']['libraries']",
+          "reasoning": "The check compares app-label + tag-lib name; explicitly mapped libraries have no app so they all collapse to '' + libname causing every lib with that name to look like a duplicate",
+          "action": "In the check function, give every explicit entry a pseudo-app label derived from its dotted Python path before the basename, e.g. 'custom_tags' becomes 'myproject.templatetags.custom_tags', eliminating false collisions",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-15400",
+        "django__django-15790"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-974f1ab5",
+      "description": "When adding new dunder methods to a Python proxy class and the interpreter still claims the method is missing → The new methods must exist on the class itself; attaching them to the instance after creation is too",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When adding new dunder methods to a Python proxy class and the interpreter still claims the method is missing",
+          "reasoning": "The new methods must exist on the class itself; attaching them to the instance after creation is too late because the method lookup is cached in the type",
+          "action": "Patch the class (or a dedicated mixin) and make the assignment before any instances are created, preferably at import time or via a class decorator that modifies cls.__dict__",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-15400",
+        "django__django-15790"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-90720c61",
+      "description": "When a template-tag check runs while configuring settings and crashes because the setting is not yet installed → Checks run during django.setup(), but they may import template libraries that try to read settings; ",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "When a template-tag check runs while configuring settings and crashes because the setting is not yet installed",
+          "reasoning": "Checks run during django.setup(), but they may import template libraries that try to read settings; if the project code has not set TEMPLATES yet, accessing it raises an ImproperlyConfigured exception",
+          "action": "Guard any code inside the check with apps.ready and settings.configured checks, and defer heavy imports to the moment the check actually executes, ensuring settings are fully loaded",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-15400",
+        "django__django-15790"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-444b243d",
+      "description": "When an 'If-Modified-Since' header is received with an empty string → The empty string silently passes through parsing and later crashes inside http_date() which expects ",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When an 'If-Modified-Since' header is received with an empty string",
+          "reasoning": "The empty string silently passes through parsing and later crashes inside http_date() which expects a non-empty timestamp",
+          "action": "Check the header value first with 'if modified_since:' to ignore empty strings before calling http_date(modified_since)",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-15498"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-a87270d7",
+      "description": "If a test starts failing after a recent Django commit but a prior release → The regression appeared at commit d6aff369ad3; examining that commit pinpoints the new code path tha",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "If a test starts failing after a recent Django commit but a prior release",
+          "reasoning": "The regression appeared at commit d6aff369ad3; examining that commit pinpoints the new code path that broke empty-string handling",
+          "action": "Look at the specific diff in d6aff369ad3, note that it used the header directly instead of stripping empty strings, and guard its usage accordingly",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-15498"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-eef41600",
+      "description": "When fixing a header-validation edge case in Django static-serve code → The StaticServlet only needs a timestamp to compare; an empty header is logically equivalent to 'no ",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When fixing a header-validation edge case in Django static-serve code",
+          "reasoning": "The StaticServlet only needs a timestamp to compare; an empty header is logically equivalent to 'no header', so should be treated as a fresh request",
+          "action": "Wrap the header read in 'if modified_since: ...', otherwise skip the comparison and serve the file, keeping the early-return-if-not-modified flow intact",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-15498"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    }
+  ],
+  "count": 75
+}

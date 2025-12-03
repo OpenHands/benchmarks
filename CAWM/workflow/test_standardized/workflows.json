@@ -1,0 +1,329 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:21:14.528713",
+    "status": "completed",
+    "num_trajectories": 5,
+    "config": {
+      "compression": "key_step_extraction",
+      "clustering": "action_sequence",
+      "threshold": 0.7,
+      "level": "GENERAL",
+      "model": "moonshotai/kimi-k2-0905"
+    }
+  },
+  "workflows": [
+    {
+      "id": "exp-general-9307b985",
+      "description": "When NDDataRef arithmetic fails with mask propagation because one operand lacks a mask → The bitwise_or operation expects both operands to have masks, but None type has no 'mask' attribute",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When NDDataRef arithmetic fails with mask propagation because one operand lacks a mask",
+          "reasoning": "The bitwise_or operation expects both operands to have masks, but None type has no 'mask' attribute",
+          "action": "Check if operands have masks before applying handle_mask operations, and handle None values by either treating None as identity operand or skipping the mask operation entirely",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-a5916f72",
+      "description": "When fixing two-digit year parsing in HTTP dates following RFC 7231 → Years 00-69 represent 2000-2069, while years 70-99 represent 1970-1999, but this logic was missing o",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When fixing two-digit year parsing in HTTP dates following RFC 7231",
+          "reasoning": "Years 00-69 represent 2000-2069, while years 70-99 represent 1970-1999, but this logic was missing or incorrect",
+          "action": "Implement century mapping logic: if year < 70 add 2000, else add 1900, and ensure this applies to both two-digit and four-digit year parsing paths",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-69ef16ad",
+      "description": "When creating test cases for arithmetic operations involving optional components like masks → Edge cases where one operand has the component while the other doesn't expose hidden assumptions in ",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When creating test cases for arithmetic operations involving optional components like masks",
+          "reasoning": "Edge cases where one operand has the component while the other doesn't expose hidden assumptions in combining logic",
+          "action": "Always test the four combinations: both have component, neither has component, each operand lacks component in turn",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-cf43e3df",
+      "description": "When modifying date parsing behavior that follows RFC specifications → RFC updates may change interpretation rules from older formats, but back-compatibility might exist o",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When modifying date parsing behavior that follows RFC specifications",
+          "reasoning": "RFC updates may change interpretation rules from older formats, but back-compatibility might exist or be expected",
+          "action": "Verify which RFC version the project targets (7231 vs 850 here) and test existing behavior before changing, documenting breaking changes",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-74f6eaec",
+      "description": "When StatReloader occasionally raises 'ValueError: embedded null byte' during auto-reload → Path.stat() can fail when a watched file path contains a null byte injected by filesystem race condi",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When StatReloader occasionally raises 'ValueError: embedded null byte' during auto-reload",
+          "reasoning": "Path.stat() can fail when a watched file path contains a null byte injected by filesystem race conditions or memory corruption",
+          "action": "Wrap Path.stat() in try/except ValueError, treat the file as 'vanished' and continue scanning without crashing the reloader",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-53275761",
+      "description": "After upgrading Django and seeing non-deterministic crashes in autoreload code that used to be stable → The switch from os.stat() to pathlib.Path.stat() is stricter about malformed paths containing null b",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "After upgrading Django and seeing non-deterministic crashes in autoreload code that used to be stable",
+          "reasoning": "The switch from os.stat() to pathlib.Path.stat() is stricter about malformed paths containing null bytes",
+          "action": "Add defensive null-byte checks before stat() calls or revert to os.stat() when robustness is more important than modern pathlib API",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-e6fa385d",
+      "description": "When the reloader thread dies silently except for a one-off ValueError traceback → Stat polling loops that raise ValueError will unwind the thread; the error is logged once but auto-r",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When the reloader thread dies silently except for a one-off ValueError traceback",
+          "reasoning": "Stat polling loops that raise ValueError will unwind the thread; the error is logged once but auto-reload silently stops working",
+          "action": "Ensure the polling loop catches ValueError (and OSError) and continues scanning, possibly logging a debug message for the skipped file",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-15cc624d",
+      "description": "If inner-class references lose their full dotted path after migration serialization (e.g., MySettings.MyField) → Django's migration serializer relied on __name__ which omits the enclosing class; inner classes need",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "If inner-class references lose their full dotted path after migration serialization (e.g., MySettings.MyField)",
+          "reasoning": "Django's migration serializer relied on __name__ which omits the enclosing class; inner classes need __qualname__ to include the full dotted path",
+          "action": "In {module}/serializer.py locate ClassSerializer.serialize_class and replace any use of cls.__name__ with cls.__qualname__ to preserve the full enclosing-class namespace",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-1426ea6f",
+      "description": "When a custom Field subclass nested inside another class deconstructs to an underspecified string path → The deconstruct method copies cls.__name__ that is stored on the field instance; only __qualname__ r",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When a custom Field subclass nested inside another class deconstructs to an underspecified string path",
+          "reasoning": "The deconstruct method copies cls.__name__ that is stored on the field instance; only __qualname__ reflects the nested nature",
+          "action": "Ensure the field’s __init__ stores __qualname__ (self.__class__.__qualname__), or patch serializers so the stored dotted path is correctly rebuilt during migration writing",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-c84d8736",
+      "description": "If running makemigrations creates apparently correct code that later crashes with 'module attribute not found' on an inner-class field → The field’s serialized path lacks parent class information; migrations import from a path that canno",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "If running makemigrations creates apparently correct code that later crashes with 'module attribute not found' on an inner-class field",
+          "reasoning": "The field’s serialized path lacks parent class information; migrations import from a path that cannot resolve the nested structure",
+          "action": "Validate that the serialized path from the migrations file exactly mirrors how you would import the field manually (including enclosing class)",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12125"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-bc6eca7b",
+      "description": "When encountering optional URL parameters that work in Django 2.x but break in Django 3.x+ → The URL resolver changed behavior on how it matches optional named groups",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When encountering optional URL parameters that work in Django 2.x but break in Django 3.x+",
+          "reasoning": "The URL resolver changed behavior on how it matches optional named groups",
+          "action": "Check the resolver logic in django/urls/resolvers.py - specifically how it handles named groups vs optional captures in regex patterns",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-a968d01f",
+      "description": "When optional URL parameters cause 'function takes exactly X positional arguments' errors → Optional regex groups (?P<name>...) don't automatically create optional parameters - they still requ",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When optional URL parameters cause 'function takes exactly X positional arguments' errors",
+          "reasoning": "Optional regex groups (?P<name>...) don't automatically create optional parameters - they still require the parameter in the view signature",
+          "action": "Use (?P<name>...)? with the outer quantifier to make both the regex group and corresponding view parameter optional",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-bcb129f4",
+      "description": "When reverse URL resolution tests fail after changing optional parameter handling → Test cases in tests/urlpatterns_reverse/tests.py include scenarios for optional parameters that may ",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When reverse URL resolution tests fail after changing optional parameter handling",
+          "reasoning": "Test cases in tests/urlpatterns_reverse/tests.py include scenarios for optional parameters that may reveal regression issues",
+          "action": "Run 'pytest tests/urlpatterns_reverse/tests.py -k \"optional\"' to check optional parameter reverse resolution behavior",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-3341b95b",
+      "description": "When regex optional groups (?P<name>...)? don't match expected behavior → The resolver needs to distinguish between optional groups that don't appear in the URL vs empty capt",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When regex optional groups (?P<name>...)? don't match expected behavior",
+          "reasoning": "The resolver needs to distinguish between optional groups that don't appear in the URL vs empty captures that appear but have empty value",
+          "action": "In the resolver, check if the match group for an optional parameter exists by verifying it's in the match groups, not just by value truthiness",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-12184"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    }
+  ],
+  "count": 14
+}

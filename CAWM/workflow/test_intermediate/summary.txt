@@ -1,0 +1,181 @@
+CAWM Workflow Extraction Summary
+========================================
+
+Generated: 2025-12-03T00:13:06.340128
+Input: CAWM/trajectories/resolved_trajectories.jsonl
+Trajectories processed: 10
+Workflows extracted: 33
+
+Configuration:
+  Compression: key_step_extraction
+  Clustering: action_sequence (threshold=0.7)
+  Level: general
+  Model: moonshotai/kimi-k2-0905
+
+Workflows:
+----------------------------------------
+
+1. When NDDataRef arithmetic operations fail with 'NoneType' object has no attribute 'dtype' or similar mask-related errors → The mask propagation logic assumes both operands have masks, but when one operand lacks a mask, atte
+   Category: debugging
+   Steps: 1
+     1. [debugging] Add explicit None checks before mask operations: if mask1 is...
+
+2. When django.utils.http.parse_http_date incorrectly interprets two-digit years (00-69) as 1900s instead of 2000s → RFC 7231 specifies that years 00-69 should map to 2000-2069, while 70-99 map to 1970-1999
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Implement year adjustment logic: if parsed_year < 50, add 20...
+
+3. When numpy arithmetic operations like np.bitwise_or fail on mixed types (structured vs non-structured arrays) → The error occurs because numpy can't determine dtype compatibility when one array is structured and 
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Convert both arrays to regular boolean arrays before operati...
+
+4. When changes to datetime parsing affect existing test cases that rely on current (incorrect) behavior → Fixing the two-digit year interpretation will break backward compatibility for dates in the ranges 2
+   Category: configuration
+   Steps: 1
+     1. [configuration] Implement a deprecation path: maintain old behavior initiall...
+
+5. When StatReloader intermittently throws "ValueError: embedded null byte" during auto-reload → Pathlib's Path.resolve() can encounter filesystem entries with embedded null bytes that Python's str
+   Category: debugging
+   Steps: 1
+     1. [debugging] Wrap Path.resolve() calls in a try/except for ValueError and...
+
+6. If an autoreloader test fails with an opaque ValueError on a pathlib operation → The error is likely triggered by a directory entry containing a null byte (e.g., a malformed symlink
+   Category: testing
+   Steps: 1
+     1. [testing] Ensure test environments clean up or skip such entries by fi...
+
+7. When migrating legacy os.path code to pathlib in watcher utilities → Pathlib is stricter about invalid filesystem bytes; null-byte paths that os.path ignored will now ra
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Sanitize paths with os.fsdecode() and catch ValueError on re...
+
+8. If makemigrations saves an inner-class field with an incorrect dotted path that cannot be imported later → Field.deconstruct() stores '__name__' which is just the inner-class name, but migration serializatio
+   Category: migration_serialization
+   Steps: 1
+     1. [migration_serialization] Replace '__name__' with '__qualname__' in the field’s decons...
+
+9. When a migration fails on FieldDoesNotExist after you added a custom inner-class field → Migration files contain imports of the form 'from {module} import {path}'.  If the stored path lacks
+   Category: debugging
+   Steps: 1
+     1. [debugging] Before running the migration, manually patch the generated m...
+
+10. If you cannot reproduce the inner-class migration bug in a minimal test, even though it fails in the real project → Many inner-class serialization issues surface only when you have a field instance inside a Model cla
+   Category: testing
+   Steps: 1
+     1. [testing] Inside your reproduction test, create a real model using the...
+
+11. If optional named regex groups like (?P<format>…)? cause missing-keyword crashes in Django 2.2+ → Django’s resolver started to drop None-captures from kwargs, so the view no longer receives the para
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Make the regex group non-optional ((?P<format>…)) and handle...
+
+12. When a view expecting a default kwarg suddenly gets **no** value after a Django upgrade → The URL resolver now removes keys whose capture group matched None, so the default is never applied
+   Category: debugging
+   Steps: 1
+     1. [debugging] Check the resolver’s return value for missing keys and set t...
+
+13. If urlpatterns with optional regex groups work in ≤2.1 but fail in ≥2.2 → The regression is in django/urls/resolvers.py where None-captures are filtered out before calling th
+   Category: configuration
+   Steps: 1
+     1. [configuration] Patch the resolver to keep keys even when their value is Non...
+
+14. When Model.get_FOO_display() returns incorrect results after child model overrides inherited choices → The display name is looked up on the model class where the field was originally defined, not the chi
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Override get_FOO_display() on the child model to force looku...
+
+15. When get_FOO_display() returns the raw value instead of the choice display name on inherited fields → The inherited field's cache in Options._field_cache still points to the base field, which holds the 
+   Category: debugging
+   Steps: 1
+     1. [debugging] Ensure the child model redefines the field (not just choices...
+
+16. When overriding choices in a child model but display values still come from parent → Choices are bound to the Field instance at class creation time; inheriting the field also inherits t
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Re-declare the field in the child model rather than only ove...
+
+17. When Django check E004 flags a sub-language (e.g. 'de-at') but the base language ('de') is installed → The check was treating 'de-at' as a completely separate language, ignoring the fallback rule that do
+   Category: configuration
+   Steps: 1
+     1. [configuration] Test the installed-languages set for both exact match and, o...
+
+18. If a system check's docstring says 'Languages in LANGUAGES setting must be available in locale directory' and your code has variants like 'en-gb' vs 'en' → The check’s validation does not account for sub-language fallback; it fails when the check is strict
+   Category: debugging
+   Steps: 1
+     1. [debugging] When writing translation checks, duplicate the fallback rule...
+
+19. Need to reproduce a check-framework failure without touching the test-suite run → Check framework classes are just Python callables that receive an app_configs list; you can instanti
+   Category: debugging
+   Steps: 1
+     1. [debugging] Create a minimal reproduce script that imports E004 check fu...
+
+20. A language code fails locale normalization and you suspect the wrong separator (underscore vs hyphen) → django.utils.translation.to_locale converts hyphens to underscores (en-us → en_US). Only the convert
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Always apply 'to_locale' before disk lookup: if os.path.exis...
+
+21. If `TransactionTestCase.serialized_rollback=True` raises IntegrityError on restore, examine the order that fixtures are deserialized → Dependant objects (FK, M2M) must be inserted after the rows they reference; the natural key round-tr
+   Category: testing
+   Steps: 1
+     1. [testing] When you construct test data, add `class Meta: ordering = ['...
+
+22. When custom user-defined primary keys are used, objects can’t be reliably identified by nat-key only; deserialization may recreate them with new pks → Deserialization uses `(model, natural-key)`, but the re-created row gets a fresh pk; children with f
+   Category: testing
+   Steps: 1
+     1. [testing] Serialize with primary keys (`fields='__all__'`) instead of ...
+
+23. After saving a fixture, check `connection.ops.sql_table_creation_suffix()` in the backend’s `create_test_db` → If the suffix contains `DEFERRABLE INITIALLY DEFERRED`, foreign-key checks can be postponed; if it d
+   Category: configuration
+   Steps: 1
+     1. [configuration] In your custom backend method, explicitly add `DEFERRABLE IN...
+
+24. If you’re writing a regression test that needs `serialized_rollback=True`, preload the database once and call `loaddata` manually instead of letting the test runner do it → Manual invocation lets you pass `--verbosity=3` to inspect the exact order used and discover fk-orde
+   Category: debugging
+   Steps: 1
+     1. [debugging] Create a simple management command or standalone script that...
+
+25. When fixing ordering on SQLite, notice that `PRAGMA foreign_keys=OFF` does not persist across the single SQL statement executed by `cursor.execute()` → It is restored at the end of each statement; you must wrap entire fixture loading in one big SQL blo
+   Category: api_usage
+   Steps: 1
+     1. [api_usage] Execute `cursor.executescript('PRAGMA foreign_keys=OFF; -- f...
+
+26. When Child model inherits from Parent with Meta.ordering = ["-pk"] and queries return wrong order → The SQL compiler was building the ORDER BY clause against the parent table's alias but referring to 
+   Category: debugging
+   Steps: 1
+     1. [debugging] In sql/compiler.py, use self.query.get_meta().db_table to de...
+
+27. When debugging 'pk' column resolution in multi-table inheritance queries → Django multi-table inheritance stores the child's primary key in its own table and creates a one-to-
+   Category: debugging
+   Steps: 1
+     1. [debugging] Check the generated SQL to confirm the ORDER BY clause refer...
+
+28. When inherited model Meta options don't apply correctly in SQL generation → Meta.ordering gets inherited but the SQL compiler may use the wrong table context when resolving the
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Override get_meta() or ensure the query's get_meta() returns...
+
+29. If a 'many-to-many intermediary model with more than 2 ForeignKeys' raises a hint about 'recursive relationships' that does not mention through_fields → Django was re-using the generic recursive-relation hint instead of the specific m2m multi-FK hint me
+   Category: debugging
+   Steps: 1
+     1. [debugging] Inside django.db.models.fields.related.ManyToManyField._chec...
+
+30. When the error message for 'through=' is 'None' → The string path for the error message is cached and will be reused in templates; changing the messag
+   Category: debugging
+   Steps: 1
+     1. [debugging] After editing the hint text, forcibly call django.utils.tran...
+
+31. If adding a ManyToManyField on a dynamically created model for testing the hint message → The field’s system checks run only when the model is prepared; creating the model in the test may no
+   Category: testing
+   Steps: 1
+     1. [testing] Wrap the new Field instance with Model.add_to_class() and ex...
+
+32. When the hint says 'recursively' but the relation is not actually recursive → Django’s message constant RECURSIVE_RELATIONSHIP_INVALID overlaps with the case where multiple FKs e
+   Category: refactoring
+   Steps: 1
+     1. [refactoring] Replace the constant with FIELD_NAME_CLASH (or a new constan...
+
+33. If a Django error message test fails after the fix string appears to be in place → The admin template string uses %(hint)s interpolation; a tiny trailing period or space difference wi
+   Category: testing
+   Steps: 1
+     1. [testing] Strip punctuation and newlines from both expected and actual...

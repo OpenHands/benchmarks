@@ -1,0 +1,175 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-03T00:37:38.605536",
+    "status": "completed",
+    "num_trajectories": 3,
+    "config": {
+      "compression": "key_step_extraction",
+      "clustering": "action_sequence",
+      "threshold": 0.7,
+      "level": "GENERAL",
+      "model": "moonshotai/kimi-k2-0905"
+    }
+  },
+  "workflows": [
+    {
+      "id": "exp-general-48b737d7",
+      "description": "When NDDataRef mask propagation fails with `handle_mask=np.bitwise_or` and one operand lacks a mask → The issue occurs because bitwise operations require both operands to have mask arrays, but the code ",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When NDDataRef mask propagation fails with `handle_mask=np.bitwise_or` and one operand lacks a mask",
+          "reasoning": "The issue occurs because bitwise operations require both operands to have mask arrays, but the code path assumes presence when one operand has no mask",
+          "action": "Before applying bitwise operations, ensure both operands have mask arrays by initializing missing masks as zeros with appropriate dtype and shape matching the data",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-f998de89",
+      "description": "When implementing arithmetic operations on maskable data structures with optional masks → The mask propagation logic needs to handle cases where operands may not have masks defined, requirin",
+      "category": "refactoring",
+      "steps": [
+        {
+          "env_description": "When implementing arithmetic operations on maskable data structures with optional masks",
+          "reasoning": "The mask propagation logic needs to handle cases where operands may not have masks defined, requiring null-object pattern or default mask initialization",
+          "action": "In arithmetic operations with mask propagation, initialize missing masks as False arrays when encountering None or absent masks, then apply the combine operation uniformly",
+          "action_type": "refactoring"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "refactoring"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-aa98316d",
+      "description": "When HTTP date parsing fails for two-digit years where 00-69 map to 2000-2069 instead of 1970-1999 → RFC 7231 specifies that two-digit years 00-69 should be interpreted as 2000-2069, while 70-99 remain",
+      "category": "configuration",
+      "steps": [
+        {
+          "env_description": "When HTTP date parsing fails for two-digit years where 00-69 map to 2000-2069 instead of 1970-1999",
+          "reasoning": "RFC 7231 specifies that two-digit years 00-69 should be interpreted as 2000-2069, while 70-99 remain 1970-1999, which differs from common assumptions",
+          "action": "Implement year ranges as: if year < 70 then year += 2000 elif year < 100 then year += 1900, matching RFC 7231 specifications",
+          "action_type": "configuration"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-5a53b08e",
+      "description": "When datetime parsing logic needs to handle legacy RFC 850 format while maintaining RFC 7231 compliance → The parsing function must correctly interpret two-digit years according to RFC 7231 rules, which ove",
+      "category": "api_usage",
+      "steps": [
+        {
+          "env_description": "When datetime parsing logic needs to handle legacy RFC 850 format while maintaining RFC 7231 compliance",
+          "reasoning": "The parsing function must correctly interpret two-digit years according to RFC 7231 rules, which override the older RFC 850 interpretation",
+          "action": "Update the two-digit year handling logic to check if year < 70 and add 2000, otherwise add 1900 for years 70-99",
+          "action_type": "api_usage"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "astropy__astropy-14995",
+        "django__django-11848"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "api_usage"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-2b5fdbea",
+      "description": "When intermittently seeing \"ValueError: embedded null byte\" in StatReloader → Pathlib.stat() can raise null-byte errors on transient filesystem race conditions",
+      "category": "debugging",
+      "steps": [
+        {
+          "env_description": "When intermittently seeing \"ValueError: embedded null byte\" in StatReloader",
+          "reasoning": "Pathlib.stat() can raise null-byte errors on transient filesystem race conditions",
+          "action": "Wrap pathlib.stat() calls with a broad ValueError handler and fall back to mtime 0 to avoid crashing the autoloader loop",
+          "action_type": "debugging"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "debugging"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-46ec01f9",
+      "description": "If an autoreloader module starts failing only on CI but not locally → Python's `-X` dev-mode or `PYTHONDEVMODE` leaks into the spawned reloader subprocess and triggers re",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "If an autoreloader module starts failing only on CI but not locally",
+          "reasoning": "Python's `-X` dev-mode or `PYTHONDEVMODE` leaks into the spawned reloader subprocess and triggers re-validation of bytecode, exposing hidden stat() failures",
+          "action": "Run the same test explicitly with `export PYTHONDEVMODE=1` on local workstation to reproduce stochastic CI failures",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "exp-general-af344200",
+      "description": "When a test runner hangs or gives opaque results for TestIterModulesAndFiles → Those tests use subprocess tricks to mutate sys.modules(), so std-unittest discovery must be skipped",
+      "category": "testing",
+      "steps": [
+        {
+          "env_description": "When a test runner hangs or gives opaque results for TestIterModulesAndFiles",
+          "reasoning": "Those tests use subprocess tricks to mutate sys.modules(), so std-unittest discovery must be skipped and the exact test-case name is required as an argument",
+          "action": "Execute the reproducer via `python -m unittest tests.utils_tests.test_autoreloader.TestIterModulesAndFiles.test_file_added` instead of letting the runner discover it",
+          "action_type": "testing"
+        }
+      ],
+      "level": 1,
+      "source_instances": [
+        "django__django-11583"
+      ],
+      "frequency": 1,
+      "pattern": [
+        "testing"
+      ],
+      "metadata": {}
+    }
+  ],
+  "count": 7
+}

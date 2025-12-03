@@ -1,0 +1,44 @@
+{
+  "status": "completed",
+  "start_time": "2025-12-03T00:21:04.391679",
+  "end_time": "2025-12-03T00:21:14.529968",
+  "total_duration_seconds": 10.14,
+  "stages": {
+    "input": {
+      "status": "completed",
+      "num_trajectories": 5
+    },
+    "clustering": {
+      "status": "completed",
+      "method": "action_sequence",
+      "threshold": 0.7,
+      "num_clusters": 4,
+      "cluster_sizes": [
+        2,
+        1,
+        1,
+        1
+      ],
+      "duration_seconds": 0.0
+    },
+    "induction": {
+      "status": "completed",
+      "level": "GENERAL",
+      "num_experiences": 14,
+      "experiences_per_cluster": [
+        4,
+        3,
+        3,
+        4
+      ],
+      "duration_seconds": 10.13
+    }
+  },
+  "config": {
+    "compression_strategy": "key_step_extraction",
+    "clustering_method": "action_sequence",
+    "clustering_threshold": 0.7,
+    "workflow_level": "GENERAL",
+    "llm_model": "moonshotai/kimi-k2-0905"
+  }
+}

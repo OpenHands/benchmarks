@@ -1,469 +1,399 @@
 # CAWM - Code Agent Workflow Memory
 
-A modular system for extracting reusable workflows from agent execution trajectories.
+A modular system for extracting **task-specific experiences** from agent execution trajectories.
 
 ## Overview
 
-CAWM (Code Agent Workflow Memory) analyzes successful agent trajectories from benchmarks like SWE-Bench and extracts generalizable workflows that can guide future agent behavior. The system consists of three core modules:
+CAWM (Code Agent Workflow Memory) analyzes successful agent trajectories from benchmarks like SWE-Bench and extracts **actionable experiences** (not generic workflows) that can guide future agent behavior.
 
-1. **CompressionModule** - Reduces trajectory length while preserving key information
-2. **ClusteringModule** - Groups similar trajectories for pattern discovery
-3. **InductionModule** - Uses LLM to induce reusable workflows from clusters
+**Key Output**: Task-specific insights like:
+- "When NDData arithmetic fails with mask propagation, check if mask is None before bitwise operations"
+- "For HTTP date parsing, ensure RFC 7231 compliance - years 00-69 map to 2000-2069"
+
+NOT generic advice like "First reproduce the bug" or "Write tests before fixing".
 
 ## Quick Start
 
-### Prerequisites
+### CLI Usage (Recommended)
 
 ```bash
-# Set your OpenRouter API key (required for LLM-based features)
-export OPENROUTER_API_KEY="sk-or-..." 
+# Set API key
+export OPENROUTER_API_KEY="sk-or-..."
+
+# Run with default settings
+uv run python CAWM/main.py --output CAWM/workflow/my_run
+
+# Run with custom settings
+uv run python CAWM/main.py \
+    --output CAWM/workflow/experiment1 \
+    --clustering action_sequence \
+    --threshold 0.7 \
+    --limit 20 \
+    --verbose
 ```
 
-### Basic Usage
+### Output Files
 
-```python
-from CAWM import (
-    CAWMPipeline,
-    PipelineConfig,
-    LLMClient,
-    Trajectory,
-    CompressionStrategy,
-    SimilarityMethod,
-    WorkflowLevel
-)
+All files are created at pipeline start and updated progressively:
 
-# 1. Initialize LLM Client
-llm_client = LLMClient(provider="openrouter", model="moonshotai/kimi-k2-0905") # Using Kimi via OpenRouter
-
-# 2. Configure Pipeline
-config = PipelineConfig(
-    compression_strategy=CompressionStrategy.KEY_STEP_EXTRACTION,
-    clustering_method=SimilarityMethod.ACTION_SEQUENCE,
-    workflow_level=WorkflowLevel.GENERAL,
-    clustering_threshold=0.5
-)
-
-# 3. Create Pipeline
-pipeline = CAWMPipeline(llm_client=llm_client, config=config)
-
-# 4. Run on Data
-workflows = pipeline.run_from_file(
-    input_path="CAWM/trajectories/resolved_trajectories.jsonl",
-    output_path="CAWM/workflow/extracted_workflows.json"
-)
-
-print(f"Extracted {len(workflows)} workflows")
+```
+output_dir/
+├── workflows.json           # Final extracted experiences
+├── summary.txt              # Human-readable summary
+├── clusters.json            # Clustering details (which trajectories grouped together)
+├── induction_details.json   # Per-cluster induction results
+└── pipeline_stats.json      # Timing, statistics, and status
 ```
 
-### Run Demo Script
-
-```bash
-# Run the included demo
-uv run python tests/run_cawm_demo.py
-```
+Each file contains a `status` field: `pending` → `in_progress` → `completed` (or `failed`).
 
 ---
 
-## Module Reference
+## CLI Reference
 
-### LLMClient
-
-Unified client supporting OpenRouter API with automatic retry and error handling.
-
-```python
-from CAWM import LLMClient
-
-# OpenRouter (default, recommended)
-client = LLMClient(
-    provider="openrouter",
-    model="moonshotai/kimi-k2-0905",  # Kimi model
-    temperature=0.0,
-    max_tokens=4096,
-    timeout=60.0,      # Request timeout in seconds
-    max_retries=3      # Automatic retry with exponential backoff
-)
+```bash
+uv run python CAWM/main.py [OPTIONS]
 ```
 
-**Features:**
-- Automatic API key detection from environment variables
-- Exponential backoff retry for rate limits and server errors
-- Handles standard API errors
+### Required Options
+
+| Option | Description |
+|--------|-------------|
+| `--output`, `-o` | Output directory for all files |
+
+### Optional Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--input`, `-i` | `CAWM/trajectories/resolved_trajectories.jsonl` | Input trajectory file |
+| `--clustering`, `-k` | `problem_description` | Clustering method |
+| `--threshold`, `-t` | `0.2` | Similarity threshold [0-1] |
+| `--compression`, `-c` | `key_step_extraction` | Compression strategy |
+| `--level`, `-l` | `general` | Workflow abstraction level |
+| `--model`, `-m` | `moonshotai/kimi-k2-0905` | LLM model via OpenRouter |
+| `--limit`, `-n` | None | Limit trajectories (for testing) |
+| `--verbose`, `-v` | False | Enable debug logging |
 
 ---
 
-### CompressionModule
+## Parameter Guide: When to Use What
 
-Reduces trajectory length using one of three strategies. Strategies can be composed.
+### Clustering Methods
+
+| Method | When to Use | Pros | Cons |
+|--------|-------------|------|------|
+| `problem_description` | **Default choice**. Group by task semantics. | Semantic grouping, diverse experiences | Token-based, may miss nuance |
+| `action_sequence` | Group by behavioral patterns (what the agent did). | Pattern-based, good with threshold 0.7 | N-gram similarity, can still cluster similar behaviors |
+| `repository` | Group by source repo (django, astropy, etc.). | Clean separation by domain | Only useful if data spans multiple repos |
+| `code_modification` | Group by modified files. | Component-focused experiences | Requires git_patch in data |
+| `random` | Baseline testing only. | - | Not useful for production |
+
+### Threshold Selection
+
+The threshold controls how similar trajectories must be to cluster together:
+
+| Threshold | Effect | Use Case |
+|-----------|--------|----------|
+| 0.2 - 0.3 | Few large clusters | Maximum diversity, fewer LLM calls |
+| 0.4 - 0.5 | Medium clusters | Balanced |
+| 0.6 - 0.7 | Many small clusters | Fine-grained patterns, more LLM calls |
+| 0.8+ | Almost 1:1 | Each trajectory separate (not recommended) |
+
+**Rule of thumb**:
+- Want fewer LLM calls? Lower threshold (0.2-0.3)
+- Want more diverse experiences? Higher threshold (0.6-0.7)
+
+### Recommended Parameter Combinations
+
+#### Combination 1: Quick Exploration (Default)
+```bash
+uv run python CAWM/main.py \
+    --output output/quick \
+    --clustering problem_description \
+    --threshold 0.2 \
+    --limit 10
+```
+- **Use when**: First run, understanding the data
+- **Result**: 2-3 large clusters, ~10-15 experiences
+- **LLM calls**: ~3
+
+#### Combination 2: Diverse Experiences
+```bash
+uv run python CAWM/main.py \
+    --output output/diverse \
+    --clustering action_sequence \
+    --threshold 0.7
+```
+- **Use when**: Want maximum diversity of experiences
+- **Result**: Many small clusters (15-25), ~50-80 experiences
+- **LLM calls**: ~20-25
+
+#### Combination 3: Domain-Specific (Multi-Repo Data)
+```bash
+uv run python CAWM/main.py \
+    --output output/by_repo \
+    --clustering repository
+```
+- **Use when**: Data spans multiple repositories
+- **Result**: One cluster per repo
+- **LLM calls**: Number of unique repos
+
+#### Combination 4: File-Based Grouping
+```bash
+uv run python CAWM/main.py \
+    --output output/by_files \
+    --clustering code_modification \
+    --threshold 0.3
+```
+- **Use when**: Want to group by affected components
+- **Result**: Clusters of trajectories that modified similar files
+- **LLM calls**: Varies
+
+---
+
+## Core Modules
+
+### 1. ClusteringModule
+
+Groups similar trajectories. Uses **n-gram Jaccard similarity** (not simple set comparison) for `action_sequence` to preserve sequential patterns.
 
 ```python
-from CAWM import CompressionModule, CompressionStrategy, CompressionConfig
+from CAWM import ClusteringModule, SimilarityMethod
 
-# Strategy 1: Key Step Extraction (default, no LLM needed)
-# Keeps only file edits, tests, and 1 step of context around them
-compressor = CompressionModule(
-    strategy=CompressionStrategy.KEY_STEP_EXTRACTION
-)
+# Action sequence clustering (uses bigram + trigram patterns)
+clusterer = ClusteringModule(method=SimilarityMethod.ACTION_SEQUENCE)
+clusterer.config.threshold = 0.7
 
-# Strategy 2: Action Type Filtering (no LLM needed)
-# Keeps only events of specified action types
-config = CompressionConfig(
-    keep_action_types=[ActionType.FILE_EDIT, ActionType.TESTING]
-)
-compressor = CompressionModule(
-    strategy=CompressionStrategy.ACTION_TYPE_FILTERING,
-    config=config
-)
+# Problem description clustering (token-based Jaccard)
+clusterer = ClusteringModule(method=SimilarityMethod.PROBLEM_DESCRIPTION)
+clusterer.config.threshold = 0.2
 
-# Strategy 3: Hierarchical Summarization (requires LLM)
-# Chunks trajectory and summarizes each chunk via LLM
-config = CompressionConfig(
-    chunk_size=10,  # Events per chunk
-    summary_prompt_template="Summarize these actions into high-level steps:"
-)
-compressor = CompressionModule(
-    strategy=CompressionStrategy.HIERARCHICAL_SUMMARIZATION,
-    llm_client=llm_client,
-    config=config
-)
+# Repository-based (groups by repo name from instance_id)
+clusterer = ClusteringModule(method=SimilarityMethod.REPOSITORY)
 
-# Compress a trajectory
-compressed = compressor.compress(trajectory)
-
-# Compress batch
-compressed_batch = compressor.compress_batch(trajectories)
+clusters = clusterer.cluster(trajectories)
 ```
 
-**Strategy Composition:**
+### 2. CompressionModule
 
-```python
-# Compose multiple strategies (executed in sequence)
-step1 = CompressionModule(strategy=CompressionStrategy.ACTION_TYPE_FILTERING)
-step2 = CompressionModule(strategy=CompressionStrategy.KEY_STEP_EXTRACTION)
+Reduces trajectory length while preserving key information.
 
-composed = step1 + step2  # First filter, then extract key steps
-result = composed.compress(trajectory)
-```
-
-| Strategy | LLM Required | Use Case |
-|----------|--------------|----------|
-| `KEY_STEP_EXTRACTION` | No | Fast, preserves edit/test context |
-| `ACTION_TYPE_FILTERING` | No | Remove noise (navigation, setup) |
-| `HIERARCHICAL_SUMMARIZATION` | Yes | Maximum compression, semantic preservation |
+| Strategy | LLM Required | Description |
+|----------|--------------|-------------|
+| `KEY_STEP_EXTRACTION` | No | Keeps file edits, tests, and context |
+| `ACTION_TYPE_FILTERING` | No | Keeps only specified action types |
+| `HIERARCHICAL_SUMMARIZATION` | Yes | LLM-based chunk summarization |
 | `NO_OP` | No | Pass-through (no compression) |
 
----
-
-### ClusteringModule
-
-Groups similar trajectories for pattern discovery.
-
 ```python
-from CAWM import ClusteringModule, SimilarityMethod, ClusteringConfig
+from CAWM import CompressionModule, CompressionStrategy
 
-# Method 1: Action Sequence Similarity (default)
-# Jaccard similarity of action types
-clusterer = ClusteringModule(
-    method=SimilarityMethod.ACTION_SEQUENCE
-)
-clusterer.config.threshold = 0.5  # Similarity threshold [0, 1]
-
-# Method 2: Problem Description Similarity
-# Jaccard similarity of tokenized instruction text
-clusterer = ClusteringModule(
-    method=SimilarityMethod.PROBLEM_DESCRIPTION
-)
-
-# Method 3: Code Modification Similarity
-# Jaccard similarity of modified file paths (from git_patch)
-clusterer = ClusteringModule(
-    method=SimilarityMethod.CODE_MODIFICATION
-)
-
-# Method 4: Random (for baseline/testing)
-clusterer = ClusteringModule(
-    method=SimilarityMethod.RANDOM
-)
-
-# Cluster trajectories
-clusters = clusterer.cluster(trajectories)
-
-# Get pairwise similarity
-sim = clusterer.get_similarity(traj1, traj2)
+# Fast, no LLM needed
+compressor = CompressionModule(strategy=CompressionStrategy.KEY_STEP_EXTRACTION)
+compressed = compressor.compress_batch(trajectories)
 ```
 
-| Method | Use Case |
-|--------|----------|
-| `ACTION_SEQUENCE` | Group by behavioral pattern |
-| `PROBLEM_DESCRIPTION` | Group by task semantics |
-| `CODE_MODIFICATION` | Group by affected files |
-| `RANDOM` | Baseline/testing |
+### 3. InductionModule
 
----
-
-### InductionModule
-
-Uses LLM to induce reusable workflows from trajectory clusters.
+Uses LLM to extract experiences from trajectory clusters.
 
 ```python
-from CAWM import InductionModule, InductionConfig, WorkflowLevel
+from CAWM import InductionModule, WorkflowLevel
 
-# Configure induction
-config = InductionConfig(
-    level=WorkflowLevel.GENERAL,
-    max_workflows=5,   # Max workflows per cluster
-    min_steps=2,       # Minimum steps per workflow
-    max_steps=10       # Maximum steps per workflow
-)
+inductor = InductionModule(llm_client=llm_client)
 
-inductor = InductionModule(
-    llm_client=llm_client,
-    config=config
-)
-
-# Induce from trajectories
-workflows = inductor.induce(trajectories, level=WorkflowLevel.GENERAL)
-
-# Induce from clusters
-workflows = inductor.induce_from_clusters(clusters, level=WorkflowLevel.SPECIFIC)
-
-# Induce both levels at once
-result = inductor.induce_hierarchical(trajectories)
-# result = {WorkflowLevel.GENERAL: [...], WorkflowLevel.SPECIFIC: [...]}
+# Extract from clusters
+workflows = inductor.induce_from_clusters(clusters, level=WorkflowLevel.GENERAL)
 ```
 
-**Workflow Levels:**
+**Output Format** (experiences, not generic workflows):
+```json
+{
+  "experiences": [
+    {
+      "trigger": "When NDData arithmetic fails with mask propagation...",
+      "insight": "The mask propagation logic assumes both operands have masks...",
+      "action": "Check if operand.mask exists before accessing properties...",
+      "category": "debugging"
+    }
+  ]
+}
+```
 
-| Level | Description | Use Case |
-|-------|-------------|----------|
-| `GENERAL` | Cross-project, highly abstracted (placeholders like `{file}`, `{func}`) | Reusable across any codebase |
-| `SPECIFIC` | Retains project/issue context, more detailed patterns | Project-specific guidance |
+### 4. CAWMPipeline
 
----
-
-### CAWMPipeline
-
-Orchestrates the full workflow: Load -> Compress -> Cluster -> Induce -> Save
+Orchestrates the full process with standardized output.
 
 ```python
-from CAWM import CAWMPipeline, PipelineConfig
+from CAWM import CAWMPipeline, PipelineConfig, LLMClient
 
-# Full configuration
+llm_client = LLMClient(provider="openrouter", model="moonshotai/kimi-k2-0905")
+
 config = PipelineConfig(
-    # Compression
     compression_strategy=CompressionStrategy.KEY_STEP_EXTRACTION,
-
-    # Clustering
     clustering_method=SimilarityMethod.ACTION_SEQUENCE,
-    clustering_threshold=0.5,
-
-    # Induction
+    clustering_threshold=0.7,
     workflow_level=WorkflowLevel.GENERAL,
-
-    # LLM (used if client not passed explicitly)
-    llm_model="moonshotai/kimi-k2-0905"
 )
 
-pipeline = CAWMPipeline(llm_client=llm_client, config=config)
-
-# Option 1: Run from file
-workflows = pipeline.run_from_file(
-    input_path="CAWM/trajectories/resolved_trajectories.jsonl",
-    output_path="output/workflows.json"  # Optional
+pipeline = CAWMPipeline(
+    llm_client=llm_client,
+    config=config,
+    output_dir="output/my_run"  # All files saved here
 )
 
-# Option 2: Run from loaded trajectories
-trajectories = Trajectory.load_from_jsonl("path/to/data.jsonl")
 workflows = pipeline.run(trajectories)
 ```
 
 ---
 
-## Configuration Reference
+## Output File Details
 
-### PipelineConfig
+### `clusters.json`
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `compression_strategy` | `CompressionStrategy` | `KEY_STEP_EXTRACTION` | Compression method |
-| `clustering_method` | `SimilarityMethod` | `ACTION_SEQUENCE` | Clustering similarity |
-| `clustering_threshold` | `float` | `0.5` | Similarity threshold [0, 1] |
-| `workflow_level` | `WorkflowLevel` | `GENERAL` | Abstraction level |
-| `llm_model` | `str` | `"moonshotai/kimi-k2-0905"` | Default model |
-
-### Environment Variables
-
-| Variable | Purpose |
-|----------|---------|
-| `OPENROUTER_API_KEY` | OpenRouter API access |
-
----
-
-## Common Usage Patterns
-
-### Pattern 1: Fast Local Processing (No LLM)
-
-```python
-from CAWM import (
-    CompressionModule, ClusteringModule,
-    CompressionStrategy, SimilarityMethod, Trajectory
-)
-
-# Load data
-trajectories = Trajectory.load_from_jsonl("data.jsonl")
-
-# Compress without LLM
-compressor = CompressionModule(strategy=CompressionStrategy.KEY_STEP_EXTRACTION)
-compressed = compressor.compress_batch(trajectories)
-
-# Cluster without LLM
-clusterer = ClusteringModule(method=SimilarityMethod.ACTION_SEQUENCE)
-clusters = clusterer.cluster(compressed)
-
-print(f"Formed {len(clusters)} clusters from {len(trajectories)} trajectories")
-for c in clusters:
-    print(f"  {c.cluster_id}: {len(c)} trajectories")
-```
-
-### Pattern 2: Full LLM Pipeline
-
-```python
-from CAWM import CAWMPipeline, PipelineConfig, LLMClient, CompressionStrategy
-
-llm = LLMClient(provider="openrouter", model="moonshotai/kimi-k2-0905")
-config = PipelineConfig(
-    compression_strategy=CompressionStrategy.HIERARCHICAL_SUMMARIZATION,
-    clustering_threshold=0.3
-)
-
-pipeline = CAWMPipeline(llm_client=llm, config=config)
-workflows = pipeline.run_from_file("data.jsonl", "output.json")
-```
-
-### Pattern 3: Custom Module Composition
-
-```python
-from CAWM import (
-    CompressionModule, ClusteringModule, InductionModule,
-    CompressionStrategy, SimilarityMethod, WorkflowLevel,
-    LLMClient, Trajectory
-)
-
-llm = LLMClient(provider="openrouter", model="moonshotai/kimi-k2-0905")
-trajectories = Trajectory.load_from_jsonl("data.jsonl")
-
-# Step 1: Custom compression chain
-compress1 = CompressionModule(strategy=CompressionStrategy.ACTION_TYPE_FILTERING)
-compress2 = CompressionModule(strategy=CompressionStrategy.KEY_STEP_EXTRACTION)
-composed_compressor = compress1 + compress2
-
-compressed = composed_compressor.compress_batch(trajectories)
-
-# Step 2: Cluster by code modifications
-clusterer = ClusteringModule(method=SimilarityMethod.CODE_MODIFICATION)
-clusterer.config.threshold = 0.2  # Loose threshold
-clusters = clusterer.cluster(compressed)
-
-# Step 3: Induce specific workflows
-inductor = InductionModule(llm_client=llm)
-workflows = inductor.induce_from_clusters(clusters, level=WorkflowLevel.SPECIFIC)
-```
-
-### Pattern 4: Analyze Trajectory Similarity
-
-```python
-from CAWM import ClusteringModule, SimilarityMethod, Trajectory
-
-# Load two trajectories to compare
-t1 = Trajectory.load_from_jsonl("file1.jsonl")[0]
-t2 = Trajectory.load_from_jsonl("file2.jsonl")[0]
-
-# Compare by different metrics
-for method in SimilarityMethod:
-    if method == SimilarityMethod.RANDOM:
-        continue
-    clusterer = ClusteringModule(method=method)
-    sim = clusterer.get_similarity(t1, t2)
-    print(f"{method.value}: {sim:.3f}")
-```
-
----
-
-## Output Format
-
-Workflows are saved in JSON format compatible with existing AWM integration:
+Shows which trajectories were grouped together:
 
 ```json
 {
-  "workflows": [
+  "metadata": {
+    "status": "completed",
+    "clustering_method": "action_sequence",
+    "threshold": 0.7,
+    "num_clusters": 20
+  },
+  "clusters": [
     {
-      "id": "wf-general-abc123",
-      "description": "Explore codebase to understand structure",
-      "category": "exploration",
-      "level": 1,
-      "steps": [
+      "cluster_id": "seq_cluster_0",
+      "size": 3,
+      "trajectories": [
         {
-          "env_description": "Initial state, unknown codebase",
-          "reasoning": "Need to understand project structure",
-          "action": "find {repo} -type f -name '*.py'",
-          "action_type": "exploration"
-        },
+          "instance_id": "django__django-12345",
+          "repository": "django",
+          "instruction_preview": "Fix the bug in...",
+          "action_types": ["FILE_EDIT", "TESTING", "EXPLORATION"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### `induction_details.json`
+
+Shows what experiences came from each cluster:
+
+```json
+{
+  "metadata": {
+    "status": "completed",
+    "num_clusters_processed": 20,
+    "total_experiences": 75
+  },
+  "cluster_results": [
+    {
+      "cluster_id": "seq_cluster_0",
+      "trajectory_ids": ["django__django-12345", "django__django-12346"],
+      "num_experiences_extracted": 4,
+      "experiences": [
         {
-          "env_description": "Found Python files",
-          "reasoning": "Read main entry point",
-          "action": "view {file}",
-          "action_type": "file_view"
+          "trigger": "When...",
+          "insight": "The root cause is...",
+          "action": "Fix by..."
         }
       ],
-      "source_instances": ["repo__issue-1", "repo__issue-2"],
-      "frequency": 1,
-      "pattern": ["exploration", "file_view"]
+      "duration_seconds": 2.5
     }
-  ],
-  "count": 1,
-  "config": {
-    "level": "GENERAL",
-    "clustering": "ACTION_SEQUENCE"
+  ]
+}
+```
+
+### `pipeline_stats.json`
+
+Overall statistics and timing:
+
+```json
+{
+  "status": "completed",
+  "total_duration_seconds": 45.2,
+  "stages": {
+    "input": {"num_trajectories": 41},
+    "clustering": {
+      "num_clusters": 20,
+      "cluster_sizes": [3, 2, 2, 1, ...],
+      "duration_seconds": 0.01
+    },
+    "induction": {
+      "num_experiences": 75,
+      "experiences_per_cluster": [4, 3, 5, ...],
+      "duration_seconds": 45.1
+    }
   }
 }
 ```
 
 ---
 
-## Data Format
+## Troubleshooting
 
-### Input: Trajectory JSONL
-
-Each line is a JSON object with:
-
-```json
-{
-  "instance_id": "django__django-12345",
-  "instruction": "Fix the bug in models.py...",
-  "history": [
-    {
-      "kind": "ActionEvent",
-      "action": {"kind": "TerminalAction", "command": "ls -la"},
-      "thought": [{"text": "List files to explore"}]
-    },
-    {
-      "kind": "ActionEvent",
-      "action": {"kind": "FileEditorAction", "command": "view", "path": "models.py"},
-      "thought": [{"text": "View the model file"}]
-    }
-  ],
-  "test_result": {
-    "git_patch": "diff --git a/models.py..."
-  }
-}
+### "API key not found"
+```bash
+export OPENROUTER_API_KEY="sk-or-..."
 ```
+Or prefix command: `OPENROUTER_API_KEY="..." uv run python ...`
+
+### All trajectories in one cluster
+- **Cause**: Threshold too low or clustering method not suitable
+- **Fix**: Increase threshold (0.5 → 0.7) or try `action_sequence` clustering
+
+### Too many small clusters (1-2 trajectories each)
+- **Cause**: Threshold too high
+- **Fix**: Decrease threshold (0.7 → 0.4)
+
+### Generic experiences ("write tests first", "reproduce the bug")
+- **Cause**: Induction prompt issue (already fixed in current version)
+- **Verify**: Check `induction_details.json` for experience quality
+
+---
+
+## Architecture
+
+```
+Trajectories (JSONL)
+        │
+        ▼
+┌──────────────────┐
+│  CompressionModule │  ← Reduce trajectory length
+└──────────────────┘
+        │
+        ▼
+┌──────────────────┐
+│  ClusteringModule  │  ← Group similar trajectories
+└──────────────────┘
+        │
+        ▼
+┌──────────────────┐
+│  InductionModule   │  ← Extract experiences via LLM
+└──────────────────┘
+        │
+        ▼
+   Output Files
+   (workflows.json, clusters.json, etc.)
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for LLM access |
 
 ---
 
 ## Tips
 
-1. **Start with defaults**: `PipelineConfig()` provides sensible defaults
-2. **Adjust threshold**: Lower `clustering_threshold` = fewer, larger clusters
-3. **Check trajectory count**: LLM costs scale with trajectories; test with small samples first
-4. **Use KEY_STEP_EXTRACTION**: Fastest compression, good quality
-5. **PROBLEM_DESCRIPTION clustering**: Best for grouping semantically similar tasks
-6. **CODE_MODIFICATION clustering**: Best for grouping by affected components
+1. **Start with `--limit 5`**: Test with small samples before full runs
+2. **Check `clusters.json` first**: Understand how trajectories are grouped
+3. **Lower threshold = fewer LLM calls**: Good for cost optimization
+4. **Use `action_sequence` with threshold 0.7**: Best diversity for SWE-bench data
+5. **Check `pipeline_stats.json`**: See timing and cluster distribution

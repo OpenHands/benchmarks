@@ -21,6 +21,7 @@ class SimilarityMethod(Enum):
     PROBLEM_DESCRIPTION = "problem_description"
     ACTION_SEQUENCE = "action_sequence"
     CODE_MODIFICATION = "code_modification"
+    REPOSITORY = "repository"  # Group by repository (astropy, django, etc.)
     RANDOM = "random"  # For baseline/testing
 
 @dataclass
@@ -56,19 +57,22 @@ class ClusteringModule:
         """Cluster trajectories based on configured method."""
         if not trajectories:
             return []
-            
+
         if self.method == SimilarityMethod.RANDOM:
             return self._cluster_random(trajectories)
-            
+
         elif self.method == SimilarityMethod.ACTION_SEQUENCE:
             return self._cluster_action_sequence(trajectories)
-            
+
         elif self.method == SimilarityMethod.PROBLEM_DESCRIPTION:
             return self._cluster_problem_description(trajectories)
-            
+
         elif self.method == SimilarityMethod.CODE_MODIFICATION:
             return self._cluster_code_modification(trajectories)
-            
+
+        elif self.method == SimilarityMethod.REPOSITORY:
+            return self._cluster_by_repository(trajectories)
+
         return [TrajectoryCluster(cluster_id="all", trajectories=trajectories, label="All")]
 
     def get_similarity(self, traj1: Trajectory, traj2: Trajectory) -> float:
@@ -137,15 +141,46 @@ class ClusteringModule:
         return clusters
 
     def _calc_seq_similarity(self, t1: Trajectory, t2: Trajectory) -> float:
-        """Jaccard similarity of action types."""
-        s1 = set(t1.get_action_sequence())
-        s2 = set(t2.get_action_sequence())
-        
-        if not s1 or not s2:
+        """
+        Calculate sequence similarity using n-gram Jaccard similarity.
+
+        Instead of just using set of action types (which loses order),
+        we use n-grams (bigrams and trigrams) to capture sequential patterns.
+        This ensures trajectories with similar patterns cluster together.
+        """
+        seq1 = [a.name for a in t1.get_action_sequence()]
+        seq2 = [a.name for a in t2.get_action_sequence()]
+
+        if not seq1 or not seq2:
             return 0.0
-            
-        intersection = len(s1.intersection(s2))
-        union = len(s1.union(s2))
+
+        # Generate n-grams (bigrams and trigrams)
+        def get_ngrams(seq: list, n: int) -> set:
+            if len(seq) < n:
+                return set()
+            return {tuple(seq[i:i+n]) for i in range(len(seq) - n + 1)}
+
+        # Use combination of bigrams and trigrams for pattern matching
+        bigrams1 = get_ngrams(seq1, 2)
+        bigrams2 = get_ngrams(seq2, 2)
+        trigrams1 = get_ngrams(seq1, 3)
+        trigrams2 = get_ngrams(seq2, 3)
+
+        # Combine all n-grams
+        ngrams1 = bigrams1 | trigrams1
+        ngrams2 = bigrams2 | trigrams2
+
+        if not ngrams1 or not ngrams2:
+            # Fallback to simple set similarity for very short sequences
+            s1 = set(seq1)
+            s2 = set(seq2)
+            if not s1 or not s2:
+                return 0.0
+            return len(s1.intersection(s2)) / len(s1.union(s2))
+
+        # Jaccard similarity of n-grams
+        intersection = len(ngrams1.intersection(ngrams2))
+        union = len(ngrams1.union(ngrams2))
         return intersection / union
 
     def _cluster_problem_description(self, trajectories: List[Trajectory]) -> List[TrajectoryCluster]:
@@ -153,19 +188,19 @@ class ClusteringModule:
         clusters: List[TrajectoryCluster] = []
         unassigned = trajectories.copy()
         cluster_idx = 0
-        
+
         while unassigned:
             seed = unassigned.pop(0)
             current_cluster = [seed]
             remaining = []
-            
+
             for candidate in unassigned:
                 sim = self._calc_text_similarity(seed.instruction, candidate.instruction)
                 if sim >= self.config.threshold:
                     current_cluster.append(candidate)
                 else:
                     remaining.append(candidate)
-            
+
             unassigned = remaining
             clusters.append(TrajectoryCluster(
                 cluster_id=f"text_cluster_{cluster_idx}",
@@ -174,7 +209,34 @@ class ClusteringModule:
                 similarity_method=self.method.value
             ))
             cluster_idx += 1
-            
+
+        return clusters
+
+    def _cluster_by_repository(self, trajectories: List[Trajectory]) -> List[TrajectoryCluster]:
+        """
+        Cluster trajectories by repository (e.g., astropy, django, sympy).
+
+        This is useful for extracting domain-specific experiences since bugs
+        in the same repository often share similar patterns and solutions.
+        """
+        repo_groups: Dict[str, List[Trajectory]] = {}
+
+        for traj in trajectories:
+            # Extract repository from instance_id (e.g., "django__django-12345" -> "django")
+            repo = traj.repository or "unknown"
+            if repo not in repo_groups:
+                repo_groups[repo] = []
+            repo_groups[repo].append(traj)
+
+        clusters = []
+        for repo, trajs in sorted(repo_groups.items()):
+            clusters.append(TrajectoryCluster(
+                cluster_id=f"repo_{repo}",
+                trajectories=trajs,
+                label=f"Repository: {repo}",
+                similarity_method=self.method.value
+            ))
+
         return clusters
 
     def _calc_text_similarity(self, text1: str, text2: str) -> float:
