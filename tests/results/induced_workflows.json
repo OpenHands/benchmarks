@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "input_file": "/Users/tangyiq/dev/benchmarks/tests/../CAWM/trajectories/resolved_trajectories.jsonl",
+    "trajectory_count": 3,
+    "config": {
+      "compression": "HIERARCHICAL_SUMMARIZATION",
+      "clustering": "ACTION_SEQUENCE",
+      "level": "GENERAL"
+    }
+  },
+  "workflows": []
+}

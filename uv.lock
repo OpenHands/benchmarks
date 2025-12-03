@@ -2062,6 +2062,7 @@ name = "openhands-benchmarks"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "datasets" },
     { name = "docker" },
     { name = "docker-registry-client" },
@@ -2071,6 +2072,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "modal" },
+    { name = "openai" },
     { name = "openhands-agent-server" },
     { name = "openhands-sdk" },
     { name = "openhands-tools" },
@@ -2081,6 +2083,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "swebench" },
+    { name = "tenacity" },
     { name = "toml" },
     { name = "tqdm" },
     { name = "unidiff" },
@@ -2100,6 +2103,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic" },
     { name = "datasets" },
     { name = "docker" },
     { name = "docker-registry-client", specifier = ">=0.5.2" },
@@ -2109,6 +2113,7 @@ requires-dist = [
     { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "modal", specifier = ">=1.1.4" },
+    { name = "openai" },
     { name = "openhands-agent-server", editable = "vendor/software-agent-sdk/openhands-agent-server" },
     { name = "openhands-sdk", editable = "vendor/software-agent-sdk/openhands-sdk" },
     { name = "openhands-tools", editable = "vendor/software-agent-sdk/openhands-tools" },
@@ -2119,6 +2124,7 @@ requires-dist = [
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "swebench" },
+    { name = "tenacity" },
     { name = "toml" },
     { name = "tqdm" },
     { name = "unidiff", specifier = ">=0.7.5,<0.8.0" },
