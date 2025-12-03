@@ -46,7 +46,9 @@ class Evaluation(ABC, BaseModel):
         os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
 
         # Save metadata to JSON file
-        metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
+        metadata_file = os.path.join(
+            self.metadata.eval_output_dir, "metadata_benchmarks.json"
+        )
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
