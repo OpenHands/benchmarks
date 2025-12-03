@@ -34,7 +34,7 @@ from openhands.sdk import (
 )
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -116,11 +116,36 @@ class GAIAEvaluation(Evaluation):
         """Create workspace and copy necessary files."""
         logger.info(f"Preparing workspace for instance {instance.id}")
 
-        # Create Docker workspace with python-nodejs image
-        workspace = DockerWorkspace(
-            base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-            working_dir="/workspace",
-        )
+        # Create workspace based on workspace_type
+        if self.metadata.workspace_type == "docker":
+            workspace = DockerWorkspace(
+                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                working_dir="/workspace",
+            )
+        elif self.metadata.workspace_type == "remote":
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                )
+
+            runtime_api_url = os.getenv(
+                "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+            )
+            server_image = "nikolaik/python-nodejs:python3.12-nodejs22"
+
+            logger.info(
+                f"Using remote workspace with image {server_image}"
+            )
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=runtime_api_url,
+                runtime_api_key=runtime_api_key,
+                server_image=server_image,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
 
         # Create workspace directory
         workspace.execute_command("mkdir -p /workspace")
