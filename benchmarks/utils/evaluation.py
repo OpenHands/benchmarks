@@ -2,12 +2,14 @@
 Evaluation orchestrator.
 """
 
+import base64
 import json
 import os
 import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
@@ -98,6 +100,60 @@ class Evaluation(ABC, BaseModel):
             history=[],
             instance=instance.data,
         )
+
+    def _capture_conversation_archive(
+        self,
+        workspace: RemoteWorkspace,
+        instance: EvalInstance,
+    ) -> None:
+        """Capture conversation trajectory from the remote runtime.
+
+        Persists the /workspace/conversations directory from the remote runtime
+        to a per-instance tar.gz file in the evaluation output directory.
+
+        This provides a complete record of the agent's conversation history,
+        which is valuable for debugging, analysis, and reproducibility.
+
+        Args:
+            workspace: The remote workspace to capture from
+            instance: The evaluation instance being processed
+        """
+        try:
+            # Create command to tar and base64 encode the conversations directory
+            conv_cmd = (
+                "cd / && "
+                "if [ -d workspace/conversations ]; then "
+                "tar -czf - workspace/conversations | base64; "
+                "else echo ''; fi"
+            )
+            tar_cmd = workspace.execute_command(conv_cmd)
+
+            if tar_cmd.exit_code == 0 and tar_cmd.stdout.strip():
+                # Save to instance-specific file to support parallel execution
+                conversations_dir = (
+                    Path(self.metadata.eval_output_dir) / "conversations"
+                )
+                conversations_dir.mkdir(parents=True, exist_ok=True)
+                conv_tar_path = conversations_dir / f"{instance.id}.tar.gz"
+
+                # Decode and write the tar.gz file
+                conv_tar_path.write_bytes(base64.b64decode(tar_cmd.stdout))
+                logger.info(
+                    "[child] Saved conversation archive for %s to %s",
+                    instance.id,
+                    conv_tar_path,
+                )
+            else:
+                logger.debug(
+                    "[child] No conversation archive for %s (directory not found or empty)",
+                    instance.id,
+                )
+        except Exception as e:
+            logger.warning(
+                "[child] Failed to capture conversation trajectory for %s: %s",
+                instance.id,
+                e,
+            )
 
     # --- Runner ---
     def run(
@@ -350,6 +406,10 @@ class Evaluation(ABC, BaseModel):
                 try:
                     workspace = self.prepare_workspace(instance)
                     out = self.evaluate_instance(instance, workspace)
+
+                    # Capture conversation archive after successful evaluation
+                    self._capture_conversation_archive(workspace, instance)
+
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
@@ -440,6 +500,7 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     View live output:
     • tail -f {log_file}          (logger)
     • tail -f {output_log_file}   (stdout/stderr)
+    ===============================================
     """.strip()
     )
 
