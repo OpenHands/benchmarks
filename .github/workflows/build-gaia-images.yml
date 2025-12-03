@@ -5,6 +5,26 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      dataset:
+        description: 'Dataset name (ignored for GAIA - accepts for compatibility)'
+        required: false
+        default: 'gaia-benchmark/GAIA'
+        type: string
+      split:
+        description: 'Dataset split (ignored for GAIA - accepts for compatibility)'
+        required: false
+        default: 'validation'
+        type: string
+      max-workers:
+        description: 'Number of concurrent builds (ignored for GAIA - accepts for compatibility)'
+        required: false
+        default: '1'
+        type: string
+      n-limit:
+        description: 'Limit number of images (ignored for GAIA - accepts for compatibility)'
+        required: false
+        default: ''
+        type: string
       sdk-commit:
         description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
         required: false
