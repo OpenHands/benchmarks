@@ -44,7 +44,7 @@ print("Code: load_dataset('gaia-benchmark/GAIA', '2023_level1')")
 print()
 
 try:
-    from datasets import load_dataset
+    from datasets import DatasetDict, load_dataset
 
     dataset = load_dataset(
         "gaia-benchmark/GAIA",
@@ -52,6 +52,8 @@ try:
         token=hf_token,
     )
     print("✓ SUCCESS: Dataset metadata loaded")
+    # Cast to DatasetDict since load_dataset with a config returns a dict of splits
+    assert isinstance(dataset, DatasetDict)
     print(f"  Splits available: {list(dataset.keys())}")
 except Exception as e:
     print(f"✗ FAILED: {type(e).__name__}")
