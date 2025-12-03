@@ -31,7 +31,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         "--workspace",
         type=str,
         default="docker",
-        choices=["docker", "remote"],
+        choices=["local", "docker", "remote"],
         help="Type of workspace to use (default: docker)",
     )
     parser.add_argument(
