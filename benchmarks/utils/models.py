@@ -45,9 +45,9 @@ class EvalMetadata(BaseModel):
         ge=0,
         description="Maximum number of retries for instances that throw exceptions",
     )
-    workspace_type: Literal["docker", "remote"] = Field(
+    workspace_type: Literal["local", "docker", "remote"] = Field(
         default="docker",
-        description="Type of workspace to use, e.g., 'docker' or 'remote'",
+        description="Type of workspace to use: 'local' (in-process), 'docker' (local containers), or 'remote' (k8s pods)",
     )
 
 
