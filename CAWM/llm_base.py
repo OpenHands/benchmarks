@@ -223,12 +223,12 @@ class LLMClient:
         model: str = "gpt-4",
         api_key: Optional[str] = None,
         temperature: float = 0.0,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,  # None = use provider's default (no limit)
     ):
         self.provider = provider
         self.model = model
         self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.max_tokens = max_tokens  # None means no limit
 
         # Get API key
         if api_key:
@@ -268,18 +268,22 @@ class LLMClient:
         """OpenAI API completion."""
         client = openai.OpenAI(api_key=self.api_key)  # type: ignore[union-attr]
 
-        response = client.chat.completions.create(
-            model=self.model,
-            messages=[
+        # Build request kwargs, only include max_tokens if explicitly set
+        request_kwargs = {
+            "model": self.model,
+            "messages": [
                 {
                     "role": "system",
                     "content": "You are an expert at analyzing software engineering workflows.",
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
+            "temperature": self.temperature,
+        }
+        if self.max_tokens is not None:
+            request_kwargs["max_tokens"] = self.max_tokens
+
+        response = client.chat.completions.create(**request_kwargs)
 
         content = response.choices[0].message.content
         return content if content is not None else ""
@@ -288,9 +292,12 @@ class LLMClient:
         """Anthropic API completion."""
         client = anthropic.Anthropic(api_key=self.api_key)  # type: ignore[union-attr]
 
+        # Anthropic requires max_tokens; use 8192 as default (high enough for most use cases)
+        max_tokens = self.max_tokens if self.max_tokens is not None else 8192
+
         response = client.messages.create(
             model=self.model,
-            max_tokens=self.max_tokens,
+            max_tokens=max_tokens,
             system="You are an expert at analyzing software engineering workflows.",
             messages=[{"role": "user", "content": prompt}],
         )

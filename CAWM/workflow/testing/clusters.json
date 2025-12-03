@@ -1,17 +1,17 @@
 {
   "metadata": {
-    "generated_at": "2025-12-03T00:24:18.062003",
+    "generated_at": "2025-12-03T00:42:17.750357",
     "status": "completed",
     "clustering_method": "action_sequence",
-    "threshold": 0.5,
-    "num_clusters": 1,
-    "total_trajectories": 5
+    "threshold": 0.7,
+    "num_clusters": 20,
+    "total_trajectories": 40
   },
   "clusters": [
     {
       "cluster_id": "seq_cluster_0",
       "label": "Action Sequence Cluster 0",
-      "size": 5,
+      "size": 8,
       "trajectories": [
         {
           "instance_id": "astropy__astropy-14995",
@@ -19,29 +19,13 @@
           "instruction_preview": "I have access to a python code repository in the directory /workspace/astropy/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descripti...",
           "num_events": 74,
           "action_types": [
-            "TESTING",
-            "FILE_EDIT",
             "NAVIGATION",
-            "THINK",
-            "EXPLORATION",
-            "FILE_VIEW",
-            "OTHER"
-          ]
-        },
-        {
-          "instance_id": "django__django-11583",
-          "repository": "django",
-          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
-          "num_events": 60,
-          "action_types": [
-            "TESTING",
             "FILE_EDIT",
-            "NAVIGATION",
-            "THINK",
-            "TERMINAL",
+            "OTHER",
             "EXPLORATION",
+            "TESTING",
             "FILE_VIEW",
-            "OTHER"
+            "THINK"
           ]
         },
         {
@@ -50,44 +34,731 @@
           "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
           "num_events": 84,
           "action_types": [
-            "TESTING",
-            "FILE_EDIT",
             "NAVIGATION",
-            "THINK",
+            "FILE_EDIT",
+            "OTHER",
             "EXPLORATION",
+            "TESTING",
             "FILE_VIEW",
-            "OTHER"
+            "THINK"
           ]
         },
+        {
+          "instance_id": "django__django-12700",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 92,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-12708",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 113,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-13590",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 102,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-13658",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 120,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-15347",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 82,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-15851",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 164,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_1",
+      "label": "Action Sequence Cluster 1",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-11583",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 60,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_2",
+      "label": "Action Sequence Cluster 2",
+      "size": 2,
+      "trajectories": [
         {
           "instance_id": "django__django-12125",
           "repository": "django",
           "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
           "num_events": 158,
           "action_types": [
-            "TESTING",
-            "FILE_EDIT",
             "NAVIGATION",
-            "THINK",
+            "FILE_EDIT",
+            "OTHER",
             "EXPLORATION",
+            "TESTING",
             "FILE_VIEW",
-            "OTHER"
+            "THINK"
           ]
         },
+        {
+          "instance_id": "django__django-14238",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 152,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_3",
+      "label": "Action Sequence Cluster 3",
+      "size": 2,
+      "trajectories": [
         {
           "instance_id": "django__django-12184",
           "repository": "django",
           "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
           "num_events": 147,
           "action_types": [
-            "TESTING",
-            "FILE_EDIT",
             "NAVIGATION",
-            "THINK",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
             "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-15789",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 124,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_4",
+      "label": "Action Sequence Cluster 4",
+      "size": 2,
+      "trajectories": [
+        {
+          "instance_id": "django__django-12284",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 166,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "SETUP",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-15814",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 188,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "SETUP",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_5",
+      "label": "Action Sequence Cluster 5",
+      "size": 5,
+      "trajectories": [
+        {
+          "instance_id": "django__django-12286",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 125,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-13033",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 158,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-13158",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 165,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-15902",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 80,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-16041",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 99,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_6",
+      "label": "Action Sequence Cluster 6",
+      "size": 5,
+      "trajectories": [
+        {
+          "instance_id": "django__django-12453",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 102,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-13710",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 137,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-14608",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 173,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-14672",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 138,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW"
+          ]
+        },
+        {
+          "instance_id": "django__django-14752",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 90,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_7",
+      "label": "Action Sequence Cluster 7",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-12470",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 200,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
             "EXPLORATION",
             "FILE_VIEW",
-            "OTHER"
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_8",
+      "label": "Action Sequence Cluster 8",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-12497",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 106,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_9",
+      "label": "Action Sequence Cluster 9",
+      "size": 2,
+      "trajectories": [
+        {
+          "instance_id": "django__django-13230",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 64,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-15819",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 72,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_10",
+      "label": "Action Sequence Cluster 10",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-13315",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 200,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "VERSION_CONTROL",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_11",
+      "label": "Action Sequence Cluster 11",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-13447",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 124,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_12",
+      "label": "Action Sequence Cluster 12",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-13551",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 113,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_13",
+      "label": "Action Sequence Cluster 13",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-13933",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 48,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_14",
+      "label": "Action Sequence Cluster 14",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-14017",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 158,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "SETUP",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_15",
+      "label": "Action Sequence Cluster 15",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-14382",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 120,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_16",
+      "label": "Action Sequence Cluster 16",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-14580",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 94,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "SETUP",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_17",
+      "label": "Action Sequence Cluster 17",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-14787",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 62,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "SETUP",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_18",
+      "label": "Action Sequence Cluster 18",
+      "size": 2,
+      "trajectories": [
+        {
+          "instance_id": "django__django-15400",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 104,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        },
+        {
+          "instance_id": "django__django-15790",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 70,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW",
+            "THINK"
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "seq_cluster_19",
+      "label": "Action Sequence Cluster 19",
+      "size": 1,
+      "trajectories": [
+        {
+          "instance_id": "django__django-15498",
+          "repository": "django",
+          "instruction_preview": "I have access to a python code repository in the directory /workspace/django/ . You can explore and modify files using the available tools. Consider the following issue description:\n\n<issue_descriptio...",
+          "num_events": 114,
+          "action_types": [
+            "NAVIGATION",
+            "FILE_EDIT",
+            "OTHER",
+            "EXPLORATION",
+            "TESTING",
+            "TERMINAL",
+            "FILE_VIEW"
           ]
         }
       ]

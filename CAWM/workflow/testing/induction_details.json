@@ -1,67 +1,813 @@
 {
   "metadata": {
-    "generated_at": "2025-12-03T00:24:20.384423",
+    "generated_at": "2025-12-03T00:42:57.093656",
     "status": "completed",
     "workflow_level": "GENERAL",
-    "num_clusters_processed": 1,
-    "total_experiences": 5
+    "num_clusters_processed": 20,
+    "total_experiences": 68
   },
   "cluster_results": [
     {
       "cluster_id": "seq_cluster_0",
       "cluster_label": "Action Sequence Cluster 0",
-      "num_trajectories": 5,
+      "num_trajectories": 8,
       "trajectory_ids": [
         "astropy__astropy-14995",
-        "django__django-11583",
         "django__django-11848",
-        "django__django-12125",
-        "django__django-12184"
+        "django__django-12700",
+        "django__django-12708",
+        "django__django-13590",
+        "django__django-13658",
+        "django__django-15347",
+        "django__django-15851"
       ],
       "num_experiences_extracted": 5,
       "experiences": [
         {
-          "id": "exp-general-b26814ac",
-          "description": "When NDDataRef mask propagation fails with 'handle_mask=np.bitwise_or' and one operand lacks a mask → The arithmetic mixin assumes both operands have masks when applying bitwise operations, causing Attr",
-          "category": "refactoring",
-          "trigger": "When NDDataRef mask propagation fails with 'handle_mask=np.bitwise_or' and one operand lacks a mask",
-          "insight": "The arithmetic mixin assumes both operands have masks when applying bitwise operations, causing AttributeError when accessing None.mask",
-          "action": "Check if operand.mask is None before applying handle_mask, and create a default mask (zeros or ones) when missing"
+          "id": "exp-general-2192a504",
+          "description": "When NDDataRef arithmetic fails with mask propagation and handle_mask=np.bitwise_or when one operand lacks a mask → The bitwise_or operation fails when one operand's mask is None because np.bitwise_or(None, mask) rai",
+          "category": "api_usage",
+          "trigger": "When NDDataRef arithmetic fails with mask propagation and handle_mask=np.bitwise_or when one operand lacks a mask",
+          "insight": "The bitwise_or operation fails when one operand's mask is None because np.bitwise_or(None, mask) raises an error",
+          "action": "Check if either operand mask is None before applying bitwise operations - if None, treat it as all-False mask or skip the operation"
         },
         {
-          "id": "exp-general-e7155cff",
-          "description": "When encountering intermittent 'ValueError: embedded null byte' during StatReloader auto-reloading → Pathlib's stat() can fail on filesystems with corrupted filenames containing null bytes, which os.wa",
+          "id": "exp-general-05464123",
+          "description": "When django.utils.http.parse_http_date misinterprets two-digit years (00-99) → RFC 7231 specifies that years 00-69 represent 2000-2069 and years 70-99 represent 1970-1999",
+          "category": "configuration",
+          "trigger": "When django.utils.http.parse_http_date misinterprets two-digit years (00-99)",
+          "insight": "RFC 7231 specifies that years 00-69 represent 2000-2069 and years 70-99 represent 1970-1999",
+          "action": "Implement the RFC 7231 year mapping: if year < 70 add 2000, else if year < 100 add 1900"
+        },
+        {
+          "id": "exp-general-e93afc41",
+          "description": "When SafeExceptionReporterFilter.get_safe_settings() leaks sensitive settings → The cleanse_setting() function only checks if setting name matches patterns but doesn't handle neste",
           "category": "debugging",
-          "trigger": "When encountering intermittent 'ValueError: embedded null byte' during StatReloader auto-reloading",
-          "insight": "Pathlib's stat() can fail on filesystems with corrupted filenames containing null bytes, which os.walk() silently skips but pathlib doesn't handle",
-          "action": "Wrap pathlib operations in try/except and fall back to os.path for problematic filenames, or filter out filenames with null bytes before processing"
+          "trigger": "When SafeExceptionReporterFilter.get_safe_settings() leaks sensitive settings",
+          "insight": "The cleanse_setting() function only checks if setting name matches patterns but doesn't handle nested structures properly",
+          "action": "Ensure cleanse_setting() recursively handles nested dictionaries and lists, checking all keys against sensitive patterns"
         },
         {
-          "id": "exp-general-137f052b",
-          "description": "When parse_http_date misinterprets two-digit years (e.g., interpreting '50' as 1950 instead of 2050) → RFC 7231 specifies that two-digit years 00-69 map to 2000-2069, while 70-99 map to 1970-1999, but th",
-          "category": "api_usage",
-          "trigger": "When parse_http_date misinterprets two-digit years (e.g., interpreting '50' as 1950 instead of 2050)",
-          "insight": "RFC 7231 specifies that two-digit years 00-69 map to 2000-2069, while 70-99 map to 1970-1999, but the implementation uses incorrect boundary logic",
-          "action": "Use RFC 7231-compliant year mapping: if 0 <= year < 70 add 2000, elif 70 <= year < 100 add 1900, else use as-is"
-        },
-        {
-          "id": "exp-general-ab8649f2",
-          "description": "When makemigrations generates incorrect import paths for inner classes (e.g., 'module.Class.InnerClass' instead of 'module.Class.InnerClass') → Migration serializer uses __name__ for inner classes, which loses the outer class qualification, whi",
+          "id": "exp-general-8ad5dd13",
+          "description": "When migration fails deleting index_together on fields that also have unique_together → Django tries to drop the unique index before the regular index, causing a database error",
           "category": "refactoring",
-          "trigger": "When makemigrations generates incorrect import paths for inner classes (e.g., 'module.Class.InnerClass' instead of 'module.Class.InnerClass')",
-          "insight": "Migration serializer uses __name__ for inner classes, which loses the outer class qualification, while __qualname__ preserves the full dotted path",
-          "action": "Replace __name__ with __qualname__ in migration serializer when handling inner classes to preserve full qualified name"
+          "trigger": "When migration fails deleting index_together on fields that also have unique_together",
+          "insight": "Django tries to drop the unique index before the regular index, causing a database error",
+          "action": "Check for unique constraints on the same fields before dropping indexes, and drop them in the correct order"
         },
         {
-          "id": "exp-general-c7eac59c",
-          "description": "When optional URL parameters (like (?P<format>...)?) cause view function crashes with 'takes X positional arguments but Y were given' → Regex pattern with optional groups creates capturing groups that may be None, but the resolver doesn",
+          "id": "exp-general-1fb83853",
+          "description": "When named tuples used as __range filter arguments fail after Django 2.2 to 3.0 upgrade → Django 3.0 changed how range parameters are processed and doesn't properly handle named tuple types",
           "category": "api_usage",
-          "trigger": "When optional URL parameters (like (?P<format>...)?) cause view function crashes with 'takes X positional arguments but Y were given'",
-          "insight": "Regex pattern with optional groups creates capturing groups that may be None, but the resolver doesn't properly handle missing optional captures",
-          "action": "Filter out None values from regex matches before passing to view function, ensuring only matched parameters are included"
+          "trigger": "When named tuples used as __range filter arguments fail after Django 2.2 to 3.0 upgrade",
+          "insight": "Django 3.0 changed how range parameters are processed and doesn't properly handle named tuple types",
+          "action": "Convert named tuples to regular tuples before passing to range filters, or check for namedtuple attributes and convert explicitly"
         }
       ],
-      "duration_seconds": 2.32
+      "duration_seconds": 2.01
+    },
+    {
+      "cluster_id": "seq_cluster_1",
+      "cluster_label": "Action Sequence Cluster 1",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-11583"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-94758402",
+          "description": "If StatReloader raises \"ValueError: embedded null byte\" during auto-reloads after Django 2.2+ → The exception originates inside pathlib.{PurePath}.relative_to when it tries to compare a bytes path",
+          "category": "debugging",
+          "trigger": "If StatReloader raises \"ValueError: embedded null byte\" during auto-reloads after Django 2.2+",
+          "insight": "The exception originates inside pathlib.{PurePath}.relative_to when it tries to compare a bytes path that contains a NUL byte with a str path; pathlib’s C accelerator rejects the bytes path with a null-byte check before the Python fallback can convert it to str.",
+          "action": "Pre-sanitize every path returned by the watcher to str with os.fsdecode before feeding it to pathlib operations; this prevents NUL bytes from ever reaching relative_to and keeps StatReloader from crashing."
+        },
+        {
+          "id": "exp-general-5182f42f",
+          "description": "When switching a watcher from Python 2 str-only code to pathlib in Python 3 → Pathlib is strict about null bytes and expects all operands to be the same type; mixing bytes and st",
+          "category": "refactoring",
+          "trigger": "When switching a watcher from Python 2 str-only code to pathlib in Python 3",
+          "insight": "Pathlib is strict about null bytes and expects all operands to be the same type; mixing bytes and str silently worked before but now raises ValueError.",
+          "action": "Immediately wrap legacy bytes paths with os.fsdecode when they enter the new pathlib layer so the type is consistently str and NUL-free."
+        },
+        {
+          "id": "exp-general-e05bd412",
+          "description": "If an autoreloader test sporadically fails with \"embedded null byte\" only in CI or high-load runs → The race condition surfaces when the inotify/fsevents watcher returns a raw bytes path containing nu",
+          "category": "testing",
+          "trigger": "If an autoreloader test sporadically fails with \"embedded null byte\" only in CI or high-load runs",
+          "insight": "The race condition surfaces when the inotify/fsevents watcher returns a raw bytes path containing nulls, which pathlib rejects before the old Python str conversion path can kick in.",
+          "action": "Add a small sanitiser helper {sanitize(path: bytes|str) -> str} inside the watcher loop and unit-test it with os.fsdecode to ensure CI and local runs never hit the null-byte path."
+        }
+      ],
+      "duration_seconds": 2.0
+    },
+    {
+      "cluster_id": "seq_cluster_2",
+      "cluster_label": "Action Sequence Cluster 2",
+      "num_trajectories": 2,
+      "trajectory_ids": [
+        "django__django-12125",
+        "django__django-14238"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-67122069",
+          "description": "When makemigrations produces incorrect paths for inner classes in Django models → The django.db.migrations.serializer.PathSerializer uses {class_name}.__name__ which loses the contai",
+          "category": "refactoring",
+          "trigger": "When makemigrations produces incorrect paths for inner classes in Django models",
+          "insight": "The django.db.migrations.serializer.PathSerializer uses {class_name}.__name__ which loses the containing class context, causing import failures",
+          "action": "Change the serializer to use {class_name}.__qualname__ instead of {class_name}.__name__ to preserve the full dotted path for inner classes"
+        },
+        {
+          "id": "exp-general-d4ba3eb2",
+          "description": "When inner class references fail during migration serialization → The __qualname__ attribute contains the full dotted path including containing classes, while __name_",
+          "category": "api_usage",
+          "trigger": "When inner class references fail during migration serialization",
+          "insight": "The __qualname__ attribute contains the full dotted path including containing classes, while __name__ only has the local class name",
+          "action": "Use __qualname__ for inner class references in any serialization or module import logic to maintain proper import paths"
+        },
+        {
+          "id": "exp-general-2098709d",
+          "description": "When DEFAULT_AUTO_FIELD validation fails for subclasses of BigAutoField or SmallAutoField → The validation logic only checks exact class matches against AutoField and BigAutoField, missing cus",
+          "category": "refactoring",
+          "trigger": "When DEFAULT_AUTO_FIELD validation fails for subclasses of BigAutoField or SmallAutoField",
+          "insight": "The validation logic only checks exact class matches against AutoField and BigAutoField, missing custom subclasses",
+          "action": "Use issubclass() checks instead of direct class comparison to allow inheritance hierarchies in DEFAULT_AUTO_FIELD validation"
+        },
+        {
+          "id": "exp-general-cb5c6e5f",
+          "description": "When field validation logic needs to support inheritance hierarchies → Checking exact class identity with '==' fails for subclasses, while issubclass() properly handles th",
+          "category": "debugging",
+          "trigger": "When field validation logic needs to support inheritance hierarchies",
+          "insight": "Checking exact class identity with '==' fails for subclasses, while issubclass() properly handles the inheritance chain",
+          "action": "Replace equality checks with issubclass() when validating that a field type matches expected base classes"
+        },
+        {
+          "id": "exp-general-0c855991",
+          "description": "When testing custom field inheritance in Django → Test the complete lifecycle - field definition, model usage, migration generation, and DEFAULT_AUTO_",
+          "category": "testing",
+          "trigger": "When testing custom field inheritance in Django",
+          "insight": "Test the complete lifecycle - field definition, model usage, migration generation, and DEFAULT_AUTO_FIELD registration for subclasses",
+          "action": "Create test cases that verify both migration serialization and DEFAULT_AUTO_FIELD configuration work with custom field subclasses"
+        }
+      ],
+      "duration_seconds": 1.84
+    },
+    {
+      "cluster_id": "seq_cluster_3",
+      "cluster_label": "Action Sequence Cluster 3",
+      "num_trajectories": 2,
+      "trajectory_ids": [
+        "django__django-12184",
+        "django__django-15789"
+      ],
+      "num_experiences_extracted": 0,
+      "experiences": [],
+      "duration_seconds": 2.79
+    },
+    {
+      "cluster_id": "seq_cluster_4",
+      "cluster_label": "Action Sequence Cluster 4",
+      "num_trajectories": 2,
+      "trajectory_ids": [
+        "django__django-12284",
+        "django__django-15814"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-b2966728",
+          "description": "When Model.get_FOO_display() returns incorrect values on a child model that redefines a parent choices attribute → Django’s display helper copies the parent’s choices list into the child, so the child’s new tuples a",
+          "category": "api_usage",
+          "trigger": "When Model.get_FOO_display() returns incorrect values on a child model that redefines a parent choices attribute",
+          "insight": "Django’s display helper copies the parent’s choices list into the child, so the child’s new tuples are appended rather than merged, causing the old choice values to stay in front of the list.",
+          "action": "Always re-assign (not extend) the choices attribute in child models to guarantee that only the intended tuples are present."
+        },
+        {
+          "id": "exp-general-06a8b9e7",
+          "description": "When a field’s choices are inherited and you cannot reproduce the bug with a minimal model → If the field is created dynamically during model registration (e.g. by a metaclass or a field descri",
+          "category": "debugging",
+          "trigger": "When a field’s choices are inherited and you cannot reproduce the bug with a minimal model",
+          "insight": "If the field is created dynamically during model registration (e.g. by a metaclass or a field descriptor defined on the base model) the display helper is evaluated once and cached before the child rewrites the attribute.",
+          "action": "Force Django to re-evaluate the display helper by saving/adding a dummy instance or by re-importing the application after the child choices are declared."
+        },
+        {
+          "id": "exp-general-3cc44829",
+          "description": "When a combined QS.only() after select_related() fails on a proxy model raising a FieldError for a field defined only in the concrete parent → The defer-only logic stores a reference to the concrete model's attributes; on proxy models this lis",
+          "category": "refactoring",
+          "trigger": "When a combined QS.only() after select_related() fails on a proxy model raising a FieldError for a field defined only in the concrete parent",
+          "insight": "The defer-only logic stores a reference to the concrete model's attributes; on proxy models this list of fields is serialised into migrations with plain __name__ producing a local class reference that is not importable during migration loading.",
+          "action": "Switch any code that serialises inner proxy-model classes to use the fully-qualified __qualname__ so the dotted path (e.g. 'app.models.Parent.Child') is stored and can be resolved during migration reloads."
+        },
+        {
+          "id": "exp-general-40796bd3",
+          "description": "When deferred queries crash after upgrading or migrating a proxy-heavy project → Existing migration files may already contain a broken reference to an inner proxy class that no long",
+          "category": "configuration",
+          "trigger": "When deferred queries crash after upgrading or migrating a proxy-heavy project",
+          "insight": "Existing migration files may already contain a broken reference to an inner proxy class that no longer resolves, so the migration loading step fails before the app registry is ready.",
+          "action": "Run `python manage.py migrate --fake-initial` temporarily once; then manually correct the historical migration files to use __qualname__ where inner proxy classes are named."
+        },
+        {
+          "id": "exp-general-f32c6870",
+          "description": "When trying to test inherited or proxy model issues in Django with pytest → Both bugs only surface after model registry is rebuilt (e.g. running under a test runner) so a simpl",
+          "category": "testing",
+          "trigger": "When trying to test inherited or proxy model issues in Django with pytest",
+          "insight": "Both bugs only surface after model registry is rebuilt (e.g. running under a test runner) so a simple `./manage.py shell` interaction will not reproduce the problem.",
+          "action": "Create the failing case inside a proper Django test case and run it via pytest's django plugin rather than manual module imports in the console."
+        }
+      ],
+      "duration_seconds": 3.08
+    },
+    {
+      "cluster_id": "seq_cluster_5",
+      "cluster_label": "Action Sequence Cluster 5",
+      "num_trajectories": 5,
+      "trajectory_ids": [
+        "django__django-12286",
+        "django__django-13033",
+        "django__django-13158",
+        "django__django-15902",
+        "django__django-16041"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-6e04d573",
+          "description": "When translation.E004 is triggered for a sublanguage that Django actually fallbacks to the base language at runtime → The check only validates LANGUAGE code existence without accounting for Django's fallback logic when",
+          "category": "configuration",
+          "trigger": "When translation.E004 is triggered for a sublanguage that Django actually fallbacks to the base language at runtime",
+          "insight": "The check only validates LANGUAGE code existence without accounting for Django's fallback logic when the sublanguage is missing; raising a hard error prevents the intended fallback.",
+          "action": "Modify the translation.E004 check to accept any sublanguage code whose first (base-lang) component is supported rather than denying the setting."
+        },
+        {
+          "id": "exp-general-ddc9dce6",
+          "description": "When a SelfReferencingForeignKey's related _id attribute is passed to order_by() → The compiler assumes such lookups are fields and incorrectly qualifies them with the current model's",
+          "category": "api_usage",
+          "trigger": "When a SelfReferencingForeignKey's related _id attribute is passed to order_by()",
+          "insight": "The compiler assumes such lookups are fields and incorrectly qualifies them with the current model's alias, producing SQL that references a non-existent foreign-key column.",
+          "action": "Detect self-referential lookups early in SQL generation and skip the alias prefix for ordering by the raw _id attribute stored in the same row."
+        },
+        {
+          "id": "exp-general-7fe3b620",
+          "description": "When calling .none() on a QuerySet built with union, intersection or difference operators → none() simply clones with _filtered_q and not _combined_query. Combined queries reset the WHERE clau",
+          "category": "api_usage",
+          "trigger": "When calling .none() on a QuerySet built with union, intersection or difference operators",
+          "insight": "none() simply clones with _filtered_q and not _combined_query. Combined queries reset the WHERE clause at SQL time, causing all rows to be returned instead of zero rows.",
+          "action": "In none(), also set a flag that forces result_set to an empty list for combined queries, ensuring that UNION/INTERSECT/DIFFUSE still return no rows regardless of their subclauses."
+        },
+        {
+          "id": "exp-general-b00fb028",
+          "description": "When a ManagementForm uses the default template 'default.html' and you rely on an alternative template → ManagementForm objects are created internally by formsets without specifying renderer and therefore ",
+          "category": "debugging",
+          "trigger": "When a ManagementForm uses the default template 'default.html' and you rely on an alternative template",
+          "insight": "ManagementForm objects are created internally by formsets without specifying renderer and therefore always render with 'default.html', triggering the deprecation warning.",
+          "action": "Provide a renderer class using a template engine that contains no 'default.html', or override ManagementForm.as_hidden() to explicitly skip the deprecated template name lookup."
+        },
+        {
+          "id": "exp-general-d9fa2411",
+          "description": "When form_kwargs contains 'empty_permitted' and the empty_form of a formset is rendered → empty_form clones a temporary form instance; it expects the form's Meta.exclude/meta_fields to be in",
+          "category": "refactoring",
+          "trigger": "When form_kwargs contains 'empty_permitted' and the empty_form of a formset is rendered",
+          "insight": "empty_form clones a temporary form instance; it expects the form's Meta.exclude/meta_fields to be intact under _meta, which the explicit empty_permitted flag removes, causing KeyError.",
+          "action": "Store original Meta before empty_permitted substitution and restore it while rendering the empty_form to keep _meta available for field inspection."
+        }
+      ],
+      "duration_seconds": 2.7
+    },
+    {
+      "cluster_id": "seq_cluster_6",
+      "cluster_label": "Action Sequence Cluster 6",
+      "num_trajectories": 5,
+      "trajectory_ids": [
+        "django__django-12453",
+        "django__django-13710",
+        "django__django-14608",
+        "django__django-14672",
+        "django__django-14752"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-e034b91b",
+          "description": "When `TransactionTestCase.serialized_rollback` fails to restore objects with foreign key constraints → The deserialization order matters when objects have foreign key dependencies – restoring objects in ",
+          "category": "testing",
+          "trigger": "When `TransactionTestCase.serialized_rollback` fails to restore objects with foreign key constraints",
+          "insight": "The deserialization order matters when objects have foreign key dependencies – restoring objects in alphabetical order can break referential integrity",
+          "action": "Sort deserialized objects by their model's dependency graph (using Django's `apps.get_models()`) before restoring to ensure parent models are restored before child models"
+        },
+        {
+          "id": "exp-general-8900a938",
+          "description": "When Django admin Inline classes show incorrect verbose_name_plural → Admin Inline's verbose_name_plural defaults to the model's verbose_name_plural, not the Inline's ver",
+          "category": "api_usage",
+          "trigger": "When Django admin Inline classes show incorrect verbose_name_plural",
+          "insight": "Admin Inline's verbose_name_plural defaults to the model's verbose_name_plural, not the Inline's verbose_name",
+          "action": "Override verbose_name_plural in Inline classes to use `verbose_name + 's'` when verbose_name is explicitly defined in the Inline"
+        },
+        {
+          "id": "exp-general-ae7ee659",
+          "description": "When FormSet non-form errors lack CSS class differentiation → FormSets use a blank CSS class for non-form errors unlike forms that use 'nonfield'",
+          "category": "refactoring",
+          "trigger": "When FormSet non-form errors lack CSS class differentiation",
+          "insight": "FormSets use a blank CSS class for non-form errors unlike forms that use 'nonfield'",
+          "action": "Add 'nonform' CSS class to FormSet non-form errors to match the pattern used by form non-field errors"
+        },
+        {
+          "id": "exp-general-1be79969",
+          "description": "When ManyToManyRel through_fields causes unhashable type errors in Django 3.2+ → through_fields can contain unhashable objects like QuerySets which breaks the identity property hash",
+          "category": "refactoring",
+          "trigger": "When ManyToManyRel through_fields causes unhashable type errors in Django 3.2+",
+          "insight": "through_fields can contain unhashable objects like QuerySets which breaks the identity property hash calculation",
+          "action": "Apply make_hashable() to through_fields before including them in the identity tuple for hash calculation"
+        },
+        {
+          "id": "exp-general-a1483092",
+          "description": "When extending AutocompleteJsonView requires additional fields in the response → The serialize_result method is hardcoded to only return 'id' and 'text' without extension points",
+          "category": "debugging",
+          "trigger": "When extending AutocompleteJsonView requires additional fields in the response",
+          "insight": "The serialize_result method is hardcoded to only return 'id' and 'text' without extension points",
+          "action": "Refactor AutocompleteJsonView to use a separate method for building the result dictionary that can be overridden to include additional fields"
+        }
+      ],
+      "duration_seconds": 1.94
+    },
+    {
+      "cluster_id": "seq_cluster_7",
+      "cluster_label": "Action Sequence Cluster 7",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12470"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-4e5a17c3",
+          "description": "When Child model inherits ordering from Parent with '-pk' but descending order is ignored in SQL → Django's get_meta()->get_ordering() only returns field names, losing negation flag; later normalizat",
+          "category": "debugging",
+          "trigger": "When Child model inherits ordering from Parent with '-pk' but descending order is ignored in SQL",
+          "insight": "Django's get_meta()->get_ordering() only returns field names, losing negation flag; later normalization by names_to_path() misses the descending prefix",
+          "action": "In the SQL compiler, rebuild the descending flag from the original Meta.ordering before converting to descending SQL"
+        },
+        {
+          "id": "exp-general-5dff2136",
+          "description": "When inherited Meta.ordering contains descending fields ('-pk') and QuerySet.order_by() behavior is wrong → Names_to_path() receives a cleaned ordering list without descending markers, so DESC is never append",
+          "category": "refactoring",
+          "trigger": "When inherited Meta.ordering contains descending fields ('-pk') and QuerySet.order_by() behavior is wrong",
+          "insight": "Names_to_path() receives a cleaned ordering list without descending markers, so DESC is never appended to SQL ORDER BY",
+          "action": "Preserve the original ordering list with descending flags intact before flattening to field paths"
+        },
+        {
+          "id": "exp-general-b13fdcf5",
+          "description": "When ordering appears correct in Python but SQL lacks DESC → The ordering list is destructively flattened to strings too early, discarding directional metadata",
+          "category": "debugging",
+          "trigger": "When ordering appears correct in Python but SQL lacks DESC",
+          "insight": "The ordering list is destructively flattened to strings too early, discarding directional metadata",
+          "action": "Defer flattening until SQL generation, preserving the '-' prefix to mark descending columns"
+        }
+      ],
+      "duration_seconds": 1.43
+    },
+    {
+      "cluster_id": "seq_cluster_8",
+      "cluster_label": "Action Sequence Cluster 8",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-12497"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-033ca6f6",
+          "description": "If a ManyToManyField has an intermediate model with ≥3 ForeignKeys and through_fields is not set, Django raises ‘Needs a through_fields arg’ but the hint text incorrectly says ‘recursive relationship’ → The error-msg template used the literal string 'recursive relationship' for every case rather than b",
+          "category": "debugging",
+          "trigger": "If a ManyToManyField has an intermediate model with ≥3 ForeignKeys and through_fields is not set, Django raises ‘Needs a through_fields arg’ but the hint text incorrectly says ‘recursive relationship’",
+          "insight": "The error-msg template used the literal string 'recursive relationship' for every case rather than building a dynamic description",
+          "action": "Replace the hard-coded 'recursive relationship' with the actual model/field name using f-string or % formatting so the developer sees the correct field being referenced"
+        },
+        {
+          "id": "exp-general-57d5b0fd",
+          "description": "When running invalid_models_tests and seeing an assertion failure that expected a particular error text on a recursive M2M check → The test expected part of the hint to contain the app.Model.field path, but the original code only p",
+          "category": "testing",
+          "trigger": "When running invalid_models_tests and seeing an assertion failure that expected a particular error text on a recursive M2M check",
+          "insight": "The test expected part of the hint to contain the app.Model.field path, but the original code only produced the field name",
+          "action": "Update the test assertion to match the newly dynamic hint message so the test fails before the fix and passes after the wording is corrected"
+        },
+        {
+          "id": "exp-general-9cbaf9d6",
+          "description": "If creating a self-referential ManyToManyField through an intermediate model with multiple ForeignKeys and no through_fields are specified, Django’s check may crash instead of raising a helpful error → The check method inside related.py uses the string 'recursive relationship' instead of formatting it",
+          "category": "api_usage",
+          "trigger": "If creating a self-referential ManyToManyField through an intermediate model with multiple ForeignKeys and no through_fields are specified, Django’s check may crash instead of raising a helpful error",
+          "insight": "The check method inside related.py uses the string 'recursive relationship' instead of formatting it with the real field path, causing a tuple concatenation error",
+          "action": "Ensure the related_name formatting uses a single string by properly interpolating model and field names before the tuple is built"
+        }
+      ],
+      "duration_seconds": 1.75
+    },
+    {
+      "cluster_id": "seq_cluster_9",
+      "cluster_label": "Action Sequence Cluster 9",
+      "num_trajectories": 2,
+      "trajectory_ids": [
+        "django__django-13230",
+        "django__django-15819"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-fe11a37a",
+          "description": "When you need to expose a new feed metadata field (like item_comments) without forcing users to subclass and override item_extra_kwargs → The existing add_item() signature already passes **kwargs to the underlying feed generator, so addin",
+          "category": "api_usage",
+          "trigger": "When you need to expose a new feed metadata field (like item_comments) without forcing users to subclass and override item_extra_kwargs",
+          "insight": "The existing add_item() signature already passes **kwargs to the underlying feed generator, so adding an explicit comments parameter keeps the API discoverable while preserving backward compatibility",
+          "action": "Add the new parameter with a default of None to add_item(), then pass it through to the generator only when not None: if comments is not None: handler.addQuickElement('comments', comments)"
+        },
+        {
+          "id": "exp-general-bf8cd4e6",
+          "description": "When reverse-accessor clashes occur on self-referencing ForeignKeys after inspectdb → Django’s get_relationship_info() returns identical accessor names for both directions of a symmetric",
+          "category": "refactoring",
+          "trigger": "When reverse-accessor clashes occur on self-referencing ForeignKeys after inspectdb",
+          "insight": "Django’s get_relationship_info() returns identical accessor names for both directions of a symmetrical relation, causing fields.E304 at system-check time",
+          "action": "Detect symmetrical relations during introspection and emit related_name='<rel>_set' for the second direction so each accessor is unique"
+        },
+        {
+          "id": "exp-general-71946470",
+          "description": "When running a focused test (e.g., pytest path/to/test.py::Class::method) fails to collect because of import-time model registration errors → A management-command test can silently register broken models that collide with the tested app; clea",
+          "category": "testing",
+          "trigger": "When running a focused test (e.g., pytest path/to/test.py::Class::method) fails to collect because of import-time model registration errors",
+          "insight": "A management-command test can silently register broken models that collide with the tested app; clearing apps.ready and re-importing the real models fixes collection",
+          "action": "In the test setUp, call apps.clear_cache() and then apps.populate(settings.INSTALLED_APPS) to guarantee a clean model registry before the test runs"
+        },
+        {
+          "id": "exp-general-f092fe3a",
+          "description": "When the feed output contains an unexpected extra slash in <link> or <guid> elements → Feedgenerator’s handling of link strings expects either a full URL or a path starting without slash;",
+          "category": "debugging",
+          "trigger": "When the feed output contains an unexpected extra slash in <link> or <guid> elements",
+          "insight": "Feedgenerator’s handling of link strings expects either a full URL or a path starting without slash; prepending '/' causes a double slash when combined with domain",
+          "action": "Normalize the URL/path in add_item() with link=link.lstrip('/') if link and not link.startswith('http') else link before passing to the generator"
+        },
+        {
+          "id": "exp-general-28622a52",
+          "description": "When inspectdb emits models with clashing accessors on symmetrical m2m relations → The many-to-many through table is symmetrical, so both sides get the same default related_name; Djan",
+          "category": "refactoring",
+          "trigger": "When inspectdb emits models with clashing accessors on symmetrical m2m relations",
+          "insight": "The many-to-many through table is symmetrical, so both sides get the same default related_name; Django’s check framework raises fields.E304",
+          "action": "Emit related_name='%(app_label)s_%(class)s_<field>_related' for the second side of symmetrical m2m when introspecting to guarantee uniqueness"
+        }
+      ],
+      "duration_seconds": 2.86
+    },
+    {
+      "cluster_id": "seq_cluster_10",
+      "cluster_label": "Action Sequence Cluster 10",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-13315"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-6fbd14fa",
+          "description": "When a ForeignKey with limit_choices_to containing a Q object with joins produces duplicate choices in form fields → The duplicates occur because the queryset uses distinct() but Django forms build choices by iteratin",
+          "category": "api_usage",
+          "trigger": "When a ForeignKey with limit_choices_to containing a Q object with joins produces duplicate choices in form fields",
+          "insight": "The duplicates occur because the queryset uses distinct() but Django forms build choices by iterating queryset values, and joined queries can return the same instance multiple times due to joins",
+          "action": "Override get_choices() method in ModelChoiceField to apply distinct('pk') ensuring each related object appears only once in the choice list"
+        },
+        {
+          "id": "exp-general-8d1a5592",
+          "description": "When ModelChoiceField shows duplicate options due to join queries in limit_choices_to → The issue is in ModelChoiceField's queryset handling where distinct() alone is insufficient when the",
+          "category": "api_usage",
+          "trigger": "When ModelChoiceField shows duplicate options due to join queries in limit_choices_to",
+          "insight": "The issue is in ModelChoiceField's queryset handling where distinct() alone is insufficient when the queryset involves joins - you need to ensure distinct on primary key",
+          "action": "Update the get_queryset() method of ModelChoiceField to wrap distinct calls with 'pk' to eliminate duplicates caused by join expansions"
+        },
+        {
+          "id": "exp-general-9d0322f1",
+          "description": "When testing related field issues involving ManyToManyDescriptor reverse relations → ManyToMany relationships create reverse descriptors that can interfere with limit_choices_to process",
+          "category": "debugging",
+          "trigger": "When testing related field issues involving ManyToManyDescriptor reverse relations",
+          "insight": "ManyToMany relationships create reverse descriptors that can interfere with limit_choices_to processing if the Q object field names conflict with reverse relation names",
+          "action": "Ensure Q objects in limit_choices_to reference the exact model field names rather than relation accessors that could resolve to reverse relation paths"
+        }
+      ],
+      "duration_seconds": 1.66
+    },
+    {
+      "cluster_id": "seq_cluster_11",
+      "cluster_label": "Action Sequence Cluster 11",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-13447"
+      ],
+      "num_experiences_extracted": 0,
+      "experiences": [],
+      "duration_seconds": 2.06
+    },
+    {
+      "cluster_id": "seq_cluster_12",
+      "cluster_label": "Action Sequence Cluster 12",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-13551"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-499a11b4",
+          "description": "When a user's email address changes after a password-reset token was issued but before it is used → The default TokenGenerator includes the user’s email hash in the token, so any email change silently",
+          "category": "api_usage",
+          "trigger": "When a user's email address changes after a password-reset token was issued but before it is used",
+          "insight": "The default TokenGenerator includes the user’s email hash in the token, so any email change silently invalidates the token",
+          "action": "Override PasswordResetTokenGenerator._make_hash_value() to include only stable fields (like user.id & last_login) and exclude mutable fields like email"
+        },
+        {
+          "id": "exp-general-822b8119",
+          "description": "If tests for custom user models that don’t store an email field fail with AttributeError → The default token generator expects user.email to exist; attempting to hash a missing attribute rais",
+          "category": "configuration",
+          "trigger": "If tests for custom user models that don’t store an email field fail with AttributeError",
+          "insight": "The default token generator expects user.email to exist; attempting to hash a missing attribute raises",
+          "action": "Guard the email hash with hasattr(user, 'email') and only append it when the field is present"
+        },
+        {
+          "id": "exp-general-e31ea5ec",
+          "description": "When back-porting the fix to earlier Django versions that still use SHA1 tokens → Tokens produced after the change will have a different length and separator count, breaking cross-ve",
+          "category": "refactoring",
+          "trigger": "When back-porting the fix to earlier Django versions that still use SHA1 tokens",
+          "insight": "Tokens produced after the change will have a different length and separator count, breaking cross-version compatibility",
+          "action": "Keep the hash-value change additive (append rather than remove) or bump the token algorithm version to force regeneration"
+        }
+      ],
+      "duration_seconds": 1.4
+    },
+    {
+      "cluster_id": "seq_cluster_13",
+      "cluster_label": "Action Sequence Cluster 13",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-13933"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-6884eec0",
+          "description": "When ModelChoiceField raises ValidationError without showing the invalid value → ModelChoiceField's validate method doesn't include the actual value in the error parameters, unlike ",
+          "category": "api_usage",
+          "trigger": "When ModelChoiceField raises ValidationError without showing the invalid value",
+          "insight": "ModelChoiceField's validate method doesn't include the actual value in the error parameters, unlike ChoiceField",
+          "action": "Modify ModelChoiceField.validate() to pass the invalid value in the ValidationError parameters using `code='invalid_choice'` and include the value"
+        },
+        {
+          "id": "exp-general-fd123b93",
+          "description": "If ChoiceField shows invalid values in errors but ModelChoiceField doesn't → ChoiceField uses `ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', para",
+          "category": "api_usage",
+          "trigger": "If ChoiceField shows invalid values in errors but ModelChoiceField doesn't",
+          "insight": "ChoiceField uses `ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', params={'value': value})` while ModelChoiceField was missing the params",
+          "action": "Ensure ModelChoiceField follows the same pattern: pass `params={'value': value}` to ValidationError constructor"
+        },
+        {
+          "id": "exp-general-c75aafc2",
+          "description": "When form field validation errors don't include the problematic input value → The error message parameter 'value' in ValidationError controls what gets displayed to users when va",
+          "category": "debugging",
+          "trigger": "When form field validation errors don't include the problematic input value",
+          "insight": "The error message parameter 'value' in ValidationError controls what gets displayed to users when validation fails",
+          "action": "Always pass the invalid value as a parameter in ValidationError to make debugging and user feedback clearer"
+        }
+      ],
+      "duration_seconds": 1.31
+    },
+    {
+      "cluster_id": "seq_cluster_14",
+      "cluster_label": "Action Sequence Cluster 14",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-14017"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-87f25941",
+          "description": "When a combined boolean expression (Q & Exists or Exists & Q) raises TypeError about unsupported operand type → The __and__ method on the left-hand side object is responsible for returning a new Query expression;",
+          "category": "api_usage",
+          "trigger": "When a combined boolean expression (Q & Exists or Exists & Q) raises TypeError about unsupported operand type",
+          "insight": "The __and__ method on the left-hand side object is responsible for returning a new Query expression; if the left side is Q it delegates to object.__and__ which does not handle Exists objects, but if the left side is Exists it forwards to self.combine, which does",
+          "action": "Ensure the __and__ and __or__ methods of any custom expression inherit the correct combine logic from Expression rather than relying on the default object.__and__/__or__"
+        },
+        {
+          "id": "exp-general-b8a061a0",
+          "description": "If you see a TypeError raised in expression_boolean.py on 'combine' but no AttributeError for combine → The 'combine' method actually exists, but the problem is the logic inside it; look specifically for ",
+          "category": "debugging",
+          "trigger": "If you see a TypeError raised in expression_boolean.py on 'combine' but no AttributeError for combine",
+          "insight": "The 'combine' method actually exists, but the problem is the logic inside it; look specifically for where the code does not handle a different expression type",
+          "action": "In {function}.combine, explicitly check whether the other object is a Q or another supported expression and return a new CombinedExpression instead of delegating to an unsupported operation"
+        },
+        {
+          "id": "exp-general-0a4045b3",
+          "description": "When the order of operands in boolean combination changes the behavior (Exists & Q works, Q & Exists fails) → The operator implementation is not symmetric; only ExpBase implements __and__/__or__ while Q inherit",
+          "category": "refactoring",
+          "trigger": "When the order of operands in boolean combination changes the behavior (Exists & Q works, Q & Exists fails)",
+          "insight": "The operator implementation is not symmetric; only ExpBase implements __and__/__or__ while Q inherits object’s, so the result depends on which object is on the left",
+          "action": "Override __and__ and __or__ on the Q class (or whatever expression you’re creating) to dispatch to a symmetric call-back like combine_with_q to ensure commutativity"
+        }
+      ],
+      "duration_seconds": 1.93
+    },
+    {
+      "cluster_id": "seq_cluster_15",
+      "cluster_label": "Action Sequence Cluster 15",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-14382"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-a167d84b",
+          "description": "When Django's startapp/startproject receives a directory path ending with a trailing slash → os.path.basename('folder/') returns an empty string, causing the validation to reject the directory ",
+          "category": "api_usage",
+          "trigger": "When Django's startapp/startproject receives a directory path ending with a trailing slash",
+          "insight": "os.path.basename('folder/') returns an empty string, causing the validation to reject the directory name",
+          "action": "Strip trailing slashes early in the processing chain: use target.rstrip(os.sep), ensuring basename() always returns a non-empty directory name"
+        },
+        {
+          "id": "exp-general-b9dde0c2",
+          "description": "If command validation uses os.path.basename() on user-supplied directory paths → basename() on slash-terminated input silently produces empty strings, failing downstream validation",
+          "category": "api_usage",
+          "trigger": "If command validation uses os.path.basename() on user-supplied directory paths",
+          "insight": "basename() on slash-terminated input silently produces empty strings, failing downstream validation",
+          "action": "Always sanitize input paths with path.rstrip('/') before applying basename()"
+        },
+        {
+          "id": "exp-general-6170ab1d",
+          "description": "When adding argument normalization to existing CLI commands in Django core → Modifying the shared code path in django.core.management.templates avoids duplication across startap",
+          "category": "refactoring",
+          "trigger": "When adding argument normalization to existing CLI commands in Django core",
+          "insight": "Modifying the shared code path in django.core.management.templates avoids duplication across startapp/startproject and other template commands",
+          "action": "Place path sanitization in TemplateCommand's handle_targets() before basename() is called"
+        }
+      ],
+      "duration_seconds": 1.3
+    },
+    {
+      "cluster_id": "seq_cluster_16",
+      "cluster_label": "Action Sequence Cluster 16",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-14580"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-7bb63829",
+          "description": "When a Django migration throws 'NameError: name \"models\" is not defined' for a custom field defined inside models.py → The migration serializer was serializing the field class without preserving the containing module’s ",
+          "category": "refactoring",
+          "trigger": "When a Django migration throws 'NameError: name \"models\" is not defined' for a custom field defined inside models.py",
+          "insight": "The migration serializer was serializing the field class without preserving the containing module’s import; when the inner class is re-created in the migration it can’t resolve the un-imported ‘models’ reference.",
+          "action": "Patch the serializer to emit an import statement for ‘models’ (from django.db import models) whenever it serializes a custom field class that subclasses a Django model field."
+        },
+        {
+          "id": "exp-general-7f77118f",
+          "description": "When serializing a class defined in a module that itself imports a top-level package (e.g., ‘models’) used by that class → The serializer must detect that the class’s source module imports the needed symbol and replicate th",
+          "category": "api_usage",
+          "trigger": "When serializing a class defined in a module that itself imports a top-level package (e.g., ‘models’) used by that class",
+          "insight": "The serializer must detect that the class’s source module imports the needed symbol and replicate that import in the generated migration code so the symbol is in scope at deserialization time.",
+          "action": "In the serializer’s registration for the class, inspect {module}.__dict__ for the required symbol; if present, force-write the corresponding import line into the migration file before the class definition."
+        },
+        {
+          "id": "exp-general-bf338034",
+          "description": "When a migration contains only class definitions and the generated file lacks any imports → The migration writer assumes all symbols are already imported; custom fields inheriting from django.",
+          "category": "configuration",
+          "trigger": "When a migration contains only class definitions and the generated file lacks any imports",
+          "insight": "The migration writer assumes all symbols are already imported; custom fields inheriting from django.db.models fields break this assumption because their base class references ‘models’",
+          "action": "Always prepend the standard Django models import (from django.db import models) to the migration when the serialized object is a subclass of models.Field."
+        }
+      ],
+      "duration_seconds": 1.84
+    },
+    {
+      "cluster_id": "seq_cluster_17",
+      "cluster_label": "Action Sequence Cluster 17",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-14787"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-574cc124",
+          "description": "When @method_decorator() loses __name__, __module__, __doc__ after decoration → The decorator was wrapping the already-wrapped view method instead of preserving the original functi",
+          "category": "api_usage",
+          "trigger": "When @method_decorator() loses __name__, __module__, __doc__ after decoration",
+          "insight": "The decorator was wrapping the already-wrapped view method instead of preserving the original function attributes",
+          "action": "Use functools.update_wrapper to copy all attributes from the original callable (even a functools.partial) to the returned wrapper"
+        },
+        {
+          "id": "exp-general-9117be29",
+          "description": "If decorated class-based-view methods show 'partial object has no attribute __name__' → method_decorator needs to handle functools.partial objects the same way it handles regular functions",
+          "category": "debugging",
+          "trigger": "If decorated class-based-view methods show 'partial object has no attribute __name__'",
+          "insight": "method_decorator needs to handle functools.partial objects the same way it handles regular functions",
+          "action": "Pass the decorated attribute through available_attrs() or functools.WRAPPER_ASSIGNMENTS when re-binding it to the class"
+        },
+        {
+          "id": "exp-general-2624150f",
+          "description": "When migrating from function-based views to CBVs with @method_decorator and wrapper attributes disappear → The decorator chain can drop __module__, __name__ and __qualname__ when wrapping a bound method",
+          "category": "refactoring",
+          "trigger": "When migrating from function-based views to CBVs with @method_decorator and wrapper attributes disappear",
+          "insight": "The decorator chain can drop __module__, __name__ and __qualname__ when wrapping a bound method",
+          "action": "Ensure update_wrapper is called with the original attributes before the wrapper is applied to the method"
+        }
+      ],
+      "duration_seconds": 1.34
+    },
+    {
+      "cluster_id": "seq_cluster_18",
+      "cluster_label": "Action Sequence Cluster 18",
+      "num_trajectories": 2,
+      "trajectory_ids": [
+        "django__django-15400",
+        "django__django-15790"
+      ],
+      "num_experiences_extracted": 5,
+      "experiences": [
+        {
+          "id": "exp-general-54eb6879",
+          "description": "When SimpleLazyObject appears to behave correctly for all operators but fails for '__radd__' → The stock lazy proxy forwards '__radd__' and other reflected operators to the wrapped object too ear",
+          "category": "api_usage",
+          "trigger": "When SimpleLazyObject appears to behave correctly for all operators but fails for '__radd__'",
+          "insight": "The stock lazy proxy forwards '__radd__' and other reflected operators to the wrapped object too early; the right-hand object does not see the proxy instance on the left and therefore reverse-operator lookup never reaches the lazy wrapper.",
+          "action": "Override __radd__, __rsub__, __rmul__, __rtruediv__, etc. inside SimpleLazyObject so each reflected operator is forwarded to the resolved target only *after* proxy resolution."
+        },
+        {
+          "id": "exp-general-2c3ac2fd",
+          "description": "When Django’s check_for_template_tags_with_the_same_name falsely flags a duplicate among explicit 'libraries' list → The check logic concatenates built-ins and custom 'libraries' then compares Tag.name strings without",
+          "category": "debugging",
+          "trigger": "When Django’s check_for_template_tags_with_the_same_name falsely flags a duplicate among explicit 'libraries' list",
+          "insight": "The check logic concatenates built-ins and custom 'libraries' then compares Tag.name strings without accounting for the extra entry Django injects on behalf of each explicitly-listed library.",
+          "action": "Exclude any library that shares its name with an entry already listed under 'libraries' from the built-ins inside {module}.template_backends.base.get_template_tag_modules()."
+        },
+        {
+          "id": "exp-general-c60e129d",
+          "description": "After adding __radd__ to SimpleLazyObject, when existing tests or pickling unexpectedly fail → Python 2-compatibility or copy-protocol methods expect the *class* attribute __name__, not the insta",
+          "category": "refactoring",
+          "trigger": "After adding __radd__ to SimpleLazyObject, when existing tests or pickling unexpectedly fail",
+          "insight": "Python 2-compatibility or copy-protocol methods expect the *class* attribute __name__, not the instance attribute used to build __dict__ of custom operators.",
+          "action": "Ensure new operator methods reference self.__class__.__name__ rather than setting a bare instance attribute '__name__'."
+        },
+        {
+          "id": "exp-general-d19f1853",
+          "description": "When template-tags check still reports clashes after deduplication in the libraries list → Several modules can be returned for the same library (builtins vs custom path) due to how django.tem",
+          "category": "debugging",
+          "trigger": "When template-tags check still reports clashes after deduplication in the libraries list",
+          "insight": "Several modules can be returned for the same library (builtins vs custom path) due to how django.template.library.import_library() stores them.",
+          "action": "Normalise the module path with os.path.abspath() and compare both Tag origin path strings before emitting a duplicate warning."
+        },
+        {
+          "id": "exp-general-906e1931",
+          "description": "When unit-tests claim 'django.core.exceptions.ImproperlyConfigured' during setup for minimal TEMPLATES testing → Running checks against templates *before* full settings configuration can require a SECRET_KEY to be",
+          "category": "configuration",
+          "trigger": "When unit-tests claim 'django.core.exceptions.ImproperlyConfigured' during setup for minimal TEMPLATES testing",
+          "insight": "Running checks against templates *before* full settings configuration can require a SECRET_KEY to be present or DEBUG=False can hide required options.",
+          "action": "Always configure minimal settings with explicit SECRET_KEY (for security checks on template tags) and override DEBUG=True only inside the temporary settings context under test."
+        }
+      ],
+      "duration_seconds": 2.83
+    },
+    {
+      "cluster_id": "seq_cluster_19",
+      "cluster_label": "Action Sequence Cluster 19",
+      "num_trajectories": 1,
+      "trajectory_ids": [
+        "django__django-15498"
+      ],
+      "num_experiences_extracted": 3,
+      "experiences": [
+        {
+          "id": "exp-general-17cde51e",
+          "description": "When an HTTP header parser raises a ValueError on empty string → Empty header strings should be silently ignored instead of causing exceptions",
+          "category": "api_usage",
+          "trigger": "When an HTTP header parser raises a ValueError on empty string",
+          "insight": "Empty header strings should be silently ignored instead of causing exceptions",
+          "action": "Add a guard clause to skip header processing when the header value is an empty string, e.g. 'if not header_value: return'"
+        },
+        {
+          "id": "exp-general-9eaf93e0",
+          "description": "If If-Modified-Since parsing fails after a recent commit → HTTP date parsing changed behavior to raise exceptions on invalid dates instead of returning None",
+          "category": "api_usage",
+          "trigger": "If If-Modified-Since parsing fails after a recent commit",
+          "insight": "HTTP date parsing changed behavior to raise exceptions on invalid dates instead of returning None",
+          "action": "Wrap HTTP date parsing in try/catch or validate date format before parsing to prevent ValueError propagation"
+        },
+        {
+          "id": "exp-general-5f7c6f97",
+          "description": "When a static file view throws ValueError during HTTP header processing → The issue is likely in the conditional request header parsing, not the static file handling itself",
+          "category": "debugging",
+          "trigger": "When a static file view throws ValueError during HTTP header processing",
+          "insight": "The issue is likely in the conditional request header parsing, not the static file handling itself",
+          "action": "Check the If-Modified-Since header parsing logic first when debugging conditional GET failures in static file serving"
+        }
+      ],
+      "duration_seconds": 1.23
     }
   ]
 }

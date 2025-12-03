@@ -176,48 +176,198 @@ clusters = clusterer.cluster(trajectories)
 
 ### 2. CompressionModule
 
-Reduces trajectory length while preserving key information.
+Reduces trajectory length while preserving key information. This is important because raw trajectories can have 50-200+ events, which would exceed LLM context limits.
 
-| Strategy | LLM Required | Description |
-|----------|--------------|-------------|
-| `KEY_STEP_EXTRACTION` | No | Keeps file edits, tests, and context |
-| `ACTION_TYPE_FILTERING` | No | Keeps only specified action types |
-| `HIERARCHICAL_SUMMARIZATION` | Yes | LLM-based chunk summarization |
-| `NO_OP` | No | Pass-through (no compression) |
+#### Compression Strategies
+
+| Strategy | LLM Required | Compression Ratio | Best For |
+|----------|--------------|-------------------|----------|
+| `KEY_STEP_EXTRACTION` | No | ~70-80% reduction | Default, fast processing |
+| `ACTION_TYPE_FILTERING` | No | ~60-90% reduction | Focused analysis |
+| `HIERARCHICAL_SUMMARIZATION` | Yes | ~80-90% reduction | Semantic preservation |
+| `NO_OP` | No | 0% (pass-through) | Debugging, small trajectories |
+
+#### Strategy Details
+
+**1. KEY_STEP_EXTRACTION** (Default, Recommended)
+
+Core logic:
+1. Identify "key steps" - events that are FILE_EDIT or TESTING actions
+2. For each key step, keep 1 event before and 1 after for context
+3. If no key steps found, keep only first and last event
+
+```
+Original: [E1, E2, E3, EDIT, E5, E6, TEST, E8, E9, E10]
+                   ↓
+Compressed: [E3, EDIT, E5, E6, TEST, E8]
+            (context before/after key steps)
+```
+
+Pros:
+- No LLM calls, very fast
+- Preserves the most important actions (edits and tests)
+- Maintains context around key decisions
+
+**2. ACTION_TYPE_FILTERING**
+
+Core logic:
+1. Filter events by action type whitelist
+2. Default whitelist: `FILE_EDIT`, `TESTING`, `EXPLORATION`
+3. All other event types are discarded
+
+```
+Original: [THINK, EXPLORE, EDIT, THINK, TEST, NAVIGATE, EDIT]
+                       ↓
+Compressed: [EXPLORE, EDIT, TEST, EDIT]
+            (only whitelisted types)
+```
+
+Pros:
+- Very aggressive compression
+- Customizable via `keep_action_types` config
+
+Cons:
+- May lose important context (thoughts, navigation reasoning)
+
+**3. HIERARCHICAL_SUMMARIZATION** (Requires LLM)
+
+Core logic:
+1. Split events into chunks (default: 10 events per chunk)
+2. Send each chunk to LLM for summarization
+3. Replace chunk with a single "summary event"
+
+```
+Original: [E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11, E12, ...]
+                              ↓
+Compressed: [Summary("Steps 1-10: Explored codebase, found bug in X"),
+             Summary("Steps 11-20: Fixed bug, ran tests")]
+```
+
+Pros:
+- Preserves semantic meaning
+- Best for very long trajectories
+
+Cons:
+- Requires LLM calls (slower, costs tokens)
+- Summary quality depends on LLM
+
+**4. NO_OP**
+
+Pass-through, no compression. Use for debugging or when trajectories are already small.
+
+#### Usage Example
 
 ```python
 from CAWM import CompressionModule, CompressionStrategy
 
-# Fast, no LLM needed
+# Default: key step extraction (fast, no LLM)
 compressor = CompressionModule(strategy=CompressionStrategy.KEY_STEP_EXTRACTION)
+
+# Custom filtering
+from CAWM.models import ActionType
+compressor = CompressionModule(strategy=CompressionStrategy.ACTION_TYPE_FILTERING)
+compressor.config.keep_action_types = [ActionType.FILE_EDIT, ActionType.TESTING]
+
+# Composition: chain multiple strategies
+comp1 = CompressionModule(strategy=CompressionStrategy.ACTION_TYPE_FILTERING)
+comp2 = CompressionModule(strategy=CompressionStrategy.KEY_STEP_EXTRACTION)
+composed = comp1 + comp2  # Apply filtering first, then key extraction
+
 compressed = compressor.compress_batch(trajectories)
 ```
 
+---
+
 ### 3. InductionModule
 
-Uses LLM to extract experiences from trajectory clusters.
+Uses LLM to extract **task-specific experiences** from trajectory clusters. This is the core value-extraction step.
+
+#### How It Works
+
+```
+Input: Cluster of similar trajectories
+           ↓
+Step 1: Compress trajectories (via CompressionModule)
+           ↓
+Step 2: Build prompt with trajectory context
+           ↓
+Step 3: LLM extracts experiences
+           ↓
+Step 4: Parse JSON response into Workflow objects
+           ↓
+Output: List of actionable experiences
+```
+
+#### Abstraction Levels
+
+| Level | Description | Use Case |
+|-------|-------------|----------|
+| `GENERAL` | Cross-project experiences with placeholders like `{file}`, `{function}` | Default, reusable across projects |
+| `SPECIFIC` | Detailed experiences with exact module/function names | Project-specific knowledge bases |
+
+#### The Prompt Strategy
+
+The induction prompt is designed to extract **specific, actionable insights** rather than generic advice:
+
+**Good experiences** (what we want):
+- "When encountering 'FieldError: Cannot resolve keyword', check if the field name conflicts with a reverse relation"
+- "For HTTP date parsing, years 00-69 map to 2000-2069 per RFC 7231"
+- "When inner class serialization fails in migrations, use `__qualname__` instead of `__name__`"
+
+**Bad experiences** (filtered out):
+- "First reproduce the bug" (too obvious)
+- "Write tests before fixing" (generic advice)
+- "Read the error message carefully" (not actionable)
+
+#### Processing Limits
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| Max trajectories per cluster | 10 | Prevents context overflow |
+| Max events per trajectory | 20 | Focuses on key actions |
+| Experiences per cluster | 3-5 | Balances quality vs quantity |
+
+#### Output Format
+
+```json
+{
+  "experiences": [
+    {
+      "trigger": "When/If <specific situation or error>",
+      "insight": "The key discovery or root cause",
+      "action": "Specific recommended approach or fix",
+      "category": "debugging|refactoring|testing|configuration|api_usage"
+    }
+  ]
+}
+```
+
+#### Categories
+
+| Category | Description |
+|----------|-------------|
+| `debugging` | Finding and diagnosing issues |
+| `refactoring` | Code structure improvements |
+| `testing` | Test-related insights |
+| `configuration` | Setup and config issues |
+| `api_usage` | Correct API/library usage |
+
+#### Usage Example
 
 ```python
 from CAWM import InductionModule, WorkflowLevel
 
 inductor = InductionModule(llm_client=llm_client)
 
-# Extract from clusters
+# Extract general experiences (cross-project)
 workflows = inductor.induce_from_clusters(clusters, level=WorkflowLevel.GENERAL)
-```
 
-**Output Format** (experiences, not generic workflows):
-```json
-{
-  "experiences": [
-    {
-      "trigger": "When NDData arithmetic fails with mask propagation...",
-      "insight": "The mask propagation logic assumes both operands have masks...",
-      "action": "Check if operand.mask exists before accessing properties...",
-      "category": "debugging"
-    }
-  ]
-}
+# Extract specific experiences (project-focused)
+workflows = inductor.induce_from_clusters(clusters, level=WorkflowLevel.SPECIFIC)
+
+# Extract both levels at once
+hierarchical = inductor.induce_hierarchical(trajectories)
+# Returns: {WorkflowLevel.GENERAL: [...], WorkflowLevel.SPECIFIC: [...]}
 ```
 
 ### 4. CAWMPipeline
