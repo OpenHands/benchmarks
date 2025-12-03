@@ -32,7 +32,7 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
@@ -117,7 +117,12 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         # Create workspace based on workspace_type
-        if self.metadata.workspace_type == "docker":
+        if self.metadata.workspace_type == "local":
+            # Use LocalWorkspace - runs commands directly on host filesystem
+            # This is ideal for GAIA since all instances use the same environment
+            logger.info("Using local workspace (in-process execution)")
+            workspace = LocalWorkspace(working_dir="/workspace")
+        elif self.metadata.workspace_type == "docker":
             workspace = DockerWorkspace(
                 base_image="nikolaik/python-nodejs:python3.12-nodejs22",
                 working_dir="/workspace",
