@@ -1,4 +1,4 @@
-name: Build SWE-Bench Images
+name: Build SWE-Bench Lite (Relay Strategy)
 
 on:
   pull_request_target:
@@ -6,206 +6,163 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
+        description: 'Dataset Name'
         required: true
-        default: 'princeton-nlp/SWE-bench_Verified'
-        type: string
+        default: 'princeton-nlp/SWE-bench_Lite'
       split:
-        description: 'Dataset split (e.g., test, dev)'
+        description: 'Split Name'
         required: true
         default: 'test'
-        type: string
-      max-workers:
-        description: 'Number of concurrent builds'
-        required: false
-        default: '10' 
-      n-limit:
-        description: 'Limit number of images to build. Leave blank for no limit.'
-        required: false
-        default: ''
-        type: string
-      sdk-commit:
-        description: 'Software Agent SDK commit/ref. Leave blank to use default.'
-        required: false
-        default: ''
-        type: string
 
 env:
-  DATASET: princeton-nlp/SWE-bench_Verified
+  DATASET: princeton-nlp/SWE-bench_Lite
   SPLIT: test
-  # Reduced workers from 32 to 10 because ubuntu-latest is not as powerful as Blacksmith
-  MAX_WORKERS: '10' 
-  N_LIMIT: '500'
-
-concurrency:
-  group: build-swe-bench-${{ github.ref }}
-  cancel-in-progress: false
+  MAX_WORKERS: '3'
+  N_LIMIT: ''
 
 jobs:
-  build-and-push:
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request_target' &&
-       (github.event.label.name == 'build-swebench' ||
-        github.event.label.name == 'build-swebench-50' ||
-        github.event.label.name == 'build-swebench-200'))
-
-    # CHANGED: Use standard GitHub runner
+  batch-1:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: read
       packages: write
-      issues: write
-      pull-requests: write
-
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha }}
+      
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
 
-      - name: Apply workflow_dispatch overrides (if any)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
-
-      - name: Set N_LIMIT based on label
-        if: ${{ github.event_name == 'pull_request_target' }}
-        run: |
-          LABEL_NAME="${{ github.event.label.name }}"
-          if [ "$LABEL_NAME" = "build-swebench-50" ]; then
-            echo "N_LIMIT=50" >> "$GITHUB_ENV"
-          elif [ "$LABEL_NAME" = "build-swebench-200" ]; then
-            echo "N_LIMIT=200" >> "$GITHUB_ENV"
-          elif [ "$LABEL_NAME" = "build-swebench" ]; then
-            echo "N_LIMIT=" >> "$GITHUB_ENV"
-          fi
-
-      - name: Update SDK submodule
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
-        run: |
-          cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
-          git checkout FETCH_HEAD
-          SDK_SHA=$(git rev-parse HEAD)
-          cd ../..
-          git add vendor/software-agent-sdk
-          echo "Updated SDK submodule to $SDK_SHA"
-
-      # CHANGED: Use standard Docker Setup
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v7
+      - run: make build
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
+      - name: Build Batch 1
+        continue-on-error: true
         run: |
-          make build
-
-      - name: Build and push SWE-Bench images
-        run: |
-          set -euo pipefail
-          
-          # CHANGED: Pointing image to your repository owner (tsljgj) automatically
-          # NOTE: Lowercase conversion is handled by python script usually, 
-          # but ensuring the repo owner is passed correctly is key.
-          
-          CMD="uv run benchmarks/swe_bench/build_images.py \
-            --dataset '${DATASET}' \
-            --split '${SPLIT}' \
+          uv run benchmarks/swe_bench/build_images.py \
+            --dataset "${DATASET}" \
+            --split "${SPLIT}" \
             --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
             --push \
-            --max-workers '${MAX_WORKERS}'"
+            --max-workers "${MAX_WORKERS}"
 
-          if [ -n "${N_LIMIT}" ]; then
-            CMD="$CMD --n-limit '${N_LIMIT}'"
-          fi
-
-          echo "Running: $CMD"
-          eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-
-      - name: Archive build logs
-        if: always()
-        run: |
-          if [ -d builds ]; then
-            tar -czf build-logs.tar.gz builds/
-          fi
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
+  batch-2:
+    needs: batch-1
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: build-logs-${{ github.run_id }}
-          path: build-logs.tar.gz
-          retention-days: 7
-          if-no-files-found: warn
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha }}
+      
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
 
-      - name: Comment on PR or Issue
-        if: success()
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v7
+      - run: make build
+
+      - name: Build Batch 2 (Resume)
+        continue-on-error: true
         run: |
-          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
-          
-          if [ -z "$MANIFEST_FILES" ]; then exit 0; fi
-          TOTAL_IMAGES=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-          if [ "$TOTAL_IMAGES" -eq 0 ]; then exit 0; fi
-          
-          TAGS=$(cat $MANIFEST_FILES | python -c "
-          import sys, json
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('tags'): print(f'- \`{data['tags'][0]}\`')
-          ")
-          
-          COMMENT_BODY=$(cat <<EOF
-          ## Build Complete ✅
-          **Dataset:** \`${DATASET}\`
-          **Images Built:** ${TOTAL_IMAGES}
-          **Location:** \`ghcr.io/${{ github.repository_owner }}/eval-agent-server\`
+          echo "Resuming build..."
+          uv run benchmarks/swe_bench/build_images.py \
+            --dataset "${DATASET}" \
+            --split "${SPLIT}" \
+            --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
+            --push \
+            --max-workers "${MAX_WORKERS}"
 
-          <details>
-          <summary>Built Tags</summary>
+  batch-3:
+    needs: batch-2
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha }}
+      
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
+      
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v7
+      - run: make build
 
-          ${TAGS}
-
-          </details>
-          EOF
-          )
-          
-          # CHANGED: Attempt to comment on the PR first, fallback to Issue 81 (if PR number doesn't exist)
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          
-          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
-             TARGET_URL="${{ github.api_url }}/repos/${{ github.repository }}/issues/$PR_NUMBER/comments"
-          else
-             # Fallback just in case
-             TARGET_URL="${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments"
-          fi
-
-          echo "Posting comment to: $TARGET_URL"
-
-          curl -L -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$TARGET_URL" \
-            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')" || echo "Failed to post comment, check if PR or Issue exists"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Batch 3 (Final)
+        run: |
+          echo "Final cleanup pass..."
+          uv run benchmarks/swe_bench/build_images.py \
+            --dataset "${DATASET}" \
+            --split "${SPLIT}" \
+            --image ghcr.io/${{ github.repository_owner }}/eval-agent-server \
+            --push \
+            --max-workers "${MAX_WORKERS}"
