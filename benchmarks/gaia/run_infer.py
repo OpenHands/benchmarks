@@ -135,7 +135,9 @@ class GAIAEvaluation(Evaluation):
 
         # GAIA uses a universal agent server image (one image for all instances)
         # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
-        agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary-minimal"
+        agent_server_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary-minimal"
+        )
 
         if not image_exists(agent_server_image):
             raise RuntimeError(

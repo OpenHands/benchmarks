@@ -81,7 +81,7 @@ def evaluate_gaia_results(input_file: str) -> dict[str, int | float]:
 
     success_rate = success / total if total > 0 else 0.0
 
-    logger.info(f"Evaluation complete:")
+    logger.info("Evaluation complete:")
     logger.info(f"  Total: {total}")
     logger.info(f"  Success: {success}")
     logger.info(f"  Success rate: {success_rate:.2%}")
