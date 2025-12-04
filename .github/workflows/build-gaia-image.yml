@@ -66,15 +66,7 @@ jobs:
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
       - name: Set up Docker Buildx with Blacksmith
-        id: blacksmith
         uses: useblacksmith/setup-docker-builder@v1
-        continue-on-error: true
-
-      - name: Set up Docker Buildx (fallback)
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
-          driver-opts: network=host
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -175,7 +167,12 @@ jobs:
           fi
 
           # Extract the image tag from the manifest
-          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c 'import sys, json; data = json.loads(sys.stdin.read()); tags = data.get("tags", []); print(tags[0] if tags else "unknown")')
+          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+tags = data.get('tags', [])
+print(tags[0] if tags else 'unknown')
+          ")
 
           if [ "$IMAGE_TAG" = "unknown" ]; then
             echo "No valid image tag found in manifest"
@@ -192,12 +189,15 @@ jobs:
           fi
 
           # Post comment
-          COMMENT_BODY="## GAIA Image Build Complete ✅
+          COMMENT_BODY=$(cat <<EOF
+## GAIA Image Build Complete ✅
 
-          **SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
-          **Image Tag:** \`${IMAGE_TAG}\`
-          **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          **Triggered by:** ${TRIGGER}"
+**SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
+**Image Tag:** \`${IMAGE_TAG}\`
+**Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+**Triggered by:** ${TRIGGER}
+EOF
+          )
 
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
