@@ -23,7 +23,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_commit0_results(input_file: str, output_file: str) -> None:
+def process_commit0_results(
+    input_file: str, output_file: str, model_name: str = "openhands"
+) -> None:
     """
     Process Commit0 output.jsonl and generate evaluation report.
 
@@ -117,6 +119,7 @@ def process_commit0_results(input_file: str, output_file: str) -> None:
 
     # Generate report
     report = {
+        "model_name_or_path": model_name,
         "total_instances": 16,  # Fixed as per requirement
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
@@ -155,16 +158,16 @@ def main() -> None:
         epilog="""
 Examples:
     uv run commit0-eval output.jsonl
-    uv run commit0-eval /path/to/output.jsonl --output-file report.json
+    uv run commit0-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
     parser.add_argument("input_file", help="Path to the Commit0 output.jsonl file")
 
     parser.add_argument(
-        "--output-file",
-        help="Output file for the evaluation report "
-        "(default: input_file directory with commit0_report.json)",
+        "--model-name",
+        default="openhands",
+        help="Model name to use in the model_name_or_path field (default: openhands)",
     )
 
     args = parser.parse_args()
@@ -178,18 +181,16 @@ Examples:
     if not input_file.suffix == ".jsonl":
         logger.warning(f"Input file does not have .jsonl extension: {input_file}")
 
-    # Determine output file
-    if args.output_file:
-        output_file = Path(args.output_file)
-    else:
-        output_file = input_file.parent / "commit0_report.json"
+    # Determine output file (always use default name)
+    output_file = input_file.parent / "commit0_report.json"
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
+    logger.info(f"Model name: {args.model_name}")
 
     try:
         # Process results and generate report
-        process_commit0_results(str(input_file), str(output_file))
+        process_commit0_results(str(input_file), str(output_file), args.model_name)
         logger.info("Script completed successfully!")
 
     except Exception as e:
