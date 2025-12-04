@@ -495,6 +495,7 @@ class Commit0Evaluation(Evaluation):
             instruction=instruction,
             error=None,
             history=history,
+            metrics=conversation.conversation_stats.get_combined_metrics(),
         )
         return out
 
