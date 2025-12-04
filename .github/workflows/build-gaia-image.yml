@@ -1,5 +1,6 @@
 name: Build GAIA Images
 
+# Workflow for building universal GAIA evaluation agent server images
 on:
   pull_request_target:
     types: [labeled]
