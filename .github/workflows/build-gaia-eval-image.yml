@@ -67,13 +67,7 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
-      - name: Set up Docker Buildx with Blacksmith
-        id: buildx-blacksmith
-        uses: useblacksmith/setup-docker-builder@v1
-        continue-on-error: true
-
-      - name: Set up Docker Buildx (fallback)
-        if: steps.buildx-blacksmith.outcome == 'failure'
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
