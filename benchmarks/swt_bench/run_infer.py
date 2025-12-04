@@ -199,7 +199,6 @@ class SWTBenchEvaluation(Evaluation):
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
-                target_type="source" if "source" in build_target else "binary",
             )
         else:
             raise ValueError(

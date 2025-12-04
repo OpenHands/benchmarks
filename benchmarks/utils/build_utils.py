@@ -190,10 +190,6 @@ def build_image(
         # SWE-Bench only supports linux/amd64 images
         platforms=["linux/amd64"],
         push=push,
-        # Override git info to use SDK submodule info instead of benchmarks repo
-        git_ref=git_ref,
-        git_sha=git_sha,
-        sdk_version=sdk_version,
     )
     for t in opts.all_tags[0]:
         # Check if image exists or not
