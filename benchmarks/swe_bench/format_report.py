@@ -6,7 +6,7 @@ Generates a unified markdown notification message from SWE-bench evaluation resu
 This message is used for both Slack notifications and GitHub PR comments.
 
 Usage:
-    python format_report.py <results_summary.json> [--env-file <env_file>]
+    python format_report.py <output.jsonl> <report.json> [--env-file <env_file>]
 """
 
 import argparse
@@ -23,8 +23,19 @@ def load_json(path: str) -> dict[str, Any]:
         return json.load(f)
 
 
+def load_jsonl(path: str) -> list[dict[str, Any]]:
+    """Load JSONL file."""
+    results = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                results.append(json.loads(line))
+    return results
+
+
 def format_swe_bench_report(
-    summary: dict[str, Any],
+    report: dict[str, Any],
     eval_name: str,
     model_name: str,
     dataset: str,
@@ -32,15 +43,13 @@ def format_swe_bench_report(
     commit: str,
     timestamp: str,
     trigger_reason: str | None = None,
-    metadata_url: str | None = None,
-    results_url: str | None = None,
     tar_url: str | None = None,
 ) -> str:
     """
     Format SWE-bench evaluation results as a markdown notification.
     
     Args:
-        summary: Results summary dictionary with report
+        report: SWE-bench report dictionary with metrics
         eval_name: Unique evaluation name
         model_name: Model name used
         dataset: Dataset name
@@ -48,15 +57,12 @@ def format_swe_bench_report(
         commit: Commit SHA
         timestamp: Evaluation timestamp
         trigger_reason: Optional reason for triggering the evaluation
-        metadata_url: URL to metadata file
-        results_url: URL to results file
         tar_url: URL to full results archive
         
     Returns:
         Markdown formatted notification message
     """
     # Extract SWE-bench metrics
-    report = summary.get("report", {})
     total_instances = report.get("total_instances", 0)
     submitted_instances = report.get("submitted_instances", 0)
     resolved_instances = report.get("resolved_instances", 0)
@@ -98,20 +104,12 @@ def format_swe_bench_report(
         f"- **Success rate:** {success_rate}",
     ])
     
-    # Add links if available
-    link_parts = []
-    if metadata_url:
-        link_parts.append(f"[Metadata]({metadata_url})")
-    if results_url:
-        link_parts.append(f"[Results]({results_url})")
+    # Add link to full archive if available
     if tar_url:
-        link_parts.append(f"[Full Archive]({tar_url})")
-    
-    if link_parts:
         lines.extend([
             "",
             "### 🔗 Links",
-            " | ".join(link_parts),
+            f"[Full Archive]({tar_url})",
         ])
     
     return "\n".join(lines)
@@ -126,8 +124,6 @@ def format_swe_bench_failure(
     timestamp: str,
     error_message: str,
     trigger_reason: str | None = None,
-    metadata_url: str | None = None,
-    results_url: str | None = None,
 ) -> str:
     """
     Format SWE-bench evaluation failure notification.
@@ -141,8 +137,6 @@ def format_swe_bench_failure(
         timestamp: Evaluation timestamp
         error_message: Error details
         trigger_reason: Optional reason for triggering the evaluation
-        metadata_url: URL to metadata file
-        results_url: URL to results file
         
     Returns:
         Markdown formatted failure notification
@@ -168,20 +162,6 @@ def format_swe_bench_failure(
         "```",
     ])
     
-    # Add links if available
-    link_parts = []
-    if metadata_url:
-        link_parts.append(f"[Metadata]({metadata_url})")
-    if results_url:
-        link_parts.append(f"[Results]({results_url})")
-    
-    if link_parts:
-        lines.extend([
-            "",
-            "### 🔗 Links",
-            " | ".join(link_parts),
-        ])
-    
     return "\n".join(lines)
 
 
@@ -191,8 +171,12 @@ def main():
         description="Format SWE-bench evaluation results for notifications"
     )
     parser.add_argument(
-        "results_file",
-        help="Path to results_summary.json",
+        "output_jsonl",
+        help="Path to output.jsonl from evaluation",
+    )
+    parser.add_argument(
+        "report_json",
+        help="Path to report.json with aggregated metrics",
     )
     parser.add_argument(
         "--env-file",
@@ -205,11 +189,11 @@ def main():
     
     args = parser.parse_args()
     
-    # Load results
+    # Load report.json for aggregated metrics
     try:
-        summary = load_json(args.results_file)
+        report = load_json(args.report_json)
     except Exception as e:
-        print(f"Error loading results file: {e}", file=sys.stderr)
+        print(f"Error loading report.json: {e}", file=sys.stderr)
         sys.exit(1)
     
     # Load environment variables (from file or environment)
@@ -233,13 +217,11 @@ def main():
     
     # Optional variables
     trigger_reason = os.environ.get("TRIGGER_REASON")
-    metadata_url = os.environ.get("METADATA_URL")
-    results_url = os.environ.get("RESULTS_URL")
     tar_url = os.environ.get("TAR_URL")
     
     # Format the message
     message = format_swe_bench_report(
-        summary=summary,
+        report=report,
         eval_name=eval_name,
         model_name=model_name,
         dataset=dataset,
@@ -247,8 +229,6 @@ def main():
         commit=commit,
         timestamp=timestamp,
         trigger_reason=trigger_reason,
-        metadata_url=metadata_url,
-        results_url=results_url,
         tar_url=tar_url,
     )
     
