@@ -15,6 +15,8 @@ import logging
 import sys
 from pathlib import Path
 
+from benchmarks.utils.report_costs import generate_cost_report
+
 
 # Set up logging
 logging.basicConfig(
@@ -191,6 +193,10 @@ Examples:
     try:
         # Process results and generate report
         process_commit0_results(str(input_file), str(output_file), args.model_name)
+
+        # Generate cost report as final step
+        generate_cost_report(str(input_file))
+
         logger.info("Script completed successfully!")
 
     except Exception as e:
