@@ -21,15 +21,26 @@ dependencies = [
     "swebench",
     "commit0",
     "pytest-json-report",
+    # SWT-Bench dependencies (since the git package doesn't install them properly)
+    "requests",
+    "docker",
+    "python-dotenv",
+    "fire",
+    "editdistance",
+    "GitPython",
+    "pyright[nodejs]>=1.1.405",
+    "docker-registry-client>=0.5.2",
 ]
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
 swebench-infer = "benchmarks.swe_bench.run_infer:main"
+swtbench-infer = "benchmarks.swt_bench.run_infer:main"
 swebench-eval = "benchmarks.swe_bench.eval_infer:main"
+swtbench-eval = "benchmarks.swt_bench.eval_infer:main"
 gaia-infer = "benchmarks.gaia.run_infer:main"
 commit0-infer = "benchmarks.commit0.run_infer:main"
-
+openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -46,6 +57,9 @@ dev = [
     "pyright>=1.1.405",
     "ruff>=0.12.10",
     "pycodestyle>=2.12.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
+    "pytest-forked>=1.6.0",
 ]
 
 # Ruff configuration
@@ -72,6 +86,7 @@ openhands-sdk = { workspace = true }
 openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
+swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git" }
 
 [tool.uv.workspace]
 members = [
@@ -80,3 +95,4 @@ members = [
   "vendor/software-agent-sdk/openhands-workspace",
   "vendor/software-agent-sdk/openhands-agent-server",
 ]
+
