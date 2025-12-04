@@ -219,19 +219,16 @@ jobs:
             TRIGGER="${{ github.event_name }}"
           fi
 
-          # Post comment
-          COMMENT_BODY=$(cat <<EOF
-## GAIA Image Build Complete ✅
+          # Post comment - using printf to avoid backtick issues in YAML
+          COMMENT_BODY="## GAIA Image Build Complete ✅
 
-**SDK Version:** [\`${SDK_SHA_SHORT}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
-**Base Image:** \`${IMAGE_TAG}\`
-**MCP Image:** \`${MCP_IMAGE_TAG}\` ⚡ _(MCP server pre-cached)_
+**SDK Version:** [\\\`${SDK_SHA_SHORT}\\\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
+**Base Image:** \\\`${IMAGE_TAG}\\\`
+**MCP Image:** \\\`${MCP_IMAGE_TAG}\\\` ⚡ _(MCP server pre-cached)_
 **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 **Triggered by:** ${TRIGGER}
 
-The MCP-enhanced image includes pre-cached \`mcp-server-fetch\` to eliminate 1-18 minute startup delays.
-EOF
-          )
+The MCP-enhanced image includes pre-cached \\\`mcp-server-fetch\\\` to eliminate 1-18 minute startup delays."
 
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
