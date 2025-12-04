@@ -1,6 +1,7 @@
 name: Build GAIA Images
 
 # Workflow for building universal GAIA evaluation agent server images
+# Updated: 2025-12-04 - Force workflow cache refresh
 on:
   pull_request_target:
     types: [labeled]
