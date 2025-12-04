@@ -26,6 +26,11 @@ logger = get_logger(__name__)
 GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
 
 
+def gaia_tag_fn(base_image: str) -> str:
+    """Return custom tag for GAIA images (all use 'gaia' tag)."""
+    return "gaia"
+
+
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
     args = parser.parse_args(argv)
@@ -48,7 +53,7 @@ def main(argv: list[str]) -> int:
         max_workers=1,  # Only building one image
         dry_run=args.dry_run,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=lambda _: "gaia",  # Tag all with "gaia"
+        base_image_to_custom_tag_fn=gaia_tag_fn,  # Tag all with "gaia"
     )
 
 
