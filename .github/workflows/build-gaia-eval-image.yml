@@ -199,12 +199,7 @@ jobs:
           fi
 
           # Extract the image tag from the manifest
-          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "
-import sys, json
-data = json.loads(sys.stdin.read())
-tags = data.get('tags', [])
-print(tags[0] if tags else 'unknown')
-          ")
+          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); tags = data.get('tags', []); print(tags[0] if tags else 'unknown')")
 
           if [ "$IMAGE_TAG" = "unknown" ]; then
             echo "No valid image tag found in manifest"
