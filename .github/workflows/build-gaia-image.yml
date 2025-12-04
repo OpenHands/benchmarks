@@ -101,6 +101,35 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
+      - name: Build and push GAIA image with MCP pre-installed
+        run: |
+          set -euo pipefail
+
+          # Get the SDK commit SHA for tagging
+          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//' | cut -c1-7)
+          TARGET="${{ inputs.target || 'binary-minimal' }}"
+          BASE_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-${TARGET}"
+          MCP_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-${TARGET}-with-mcp"
+
+          echo "Building MCP-enhanced image..."
+          echo "  Base image: ${BASE_IMAGE}"
+          echo "  MCP image:  ${MCP_IMAGE}"
+
+          # Build the derived image with MCP pre-cached
+          docker build \
+            -f benchmarks/gaia/Dockerfile.gaia \
+            --build-arg SDK_IMAGE="${BASE_IMAGE}" \
+            -t "${MCP_IMAGE}" \
+            .
+
+          # Push the image
+          docker push "${MCP_IMAGE}"
+
+          echo "✅ MCP-enhanced image built and pushed: ${MCP_IMAGE}"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
       - name: Archive build logs
         if: always()
         run: |
@@ -157,6 +186,7 @@ jobs:
         run: |
           # Get SDK version
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
+          SDK_SHA_SHORT=${SDK_SHA:0:7}
 
           # Read the single manifest file
           MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
@@ -179,6 +209,10 @@ print(tags[0] if tags else 'unknown')
             exit 0
           fi
 
+          # Construct MCP image tag
+          TARGET="${{ inputs.target || 'binary-minimal' }}"
+          MCP_IMAGE_TAG="ghcr.io/openhands/eval-agent-server:${SDK_SHA_SHORT}-gaia-${TARGET}-with-mcp"
+
           # Determine trigger source
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
@@ -192,10 +226,13 @@ print(tags[0] if tags else 'unknown')
           COMMENT_BODY=$(cat <<EOF
 ## GAIA Image Build Complete ✅
 
-**SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
-**Image Tag:** \`${IMAGE_TAG}\`
+**SDK Version:** [\`${SDK_SHA_SHORT}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
+**Base Image:** \`${IMAGE_TAG}\`
+**MCP Image:** \`${MCP_IMAGE_TAG}\` ⚡ _(MCP server pre-cached)_
 **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 **Triggered by:** ${TRIGGER}
+
+The MCP-enhanced image includes pre-cached \`mcp-server-fetch\` to eliminate 1-18 minute startup delays.
 EOF
           )
 
