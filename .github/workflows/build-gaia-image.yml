@@ -167,12 +167,7 @@ jobs:
           fi
 
           # Extract the image tag from the manifest
-          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "
-import sys, json
-data = json.loads(sys.stdin.read())
-tags = data.get('tags', [])
-print(tags[0] if tags else 'unknown')
-          ")
+          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c 'import sys, json; data = json.loads(sys.stdin.read()); tags = data.get("tags", []); print(tags[0] if tags else "unknown")')
 
           if [ "$IMAGE_TAG" = "unknown" ]; then
             echo "No valid image tag found in manifest"
@@ -189,15 +184,12 @@ print(tags[0] if tags else 'unknown')
           fi
 
           # Post comment
-          COMMENT_BODY=$(cat <<EOF
-## GAIA Image Build Complete ✅
+          COMMENT_BODY="## GAIA Image Build Complete ✅
 
-**SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
-**Image Tag:** \`${IMAGE_TAG}\`
-**Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-**Triggered by:** ${TRIGGER}
-EOF
-          )
+          **SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
+          **Image Tag:** \`${IMAGE_TAG}\`
+          **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          **Triggered by:** ${TRIGGER}"
 
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
