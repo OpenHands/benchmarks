@@ -135,8 +135,9 @@ class GAIAEvaluation(Evaluation):
 
         # GAIA uses a universal agent server image (one image for all instances)
         # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
+        # Using MCP-enabled image to avoid 1-18 minute startup delays
         agent_server_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary-minimal"
+            f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary-minimal-with-mcp"
         )
 
         if not image_exists(agent_server_image):
