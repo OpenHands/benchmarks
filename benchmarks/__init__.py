@@ -2,6 +2,8 @@
 
 # Pre-import these tools to register pydantic models
 # for serialization/deserialization.
-from openhands.tools.file_editor import FileEditorTool  # noqa: F401
-from openhands.tools.task_tracker import TaskTrackerTool  # noqa: F401
-from openhands.tools.terminal import TerminalTool  # noqa: F401
+# Note: These imports are commented out as the tools may not be available
+# in all environments where this package is used.
+# from openhands.tools.file_editor import FileEditorTool  # noqa: F401
+# from openhands.tools.task_tracker import TaskTrackerTool  # noqa: F401
+# from openhands.tools.terminal import TerminalTool  # noqa: F401
