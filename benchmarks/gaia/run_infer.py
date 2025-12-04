@@ -239,9 +239,14 @@ class GAIAEvaluation(Evaluation):
                         image_urls.append(image_to_png_base64_url(image))
 
         # Create agent
-        tools = get_default_tools(enable_browser=True)
-        tavily_api_key = os.getenv("TAVILY_API_KEY", "")
-        assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
+        # [TEMPORARY] Disable browser tools to avoid Tavily dependency for initial testing
+        # Original: tools = get_default_tools(enable_browser=True)
+        tools = get_default_tools(enable_browser=False)
+        # [TEMPORARY] Comment out Tavily API key requirement for initial testing
+        # tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+        # assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
+        # [TEMPORARY] Disable Tavily MCP server for initial testing
+        # Original mcp_config included Tavily server
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -249,11 +254,12 @@ class GAIAEvaluation(Evaluation):
             mcp_config={
                 "mcpServers": {
                     "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},
-                    "tavily": {
-                        "command": "npx",
-                        "args": ["-y", "tavily-mcp@0.2.1"],
-                        "env": {"TAVILY_API_KEY": tavily_api_key},
-                    },
+                    # [TEMPORARY] Tavily MCP server commented out to test without API key
+                    # "tavily": {
+                    #     "command": "npx",
+                    #     "args": ["-y", "tavily-mcp@0.2.1"],
+                    #     "env": {"TAVILY_API_KEY": tavily_api_key},
+                    # },
                 }
             },
         )
