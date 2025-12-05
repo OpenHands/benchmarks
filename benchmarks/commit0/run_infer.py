@@ -201,7 +201,9 @@ class Commit0Evaluation(Evaluation):
         logger.info("Installed pytest and required plugins")
 
         # Verify pytest and plugin installation
-        verify_pytest_cmd = f"cd /workspace/{workspace_dir_name} && pytest --version"
+        verify_pytest_cmd = (
+            f"cd /workspace/{workspace_dir_name} && python -m pytest --version"
+        )
         verify_pytest_res = workspace.execute_command(verify_pytest_cmd, timeout=60)
         logger.info(f"Pytest verification exit code: {verify_pytest_res.exit_code}")
         if verify_pytest_res.exit_code == 0:
