@@ -113,7 +113,7 @@ def convert_to_swtbench_format(
 
 def run_swtbench_evaluation(
     predictions_file: str,
-    dataset: str = "princeton-nlp/SWE-bench_Verified",
+    dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
     workers: str = "12",
 ) -> None:
     """
@@ -247,9 +247,9 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Verified",
+        default="eth-sri/SWT-bench_Verified_bm25_27k_zsp",
         help="SWT-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Verified)",
+        "(default: eth-sri/SWT-bench_Verified_bm25_27k_zsp)",
     )
 
     parser.add_argument(

@@ -8,11 +8,12 @@ SWE-Bench is a benchmark for evaluating AI agents on real-world software enginee
 
 ## Dataset
 
-- **Source**: Princeton NLP
+- **Source**: ETH SRI
 - **Datasets**: 
+  - `eth-sri/SWT-bench_Verified_bm25_27k_zsp` - Default verified instances (433 instances)
   - `princeton-nlp/SWE-bench` - Full dataset
   - `princeton-nlp/SWE-bench_Lite` - Smaller curated subset
-  - `princeton-nlp/SWE-bench_Verified` - Verified instances
+  - `princeton-nlp/SWE-bench_Verified` - Original verified instances (500 instances)
 - **Splits**: `test`, `dev`
 
 ## Usage
@@ -25,7 +26,7 @@ Before running inference, you need to build Docker images for the SWE-Bench inst
 
 ```bash
 uv run python -m benchmarks.swe_bench.build_images \
-  --dataset princeton-nlp/SWE-bench_Verified \
+  --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
   --split test \
   --image ghcr.io/openhands/agent-server \
   --target source-minimal
@@ -37,7 +38,7 @@ Run evaluation using the built Docker images:
 
 ```bash
 uv run swebench-infer path/to/llm_config.json \
-    --dataset princeton-nlp/SWE-bench_Verified \
+    --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
     --split test \
     --max-iterations 100 \
     --workspace docker
@@ -74,7 +75,7 @@ Images must be pre-built and pushed to a **public** container registry before ru
    - `build-swebench-200`: Build 200 images (medium testing, ~20-40 minutes)
    - `build-swebench`: Build all images (full evaluation, ~1-2 hours)
 3. The GitHub Action will automatically:
-   - Build agent-server images for instances in `princeton-nlp/SWE-bench_Verified` (test split)
+   - Build agent-server images for instances in `eth-sri/SWT-bench_Verified_bm25_27k_zsp` (test split)
    - Push images to `ghcr.io/openhands/eval-agent-server` with tags like:
      ```
      ghcr.io/openhands/eval-agent-server:{SDK_SHA}-{INSTANCE_TAG}-source-minimal
@@ -85,7 +86,7 @@ Images must be pre-built and pushed to a **public** container registry before ru
 
 ```bash
 uv run python -m benchmarks.swe_bench.build_images \
-  --dataset princeton-nlp/SWE-bench_Verified \
+  --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
   --split test \
   --image ghcr.io/openhands/eval-agent-server \
   --target source-minimal \
@@ -118,7 +119,7 @@ Run evaluation using the remote workspace with high parallelization:
 
 ```bash
 uv run swebench-infer .llm_config/sonnet-4-5.json \
-    --dataset princeton-nlp/SWE-bench_Verified \
+    --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
     --split test \
     --workspace remote \
     --num-workers 32 \
