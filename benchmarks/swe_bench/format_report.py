@@ -47,7 +47,7 @@ def format_swe_bench_report(
 ) -> str:
     """
     Format SWE-bench evaluation results as a markdown notification.
-    
+
     Args:
         report: SWE-bench report dictionary with metrics
         eval_name: Unique evaluation name
@@ -58,7 +58,7 @@ def format_swe_bench_report(
         timestamp: Evaluation timestamp
         trigger_reason: Optional reason for triggering the evaluation
         tar_url: URL to full results archive
-        
+
     Returns:
         Markdown formatted notification message
     """
@@ -69,7 +69,7 @@ def format_swe_bench_report(
     unresolved_instances = report.get("unresolved_instances", 0)
     empty_patch_instances = report.get("empty_patch_instances", 0)
     error_instances = report.get("error_instances", 0)
-    
+
     # Format success rate
     success_rate = "N/A"
     if submitted_instances > 0:
@@ -77,7 +77,7 @@ def format_swe_bench_report(
             f"{resolved_instances}/{submitted_instances} "
             f"({(resolved_instances / submitted_instances) * 100:.1f}%)"
         )
-    
+
     # Build markdown message
     lines = [
         "## 🎉 SWE-bench Evaluation Complete",
@@ -88,30 +88,34 @@ def format_swe_bench_report(
         f"**Commit:** `{commit}`",
         f"**Timestamp:** {timestamp}",
     ]
-    
+
     if trigger_reason:
         lines.append(f"**Reason:** {trigger_reason}")
-    
-    lines.extend([
-        "",
-        "### 📊 Results",
-        f"- **Total instances:** {total_instances}",
-        f"- **Submitted instances:** {submitted_instances}",
-        f"- **Resolved instances:** {resolved_instances}",
-        f"- **Unresolved instances:** {unresolved_instances}",
-        f"- **Empty patch instances:** {empty_patch_instances}",
-        f"- **Error instances:** {error_instances}",
-        f"- **Success rate:** {success_rate}",
-    ])
-    
+
+    lines.extend(
+        [
+            "",
+            "### 📊 Results",
+            f"- **Total instances:** {total_instances}",
+            f"- **Submitted instances:** {submitted_instances}",
+            f"- **Resolved instances:** {resolved_instances}",
+            f"- **Unresolved instances:** {unresolved_instances}",
+            f"- **Empty patch instances:** {empty_patch_instances}",
+            f"- **Error instances:** {error_instances}",
+            f"- **Success rate:** {success_rate}",
+        ]
+    )
+
     # Add link to full archive if available
     if tar_url:
-        lines.extend([
-            "",
-            "### 🔗 Links",
-            f"[Full Archive]({tar_url})",
-        ])
-    
+        lines.extend(
+            [
+                "",
+                "### 🔗 Links",
+                f"[Full Archive]({tar_url})",
+            ]
+        )
+
     return "\n".join(lines)
 
 
@@ -127,7 +131,7 @@ def format_swe_bench_failure(
 ) -> str:
     """
     Format SWE-bench evaluation failure notification.
-    
+
     Args:
         eval_name: Unique evaluation name
         model_name: Model name used
@@ -137,7 +141,7 @@ def format_swe_bench_failure(
         timestamp: Evaluation timestamp
         error_message: Error details
         trigger_reason: Optional reason for triggering the evaluation
-        
+
     Returns:
         Markdown formatted failure notification
     """
@@ -150,18 +154,20 @@ def format_swe_bench_failure(
         f"**Commit:** `{commit}`",
         f"**Timestamp:** {timestamp}",
     ]
-    
+
     if trigger_reason:
         lines.append(f"**Reason:** {trigger_reason}")
-    
-    lines.extend([
-        "",
-        "### ⚠️ Error Details",
-        "```",
-        error_message or "See logs for details",
-        "```",
-    ])
-    
+
+    lines.extend(
+        [
+            "",
+            "### ⚠️ Error Details",
+            "```",
+            error_message or "See logs for details",
+            "```",
+        ]
+    )
+
     return "\n".join(lines)
 
 
@@ -186,16 +192,16 @@ def main():
         "--output",
         help="Output file for formatted message (default: stdout)",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Load report.json for aggregated metrics
     try:
         report = load_json(args.report_json)
     except Exception as e:
         print(f"Error loading report.json: {e}", file=sys.stderr)
         sys.exit(1)
-    
+
     # Load environment variables (from file or environment)
     if args.env_file and Path(args.env_file).exists():
         # Load from file if provided
@@ -206,7 +212,7 @@ def main():
                     if "=" in line:
                         key, value = line.split("=", 1)
                         os.environ[key] = value.strip('"').strip("'")
-    
+
     # Get required environment variables
     eval_name = os.environ.get("UNIQUE_EVAL_NAME", "unknown")
     model_name = os.environ.get("MODEL_NAME", "unknown")
@@ -214,11 +220,11 @@ def main():
     dataset_split = os.environ.get("DATASET_SPLIT", "test")
     commit = os.environ.get("COMMIT", "unknown")
     timestamp = os.environ.get("TIMESTAMP", "unknown")
-    
+
     # Optional variables
     trigger_reason = os.environ.get("TRIGGER_REASON")
     tar_url = os.environ.get("TAR_URL")
-    
+
     # Format the message
     message = format_swe_bench_report(
         report=report,
@@ -231,7 +237,7 @@ def main():
         trigger_reason=trigger_reason,
         tar_url=tar_url,
     )
-    
+
     # Output
     if args.output:
         with open(args.output, "w") as f:
