@@ -81,28 +81,28 @@ class MultiSWEBenchEvaluation(Evaluation):
         logger.info("Setting up Multi-SWE-bench evaluation data")
 
         # Load dataset using direct JSON loading to handle complex nested structures
-        logger.info(f'Loading dataset {self.metadata.dataset}')
+        logger.info(f"Loading dataset {self.metadata.dataset}")
         data = []
-        with open(self.metadata.dataset, 'r') as f:
+        with open(self.metadata.dataset, "r") as f:
             for line in f:
                 data.append(json.loads(line))
-        
+
         df = pd.DataFrame(data)
-        
+
         # Filter out instances with NaN instance_id before applying limits
-        df = df.dropna(subset=['instance_id'])
-        
+        df = df.dropna(subset=["instance_id"])
+
         # Filter out instances with NaN instance_id before applying limits
-        df = df.dropna(subset=['instance_id'])
-        
+        df = df.dropna(subset=["instance_id"])
+
         # Apply filtering and limits using the new prepare_dataset function
         df = prepare_dataset(
             dataset=df,
             n_limit=self.metadata.eval_limit,
             selected_instances_file=self.metadata.selected_instances_file,
         )
-        
-        logger.info(f'Loaded dataset {self.metadata.dataset}: {len(df)} tasks')
+
+        logger.info(f"Loaded dataset {self.metadata.dataset}: {len(df)} tasks")
 
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
@@ -118,12 +118,14 @@ class MultiSWEBenchEvaluation(Evaluation):
         Use DockerWorkspace by default.
         """
         # Ensure instance.data has required fields for docker image naming
-        if 'version' not in instance.data and 'number' in instance.data:
-            instance.data['version'] = str(instance.data['number'])
-        
+        if "version" not in instance.data and "number" in instance.data:
+            instance.data["version"] = str(instance.data["number"])
+
         # For Multi-SWE-Bench, ensure we use the correct docker image prefix
         # Override any existing EVAL_DOCKER_IMAGE_PREFIX to use mswebench
-        official_docker_image = get_official_docker_image(instance.data, docker_image_prefix='mswebench')
+        official_docker_image = get_official_docker_image(
+            instance.data, docker_image_prefix="mswebench"
+        )
         build_target = "source-minimal"
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
@@ -244,8 +246,20 @@ class MultiSWEBenchEvaluation(Evaluation):
         )
 
         logger.info("repo_path: %s", repo_path)
+
+        # Find the repository location dynamically by looking for .git directories
+        find_repo = workspace.execute_command(
+            "find /home -name '.git' -type d 2>/dev/null | head -1 | xargs dirname"
+        )
+        if find_repo.exit_code != 0 or not find_repo.stdout.strip():
+            # Fallback to /testbed if no git repo found in /home
+            source_repo_path = "/testbed"
+        else:
+            source_repo_path = find_repo.stdout.strip()
+
+        logger.info("source_repo_path: %s", source_repo_path)
         cp_testebed_repo = workspace.execute_command(
-            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
+            (f"mkdir -p {repo_path} ; cp -r {source_repo_path}/. {repo_path}")
         )
         assert cp_testebed_repo.exit_code == 0, (
             f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
@@ -275,7 +289,7 @@ class MultiSWEBenchEvaluation(Evaluation):
         )
 
         # Get git patch
-        base_commit = instance.data["base_commit"]
+        base_commit = instance.data["base"]["sha"]
         git_patch_result = workspace.execute_command(
             (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
         )
@@ -370,7 +384,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
-    
+
     # Output the result file path for the rollout script
     print(f"### OUTPUT FILE: {evaluator.output_path} ###")
 
