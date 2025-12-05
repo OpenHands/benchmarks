@@ -214,9 +214,8 @@ def generate_cost_report(input_file: str) -> None:
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Calculate costs from JSONL evaluation output files and save detailed report",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        description="""
+Calculate costs from JSONL evaluation output files and save detailed report
 This script processes JSONL files and generates:
 1. Console output with detailed cost breakdown
 2. cost_report.jsonl file with structured cost data in the same directory
@@ -225,6 +224,7 @@ Examples:
   python report_costs.py ./eval_outputs/my_experiment/
   python report_costs.py /path/to/evaluation/results/
         """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument("directory", help="Directory containing JSONL output files")
