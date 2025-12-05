@@ -11,15 +11,6 @@ on:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
-      target:
-        description: 'Build target (default: binary)'
-        required: false
-        default: 'binary'
-        type: choice
-        options:
-          - binary
-          - binary-minimal
-          - source-minimal
 
 concurrency:
   group: build-gaia-${{ github.ref }}
@@ -91,7 +82,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          TARGET="${{ inputs.target || 'binary' }}"
+          # GAIA requires 'binary' target to include Chromium for browser operations
+          TARGET="binary"
 
           CMD="uv run benchmarks/gaia/build_images.py \
             --image ghcr.io/openhands/eval-agent-server \
@@ -110,16 +102,13 @@ jobs:
 
           # Get the SDK commit SHA for tagging
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//' | cut -c1-7)
-          TARGET="${{ inputs.target || 'binary' }}"
           
-          # Compute base image tag: target suffix is only added for non-binary targets
-          if [ "$TARGET" = "binary" ]; then
-            BASE_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia"
-            MCP_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-with-mcp"
-          else
-            BASE_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-${TARGET}"
-            MCP_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-${TARGET}-with-mcp"
-          fi
+          # GAIA requires 'binary' target to include Chromium for browser operations
+          TARGET="binary"
+          
+          # Compute base and MCP image tags
+          BASE_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia"
+          MCP_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-with-mcp"
 
           echo "Building MCP-enhanced image..."
           echo "  Base image: ${BASE_IMAGE}"
@@ -214,13 +203,8 @@ jobs:
             exit 0
           fi
 
-          # Construct MCP image tag (target suffix only added for non-binary targets)
-          TARGET="${{ inputs.target || 'binary' }}"
-          if [ "$TARGET" = "binary" ]; then
-            MCP_IMAGE_TAG="ghcr.io/openhands/eval-agent-server:${SDK_SHA_SHORT}-gaia-with-mcp"
-          else
-            MCP_IMAGE_TAG="ghcr.io/openhands/eval-agent-server:${SDK_SHA_SHORT}-gaia-${TARGET}-with-mcp"
-          fi
+          # Construct MCP image tag (always binary for GAIA)
+          MCP_IMAGE_TAG="ghcr.io/openhands/eval-agent-server:${SDK_SHA_SHORT}-gaia-with-mcp"
 
           # Determine trigger source
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
