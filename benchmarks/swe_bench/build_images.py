@@ -4,7 +4,7 @@ Build agent-server images for all unique SWE-Bench base images in a dataset spli
 
 Example:
   uv run benchmarks/swe_bench/build_images.py \
-    --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp --split test \
+    --dataset princeton-nlp/SWE-bench_Verified --split test \
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 

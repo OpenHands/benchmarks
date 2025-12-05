@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: 'Dataset name (e.g., eth-sri/SWT-bench_Verified_bm25_27k_zsp)'
+        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
         required: true
-        default: 'eth-sri/SWT-bench_Verified_bm25_27k_zsp'
+        default: 'princeton-nlp/SWE-bench_Verified'
         type: string
       split:
         description: 'Dataset split (e.g., test, dev)'
@@ -38,10 +38,10 @@ on:
 
 # Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
 env:
-  DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
+  DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
   MAX_WORKERS: '32'
-  N_LIMIT: '433'
+  N_LIMIT: '500'
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}

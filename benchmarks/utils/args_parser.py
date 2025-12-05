@@ -23,7 +23,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         type=str,
-        default="eth-sri/SWT-bench_Verified_bm25_27k_zsp",
+        default="princeton-nlp/SWE-bench_Verified",
         help="Dataset name",
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
