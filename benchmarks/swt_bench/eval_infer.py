@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
 
@@ -305,6 +306,9 @@ Examples:
         if not args.skip_evaluation:
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
+
+        # Generate cost report as final step
+        generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
 
