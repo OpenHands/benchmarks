@@ -9,7 +9,7 @@ Example:
 """
 
 import os
-import sys
+from pathlib import Path
 
 from benchmarks.utils.build_utils import (
     build_all_images,
@@ -23,33 +23,33 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 # Environment variables for multi-language support
-DOCKER_IMAGE_PREFIX = os.environ.get('EVAL_DOCKER_IMAGE_PREFIX', 'mswebench')
-LANGUAGE = os.environ.get('LANGUAGE', 'java')
+DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
+LANGUAGE = os.environ.get("LANGUAGE", "java")
 
 
 def get_official_docker_image(
     instance: dict,
-    docker_image_prefix: str = None,
+    docker_image_prefix: str | None = None,
 ) -> str:
     """Get the official docker image for a Multi-SWE-Bench instance."""
     if docker_image_prefix is None:
         docker_image_prefix = DOCKER_IMAGE_PREFIX
-    
+
     # For Multi-SWE-Bench, the image naming depends on the language
-    repo = instance['repo']
-    version = instance['version']
-    
-    if LANGUAGE == 'python':
+    repo = instance["repo"]
+    version = instance["version"]
+
+    if LANGUAGE == "python":
         # Use SWE-bench style naming for Python
-        instance_id = instance.get('instance_id', f"{repo}__{version}")
+        instance_id = instance.get("instance_id", f"{repo}__{version}")
         repo_name, issue_name = instance_id.split("__")
         official_image_name = f"{docker_image_prefix}/sweb.eval.x86_64.{repo_name}_1776_{issue_name}:latest".lower()
     else:
         # Use Multi-SWE-Bench style naming for other languages
         # Format: {prefix}/{org}_m_{repo}:base
-        org = instance.get('org', repo)  # fallback to repo if org is missing
+        org = instance.get("org", repo)  # fallback to repo if org is missing
         official_image_name = f"{docker_image_prefix}/{org}_m_{repo}:base"
-    
+
     logger.debug(f"Multi-SWE-Bench image: {official_image_name}")
     return official_image_name
 
@@ -77,11 +77,11 @@ def get_base_images_from_dataset(dataset_name: str, split: str) -> list[str]:
     """Get all unique base images from the dataset."""
     dataset = get_dataset(dataset_name, split)
     base_images = set()
-    
+
     for _, row in dataset.iterrows():
         image = get_official_docker_image(row.to_dict())
         base_images.add(image)
-    
+
     return list(base_images)
 
 
@@ -92,17 +92,19 @@ def main():
 
     # Get base images from dataset
     base_images = get_base_images_from_dataset(args.dataset, args.split)
-    
+
     logger.info(f"Found {len(base_images)} unique base images")
-    
+
     # Build all images
     build_all_images(
         base_images=base_images,
-        target_image=args.image,
+        image=args.image,
         target=args.target,
-        output_dir=args.output_dir or default_build_output_dir(),
-        num_workers=args.num_workers,
-        force_rebuild=args.force_rebuild,
+        build_dir=Path(
+            args.output_dir or default_build_output_dir(args.dataset, args.split)
+        ),
+        max_workers=args.num_workers,
+        dry_run=False,
     )
 
 
