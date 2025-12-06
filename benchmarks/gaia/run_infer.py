@@ -14,13 +14,16 @@ from PIL import Image
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import (
     LLM,
     Agent,
@@ -34,7 +37,7 @@ from openhands.sdk import (
 )
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -116,11 +119,48 @@ class GAIAEvaluation(Evaluation):
         """Create workspace and copy necessary files."""
         logger.info(f"Preparing workspace for instance {instance.id}")
 
-        # Create Docker workspace with python-nodejs image
-        workspace = DockerDevWorkspace(
-            base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-            working_dir="/workspace",
-        )
+        if self.metadata.workspace_type == "docker":
+            # Use DockerDevWorkspace with base image (same as main branch)
+            workspace = DockerDevWorkspace(
+                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                working_dir="/workspace",
+            )
+        elif self.metadata.workspace_type == "remote":
+            # For workflow, use APIRemoteWorkspace with pre-built GAIA image
+            # GAIA uses a universal agent server image (one image for all instances)
+            # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
+            # Using binary target (not binary-minimal) to include Chromium for browser operations
+            # Note: binary target doesn't add target suffix to tag, so it's just gaia-with-mcp
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                )
+
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-with-mcp"
+
+            if not image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry. "
+                    f"Run 'benchmarks/gaia/build_images.py --push' to build and push it first."
+                )
+
+            logger.info(
+                f"Using remote workspace with GAIA image {agent_server_image} (sdk sha: {sdk_short_sha})"
+            )
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=os.getenv(
+                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                ),
+                runtime_api_key=runtime_api_key,
+                server_image=agent_server_image,
+                target_type="binary",  # GAIA images use binary target
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
 
         # Create workspace directory
         workspace.execute_command("mkdir -p /workspace")
@@ -432,6 +472,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        workspace_type=args.workspace,
     )
 
     # Create evaluator
