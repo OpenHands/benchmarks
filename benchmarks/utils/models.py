@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from openhands.sdk import LLM, Event, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.llm import Metrics
+from openhands.sdk.utils.models import OpenHandsModel
 
 
 logger = get_logger(__name__)
@@ -68,7 +69,22 @@ class EvalInstance(BaseModel):
     )
 
 
-class EvalOutput(BaseModel):
+class EvalOutput(OpenHandsModel):
+    """
+    Evaluation output model.
+
+    Uses OpenHandsModel instead of BaseModel to ensure pydantic schemas are properly
+    rebuilt when new discriminated union types (like Browser actions/observations)
+    are dynamically registered at runtime.
+
+    Without this, pydantic caches the Event discriminated union schema at import time,
+    before Browser tools are registered. When deserializing output.jsonl files that
+    contain Browser events, pydantic fails with "Unexpected kind BrowserGetContentAction"
+    because the schema doesn't include the newly registered types.
+
+    OpenHandsModel automatically calls model_rebuild() before validation, regenerating
+    the schema to include all registered event types.
+    """
     # NOTE: User-specified
     instance_id: str
     # output of the evaluation
