@@ -37,7 +37,7 @@ from openhands.sdk import (
 )
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -119,51 +119,26 @@ class GAIAEvaluation(Evaluation):
         """Create workspace and copy necessary files."""
         logger.info(f"Preparing workspace for instance {instance.id}")
 
-        # GAIA uses a universal agent server image (one image for all instances)
-        # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
-        # Using MCP-enabled image to avoid 1-18 minute startup delays
-        # Using binary target (not binary-minimal) to include Chromium for browser operations
-        # Note: binary target doesn't add target suffix to tag, so it's just gaia-with-mcp
-        sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
-        agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-with-mcp"
-
         if self.metadata.workspace_type == "docker":
-            # For local testing, use DockerWorkspace with pre-built GAIA image
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-            if not SKIP_BUILD:
-                from benchmarks.utils.build_utils import build_image
-
-                logger.info(
-                    "Building GAIA workspace image. This may take a while...\n"
-                    "You can run benchmarks/gaia/build_images.py and set "
-                    "SKIP_BUILD=1 to skip building and use pre-built image."
-                )
-                output = build_image(
-                    base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                    target_image=EVAL_AGENT_SERVER_IMAGE,
-                    custom_tag="gaia-with-mcp",
-                    target="binary",
-                    push=False,
-                )
-                logger.info(f"Image build output: {output}")
-                assert output.error is None, f"Image build failed: {output.error}"
-                if agent_server_image not in output.tags:
-                    raise RuntimeError(
-                        f"Built image tags {output.tags} do not include expected tag "
-                        f"{agent_server_image}"
-                    )
-
-            workspace = DockerWorkspace(
-                server_image=agent_server_image,
+            # Use DockerDevWorkspace with base image (same as main branch)
+            workspace = DockerDevWorkspace(
+                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
                 working_dir="/workspace",
             )
         elif self.metadata.workspace_type == "remote":
+            # For workflow, use APIRemoteWorkspace with pre-built GAIA image
+            # GAIA uses a universal agent server image (one image for all instances)
+            # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
+            # Using binary target (not binary-minimal) to include Chromium for browser operations
+            # Note: binary target doesn't add target suffix to tag, so it's just gaia-with-mcp
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
+
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-with-mcp"
 
             if not image_exists(agent_server_image):
                 raise RuntimeError(
