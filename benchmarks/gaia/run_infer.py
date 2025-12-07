@@ -19,6 +19,7 @@ from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
+    generate_error_logs_summary,
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import image_exists
@@ -554,6 +555,9 @@ def main() -> None:
 
     # Run evaluation
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+
+    # Generate error logs summary for easy navigation
+    generate_error_logs_summary(structured_output_dir)
 
     logger.info("Evaluation completed!")
     logger.info(f"Results written to: {evaluator.output_path}")

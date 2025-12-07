@@ -34,20 +34,23 @@ def load_jsonl(path: str) -> list[dict[str, Any]]:
     return results
 
 
-def compute_gaia_metrics(output_data: list[dict[str, Any]]) -> dict[str, Any]:
-    """Compute GAIA metrics from output.jsonl data."""
-    total = len(output_data)
+def compute_gaia_metrics(
+    output_data: list[dict[str, Any]], 
+    error_data: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Compute GAIA metrics from output.jsonl and output_errors.jsonl data."""
+    # Count successful instances
     success = 0
-    errors = 0
-
     for item in output_data:
         test_result = item.get("test_result", {})
         if test_result.get("score") is True:
             success += 1
-        # Count errors if test_result is empty or has error flag
-        if not test_result or test_result.get("error"):
-            errors += 1
-
+    
+    # Total is successful + failed instances
+    total = len(output_data) + len(error_data)
+    errors = len(error_data)
+    
+    # Calculate success rate based on total launched instances
     success_rate = (success / total * 100) if total > 0 else 0.0
 
     return {
@@ -219,8 +222,18 @@ def main():
         print(f"Error loading output.jsonl: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Compute metrics from output.jsonl
-    metrics = compute_gaia_metrics(output_data)
+    # Load output_errors.jsonl if it exists
+    error_jsonl_path = args.output_jsonl.replace('.jsonl', '_errors.jsonl')
+    error_data = []
+    if Path(error_jsonl_path).exists():
+        try:
+            error_data = load_jsonl(error_jsonl_path)
+            print(f"Loaded {len(error_data)} error instances from {error_jsonl_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Error loading {error_jsonl_path}: {e}", file=sys.stderr)
+
+    # Compute metrics from both output files
+    metrics = compute_gaia_metrics(output_data, error_data)
 
     # Load environment variables (from file or environment)
     if args.env_file and Path(args.env_file).exists():
