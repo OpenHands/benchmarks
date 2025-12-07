@@ -108,6 +108,17 @@ class GAIAEvaluation(Evaluation):
             df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
             logger.info(f"Filtered to {len(df)} selected instances")
 
+        # [TEMPORARY] Hardcode the 2 failed GAIA task IDs to debug timeout issues
+        # Remove this after investigation is complete
+        TEMPORARY_FAILED_TASK_IDS = [
+            "2a649bb1-795f-4a01-b3be-9a01868dae73",  # Failed with read timeout after 91 min
+            "2d83110e-a098-4ebb-9987-066c06fa42d0",  # Failed with read timeout after 112 min
+        ]
+        df = cast(pd.DataFrame, df[df["instance_id"].isin(TEMPORARY_FAILED_TASK_IDS)])
+        logger.warning(
+            f"[TEMPORARY] Hardcoded filter to {len(df)} failed task IDs for debugging: {TEMPORARY_FAILED_TASK_IDS}"
+        )
+
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
             inst_id = str(row["instance_id"])
