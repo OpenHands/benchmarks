@@ -206,11 +206,28 @@ class GAIAEvaluation(Evaluation):
 
         # Install ffmpeg (some GAIA tasks need it)
         logger.info("Installing ffmpeg...")
+        # Note: ffprobe is part of the ffmpeg package, not a separate package
         result = workspace.execute_command(
-            "sudo apt-get update && sudo apt-get install -y ffmpeg ffprobe"
+            "sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg"
         )
         if result.exit_code != 0:
             logger.warning(f"Failed to install ffmpeg: {result.stderr}")
+            # Try alternative installation method
+            logger.info("Trying alternative ffmpeg installation...")
+            result = workspace.execute_command(
+                "sudo apt-get install -y -qq --no-install-recommends ffmpeg"
+            )
+            if result.exit_code == 0:
+                logger.info("✓ FFmpeg installed via alternative method")
+            else:
+                logger.error(f"FFmpeg installation failed completely: {result.stderr}")
+                # Continue anyway - only some tasks need it
+        else:
+            logger.info("✓ FFmpeg installed successfully")
+            # Verify installation
+            verify_result = workspace.execute_command("ffmpeg -version | head -1")
+            if verify_result.exit_code == 0:
+                logger.info(f"FFmpeg version: {verify_result.stdout.strip()}")
 
         return workspace
 
@@ -371,8 +388,23 @@ For example: if you want to search for a research paper on Arxiv, either use the
           This method implements a retry mechanism to handle that case.
         """
         # FIXME: Implement a more robust event synchronization mechanism in the SDK
-        max_retries = 10
-        retry_delay = 0.5  # seconds
+        max_retries = 30  # Increased from 10 for better reliability
+        retry_delay = 1.0  # Increased from 0.5s for slower networks
+        retry_backoff = 1.2  # Exponential backoff factor
+
+        # Log event type distribution for debugging
+        if events:
+            event_types = {}
+            agent_events_count = 0
+            for event in events:
+                event_type = type(event).__name__
+                event_types[event_type] = event_types.get(event_type, 0) + 1
+                if hasattr(event, "source") and event.source == "agent":
+                    agent_events_count += 1
+            logger.info(
+                f"Event type distribution: {event_types}, "
+                f"agent-sourced events: {agent_events_count}"
+            )
 
         for attempt in range(max_retries):
             # Search backwards through events for agent output
@@ -380,33 +412,75 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 logger.info(f"Extracting answer from {len(events)} events")
             else:
                 logger.warning(
-                    f"Retry {attempt}/{max_retries}: searching for agent "
-                    "message in {len(events)} events"
+                    f"Retry {attempt + 1}/{max_retries}: searching for agent "
+                    f"message in {len(events)} events"
                 )
 
             for event in reversed(events):
                 if isinstance(event, MessageEvent) and event.source == "agent":
-                    logger.info(f"Found agent message event: {event}")
+                    logger.info(
+                        f"Found agent MessageEvent on attempt {attempt + 1}: "
+                        f"{type(event).__name__}"
+                    )
                     # Try different event types
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
                         return content.text
 
+            # Check for alternative output sources before retrying
+            if attempt == 0:
+                # Check for finish events that might contain output
+                finish_events = [
+                    e for e in events if "finish" in type(e).__name__.lower()
+                ]
+                if finish_events:
+                    logger.info(f"Found {len(finish_events)} finish events")
+                    for event in reversed(finish_events):
+                        if hasattr(event, "output") and event.output:
+                            logger.info(
+                                f"Found output in {type(event).__name__}: "
+                                f"{str(event.output)[:100]}"
+                            )
+                            return str(event.output)
+                
+                # Check for error events
+                error_events = [
+                    e for e in events if "error" in type(e).__name__.lower()
+                ]
+                if error_events:
+                    logger.warning(
+                        f"Found {len(error_events)} error events: "
+                        f"{[type(e).__name__ for e in error_events]}"
+                    )
+
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
+                current_delay = retry_delay * (retry_backoff ** attempt)
+                current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
                     "Agent MessageEvent not found yet, "
-                    f"waiting {retry_delay}s before retry..."
+                    f"waiting {current_delay:.1f}s before retry..."
                 )
-                time.sleep(retry_delay)
+                time.sleep(current_delay)
                 # Note: events is a reference to the conversation's events list,
                 # which gets updated by the WebSocket callback in the background
             else:
                 logger.error(
-                    f"Could not find agent output after {max_retries} attempts"
+                    f"Could not find agent output after {max_retries} attempts "
+                    f"and {sum(retry_delay * (retry_backoff ** i) for i in range(max_retries)):.1f}s total wait time"
                 )
-                logger.debug(f"All events: {[type(e).__name__ for e in events]}")
+                logger.error(
+                    f"Final event types (last 10): "
+                    f"{[type(e).__name__ for e in events[-10:]]}"
+                )
+                # Log more details about the last few events
+                for event in events[-5:]:
+                    logger.debug(
+                        f"Event: {type(event).__name__}, "
+                        f"source: {getattr(event, 'source', 'N/A')}, "
+                        f"has content: {hasattr(event, 'llm_message')}"
+                    )
 
         return ""
 
