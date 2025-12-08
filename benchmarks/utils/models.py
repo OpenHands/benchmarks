@@ -77,12 +77,13 @@ class EvalInstance(BaseModel):
 class EvalOutput(OpenHandsModel):
     """
     Evaluation output model.
-    
+
     Uses OpenHandsModel to ensure pydantic schemas are properly rebuilt when
     new discriminated union types (like Browser actions/observations) are registered.
     This prevents deserialization errors when loading results that contain
     dynamically registered event types.
     """
+
     # NOTE: User-specified
     instance_id: str
     # output of the evaluation

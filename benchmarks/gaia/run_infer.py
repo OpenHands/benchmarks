@@ -164,7 +164,9 @@ class GAIAEvaluation(Evaluation):
                 )
 
             sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
-            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-with-mcp"
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-with-mcp"
+            )
 
             if not image_exists(agent_server_image):
                 raise RuntimeError(
@@ -463,13 +465,14 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 if finish_events:
                     logger.info(f"Found {len(finish_events)} finish events")
                     for event in reversed(finish_events):
-                        if hasattr(event, "output") and event.output:
+                        output = getattr(event, "output", None)
+                        if output:
                             logger.info(
                                 f"Found output in {type(event).__name__}: "
-                                f"{str(event.output)[:100]}"
+                                f"{str(output)[:100]}"
                             )
-                            return str(event.output)
-                
+                            return str(output)
+
                 # Check for error events
                 error_events = [
                     e for e in events if "error" in type(e).__name__.lower()
@@ -482,7 +485,7 @@ For example: if you want to search for a research paper on Arxiv, either use the
 
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
-                current_delay = retry_delay * (retry_backoff ** attempt)
+                current_delay = retry_delay * (retry_backoff**attempt)
                 current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
                     "Agent MessageEvent not found yet, "
@@ -494,7 +497,7 @@ For example: if you want to search for a research paper on Arxiv, either use the
             else:
                 logger.error(
                     f"Could not find agent output after {max_retries} attempts "
-                    f"and {sum(retry_delay * (retry_backoff ** i) for i in range(max_retries)):.1f}s total wait time"
+                    f"and {sum(retry_delay * (retry_backoff**i) for i in range(max_retries)):.1f}s total wait time"
                 )
                 logger.error(
                     f"Final event types (last 10): "
