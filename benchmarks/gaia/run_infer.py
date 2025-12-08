@@ -1,4 +1,3 @@
-import fcntl
 import os
 import re
 import tempfile
@@ -15,8 +14,12 @@ from PIL import Image
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.evaluation_utils import (
+    construct_eval_output_dir,
+    get_default_on_result_writer,
+)
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import (
     LLM,
@@ -31,7 +34,7 @@ from openhands.sdk import (
 )
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
+from openhands.workspace import DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -114,7 +117,7 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         # Create Docker workspace with python-nodejs image
-        workspace = DockerWorkspace(
+        workspace = DockerDevWorkspace(
             base_image="nikolaik/python-nodejs:python3.12-nodejs22",
             working_dir="/workspace",
         )
@@ -256,7 +259,6 @@ class GAIAEvaluation(Evaluation):
         )
 
         # Collect history
-        history = list(map(lambda event: event.model_dump(), conversation.state.events))
 
         # Return evaluation output
         return EvalOutput(
@@ -269,7 +271,7 @@ class GAIAEvaluation(Evaluation):
             },
             instruction=instruction,
             error=None,
-            history=history,
+            history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
             instance=instance.data,
         )
@@ -389,6 +391,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Create critic instance from parsed arguments
+    critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
+
     # Validate arguments
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
@@ -424,25 +430,15 @@ def main() -> None:
         details={"level": args.level},
         eval_limit=args.n_limit,
         max_attempts=args.max_attempts,
-        critic_name=args.critic,
+        critic=critic,
         selected_instances_file=args.select,
     )
 
     # Create evaluator
     evaluator = GAIAEvaluation(metadata=metadata, num_workers=args.num_workers)
 
-    # Define result writer
-    def _default_on_result_writer(eval_output_dir: str):
-        def _cb(instance: EvalInstance, out: EvalOutput) -> None:
-            with open(evaluator.output_path, "a") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                f.write(out.model_dump_json() + "\n")
-                fcntl.flock(f, fcntl.LOCK_UN)
-
-        return _cb
-
     # Run evaluation
-    evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
+    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
     logger.info(f"Results written to: {evaluator.output_path}")

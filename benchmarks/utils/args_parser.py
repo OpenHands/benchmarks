@@ -4,6 +4,8 @@ Argument parsing utilities for SWE-bench benchmarks.
 
 import argparse
 
+from benchmarks.utils.critics import add_critic_args
+
 
 def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     """Create and return argument parser.
@@ -25,6 +27,13 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Dataset name",
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
+    parser.add_argument(
+        "--workspace",
+        type=str,
+        default="docker",
+        choices=["docker", "remote"],
+        help="Type of workspace to use (default: docker)",
+    )
     parser.add_argument(
         "--max-iterations", type=int, default=100, help="Maximum iterations"
     )
@@ -50,22 +59,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=3,
         help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
     )
-    parser.add_argument(
-        "--critic",
-        type=str,
-        default="pass",
-        help=(
-            "Name of the critic to use for evaluation (default: 'pass'). "
-            "Critics determine whether an agent's output is considered successful "
-            "and whether another attempt should be made in iterative evaluation mode. "
-            "Available critics: "
-            "'pass' - Always accepts the output (no retry logic, suitable for single-attempt runs), "
-            "'finish_with_patch' - Requires both AgentFinishAction and non-empty git patch, "
-            "'empty_patch_critic' - Only requires non-empty git patch. "
-            "For single-attempt runs (default), 'pass' is recommended as the actual evaluation "
-            "is performed by the benchmark's own scoring system."
-        ),
-    )
+
+    # Add critic arguments
+    add_critic_args(parser)
+
     parser.add_argument(
         "--select",
         type=str,
