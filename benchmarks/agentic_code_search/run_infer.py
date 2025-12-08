@@ -23,6 +23,7 @@ from benchmarks.utils.models import (
 )
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.conversation import get_agent_final_response
+from openhands.sdk.critic import PassCritic
 from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
@@ -477,6 +478,7 @@ class AgenticCodeSearchEvaluation(Evaluation):
                 llm_response_id_set.add(llm_response_id)
 
         num_steps = len(llm_response_id_set)
+        event_list = [event for event in conversation.state.events]
 
         out = EvalOutput(
             instance_id=instance.id,
@@ -489,7 +491,7 @@ class AgenticCodeSearchEvaluation(Evaluation):
             },
             instruction=instruction,
             error=None,
-            history=history,
+            history=event_list,
             metrics=conversation.conversation_stats.get_combined_metrics(),
         )
         return out
@@ -533,6 +535,7 @@ def main():
         # max_attempts=args.max_attempts,
         # critic_name=args.critic,
         selected_instances_file=args.select if args.select else None,
+        critic=PassCritic(),
         # max_retries=args.max_retries,
     )
 

@@ -1,8 +1,8 @@
 uv run python -m benchmarks.agentic_code_search.run_infer \
     --dataset_file gt_location.jsonl \
-    --llm-config-path .llm_config/qwen3.json \
-    --max-iterations 25 \
+    --llm-config-path .llm_config/example.json \
+    --max-iterations 5 \
     --num-workers 1 \
-    --output-dir ./qwen3_8b_benchmarking \
-    --n-limit 500 \
+    --output-dir ./agentic_code_search_outputs \
+    --n-limit 1 \
     --runtime docker
