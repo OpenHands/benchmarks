@@ -101,23 +101,37 @@ class GAIAEvaluation(Evaluation):
             df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
             logger.info(f"Limited to {len(df)} instances due to eval_limit")
 
-        # Filter by selected_instances_file if provided
-        if self.metadata.selected_instances_file:
+        # Filter by instance_ids if provided (takes precedence over selected_instances_file)
+        if self.metadata.instance_ids:
+            # Parse comma-separated instance IDs
+            requested_ids = [
+                id.strip() for id in self.metadata.instance_ids.split(",") if id.strip()
+            ]
+            logger.info(f"Filtering to {len(requested_ids)} requested instance IDs")
+
+            # Get available instance IDs
+            available_ids = set(df["instance_id"].tolist())
+
+            # Validate that all requested IDs exist
+            invalid_ids = [id for id in requested_ids if id not in available_ids]
+            if invalid_ids:
+                error_msg = (
+                    f"The following instance IDs are not valid GAIA instances: {invalid_ids}\n"
+                    f"Please check the instance IDs and try again."
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Filter to requested instances
+            df = cast(pd.DataFrame, df[df["instance_id"].isin(requested_ids)])
+            logger.info(f"Filtered to {len(df)} instances from instance_ids parameter")
+
+        # Filter by selected_instances_file if provided (only if instance_ids not set)
+        elif self.metadata.selected_instances_file:
             with open(self.metadata.selected_instances_file, "r") as f:
                 selected_ids = set(line.strip() for line in f if line.strip())
             df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
-            logger.info(f"Filtered to {len(df)} selected instances")
-
-        # [TEMPORARY] Hardcode the 2 failed GAIA task IDs to debug timeout issues
-        # Remove this after investigation is complete
-        TEMPORARY_FAILED_TASK_IDS = [
-            "2a649bb1-795f-4a01-b3be-9a01868dae73",  # Failed with read timeout after 91 min
-            "2d83110e-a098-4ebb-9987-066c06fa42d0",  # Failed with read timeout after 112 min
-        ]
-        df = cast(pd.DataFrame, df[df["instance_id"].isin(TEMPORARY_FAILED_TASK_IDS)])
-        logger.warning(
-            f"[TEMPORARY] Hardcoded filter to {len(df)} failed task IDs for debugging: {TEMPORARY_FAILED_TASK_IDS}"
-        )
+            logger.info(f"Filtered to {len(df)} selected instances from file")
 
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
@@ -515,6 +529,13 @@ def main() -> None:
         required=True,
         help="GAIA level to evaluate (e.g., 2023_level1, 2023_level2, 2023_level3)",
     )
+    parser.add_argument(
+        "--instance-ids",
+        type=str,
+        default=None,
+        help="Comma-separated list of GAIA instance IDs to evaluate (e.g., 'id1,id2,id3'). "
+        "Takes precedence over --select.",
+    )
     args = parser.parse_args()
 
     # Create critic instance from parsed arguments
@@ -558,6 +579,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        instance_ids=args.instance_ids,
         workspace_type=args.workspace,
     )
 
