@@ -1,8 +1,0 @@
-{
-  "model": "openai/Qwen/Qwen3-8B",
-  "base_url": "http://172.17.0.1:2339/v1",
-  "api_key": "aditya_vllm",
-  "temperature": 0.6,
-  "top_p": 0.95,
-  "top_k": 20
-}
