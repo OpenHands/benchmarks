@@ -67,6 +67,8 @@ def evaluate_gaia_results(input_file: str) -> dict[str, int | float]:
                 total += 1
                 if score:
                     success += 1
+                else:
+                    errors += 1
 
             except json.JSONDecodeError as e:
                 logger.error(f"Line {line_num}: Invalid JSON - {e}")
