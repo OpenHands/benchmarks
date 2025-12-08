@@ -10,6 +10,7 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 |-----------|-------------|--------|
 | [SWE-Bench](benchmarks/swe_bench/) | Software engineering tasks from GitHub issues | ✅ Active |
 | [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
+| [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
 
 See the individual benchmark directories for detailed usage instructions.

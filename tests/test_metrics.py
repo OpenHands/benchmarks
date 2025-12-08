@@ -222,6 +222,19 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "Annotator Metadata": '{"test": true}',
             },
         )
+    elif benchmark_name == "commit0":
+        return EvalInstance(
+            id="test-instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test-instance-1",
+                "base_commit": "abc123",
+                "test": {
+                    "test_cmd": "python -m pytest",
+                    "test_dir": "tests",
+                },
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -270,6 +283,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             dataset="gaia-benchmark/GAIA",
             dataset_split="test",
             details={"test": True},
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "commit0":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "commit0"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="commit0/commit0",
+            dataset_split="test",
+            details={"test": True},
+            prompt_path=prompt_path,
             critic=PassCritic(),
         )
     else:
