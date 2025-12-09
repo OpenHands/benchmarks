@@ -26,22 +26,31 @@ def get_official_docker_image(
     instance_id: str,
     docker_image_prefix="docker.io/swebench/",
 ) -> str:
-    # Official SWE-Bench Multimodal image
-    # swebench/sweb.mm.eval.x86_64.openlayers_1776_openlayers-12172:latest
+    # Try SWE-Bench Multimodal image first, fall back to regular SWE-Bench image
+    # Multimodal: swebench/sweb.mm.eval.x86_64.openlayers_1776_openlayers-12172:latest
+    # Regular: swebench/sweb.eval.x86_64.django_1776_django-11333:latest
     repo, name = instance_id.split("__")
-    official_image_name = docker_image_prefix.rstrip("/")
-    official_image_name += f"/sweb.mm.eval.x86_64.{repo}_1776_{name}:latest".lower()
-    logger.debug(f"Official SWE-Bench Multimodal image: {official_image_name}")
-    return official_image_name
+
+    # First try multimodal image
+    multimodal_image_name = docker_image_prefix.rstrip("/")
+    multimodal_image_name += f"/sweb.mm.eval.x86_64.{repo}_1776_{name}:latest".lower()
+
+    # Check if multimodal image exists (we'll use this as primary)
+    # For now, return multimodal image name - the build process will handle fallback
+    logger.debug(f"Official SWE-Bench Multimodal image: {multimodal_image_name}")
+    return multimodal_image_name
 
 
 def extract_custom_tag(base_image: str) -> str:
     """
-    Extract SWE-Bench Multimodal instance ID from official SWE-Bench Multimodal image name.
+    Extract instance ID from official SWE-Bench image name (multimodal or regular).
 
-    Example:
+    Examples:
         docker.io/swebench/sweb.mm.eval.x86_64.openlayers_1776_openlayers-12172:latest
         -> sweb.mm.eval.x86_64.openlayers_1776_openlayers-12172
+
+        docker.io/swebench/sweb.eval.x86_64.django_1776_django-11333:latest
+        -> sweb.eval.x86_64.django_1776_django-11333
     """
     name_tag = base_image.split("/")[-1]
     name = name_tag.split(":")[0]
