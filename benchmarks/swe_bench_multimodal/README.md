@@ -4,9 +4,10 @@ This benchmark implements evaluation for SWE-Bench Multimodal datasets, which in
 
 ## Key Differences from Regular SWE-Bench
 
-1. **Docker Images**: Uses multimodal-specific docker images with `sweb.mm.eval` prefix instead of `sweb.eval`
+1. **Docker Images**: Attempts to use multimodal-specific docker images with `sweb.mm.eval` prefix, but falls back to regular `sweb.eval` images if multimodal images don't exist
 2. **Environment Setup**: Skips testbed environment activation (similar to SWE-bench-Live)
 3. **Dataset Support**: Designed specifically for `princeton-nlp/SWE-bench_Multimodal` dataset
+4. **Fallback Mechanism**: Gracefully handles missing multimodal docker images by falling back to regular SWE-bench images
 
 ## Usage
 
@@ -60,7 +61,8 @@ When working with multimodal instances:
 
 1. **Visual Content**: The agent will have access to images and visual elements through the workspace
 2. **No Testbed**: Unlike regular SWE-Bench, multimodal instances don't use the testbed environment
-3. **Docker Images**: Ensure you have access to the multimodal-specific docker images
+3. **Docker Images**: The system will attempt to use multimodal-specific docker images (`sweb.mm.eval.*`) but will automatically fall back to regular SWE-bench images (`sweb.eval.*`) if multimodal images are not available
+4. **Fallback Behavior**: When multimodal images are missing, you'll see log messages like "Multimodal image build failed" followed by "Falling back to regular SWE-bench image..." - this is expected behavior
 
 ## Example
 
