@@ -532,13 +532,7 @@ def main() -> None:
         required=True,
         help="GAIA level to evaluate (e.g., 2023_level1, 2023_level2, 2023_level3)",
     )
-    parser.add_argument(
-        "--instance-ids",
-        type=str,
-        default=None,
-        help="Comma-separated list of GAIA instance IDs to evaluate (e.g., 'id1,id2,id3'). "
-        "Takes precedence over --select.",
-    )
+    # Note: --instance-ids is already defined in get_parser() (shared args)
     args = parser.parse_args()
 
     # Create critic instance from parsed arguments
