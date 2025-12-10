@@ -2,11 +2,11 @@
 """
 Build agent-server images for all unique SWT-Bench base images in a dataset split.
 
-SWT-Bench uses the same base environment images as SWE-Bench (from docker.io/swtbench/),
+SWT-Bench uses the same base environment images as SWE-Bench (from docker.io/swebench/),
 but the task is different - generating reproduction tests instead of patches.
 
 Example:
-  uv run benchmarks/swt_bench/build_images.py \
+  uv run benchmarks/swtbench/build_images.py \
     --dataset princeton-nlp/SWE-bench_Verified --split test \
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
@@ -27,10 +27,10 @@ logger = get_logger(__name__)
 
 def get_official_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swtbench/",
+    docker_image_prefix="docker.io/swebench/",
 ) -> str:
-    # Official SWT-Bench image (same format as SWE-Bench)
-    # swtbench/sweb.eval.x86_64.django_1776_django-11333:latest
+    # Official SWT-Bench uses same base images as SWE-Bench
+    # swebench/sweb.eval.x86_64.django_1776_django-11333:latest
     repo, name = instance_id.split("__")
     official_image_name = docker_image_prefix.rstrip("/")
     official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
