@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import List
@@ -25,7 +26,15 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import (
+    LLM,
+    Agent,
+    Conversation,
+    ImageContent,
+    Message,
+    TextContent,
+    get_logger,
+)
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -131,27 +140,60 @@ class SWEBenchEvaluation(Evaluation):
                     "agent-server image."
                 )
 
-                # Try building with multimodal image first
-                try:
-                    output = build_image(
-                        base_image=official_docker_image,
-                        target_image=EVAL_AGENT_SERVER_IMAGE,
-                        custom_tag=custom_tag,
-                        target=build_target,
-                        push=False,
+                # Check if multimodal image exists before trying to build with it
+                if image_exists(official_docker_image):
+                    logger.info(
+                        f"Multimodal image {official_docker_image} exists, building with it"
                     )
-                    logger.info(f"Image build output: {output}")
-                    assert output.error is None, f"Image build failed: {output.error}"
-                    if agent_server_image not in output.tags:
-                        raise RuntimeError(
-                            f"Built image tags {output.tags} do not include expected tag "
-                            f"{agent_server_image}"
+                    try:
+                        output = build_image(
+                            base_image=official_docker_image,
+                            target_image=EVAL_AGENT_SERVER_IMAGE,
+                            custom_tag=custom_tag,
+                            target=build_target,
+                            push=False,
                         )
-                except Exception as e:
-                    logger.warning(f"Multimodal image build failed: {e}")
-                    logger.info("Falling back to regular SWE-bench image...")
+                        logger.info(f"Image build output: {output}")
+                        assert output.error is None, (
+                            f"Image build failed: {output.error}"
+                        )
+                        if agent_server_image not in output.tags:
+                            raise RuntimeError(
+                                f"Built image tags {output.tags} do not include expected tag "
+                                f"{agent_server_image}"
+                            )
+                    except Exception as e:
+                        logger.warning(f"Multimodal image build failed: {e}")
+                        logger.info("Falling back to regular SWE-bench image...")
 
-                    # Fall back to regular SWE-bench image
+                        # Fall back to regular SWE-bench image
+                        fallback_docker_image = get_fallback_docker_image(instance.id)
+                        fallback_custom_tag = extract_custom_tag(fallback_docker_image)
+                        fallback_agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{fallback_custom_tag}{suffix}"
+
+                        output = build_image(
+                            base_image=fallback_docker_image,
+                            target_image=EVAL_AGENT_SERVER_IMAGE,
+                            custom_tag=fallback_custom_tag,
+                            target=build_target,
+                            push=False,
+                        )
+                        logger.info(f"Fallback image build output: {output}")
+                        assert output.error is None, (
+                            f"Fallback image build failed: {output.error}"
+                        )
+                        if fallback_agent_server_image not in output.tags:
+                            raise RuntimeError(
+                                f"Built fallback image tags {output.tags} do not include expected tag "
+                                f"{fallback_agent_server_image}"
+                            )
+                        # Update the agent server image to use fallback
+                        agent_server_image = fallback_agent_server_image
+                else:
+                    logger.info(
+                        f"Multimodal image {official_docker_image} does not exist, using fallback"
+                    )
+                    # Fall back to regular SWE-bench image immediately
                     fallback_docker_image = get_fallback_docker_image(instance.id)
                     fallback_custom_tag = extract_custom_tag(fallback_docker_image)
                     fallback_agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{fallback_custom_tag}{suffix}"
@@ -269,11 +311,24 @@ class SWEBenchEvaluation(Evaluation):
         if mkdir_result.exit_code != 0:
             logger.warning(f"mkdir failed: {mkdir_result.stderr}")
 
-        # git reset (if repo exists)
-        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
-        if git_reset.exit_code != 0:
+        # Initialize git repo if it doesn't exist, or reset if it does
+        git_init_result = workspace.execute_command(f"cd {repo_path} ; git init")
+        if git_init_result.exit_code != 0:
+            logger.warning(f"git init failed: {git_init_result.stderr}")
+
+        # Configure git user globally in the workspace
+        workspace.execute_command(
+            "git config --global user.email 'evaluation@openhands.dev' && "
+            "git config --global user.name 'OpenHands Evaluation'"
+        )
+
+        # Create an empty initial commit to establish HEAD
+        initial_commit_result = workspace.execute_command(
+            f"cd {repo_path} ; git commit --allow-empty -m 'Initial empty commit'"
+        )
+        if initial_commit_result.exit_code != 0:
             logger.warning(
-                f"git reset failed (expected for multimodal): {git_reset.stderr}"
+                f"Initial empty commit failed: {initial_commit_result.stderr}"
             )
 
         instruction = get_instruction(
@@ -281,38 +336,73 @@ class SWEBenchEvaluation(Evaluation):
             metadata=self.metadata,
             workspace_path=workspace.working_dir,
         )
-        conversation.send_message(instruction)
+
+        # Handle image assets for multimodal instances
+        if "image_assets" in instance.data and instance.data["image_assets"]:
+            try:
+                assets = json.loads(instance.data["image_assets"])
+                if "problem_statement" in assets and assets["problem_statement"]:
+                    image_urls = assets["problem_statement"]
+                    logger.info(f"Sending instruction with {len(image_urls)} images")
+
+                    # Create message with both text and images
+                    message = Message(
+                        role="user",
+                        content=[
+                            TextContent(text=instruction),
+                            ImageContent(image_urls=image_urls),
+                        ],
+                    )
+                    conversation.send_message(message)
+                else:
+                    logger.info("No problem_statement images found in image_assets")
+                    conversation.send_message(instruction)
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Failed to parse image_assets: {e}")
+                conversation.send_message(instruction)
+        else:
+            logger.info("No image_assets found, sending text-only instruction")
+            conversation.send_message(instruction)
         conversation.run()
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
-        # git commit
-        workspace.execute_command(
-            f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+        # Check if there are any changes to commit
+        status_result = workspace.execute_command(
+            f"cd {repo_path} ; git status --porcelain"
         )
 
-        # Get git patch
-        base_commit = instance.data.get("base_commit", "HEAD~1")
-        git_patch_result = workspace.execute_command(
-            (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
-        )
-        if git_patch_result.exit_code != 0:
-            logger.warning(f"git diff failed: {git_patch_result.stderr}")
-            # Try alternative diff command
-            git_patch_result = workspace.execute_command(
-                (f"cd {repo_path} ; git --no-pager diff --no-color HEAD~1 HEAD")
+        if status_result.exit_code == 0 and status_result.stdout.strip():
+            # There are changes to commit
+            commit_result = workspace.execute_command(
+                f"cd {repo_path} ; git commit -m 'patch'"
             )
-            if git_patch_result.exit_code != 0:
-                logger.warning("Alternative git diff also failed, using empty patch")
+            if commit_result.exit_code != 0:
+                logger.warning(f"git commit failed: {commit_result.stderr}")
                 git_patch = ""
             else:
-                git_patch = git_patch_result.stdout
+                # Get git patch - diff between the initial commit and the current commit
+                git_patch_result = workspace.execute_command(
+                    (f"cd {repo_path} ; git --no-pager diff --no-color HEAD~1 HEAD")
+                )
+                if git_patch_result.exit_code != 0:
+                    logger.warning(f"git diff HEAD~1 failed: {git_patch_result.stderr}")
+                    # Try to get the last commit as a patch
+                    git_patch_result = workspace.execute_command(
+                        (f"cd {repo_path} ; git --no-pager show --no-color HEAD")
+                    )
+                    if git_patch_result.exit_code != 0:
+                        logger.warning("git show HEAD also failed, using empty patch")
+                        git_patch = ""
+                    else:
+                        git_patch = git_patch_result.stdout
+                else:
+                    git_patch = git_patch_result.stdout
         else:
-            git_patch = git_patch_result.stdout
+            # No changes to commit
+            logger.warning("No changes detected, using empty patch")
+            git_patch = ""
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
