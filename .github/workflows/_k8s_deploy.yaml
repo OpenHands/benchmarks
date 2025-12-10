@@ -1,0 +1,531 @@
+name: Kubernetes Deployment
+run-name: Deploy to Kubernetes
+on:
+  workflow_call:
+    secrets:
+      DOCKER_PULL_FOR_K8S:
+        required: false
+        description: a password for pulling images in Kubernetes
+      GCP_SERVICE_KEY:
+        required: true
+        description: a service account key for deploying to GCP
+      REPO_SSH_KEY:
+        required: false
+        description: an ssh key for cloning an additional repository
+      PAT_TOKEN:
+        required: false
+        description: GitHub Personal Access Token used to comment on other repos
+    inputs:
+      third_party:
+        type: boolean
+        default: false
+      repo:
+        type: string
+        default: ""
+      repo_path:
+        type: string
+        default: ""
+      repo_ref:
+        type: string
+        default: ""
+      repo_ssh_key_name:
+        type: string
+        default: ""
+      chart_path:
+        type: string
+        default: ""
+      chart_version:
+        type: string
+        default: ""
+      chart_repo:
+        type: string
+        default: ""
+      envs_path:
+        type: string
+        default: ./deploy/envs
+      env:
+        type: string
+        default: ""
+      namespace:
+        type: string
+        default: ""
+      namespace_base:
+        type: string
+        default: ""
+      openhands_pr_number:
+        description: PR number when this is invoked from OpenHands repo
+        type: string
+        default: ""
+      helm_release_name:
+        type: string
+        default: ""
+      image_tag:
+        type: string
+      image_repo:
+        type: string
+      gcp_project:
+        type: string
+        default: ""
+      gcp_cluster:
+        type: string
+        default: ""
+      gcp_zone:
+        type: string
+        default: ""
+      use_runtime_cluster:
+        type: boolean
+        default: false
+      helm_args:
+        type: string
+        default: ""
+      pr_comment:
+        type: boolean
+        default: true
+    outputs:
+      deploy_result:
+        value: ${{ fromJSON(toJSON(jobs.deploy)).result }}
+      deploy_hostname:
+        value: ${{ jobs.deploy.outputs.hostname }}
+
+jobs:
+  deploy:
+    name: Deploying to Kubernetes
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check branch name
+        run: |
+          BRANCH_NAME="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          if echo "$BRANCH_NAME" | grep -iE "^(postgresql|redis|llm-proxy|data|langfuse|runtime)$" > /dev/null; then
+            echo "Error: Branch name '$BRANCH_NAME' contains forbidden terms (postgresql, redis, llm-proxy, data, langfuse, or runtime)"
+            exit 1
+          fi
+          echo "Branch name '$BRANCH_NAME' is valid"
+
+      - name: Checkout input repository
+        uses: actions/checkout@v4
+        if: ${{ inputs.repo != '' }}
+        with:
+          repository: ${{ inputs.repo }}
+          ssh-key: ${{ secrets.REPO_SSH_KEY }}
+          path: ${{ inputs.repo_path }}
+          ref: ${{ inputs.repo_ref }}
+
+      - name: Install SOPS
+        run: |
+          curl -L "https://github.com/mozilla/sops/releases/download/v3.7.3/sops-v3.7.3.linux.amd64" -o sops
+          chmod +x sops
+          sudo mv sops /usr/local/bin/sops
+
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Authenticate with Google Cloud
+        uses: "google-github-actions/auth@v2"
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_KEY }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+          gcloud auth configure-docker
+
+      - name: Decide on environment
+        id: environment
+        run: |
+          # Determine which environment we are deploying to
+          env="${{ inputs.env }}"
+          if [[ -z "$env" ]]; then
+            env="feature"
+          fi
+
+          echo "env=$env" >> $GITHUB_OUTPUT
+
+          # Determine the GCP cluster, project and zone we are deploying to
+          # See https://docs.google.com/document/d/1AhoATmTYehVIW_X-TzY_oJlJzxjL96PAk84gIysTWLo/edit
+          gcp_cluster="${{ inputs.gcp_cluster }}"
+          gcp_project="${{ inputs.gcp_project }}"
+          gcp_zone="${{ inputs.gcp_zone }}"
+          if [[ -z "$gcp_cluster" ]] || [[ -z "$gcp_project" ]] || [[ -z "$gcp_zone" ]]; then
+            if [[ -n "$gcp_cluster" ]] || [[ -n "$gcp_project" ]] || [[ -n "$gcp_zone" ]]; then
+              echo "If one GCP option is set, all must be set."
+              exit 1
+            fi
+
+            gcp_zone="us-central1"
+            if ${{ inputs.use_runtime_cluster }}; then
+                if [[ "$env" == "production" ]]; then
+                  gcp_cluster="prod-runtime"
+                  gcp_project="production-092024"
+                elif [[ "$env" == "staging" ]] || [[ "$env" == "feature" ]]; then
+                  gcp_cluster="staging-runtime"
+                  gcp_project="staging-092324"
+                elif [[ "$env" == "evaluation" ]]; then
+                  gcp_cluster="eval-runtime"
+                  gcp_project="evaluation-092424"
+                fi
+            else
+                if [[ "$env" == "production" ]]; then
+                  gcp_cluster="prod-core-application"
+                  gcp_project="production-092024"
+                elif [[ "$env" == "staging" ]] || [[ "$env" == "feature" ]]; then
+                  gcp_cluster="staging-core-application"
+                  gcp_project="staging-092324"
+                elif [[ "$env" == "evaluation" ]]; then
+                  gcp_cluster="eval-core-application"
+                  gcp_project="evaluation-092424"
+                fi
+            fi
+          fi
+
+          echo "gcp_cluster=$gcp_cluster" >> $GITHUB_OUTPUT
+          echo "gcp_project=$gcp_project" >> $GITHUB_OUTPUT
+          echo "gcp_zone=$gcp_zone" >> $GITHUB_OUTPUT
+
+          # Determine the namespace we are deploying to
+          if [[ -z "${{ inputs.namespace }}" && -z "${{ inputs.namespace_base }}" ]]; then
+            echo "namespace or namespace_base must be set"
+            exit 1
+          fi
+
+          branch=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+          # Sanitize branch name: replace special chars with hyphens and convert to lowercase
+          branch_sanitized=$(echo $branch | tr / - | tr . - | tr _ - | tr [A-Z] [a-z])
+          # Ensure branch name is less than 20 characters
+          if [ ${#branch_sanitized} -gt 20 ]; then
+            # Simply truncate to 20 chars and remove any trailing non-word characters
+            branch_sanitized="${branch_sanitized:0:20}"
+            # Remove any trailing hyphens or other non-alphanumeric characters
+            branch_sanitized=$(echo "$branch_sanitized" | sed 's/[^a-z0-9]*$//g')
+          fi
+          openhands_pr_number="${{ inputs.openhands_pr_number }}"
+          # override branch name for OpenHands PRs.
+          if [[ -n "$openhands_pr_number" ]]; then
+              branch_sanitized="ohpr-$openhands_pr_number"
+          fi
+          echo "branch=$branch" >> $GITHUB_OUTPUT
+          echo "branch_sanitized=$branch_sanitized" >> $GITHUB_OUTPUT
+
+          namespace="${{ inputs.namespace }}"
+          if [[ -z "$namespace" ]]; then
+            if [[ "$env" == "production" ]]; then
+              namespace="${{ inputs.namespace_base }}"
+            elif [[ "$env" == "staging" ]]; then
+              namespace="${{ inputs.namespace_base }}"
+            elif [[ "$env" == "feature" ]]; then
+              namespace="${{ inputs.namespace_base }}-$branch_sanitized"
+            else
+              namespace="${{ inputs.namespace_base }}"
+            fi
+          fi
+
+          echo "namespace=$namespace" >> $GITHUB_OUTPUT
+
+          # Output the entire GITHUB_OUTPUT for debugging purposes
+          cat $GITHUB_OUTPUT
+
+      - name: Install into Kubernetes
+        id: deploy
+        run: |
+
+          gcloud container clusters get-credentials \
+            ${{ steps.environment.outputs.gcp_cluster }} \
+            --zone ${{ steps.environment.outputs.gcp_zone }} \
+            --project ${{ steps.environment.outputs.gcp_project }}
+
+          env="${{ steps.environment.outputs.env }}"
+          namespace="${{ steps.environment.outputs.namespace }}"
+
+          echo "Deploying to $env in namespace $namespace"
+
+          kubectl create namespace $namespace || true
+
+          env_path="${{ inputs.envs_path }}/$env"
+          if [[ -d $env_path/secrets ]]; then
+            for file in $env_path/secrets/*.yaml
+            do
+              ./scripts/decrypt.sh $file
+              ./scripts/safe-apply-secrets.sh ./decrypted.yaml --namespace=$namespace
+              rm ./decrypted.yaml
+            done
+          fi
+
+          helm repo add fairwinds-stable https://charts.fairwinds.com/stable
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add minio https://charts.min.io/
+          helm repo add grafana https://grafana.github.io/helm-charts
+
+          release_name=$namespace
+          if [[ -n "${{ inputs.helm_release_name }}" ]]; then
+            release_name="${{ inputs.helm_release_name }}"
+          fi
+
+          export branch_sanitized="${{ steps.environment.outputs.branch_sanitized }}"
+          helm_args=$(echo "${{ inputs.helm_args }}" | envsubst | xargs)
+          if [[ "$env" == "production" ]] || [[ "$env" == "staging" ]]; then
+            helm_args=$(echo "$helm_args" | sed 's|keycloak\.url=http://keycloak\.openhands-[^ ]*|keycloak.url=http://keycloak.keycloak|')
+          fi
+          echo "helm_args $helm_args"
+
+          if ${{ inputs.third_party }}; then
+            if [[ -z "${{ inputs.chart_repo }}" || -z "${{ inputs.chart_version }}" ]]; then
+              echo "chart_repo and chart_version must be set for third_party charts"
+              exit 1
+            fi
+            chart_repo="${{ inputs.chart_repo }}"
+            chart_version="${{ inputs.chart_version }}"
+            echo "Deploying $release_name in namespace $namespace from $chart_repo at version $chart_version"
+            helm upgrade --wait --install \
+              --timeout 12m \
+              $release_name \
+              $chart_repo \
+              --version=$chart_version \
+              --namespace=$namespace \
+              $helm_args \
+              -f $env_path/values.yaml
+          else
+            # Validate that either chart_repo or chart_path is provided for non-third-party installations
+            if [[ -z "${{ inputs.chart_repo }}" && -z "${{ inputs.chart_path }}" ]]; then
+              echo "Either chart_repo or chart_path must be set for non-third-party charts"
+              exit 1
+            fi
+            if [[ -n "${{ inputs.chart_repo }}" && -n "${{ inputs.chart_path }}" ]]; then
+              echo "Only one of chart_repo or chart_path can be set for non-third-party charts"
+              exit 1
+            fi
+
+            kubectl create secret docker-registry ghcr-login-secret \
+              --namespace=$namespace \
+              --docker-server=https://ghcr.io   \
+              --docker-username=all-hands-bot   \
+              --docker-password="${{ secrets.DOCKER_PULL_FOR_K8S }}" \
+              --docker-email=contact@all-hands.dev || true
+
+            image_tag="${{ inputs.image_tag }}"
+            if [[ -z "$image_tag" ]]; then
+              if [[ -n "${{ inputs.repo_path }}" ]]; then
+                cd ${{ inputs.repo_path }}
+                sha=$(git rev-parse HEAD)
+                cd ..
+              else
+                sha=$(git rev-parse HEAD)
+              fi
+              image_tag="sha-$(echo $sha | cut -c1-7)"
+            fi
+            echo "setting tag to $image_tag"
+
+            # Determine chart source
+            if [[ -n "${{ inputs.chart_repo }}" ]]; then
+              if [[ -z "${{ inputs.chart_version }}" ]]; then
+                echo "chart_version must be set when using chart_repo"
+                exit 1
+              fi
+              echo "Deploying $release_name in namespace $namespace from chart repository ${{ inputs.chart_repo }}"
+            else
+              echo "Deploying $release_name in namespace $namespace from local chart path ${{ inputs.chart_path }}"
+            fi
+
+            # For feature environments, delete existing deployment if it exists
+            if [[ "$env" == "feature" ]]; then
+              # Delete existing deployment if it exists
+              if helm status $release_name -n $namespace &>/dev/null; then
+                echo "Found existing feature deployment. Deleting it before deploying new version..."
+                helm delete $release_name -n $namespace || true
+                # Wait a moment to ensure resources are cleaned up
+                sleep 5
+              fi
+            # For non-feature environments, check if we need to rollback
+            elif [[ "$env" == "staging" || "$env" == "production" ]]; then
+              if helm status $release_name -n $namespace &>/dev/null; then
+                status=$(helm status $release_name -n $namespace -o json | jq -r '.info.status')
+                if [[ "$status" != "deployed" ]]; then
+                  echo "Found release in non-deployed state ($status). Attempting rollback..."
+                  helm rollback $release_name -n $namespace || true
+                fi
+              fi
+            fi
+            image_repo="${{ inputs.image_repo }}"
+            image_args="--set image.tag=$image_tag"
+            if [[ -n "$image_repo" ]]; then
+              image_args+=" --set image.repository=$image_repo"
+            fi
+            if [[ -n "${{ inputs.chart_repo }}" ]]; then
+              chart_version="${{ inputs.chart_version }}"
+              helm upgrade --wait --install \
+                --timeout 10m \
+                $release_name \
+                ${{ inputs.chart_repo }} \
+                --version=$chart_version \
+                --debug \
+                --namespace=$namespace \
+                $image_args \
+                --set branchSanitized="$branch_sanitized" \
+                $helm_args \
+                -f $env_path/values.yaml
+            else
+              pushd ${{ inputs.chart_path }}
+              helm dependency build
+              popd
+
+              helm upgrade --wait --install \
+                --timeout 10m \
+                $release_name \
+                ${{ inputs.chart_path }} \
+                --debug \
+                --namespace=$namespace \
+                $image_args \
+                --set branchSanitized="$branch_sanitized" \
+                $helm_args \
+                -f $env_path/values.yaml
+            fi
+          fi
+
+          hostname=$(kubectl get ing -n $namespace | grep -v "NAME\|auth\." | awk '{print $3}' | head -n 1)
+          auth_hostname=$(kubectl get ing -n $namespace | grep -v "NAME" | grep "auth\." | awk '{print $3}' | head -n 1)
+          echo "hostname=$hostname" >> $GITHUB_OUTPUT
+          echo "auth_hostname=$auth_hostname" >> $GITHUB_OUTPUT
+          echo "env=$env" >> $GITHUB_OUTPUT
+
+    outputs:
+      hostname: ${{ steps.deploy.outputs.hostname }}
+      auth_hostname: ${{ steps.deploy.outputs.auth_hostname }}
+      env: ${{ steps.deploy.outputs.env }}
+
+  comment-pr:
+    name: Comment on deploy repo PR with deployment link
+    needs:
+      - deploy
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: needs.deploy.outputs.env == 'feature' && github.ref != 'refs/heads/main' && inputs.pr_comment && inputs.openhands_pr_number == ''
+    steps:
+      - name: Find PR
+        uses: actions/github-script@v6
+        id: find-pr
+        with:
+          script: |
+            let prNumber;
+
+            if (context.ref.startsWith('refs/pull/')) {
+              prNumber = parseInt(context.ref.split('/')[2]);
+            } else {
+              const branch = context.ref.replace('refs/heads/', '');
+              const { data: pullRequests } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                head: `${context.repo.owner}:${branch}`
+              });
+              prNumber = pullRequests[0]?.number;
+            }
+
+            if (!prNumber) {
+              throw new Error('No PR number found');
+            }
+
+            return prNumber;
+      - name: Comment on PR
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const prNumber = ${{ steps.find-pr.outputs.result }}
+            const etTime = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/New_York',
+              year: 'numeric',
+              month: 'short',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true
+            }).format(new Date())
+            const commentBody = `Feature deployment is available at: https://${{ needs.deploy.outputs.hostname }}
+            Redirect URI for GitHub App is https://${{ needs.deploy.outputs.auth_hostname }}/realms/allhands/broker/github/endpoint
+            Last updated: ${etTime} ET`
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            })
+
+            const botComment = comments.find(comment =>
+              comment.user.login === 'github-actions[bot]' &&
+              comment.body.includes('Feature deployment is available at:')
+            )
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: commentBody
+              })
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: prNumber,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: commentBody
+              })
+            }
+  comment-openhands-pr:
+    name: Comment on OpenHands PR with deployment link
+    needs:
+      - deploy
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: needs.deploy.outputs.env == 'feature' && inputs.pr_comment && inputs.openhands_pr_number != ''
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.PAT_TOKEN}}
+          script: |
+            const repoName = "OpenHands"
+            const prNumber = "${{ inputs.openhands_pr_number }}"
+            const etTime = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/New_York',
+              year: 'numeric',
+              month: 'short',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true
+            }).format(new Date())
+            const commentBody = `Feature deployment is available at: https://${{ needs.deploy.outputs.hostname }}
+            Redirect URI for GitHub App is https://${{ needs.deploy.outputs.auth_hostname }}/realms/allhands/broker/github/endpoint
+            Last updated: ${etTime} ET`
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: repoName
+            })
+
+            const botComment = comments.find(comment =>
+              comment.user.login === 'github-actions[bot]' &&
+              comment.body.includes('Feature deployment is available at:')
+            )
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: repoName,
+                body: commentBody
+              })
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: prNumber,
+                owner: context.repo.owner,
+                repo: repoName,
+                body: commentBody
+              })
+            }
