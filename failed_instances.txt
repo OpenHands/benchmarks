@@ -1,7 +1,0 @@
-sympy__sympy-21847
-sympy__sympy-22840
-sympy__sympy-23117
-sympy__sympy-23191
-sympy__sympy-23262
-sympy__sympy-24213
-sympy__sympy-24909

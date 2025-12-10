@@ -1,0 +1,126 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Debugging Django autoreloader path resolution errors",
+      "description": "Identify and fix issues in Django\u2019s autoreloader related to filesystem path resolution, such as ValueError from Path.resolve().",
+      "steps": [
+        "Step 1: Review the error stack trace to identify the failing module and line number in django/utils/autoreload.py",
+        "Step 2: Locate the Path.resolve() usages in the autoreloader and examine surrounding code for existing exception handling",
+        "Step 3: Determine which exceptions should be caught to handle odd filesystem entries (e.g., ValueError for embedded null bytes) and update the exception handling accordingly",
+        "Step 4: Run Django\u2019s autoreload test suite to establish a baseline and confirm no regressions after changes",
+        "Step 5: Add a regression test that simulates the problematic Path.resolve() behavior (e.g., via mocking) to ensure the autoreloader no longer crashes",
+        "Step 6: Re-run the test suite and dedicated reproduction scripts to validate the fix on both tests and simulated cases"
+      ],
+      "source_trajectories": [
+        "django__django-11583"
+      ]
+    },
+    {
+      "name": "Extending SafeExceptionReporterFilter to cleanse nested iterables",
+      "description": "Improve exception reporting by ensuring sensitive settings are cleaned inside nested lists/tuples of dicts in addition to dictionaries.",
+      "steps": [
+        "Step 1: Review the cleanse_setting() method in django/views/debug.py to understand how sensitive values are masked and what data structures are currently supported",
+        "Step 2: Create a minimal reproduction using settings with nested lists/tuples containing dicts with sensitive keys to observe current behavior",
+        "Step 3: Modify the cleanse_setting() method to recurse into lists and tuples, preserving the container type and avoiding strings/bytes",
+        "Step 4: Add tests covering lists, nested lists, tuples, and mixed structures to verify sensitive values are cleansed and types preserved",
+        "Step 5: Run the view tests (including ExceptionReporterFilter tests) using Django\u2019s test runner and appropriate settings module to check for regressions",
+        "Step 6: Validate edge cases such as deep nesting, callables, and empty containers; ensure non-sensitive values remain unchanged"
+      ],
+      "source_trajectories": [
+        "django__django-12700"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating and inspecting Path.resolve() usage in Django autoreloader",
+      "description": "Quickly find and examine Path.resolve() calls in django/utils/autoreload.py to diagnose exceptions and adjust error handling.",
+      "steps": [
+        {
+          "reasoning": "Need to locate the autoreloader module to inspect Path.resolve() usage and surrounding error handling.",
+          "action": "cd {repo_root} && find django -type f -name \"autoreload.py\" | head -20"
+        },
+        {
+          "reasoning": "Identify exact lines where resolve() is called to target the fix.",
+          "action": "grep -n \"resolve(\" django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "View the code around the resolve() call to understand existing behavior and exceptions caught.",
+          "action": "sed -n '{start_line},{end_line}p' django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "Confirm other functions (e.g., sys_path_directories) also use resolve() and require consistent handling.",
+          "action": "grep -n \"sys_path_directories\\|iter_modules_and_files\" django/utils/autoreload.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11583"
+      ]
+    },
+    {
+      "name": "Running Django tests for specific modules/classes",
+      "description": "Execute Django\u2019s test suite for targeted modules or classes using Django\u2019s test runner and settings.",
+      "steps": [
+        {
+          "reasoning": "Use Django\u2019s built-in test runner for repository tests to ensure environment is correctly set up.",
+          "action": "cd {repo_root} && python tests/runtests.py {test_module} -v 2"
+        },
+        {
+          "reasoning": "Run a specific test class or test method when a settings module is required by the test suite.",
+          "action": "cd {repo_root}/tests && python -m django test {dotted_test_label} --settings={settings_module} -v 2"
+        },
+        {
+          "reasoning": "Execute a broad module to check for regressions across related tests.",
+          "action": "cd {repo_root}/tests && python -m django test {dotted_module_label} --settings={settings_module} -v 2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11583",
+        "django__django-12700"
+      ]
+    },
+    {
+      "name": "Finding and reviewing SafeExceptionReporterFilter tests",
+      "description": "Search and open tests referencing SafeExceptionReporterFilter to understand current coverage and add new cases.",
+      "steps": [
+        {
+          "reasoning": "Locate test files that mention SafeExceptionReporterFilter to review existing test coverage.",
+          "action": "cd {repo_root} && find tests -name \"*.py\" -type f | xargs grep -l \"SafeExceptionReporterFilter\" | head -10"
+        },
+        {
+          "reasoning": "Search within the debug tests for specific methods or patterns to identify insertion points for new tests.",
+          "action": "cd {repo_root} && grep -n \"cleanse_setting\" tests/view_tests/tests/test_debug.py"
+        },
+        {
+          "reasoning": "View the surrounding lines of a target test to understand context and structure.",
+          "action": "cd {repo_root} && sed -n '{start_line},{end_line}p' tests/view_tests/tests/test_debug.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12700"
+      ]
+    },
+    {
+      "name": "Creating and running local reproduction scripts against Django",
+      "description": "Set up small scripts to reproduce and validate bugs or fixes using the local editable Django install.",
+      "steps": [
+        {
+          "reasoning": "Install Django in editable mode so local code changes are immediately reflected when running scripts.",
+          "action": "cd {repo_root} && pip install -e ."
+        },
+        {
+          "reasoning": "Run a custom reproduction script that configures settings and invokes the relevant code path to observe behavior.",
+          "action": "cd {repo_root} && python {script_name}.py"
+        },
+        {
+          "reasoning": "Verify that changes don\u2019t introduce regressions; re-run scripts after modifying code to confirm fixes.",
+          "action": "cd {repo_root} && python {script_name}.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11583",
+        "django__django-12700"
+      ]
+    }
+  ]
+}

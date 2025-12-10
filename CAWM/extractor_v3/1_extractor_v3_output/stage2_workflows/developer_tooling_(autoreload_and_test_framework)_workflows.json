@@ -1,0 +1,238 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Harden exception handling in filesystem-based developer utilities",
+      "description": "Robustly handle unexpected filesystem/path errors (e.g., ValueError from Path.resolve) in autoreloaders or watchers without crashing, and back it with tests.",
+      "steps": [
+        {
+          "reasoning": "Start from the concrete failure context to avoid guesswork and pinpoint the code path raising the exception.",
+          "action": "Use the error message or stack trace to identify the function and module where the exception originates."
+        },
+        {
+          "reasoning": "Understanding the implementation around the failing call reveals current error handling gaps.",
+          "action": "Open and read the implementation around the reported line(s); locate calls to filesystem/path APIs (e.g., Path.resolve)."
+        },
+        {
+          "reasoning": "Determine which exceptions can surface in real environments so the code can handle them gracefully.",
+          "action": "Audit and expand exception handling (e.g., catch ValueError alongside FileNotFoundError) to skip problematic entries instead of crashing."
+        },
+        {
+          "reasoning": "Document intent for future maintainers and prevent accidental removal of necessary guards.",
+          "action": "Add comments explaining why broader exceptions are caught (e.g., network mounts or embedded null bytes)."
+        },
+        {
+          "reasoning": "Guard against regressions and confirm behavior without relying on flaky environments.",
+          "action": "Add a regression test that mocks the problematic call (e.g., Path.resolve raising ValueError) and asserts graceful handling."
+        },
+        {
+          "reasoning": "Ensure changes don\u2019t break unaffected functionality.",
+          "action": "Run the existing test suite and targeted modules relevant to the change; iterate if failures arise."
+        }
+      ]
+    },
+    {
+      "name": "Make test framework data restoration transactional",
+      "description": "Resolve integrity errors during rollback deserialization by mirroring transactional behavior from similar code paths.",
+      "steps": [
+        {
+          "reasoning": "Understanding the root cause (e.g., FK ordering plus lack of transaction) guides the minimal, correct fix.",
+          "action": "Analyze how objects are deserialized/saved and identify assumptions about ordering or atomicity."
+        },
+        {
+          "reasoning": "Established patterns in similar components (e.g., loaddata) provide a proven reference.",
+          "action": "Compare with existing components that do similar work (loaddata) and note transactional patterns (transaction.atomic)."
+        },
+        {
+          "reasoning": "Wrapping deserialization in a transaction ensures all-or-nothing behavior and defers constraints until end.",
+          "action": "Wrap the deserialization/save loop in a transaction.atomic(using=alias) block."
+        },
+        {
+          "reasoning": "Changes to transactional behavior can have wide impact; focused testing reduces risk.",
+          "action": "Run relevant test suites (TransactionTestCase, migration data persistence, fixtures) to validate correctness and catch regressions."
+        },
+        {
+          "reasoning": "Confirm applicability across supported backends and scenarios.",
+          "action": "If available, run tests for multiple databases/backends and adjust if backend-specific issues arise."
+        }
+      ]
+    },
+    {
+      "name": "Bootstrap and execute tests in large Python projects",
+      "description": "Set up the environment and use project-specific runners to efficiently validate changes.",
+      "steps": [
+        {
+          "reasoning": "Tests may rely on an editable install for import paths and plugin hooks.",
+          "action": "Install the project in editable mode if imports fail or test runner can\u2019t locate modules."
+        },
+        {
+          "reasoning": "Project-provided runners often handle settings, database setup, and test discovery.",
+          "action": "Use the project\u2019s test runner script or documented command to run tests."
+        },
+        {
+          "reasoning": "Quicker feedback loops speed up development and reduce flakiness.",
+          "action": "Run the smallest targeted test modules first, then expand to broader suites once local checks pass."
+        },
+        {
+          "reasoning": "Parallelism or environment issues can mask failures or cause flakiness.",
+          "action": "Disable parallelism or adjust runner flags when debugging intermittent or order-dependent failures."
+        }
+      ]
+    },
+    {
+      "name": "Create deterministic reproductions for environment-specific bugs",
+      "description": "Simulate flaky or environment-dependent errors (e.g., filesystem anomalies) via mocking or standalone scripts to validate fixes.",
+      "steps": [
+        {
+          "reasoning": "Direct reproduction in the real environment may be unreliable or hard to set up.",
+          "action": "Create a minimal standalone script that exercises the failing function(s) with controlled inputs."
+        },
+        {
+          "reasoning": "Mocking specific API calls (e.g., Path.resolve) isolates the failure mode without external dependencies.",
+          "action": "Use mocks to force the error condition (e.g., raise ValueError) and assert expected behavior."
+        },
+        {
+          "reasoning": "Fast feedback ensures the fix addresses the actual failure mode.",
+          "action": "Run the standalone script/tests before and after the patch to confirm the change resolves the issue."
+        },
+        {
+          "reasoning": "Prevent regressions by promoting the reproduction into the official test suite.",
+          "action": "Integrate the reproduction as a unit test case using the project\u2019s testing conventions."
+        }
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locate error sources and inspect surrounding code",
+      "description": "Find the implementation and call sites for failing functions and inspect their context.",
+      "steps": [
+        {
+          "reasoning": "Quickly find the relevant module implementing the feature (e.g., autoreloader).",
+          "action": "find /workspace/django -type f -name \"autoreload.py\""
+        },
+        {
+          "reasoning": "Identify exact usage of the problematic API to align with the stack trace.",
+          "action": "grep -n \"resolve(\\|Path.resolve\" /workspace/django/django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "View the immediate context without opening a full editor to confirm control flow and error handling.",
+          "action": "sed -n '130,200p' /workspace/django/django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "Check whether the error message is referenced elsewhere or has prior handling.",
+          "action": "grep -R \"embedded null byte\" /workspace/django || true"
+        },
+        {
+          "reasoning": "Read the full file to understand related helper functions and shared patterns.",
+          "action": "sed -n '1,220p' /workspace/django/django/utils/autoreload.py"
+        }
+      ]
+    },
+    {
+      "name": "Run Django\u2019s test suites and subsets",
+      "description": "Execute targeted and broader tests using Django\u2019s test runner and ensure environment readiness.",
+      "steps": [
+        {
+          "reasoning": "Editable install resolves imports and package metadata needed by the runner.",
+          "action": "pip install -e /workspace/django"
+        },
+        {
+          "reasoning": "Run a focused test module to validate changes quickly.",
+          "action": "python /workspace/django/tests/runtests.py utils_tests.test_autoreload -v2"
+        },
+        {
+          "reasoning": "Verify behavior across other relevant test areas.",
+          "action": "python /workspace/django/tests/runtests.py test_utils.test_transactiontestcase -v2"
+        },
+        {
+          "reasoning": "Test migration-related behavior affected by serialized rollback.",
+          "action": "python /workspace/django/tests/runtests.py migration_test_data_persistence --verbosity=2"
+        },
+        {
+          "reasoning": "Reduce flakiness and isolate failures when necessary.",
+          "action": "python /workspace/django/tests/runtests.py test_utils.test_transactiontestcase migration_test_data_persistence --parallel=1"
+        }
+      ]
+    },
+    {
+      "name": "Patch autoreloader to handle ValueError from Path.resolve",
+      "description": "Modify autoreload.py to catch ValueError in file iteration functions and validate with a standalone reproduction.",
+      "steps": [
+        {
+          "reasoning": "Open the implementation to adjust exception handling.",
+          "action": "vi /workspace/django/django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "Broaden exception handling to skip problematic entries without crashing.",
+          "action": "Change `except FileNotFoundError:` to `except (FileNotFoundError, ValueError):` in iter_modules_and_files() and sys_path_directories(); add a comment explaining embedded null bytes/network mounts."
+        },
+        {
+          "reasoning": "Validate the failure mode and confirm the patch fixes it.",
+          "action": "python /workspace/test_embedded_null_byte.py"
+        },
+        {
+          "reasoning": "Ensure no regressions in existing tests.",
+          "action": "python /workspace/django/tests/runtests.py utils_tests.test_autoreload -v2"
+        }
+      ]
+    },
+    {
+      "name": "Wrap rollback deserialization in a transaction",
+      "description": "Adjust deserialize_db_from_string to run inside transaction.atomic and verify via targeted suites.",
+      "steps": [
+        {
+          "reasoning": "Open the backend creation module where deserialization occurs.",
+          "action": "vi /workspace/django/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Import the transaction API needed for atomic blocks.",
+          "action": "Modify imports to `from django.db import router, transaction`"
+        },
+        {
+          "reasoning": "Ensure deserialization is all-or-nothing to avoid integrity errors.",
+          "action": "Wrap the object save loop with `with transaction.atomic(using=alias):`"
+        },
+        {
+          "reasoning": "Confirm that the intended changes are in place before running tests.",
+          "action": "sed -n '1,150p' /workspace/django/django/db/backends/base/creation.py | sed -n '120,150p'"
+        },
+        {
+          "reasoning": "Run relevant tests to verify correctness and catch regressions.",
+          "action": "python /workspace/django/tests/runtests.py test_utils.test_transactiontestcase migration_test_data_persistence --verbosity=2"
+        }
+      ]
+    },
+    {
+      "name": "Add a regression test with mocking for autoreload",
+      "description": "Create a unit test that simulates Path.resolve raising ValueError to ensure the autoreloader handles it gracefully.",
+      "steps": [
+        {
+          "reasoning": "Open the existing test module to add a new test case alongside related tests.",
+          "action": "vi /workspace/django/tests/utils_tests/test_autoreload.py"
+        },
+        {
+          "reasoning": "Simulate the environment-specific failure deterministically.",
+          "action": "Add a test (e.g., test_iter_modules_and_files_handles_embedded_null_bytes) that patches pathlib.Path.resolve to raise ValueError(\"embedded null byte\") and asserts no crash/empty result."
+        },
+        {
+          "reasoning": "Run only the modified module to get quick feedback.",
+          "action": "python /workspace/django/tests/runtests.py utils_tests.test_autoreload -v2"
+        }
+      ]
+    },
+    {
+      "name": "Repository-wide verification and diff review",
+      "description": "Confirm applied changes and review their scope before finalizing.",
+      "steps": [
+        {
+          "reasoning": "Audit the exact code modifications to ensure only intended changes are present.",
+          "action": "git diff /workspace/django/django/utils/autoreload.py /workspace/django/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Run an expanded test set to catch unrelated regressions.",
+          "action": "python /workspace/django/tests/runtests.py test_runner fixtures transactions --verbosity=1"
+        }
+      ]
+    }
+  ]
+}

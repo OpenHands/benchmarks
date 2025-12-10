@@ -1,0 +1,166 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Resolving Integrity Errors During Test Database Restore (serialized_rollback)",
+      "description": "Diagnose and fix integrity errors raised when Django\u2019s test runner restores a serialized database state between TransactionTestCase tests.",
+      "steps": [
+        "Step 1: Reproduce the issue using a TransactionTestCase with serialized_rollback=True to observe when integrity errors occur during state restore",
+        "Step 2: Identify where the test runner deserializes database state by locating the deserialize_db_from_string implementation in the backend creation code",
+        "Step 3: Compare the restore logic with the loaddata management command to understand best practices for wrapping deserialization in a transaction",
+        "Step 4: Update the deserialization code to execute inside a transaction block to defer constraint checks until commit",
+        "Step 5: Run targeted test suites (e.g., test_utils.test_transactiontestcase and migration_test_data_persistence) to ensure the fix resolves the problem and doesn\u2019t introduce regressions",
+        "Step 6: Optionally create a minimal reproduction script that deserializes objects with foreign keys both with and without transaction.atomic to validate the behavior"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Tracing Django Test Runner Hooks for a Specific Feature",
+      "description": "Systematically locate and understand how a Django test runner feature (e.g., serialized_rollback) is implemented and invoked.",
+      "steps": [
+        "Step 1: Search the test suite for references to the feature keyword to see how it\u2019s configured and exercised",
+        "Step 2: Search Django\u2019s core codebase for the corresponding methods or symbols to find call sites and implementations",
+        "Step 3: Inspect django/test/testcases.py to understand how TransactionTestCase and related utilities trigger the behavior",
+        "Step 4: Follow the call chain into backend creation and connection utilities to pinpoint the exact code paths",
+        "Step 5: Document the flow from test case setup/teardown to backend deserialization to guide precise changes"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Verifying Transaction-Related Changes Safely",
+      "description": "Run focused Django test suites and auxiliary checks to validate that transaction-related changes behave correctly and don\u2019t cause regressions.",
+      "steps": [
+        "Step 1: Install the Django repo in editable mode to ensure tests run with local changes",
+        "Step 2: Execute targeted test suites relevant to your change (e.g., transaction tests and test runner utilities)",
+        "Step 3: Run migration and fixtures test suites to cross-check for unintended side effects in data loading and schema changes",
+        "Step 4: Optionally run tests serially (disable parallelism) for deterministic behavior when debugging",
+        "Step 5: Use a single-test invocation (e.g., pytest on a specific file or class) to rapidly iterate on a failing scenario"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating and Modifying Test Database Deserialization Logic",
+      "description": "Find the code that restores the test database state and wrap it in a transaction to prevent foreign key integrity errors.",
+      "steps": [
+        {
+          "reasoning": "Need to identify where the test database state is deserialized to implement a transactional fix.",
+          "action": "cd {repo_root} && grep -r \"deserialize_db_from_string\" django --include=\"*.py\""
+        },
+        {
+          "reasoning": "Open the backend creation module to inspect and edit the deserialization method.",
+          "action": "$EDITOR {repo_root}/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Ensure transaction.atomic can be used in this module.",
+          "action": "Add \"from django.db import transaction\" near the top-level imports in creation.py"
+        },
+        {
+          "reasoning": "Wrap the deserialization loop so inserts happen within a single transaction, deferring FK checks until commit.",
+          "action": "Change the body of deserialize_db_from_string to:\nwith transaction.atomic(using=self.connection.alias):\n    for obj in serializers.deserialize(\"json\", data, using=self.connection.alias):\n        obj.save()"
+        },
+        {
+          "reasoning": "Verify the edit is correct and limited to the intended scope.",
+          "action": "git -C {repo_root} diff django/db/backends/base/creation.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Tracing serialized_rollback Call Paths",
+      "description": "Find where serialized_rollback is used in tests and how it flows through the test runner to the backend.",
+      "steps": [
+        {
+          "reasoning": "Identify tests that configure or assert behavior for serialized_rollback.",
+          "action": "cd {repo_root} && grep -r \"serialized_rollback\" tests --include=\"*.py\""
+        },
+        {
+          "reasoning": "Locate the code that triggers deserialization during test setup/teardown.",
+          "action": "cd {repo_root} && grep -n \"deserialize_db_from_string\" django/test/testcases.py"
+        },
+        {
+          "reasoning": "Inspect the surrounding code to understand when and how deserialization is invoked.",
+          "action": "$EDITOR {repo_root}/django/test/testcases.py"
+        },
+        {
+          "reasoning": "Confirm the backend method being called and trace into backend creation code.",
+          "action": "$EDITOR {repo_root}/django/db/backends/base/creation.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Comparing with loaddata Transaction Pattern",
+      "description": "Use loaddata as a reference to ensure fixture-like deserialization follows best practices for transaction handling.",
+      "steps": [
+        {
+          "reasoning": "Find the loaddata command implementation to understand its transaction handling.",
+          "action": "cd {repo_root} && $EDITOR django/core/management/commands/loaddata.py"
+        },
+        {
+          "reasoning": "Verify that loaddata wraps deserialization in transaction.atomic and use that pattern as a reference.",
+          "action": "cd {repo_root} && grep -n \"transaction.atomic\" django/core/management/commands/loaddata.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Running Targeted Django Test Suites",
+      "description": "Execute selected test modules to validate a fix and check for regressions related to transactions and test runner behavior.",
+      "steps": [
+        {
+          "reasoning": "Ensure the test runner uses local code changes.",
+          "action": "cd {repo_root} && pip install -e ."
+        },
+        {
+          "reasoning": "Run tests that directly exercise TransactionTestCase and serialized_rollback behavior.",
+          "action": "cd {repo_root} && python tests/runtests.py test_utils.test_transactiontestcase --verbosity=2"
+        },
+        {
+          "reasoning": "Validate behavior around migrations and data persistence after changes to transactional handling.",
+          "action": "cd {repo_root} && python tests/runtests.py migration_test_data_persistence --verbosity=2"
+        },
+        {
+          "reasoning": "Sanity-check fixtures and test runner suites for broader regressions.",
+          "action": "cd {repo_root} && python tests/runtests.py fixtures fixtures_regress test_runner --verbosity=1"
+        },
+        {
+          "reasoning": "Use serial execution for deterministic debugging when needed.",
+          "action": "cd {repo_root} && python tests/runtests.py test_utils.test_transactiontestcase migration_test_data_persistence --verbosity=2 --parallel=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Focused Single-Test Execution",
+      "description": "Run a specific test file or test class to iterate quickly on failures related to transactional changes.",
+      "steps": [
+        {
+          "reasoning": "Directly target a single test file for faster feedback.",
+          "action": "cd {repo_root} && python -m pytest tests/test_utils/test_transactiontestcase.py -v"
+        },
+        {
+          "reasoning": "Invoke Django\u2019s test runner on a specific test class for precise control.",
+          "action": "cd {repo_root} && python -Wa tests/runtests.py test_utils.test_transactiontestcase.TestSerializedRollbackInhibitsPostMigrate --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    }
+  ]
+}

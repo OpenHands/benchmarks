@@ -1,0 +1,140 @@
+PROBLEM: Django’s development autoreloader (StatReloader) intermittently crashes with “ValueError: embedded null byte” during path resolution in pathlib (Path.resolve()). The error arises while iterating modules/files to watch, likely due to unexpected filesystem entries (e.g., mounts) returning paths containing null bytes. The goal is to handle such paths gracefully without crashing, while preserving autoreload functionality.
+
+Action 1
+Reasoning: Identify where the error originates in Django’s autoreloader and confirm the use of pathlib’s resolve(). The stack trace points to django/utils/autoreload.py.
+Action: Think: Reviewed the traceback, noted Path.resolve().absolute() in iter_modules_and_files() as the failure point.
+
+Action 2
+Reasoning: Locate the autoreloader implementation file to inspect the relevant code.
+Action: find /workspace/django -type f -name "autoreload.py" | head -20
+
+Action 3
+Reasoning: Open the file to examine how modules/files are collected and resolved.
+Action: View file: /workspace/django/django/utils/autoreload.py
+
+Action 4
+Reasoning: Search for resolve() calls to see where exceptions might need handling.
+Action: grep -n "path.resolve()" /workspace/django/django/utils/autoreload.py
+
+Action 5
+Reasoning: Inspect the code region around the first resolve() usage for context.
+Action: sed -n '130,135p' /workspace/django/django/utils/autoreload.py
+
+Action 6
+Reasoning: Continue examining surrounding lines to see exception handling.
+Action: sed -n '135,148p' /workspace/django/django/utils/autoreload.py
+
+Action 7
+Reasoning: Check the second usage of resolve(), typically for sys.path directories.
+Action: sed -n '181,197p' /workspace/django/django/utils/autoreload.py
+
+Action 8
+Reasoning: Identify existing tests related to autoreload to extend or reference.
+Action: find /workspace/django -path "*/tests/*" -name "*autoreload*" -type f | head -10
+
+Action 9
+Reasoning: Open the autoreload tests to understand current coverage and structure.
+Action: View file: /workspace/django/tests/utils_tests/test_autoreload.py
+
+Action 10
+Reasoning: Search repository for references to embedded null byte or related ValueError handling.
+Action: grep -n "ValueError.*embedded null byte" /workspace/django -r
+
+Action 11
+Reasoning: Formulate a fix: catch ValueError alongside FileNotFoundError where Path.resolve() is called, so problematic paths are skipped.
+Action: Think: Plan to update exception handling in iter_modules_and_files() and sys_path_directories().
+
+Action 12
+Reasoning: Attempt to run specific autoreload tests; ensure environment setup.
+Action: cd /workspace/django && python -m pytest tests/utils_tests/test_autoreload.py -xvs 2>&1 | head -50
+
+Action 13
+Reasoning: Try Django’s test runner in case pytest setup is incomplete.
+Action: cd /workspace/django && python -m django test utils_tests.test_autoreload 2>&1 | head -100
+
+Action 14
+Reasoning: Check for setup files to prepare the test environment properly.
+Action: cd /workspace/django && find . -maxdepth 2 -name "requirements*.txt" -o -name "setup.py" -o -name "pyproject.toml" | head -5
+
+Action 15
+Reasoning: Run tests via unittest to avoid runner-specific issues.
+Action: cd /workspace/django && python -m unittest tests.utils_tests.test_autoreload 2>&1 | head -100
+
+Action 16
+Reasoning: Install Django in editable mode to ensure dependencies and import paths are correct.
+Action: cd /workspace/django && pip install -e . 2>&1 | tail -20
+
+Action 17
+Reasoning: Retry unittest after installing the package.
+Action: cd /workspace/django && python -m unittest tests.utils_tests.test_autoreload 2>&1 | tail -50
+
+Action 18
+Reasoning: Find test settings to configure DJANGO_SETTINGS_MODULE for running suite.
+Action: find /workspace/django/tests -name "settings.py" | head -5
+
+Action 19
+Reasoning: Set an appropriate test settings module and run a targeted test.
+Action: export DJANGO_SETTINGS_MODULE=tests.test_sqlite && cd /workspace/django && python -m unittest tests.utils_tests.test_autoreloader.TestIterModulesAndFiles.test_file_added -v 2>&1 | tail -30
+
+Action 20
+Reasoning: Use Django’s test harness directly for the autoreload suite.
+Action: cd /workspace/django && python tests/runtests.py utils_tests.test_autoreload::TestIterModulesAndFiles::test_file_added -v2 2>&1
+
+Action 21
+Reasoning: Confirm exact locations of resolve(strict=True).absolute() in code to patch.
+Action: cd /workspace/django && grep -rn "resolve.*absolute\|resolve(strict" --include="*.py" django/utils/autoreload.py
+
+Action 22
+Reasoning: Create a minimal reproduction script to simulate embedded null byte behavior and verify the fix empirically.
+Action: Created /workspace/test_embedded_null_byte.py to:
+- Use a module with a path containing "\x00"
+- Mock Path.resolve() to raise ValueError("embedded null byte")
+Example snippet:
+- mock_path_instance.resolve.side_effect = ValueError("embedded null byte")
+- result = autoreload.iter_modules_and_files((mock_module,), frozenset())
+
+Action 23
+Reasoning: Run the reproduction script to validate the current failure behavior before applying fixes.
+Action: cd /workspace && python test_embedded_null_byte.py
+
+Action 24
+Reasoning: Patch iter_modules_and_files() to skip problematic paths without crashing.
+Action: Edited /workspace/django/django/utils/autoreload.py
+Summary of change (example snippet):
+- except FileNotFoundError:
++ except (FileNotFoundError, ValueError):
+  continue
+
+Action 25
+Reasoning: Apply the same fix to sys_path_directories() so sys.path entries with null bytes don’t crash resolution.
+Action: Edited /workspace/django/django/utils/autoreload.py
+Summary of change (example snippet):
+- except FileNotFoundError:
++ except (FileNotFoundError, ValueError):
+  continue
+
+Action 26
+Reasoning: Re-run the reproduction script to confirm the autoreloader now handles ValueError paths gracefully.
+Action: cd /workspace && python test_embedded_null_byte.py
+
+Action 27
+Reasoning: Run the existing autoreload tests to ensure no regressions introduced by the fix.
+Action: cd /workspace/django && python tests/runtests.py utils_tests.test_autoreload -v2 2>&1 | tail -50
+
+Action 28
+Reasoning: Inspect the test file region to insert a new test case covering ValueError handling.
+Action: View file range: /workspace/django/tests/utils_tests/test_autoreload.py (lines 135–145)
+
+Action 29
+Reasoning: Add a unit test to ensure iter_modules_and_files() handles embedded null bytes by catching ValueError and returning an empty set.
+Action: Edited /workspace/django/tests/utils_tests/test_autoreload.py
+Summary of change (example snippet):
++ with mock.patch('django.utils.autoreload.Path') as mock_path_class:
++     mock_path_instance.resolve.side_effect = ValueError('embedded null byte')
++     result = autoreload.iter_modules_and_files((mock_module,), frozenset())
++     self.assertEqual(result, frozenset())
+
+Summary of Fix:
+- In django/utils/autoreload.py, updated exception handling in two places (iter_modules_and_files() and sys_path_directories()) to catch ValueError in addition to FileNotFoundError when resolving paths.
+- Added a reproducible test script and a unit test to ensure paths with embedded null bytes are skipped without crashing the autoreloader.
+- This prevents intermittent crashes due to unexpected filesystem entries and maintains normal autoreload behavior.

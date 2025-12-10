@@ -1,0 +1,192 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Standards-Aware Parser Correction",
+      "description": "Fix protocol parsing to comply with evolving RFC specifications (e.g., HTTP date parsing).",
+      "steps": [
+        {
+          "reasoning": "Understanding the normative requirement prevents ad hoc fixes and ensures long-term correctness.",
+          "action": "Identify and read the relevant RFC section describing the expected behavior, focusing on edge-case rules (e.g., RFC 7231 two-digit year interpretation)."
+        },
+        {
+          "reasoning": "Localizing the implementation avoids broad, risky changes and speeds iteration.",
+          "action": "Locate the parsing function in the codebase and inspect its current logic, especially hardcoded assumptions versus dynamic rules."
+        },
+        {
+          "reasoning": "A correct fix must reflect the spec\u2019s conditional logic (e.g., relative to current time) rather than fixed ranges.",
+          "action": "Design a replacement algorithm that uses dynamic context (e.g., current year + 50) and define precise boundary behavior."
+        },
+        {
+          "reasoning": "Edge-case tests prevent regressions on tricky boundaries (e.g., 49, 50, 51 years ahead).",
+          "action": "Draft comprehensive tests across formats and edge cases, including dynamic expectations based on the current year."
+        },
+        {
+          "reasoning": "Validating across existing cases ensures no regressions in other supported date formats.",
+          "action": "Run existing tests and add targeted checks for RFC1123, RFC850, and asctime inputs to ensure compatibility."
+        },
+        {
+          "reasoning": "Verification under real runtime conditions validates both correctness and performance implications.",
+          "action": "Execute the full or targeted test suite and compare outcomes before and after the change, iterating if discrepancies arise."
+        }
+      ]
+    },
+    {
+      "name": "Route Resolution Regression Diagnosis",
+      "description": "Diagnose and fix regressions in URL parameter handling (optional named groups and positional/keyword argument passing).",
+      "steps": [
+        {
+          "reasoning": "Reproducing the issue ensures you are fixing the right problem and provides a baseline.",
+          "action": "Construct a minimal URL pattern and view signature reflecting the bug (e.g., optional named group) and trigger the failing path."
+        },
+        {
+          "reasoning": "Understanding how arguments are constructed from regex matches reveals the exact failure mode.",
+          "action": "Inspect the URL matching/resolver path, focusing on how kwargs discard None and how positional args are formed when kwargs are empty."
+        },
+        {
+          "reasoning": "A surgical fix reduces risk: only adjust the logic that introduces invalid arguments.",
+          "action": "Refine args construction to exclude None entries while preserving documented behavior (e.g., ignore unnamed groups when named groups exist)."
+        },
+        {
+          "reasoning": "Targeted tests validate both the original failure and guard against future regressions.",
+          "action": "Add or run tests for optional named groups, mixed named/unnamed groups, and typical request resolution paths."
+        },
+        {
+          "reasoning": "Ensuring compatibility with existing behaviors avoids breaking downstream applications.",
+          "action": "Run a subset of URL-related and handler tests and confirm no changes in documented behavior beyond the intended fix."
+        }
+      ]
+    },
+    {
+      "name": "Boundary-Focused Test Design for Temporal Logic",
+      "description": "Design dynamic tests for time-relative parsing rules to ensure behavior stays correct over time.",
+      "steps": [
+        {
+          "reasoning": "Time-relative logic changes as the current year advances; static fixtures can become invalid.",
+          "action": "Compute expectations relative to the current UTC year (e.g., year <= now+50 rule) rather than hardcoding expected centuries."
+        },
+        {
+          "reasoning": "Boundaries are where off-by-one and interpretation bugs appear.",
+          "action": "Test values just below, at, and just above the threshold (e.g., now+49, now+50, now+51 equivalents) and extreme ends (00, 99)."
+        },
+        {
+          "reasoning": "Cross-format coverage ensures parsing consistency.",
+          "action": "Include cases for all supported date formats and verify identical year resolution when applicable."
+        }
+      ]
+    },
+    {
+      "name": "Layered Verification and Regression Safety",
+      "description": "Confirm fixes thoroughly by combining micro, component, and system-level checks.",
+      "steps": [
+        {
+          "reasoning": "Quick feedback loops help catch glaring issues early.",
+          "action": "Run lightweight, focused scripts or one-liners to validate the specific logic change."
+        },
+        {
+          "reasoning": "Component-level tests catch nuanced interactions within the module.",
+          "action": "Execute targeted test modules (e.g., utils_tests/test_http.py or urlpatterns_reverse)."
+        },
+        {
+          "reasoning": "System-level tests provide confidence no broader regressions were introduced.",
+          "action": "Run a broader set of related test suites (e.g., handlers, requests, generic views) and review failures."
+        }
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locate and Inspect HTTP Date Parsing Logic",
+      "description": "Find the implementation of HTTP date parsing and identify hardcoded logic.",
+      "steps": [
+        {
+          "reasoning": "Quickly find the function definition and related code.",
+          "action": "grep -rn \"parse_http_date\" django | head -20"
+        },
+        {
+          "reasoning": "Open the suspected file to inspect the implementation.",
+          "action": "sed -n '1,220p' django/utils/http.py | sed -n '1,220p'"
+        },
+        {
+          "reasoning": "Confirm the presence of hardcoded year range logic.",
+          "action": "grep -nE \"1900|2000|\\byear\\b\" django/utils/http.py"
+        },
+        {
+          "reasoning": "Empirically verify current behavior before changing code.",
+          "action": "python - << 'PY'\nfrom django.utils.http import parse_http_date\nfor d in [\"Sunday, 06-Nov-74 08:49:37 GMT\", \"Sunday, 06-Nov-85 08:49:37 GMT\", \"Sun Nov  6 08:49:37 0037\"]:\n    print(d, '->', parse_http_date(d))\nPY"
+        }
+      ]
+    },
+    {
+      "name": "Implement RFC 7231 Two-Digit Year Rule and Validate",
+      "description": "Apply the dynamic 50-year rule for two-digit years and validate with dynamic tests.",
+      "steps": [
+        {
+          "reasoning": "Modify the mapping from two-digit years to full years per RFC 7231.",
+          "action": "Edit django/utils/http.py: replace hardcoded ranges with logic:\n# Pseudocode in place\nfrom datetime import datetime\ncurrent_year = datetime.utcnow().year\n# if yy+2000 is > current_year + 50, use 1900+yy else 2000+yy"
+        },
+        {
+          "reasoning": "Test boundary cases that reveal off-by-one issues.",
+          "action": "python - << 'PY'\nfrom datetime import datetime\nfrom django.utils.http import parse_http_date\nnow = datetime.utcnow().year\nsamples = [0, 49, 50, 51, 69, 70, 85, 99]\nfor yy in samples:\n    s = f\"Sunday, 06-Nov-{yy:02d} 08:49:37 GMT\"\n    ts = parse_http_date(s)\n    print(s, '->', ts)\nPY"
+        },
+        {
+          "reasoning": "Ensure other formats continue to work as expected.",
+          "action": "python - << 'PY'\nfrom django.utils.http import parse_http_date\ncases = [\n    'Sun, 06 Nov 1994 08:49:37 GMT',\n    'Sunday, 06-Nov-94 08:49:37 GMT',\n    'Sun Nov  6 08:49:37 1994',\n]\nfor c in cases:\n    print(c, '->', parse_http_date(c))\nPY"
+        }
+      ]
+    },
+    {
+      "name": "Reproduce Optional URL Param Bug with Minimal Script",
+      "description": "Create a minimal Django setup to reproduce the optional named group crashing view invocation.",
+      "steps": [
+        {
+          "reasoning": "Self-contained reproduction isolates the issue from project-specific factors.",
+          "action": "python - << 'PY'\nfrom django.conf import settings\nfrom django.urls import re_path, resolve\nfrom django.http import HttpResponse\nsettings.configure(ROOT_URLCONF=__name__, DEBUG=True, SECRET_KEY='x')\n\ndef modules(request, format='html'):\n    return HttpResponse(format)\nurlpatterns = [re_path(r'^module/(?P<format>(html|json|xml))?/?$', modules)]\n\nfrom django.test import RequestFactory\nrf = RequestFactory()\nmatch = resolve('/module/')\nprint('args:', match.args, 'kwargs:', match.kwargs)\n# Attempt to call view like handler would\nresp = match.func(rf.get('/module/'), *match.args, **match.kwargs)\nprint('response:', resp.status_code)\nPY"
+        },
+        {
+          "reasoning": "Inspect regex behavior to understand None propagation.",
+          "action": "python - << 'PY'\nimport re\np = re.compile(r'^module/(?P<format>(html|json|xml))?/?$')\nfor path in ['module/', 'module/html/']:\n    m = p.match(path)\n    print(path, 'groupdict=', m.groupdict(), 'groups=', m.groups())\nPY"
+        }
+      ]
+    },
+    {
+      "name": "Patch URL Resolver to Filter None Positional Args",
+      "description": "Modify RegexPattern.match() so unmatched optional groups do not produce extra positional arguments.",
+      "steps": [
+        {
+          "reasoning": "Identify the exact code constructing args/kwargs to implement a minimal, safe change.",
+          "action": "sed -n '120,190p' django/urls/resolvers.py | nl | sed -n '145,170p'"
+        },
+        {
+          "reasoning": "Exclude None values when forming positional args if no kwargs are present.",
+          "action": "Edit django/urls/resolvers.py: change\nargs = () if kwargs else match.groups()\n# to\nargs = () if kwargs else tuple(g for g in match.groups() if g is not None)"
+        },
+        {
+          "reasoning": "Verify the fix resolves the crash and preserves expected behavior.",
+          "action": "python - << 'PY'\n# Re-run the minimal reproduction from earlier after patching\nfrom django.conf import settings\nfrom django.urls import re_path, resolve\nfrom django.http import HttpResponse\nsettings.configure(ROOT_URLCONF=__name__, DEBUG=True, SECRET_KEY='x')\n\ndef modules(request, format='html'):\n    return HttpResponse(format)\nurlpatterns = [re_path(r'^module/(?P<format>(html|json|xml))?/?$', modules)]\n\nfrom django.test import RequestFactory\nrf = RequestFactory()\nfor path in ['/module/', '/module/html/']:\n    match = resolve(path)\n    print('path:', path, 'args:', match.args, 'kwargs:', match.kwargs)\n    resp = match.func(rf.get(path), *match.args, **match.kwargs)\n    print('status:', resp.status_code)\nPY"
+        }
+      ]
+    },
+    {
+      "name": "Run Targeted Django Test Suites",
+      "description": "Execute specific Django test modules to validate routing and parsing behavior before and after patches.",
+      "steps": [
+        {
+          "reasoning": "Installing in editable mode enables running Django tests against your working tree.",
+          "action": "pip install -e ./django"
+        },
+        {
+          "reasoning": "Running focused suites speeds feedback and isolates regressions.",
+          "action": "python django/tests/runtests.py urlpatterns_reverse -v 2"
+        },
+        {
+          "reasoning": "Handlers and requests suites exercise view dispatch and argument passing.",
+          "action": "python django/tests/runtests.py handlers requests -v 1"
+        },
+        {
+          "reasoning": "Run utils tests that may include HTTP date parsing checks.",
+          "action": "python django/tests/runtests.py utils_tests -v 1"
+        }
+      ]
+    }
+  ]
+}

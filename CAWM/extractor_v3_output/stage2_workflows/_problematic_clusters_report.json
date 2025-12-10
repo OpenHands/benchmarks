@@ -1,0 +1,8 @@
+{
+  "Developer Tooling (CLI, Devserver, Introspection)": {
+    "oversized_trajectories": [
+      "django__django-13658"
+    ],
+    "missing_trajectories": []
+  }
+}

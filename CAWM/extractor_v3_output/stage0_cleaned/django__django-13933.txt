@@ -1,0 +1,113 @@
+PROBLEM: ModelChoiceField’s invalid_choice ValidationError message doesn’t include the offending value, unlike ModelMultipleChoiceField which includes %(value)s. The fix is to update ModelChoiceField’s default error message to include %(value)s and to pass the value via params when raising the ValidationError.
+
+Action 1
+Reasoning: Establish context and plan: compare ModelChoiceField vs. ModelMultipleChoiceField, confirm inconsistency, and outline steps (locate code, run tests, add reproduction, apply fix).
+Action: Internal analysis and planning.
+
+Action 2
+Reasoning: Locate relevant Django form files to inspect ModelChoiceField and ModelMultipleChoiceField implementations.
+Action: find /workspace/django -type f -name "*.py" | grep -E "(fields|forms)" | head -20
+
+Action 3
+Reasoning: Navigate to the forms package where model-based form fields reside.
+Action: Opened directory /workspace/django/django/forms
+
+Action 4
+Reasoning: Inspect the source of ModelChoiceField/ModelMultipleChoiceField.
+Action: Viewed file /workspace/django/django/forms/models.py
+
+Action 5
+Reasoning: Jump to the ModelChoiceField class definition quickly.
+Action: grep -n "class ModelChoiceField" /workspace/django/django/forms/models.py
+
+Action 6
+Reasoning: Examine ModelChoiceField defaults and methods near its definition.
+Action: Viewed /workspace/django/django/forms/models.py lines 1186–1270
+
+Action 7
+Reasoning: Continue into the method that raises ValidationError to see current behavior.
+Action: Viewed /workspace/django/django/forms/models.py lines 1270–1310
+
+Action 8
+Reasoning: Look for existing tests that cover ModelChoiceField to understand expected behavior and test patterns.
+Action: find /workspace/django/tests -type f -name "*.py" | xargs grep -l "ModelChoiceField" | head -5
+
+Action 9
+Reasoning: Open the relevant test file (if present) for reference.
+Action: Viewed /workspace/django/tests/model_forms/test_modelchoicefield.py
+
+Action 10
+Reasoning: Check repo state and environment before running tests.
+Action: cd /workspace/django && ls -la
+
+Action 11
+Reasoning: Verify Django import works and version is accessible via the local repo.
+Action: cd /workspace/django && python -c "import django; print(django.VERSION)"
+
+Action 12
+Reasoning: Attempt to run the specific test suite for model choice fields to see current behavior.
+Action: cd /workspace/django && python tests/runtests.py model_forms.test_modelchoicefield -v 2
+
+Action 13
+Reasoning: Install the repo in editable mode to ensure tests import the local code changes.
+Action: cd /workspace/django && pip install -e .
+
+Action 14
+Reasoning: Re-run the targeted tests now that the package is installed in dev mode.
+Action: cd /workspace/django && python tests/runtests.py model_forms.test_modelchoicefield -v 2
+
+Action 15
+Reasoning: Summarize findings: the error message lacks %(value)s and the ValidationError doesn’t pass params; plan to update both for consistency with ModelMultipleChoiceField.
+Action: Internal analysis and fix planning.
+
+Action 16
+Reasoning: Pinpoint the exact try/except in to_python() where the ValidationError is raised.
+Action: Viewed /workspace/django/django/forms/models.py lines 1278–1288
+
+Action 17
+Reasoning: Create a small script to reproduce the issue and compare ModelChoiceField vs. ModelMultipleChoiceField error messages.
+Action: Created /workspace/test_reproduction.py (Django in-memory setup, simple model, calls ModelChoiceField.clean(99999) and checks error text). Example snippet:
+- Creates sqlite3 in-memory DB and a TestModel.
+- field = ModelChoiceField(TestModel.objects.all())
+- field.clean(99999) -> prints messages and checks for '99999' in error.
+
+Action 18
+Reasoning: Run the reproduction script to confirm the problem manifests.
+Action: cd /workspace && python test_reproduction.py
+
+Action 19
+Reasoning: Fix settings configuration in the reproduction script to properly initialize Django.
+Action: Updated /workspace/test_reproduction.py to configure settings via django.conf.settings.configure and add SECRET_KEY. Example change:
+- from django.conf import settings
+- if not settings.configured: settings.configure(..., SECRET_KEY='fake-key'); django.setup()
+
+Action 20
+Reasoning: Create a simpler reproduction script to avoid earlier configuration pitfalls.
+Action: Created /workspace/test_simple_reproduction.py (minimal settings/config, same checks). Example snippet:
+- settings.configure(DEBUG=True, DATABASES={'default': ...}, INSTALLED_APPS=[...], SECRET_KEY='test-key')
+- ModelChoiceField(...).clean(99999) vs. ModelMultipleChoiceField(...).clean([99999])
+
+Action 21
+Reasoning: Execute the simplified reproduction to verify inconsistency in error messages.
+Action: cd /workspace && python test_simple_reproduction.py
+
+Action 22
+Reasoning: Finalize the fix scope: update error message to include %(value)s and pass params when raising ValidationError in to_python().
+Action: Internal fix analysis and consistency check with ModelMultipleChoiceField.
+
+Action 23
+Reasoning: Make ModelChoiceField’s default error message consistent with ModelMultipleChoiceField by including %(value)s.
+Action: Edited /workspace/django/django/forms/models.py default_error_messages. Example change:
+- 'invalid_choice': _('Select a valid choice. That choice is not one of'
++ 'invalid_choice': _('Select a valid choice. %(value)s is not one of'
+                      ' the available choices.'),
+
+Action 24
+Reasoning: Ensure the raised ValidationError includes the invalid value for formatting the message.
+Action: Edited /workspace/django/django/forms/models.py to pass params in to_python(). Example change:
+- raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice')
++ raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', params={'value': value})
+
+Notes:
+- The fix aligns ModelChoiceField with ModelMultipleChoiceField behavior.
+- For maximum accuracy of the reported value, preserving the original input before transformations in to_python() would be ideal; current change passes the current value variable, which typically holds the submitted PK.

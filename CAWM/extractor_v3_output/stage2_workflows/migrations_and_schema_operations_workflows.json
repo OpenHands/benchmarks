@@ -1,0 +1,171 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Repairing Migration Serialization of Nested Classes and Enums",
+      "description": "Identify and fix issues where makemigrations/serializer misreferences nested classes (e.g., Outer.Inner) or enums, ensuring correct qualified names and import paths.",
+      "steps": [
+        "Step 1: Reproduce the issue with a minimal model defining a field as an inner class and/or a nested enum, and serialize these values to confirm incorrect paths appear in output",
+        "Step 2: Inspect the migration serializer implementations (TypeSerializer and DeconstructableSerializer) to understand how class names and deconstructible paths are serialized",
+        "Step 3: Check for reliance on __name__ and consider using __qualname__ to preserve nested class names; plan a fallback for local classes where __qualname__ includes '<locals>'",
+        "Step 4: Review how deconstruct() provides object paths and adjust path handling so module boundaries are correctly detected (e.g., progressively import path components to find the true module)",
+        "Step 5: Update the serializer to use qualified names for nested classes and to generate correct import statements that target actual modules rather than class paths",
+        "Step 6: Validate the changes by running focused Django migration writer tests and custom scripts that serialize nested classes/enums",
+        "Step 7: Confirm import correctness for special cases (e.g., django.db.models) and ensure migration writer merges imports cleanly",
+        "Step 8: Run broader migration-related test modules to ensure no regressions and document the fix and rationale"
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-14580"
+      ]
+    },
+    {
+      "name": "Resolving Schema Editor Constraint Conflicts (index_together vs unique_together)",
+      "description": "Fix migration crashes when deleting index_together where unique_together exists on the same fields by disambiguating constraint selection.",
+      "steps": [
+        "Step 1: Reproduce the crash by defining a model with both unique_together and index_together on identical fields and attempting to remove index_together via schema editor",
+        "Step 2: Inspect backend/base/schema.py to understand how _constraint_names filters constraints and how _delete_composed_index selects a single matching constraint",
+        "Step 3: Identify that unique constraints often report index=True; plan to disambiguate deletion of pure indexes by explicitly excluding unique constraints",
+        "Step 4: Modify the call site (e.g., alter_index_together) to pass constraint filters that include {'index': True, 'unique': False} when deleting composed indexes",
+        "Step 5: Re-run the reproduction and related schema tests to ensure the ValueError is resolved and the correct constraint is dropped",
+        "Step 6: Verify that removing index_together does not remove Meta.indexes and validate across multiple scenarios (indexes only, unique only, mixed)",
+        "Step 7: Document the minimal change and its rationale to ensure maintainers understand the disambiguation"
+      ],
+      "source_trajectories": [
+        "django__django-12708"
+      ]
+    },
+    {
+      "name": "Ensuring Migration Writer Generates Required Imports",
+      "description": "Guarantee that migrations include necessary imports (e.g., models) when serialized values (like bases) reference django.db.models.Model or similar symbols.",
+      "steps": [
+        "Step 1: Reproduce the issue by generating a migration where a model inherits from a mixin and an abstract base (referencing models.Model) and observe that the migration fails with a missing import",
+        "Step 2: Inspect the migration serializer for special cases (e.g., models.Model) and confirm whether the serializer is requesting 'from django.db import models' when emitting references like 'models.Model'",
+        "Step 3: Update the serializer special case to include the required import so the migration writer merges it with migrations into 'from django.db import migrations, models'",
+        "Step 4: Generate a new migration in a temp project and confirm the import line appears and the file imports cleanly",
+        "Step 5: Run migration writer and operations tests to ensure imports are correctly merged and no regressions are introduced",
+        "Step 6: Document the change and affected code paths for future maintenance"
+      ],
+      "source_trajectories": [
+        "django__django-14580"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locate and Inspect Migration Serializer and Writer Code",
+      "description": "Quickly find and open the core files responsible for serializing migration values and composing migration files.",
+      "steps": [
+        {
+          "reasoning": "Need to identify where Django serializes values and manages migration imports to target fixes.",
+          "action": "cd {repo_root} && find django/db/migrations -type f -name \"*.py\""
+        },
+        {
+          "reasoning": "Serializer is the likely source of incorrect class paths and import decisions.",
+          "action": "sed -n '1,220p' django/db/migrations/serializer.py | sed -n '220,440p'"
+        },
+        {
+          "reasoning": "The writer merges imports and formats the migration file; confirm how imports are combined.",
+          "action": "sed -n '1,220p' django/db/migrations/writer.py"
+        },
+        {
+          "reasoning": "Search for special-cased references like models.Model which may omit required imports.",
+          "action": "grep -n \"models\\.Model\" django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Check for use of __qualname__ vs __name__ which affects nested class handling.",
+          "action": "grep -n \"__qualname__\\|__name__\" django/db/migrations/serializer.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-14580"
+      ]
+    },
+    {
+      "name": "Run Focused Django Migration Tests",
+      "description": "Execute a subset of Django\u2019s test suite related to migrations to validate changes quickly.",
+      "steps": [
+        {
+          "reasoning": "Use Django's custom test runner to run a specific test module with clear output.",
+          "action": "cd {repo_root} && PYTHONPATH={repo_root} python tests/runtests.py {test_module} --verbosity=2"
+        },
+        {
+          "reasoning": "When debugging specific tests, run by fully-qualified test path to narrow feedback.",
+          "action": "cd {repo_root} && PYTHONPATH={repo_root} python tests/runtests.py {test_module}.{TestClass}.{test_method} --verbosity=2"
+        },
+        {
+          "reasoning": "Schema tests sometimes require explicit settings like SQLite; pass settings module when needed.",
+          "action": "cd {repo_root} && PYTHONPATH={repo_root} python tests/runtests.py schema.tests --settings=test_sqlite -v 2"
+        },
+        {
+          "reasoning": "Run adjacent migration test packages to catch regressions beyond the immediate module.",
+          "action": "cd {repo_root} && PYTHONPATH={repo_root} python tests/runtests.py migrations.test_writer migrations.test_operations migrations.test_autodetector --verbosity=0"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12708",
+        "django__django-14580"
+      ]
+    },
+    {
+      "name": "Reproduce Nested Class and Enum Serialization Issues via Standalone Script",
+      "description": "Create and run a minimal script to observe how nested classes and enums are serialized by Django migrations.",
+      "steps": [
+        {
+          "reasoning": "Ensure the local Django source is used by placing it first on sys.path.",
+          "action": "python - <<'PY'\nimport sys\nsys.path.insert(0, '{repo_root}')\nfrom django.db.migrations.serializer import serializer_factory\nfrom django.db import models\nimport enum\nclass Outer:\n    class Inner(models.CharField):\n        pass\nclass Thing(models.Model):\n    class State(enum.Enum):\n        ON = 'on'\n        OFF = 'off'\nfield = Outer.Inner(max_length=10)\nprint('TypeSerializer for Outer.Inner:', serializer_factory(Outer.Inner).serialize())\nprint('Deconstructable serializer for field:', serializer_factory(field).serialize())\nprint('TypeSerializer for Thing.State:', serializer_factory(Thing.State).serialize())\nPY"
+        },
+        {
+          "reasoning": "If outputs show top-level class names or wrong imports, you\u2019ve reproduced the issue.",
+          "action": "echo \"Inspect the printed tuples for incorrect paths like 'module.Inner' instead of 'module.Outer.Inner' and invalid import targets.\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125"
+      ]
+    },
+    {
+      "name": "Reproduce and Validate Schema Constraint Conflict (index_together vs unique_together)",
+      "description": "Demonstrate and then re-test the ValueError raised when deleting an index overlapping with a unique constraint.",
+      "steps": [
+        {
+          "reasoning": "Use an in-memory SQLite DB to quickly exercise schema_editor operations.",
+          "action": "python - <<'PY'\nimport sys\nsys.path.insert(0, '{repo_root}')\nfrom django.conf import settings\nsettings.configure(INSTALLED_APPS=[], DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}})\nimport django; django.setup()\nfrom django.db import connection, models\nclass T(models.Model):\n    a = models.IntegerField()\n    b = models.IntegerField()\n    class Meta:\n        app_label = 'app'\n        unique_together = (('a','b'),)\n        index_together = (('a','b'),)\nwith connection.schema_editor() as editor:\n    editor.create_model(T)\ntry:\n    with connection.schema_editor() as editor:\n        editor.alter_index_together(T, {('a','b')}, set())\n    print('No error thrown (unexpected before fix).')\nexcept Exception as e:\n    print('Got exception (expected before fix):', type(e).__name__, e)\nPY"
+        },
+        {
+          "reasoning": "After applying the fix (exclude unique constraints when deleting indexes), rerun to confirm no exception.",
+          "action": "python - <<'PY'\n# Repeat the same script; expect no ValueError after fix and the index-only constraint to be removed correctly.\nPY"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12708"
+      ]
+    },
+    {
+      "name": "Verify and Fix models.Model Import Generation in Migrations",
+      "description": "Ensure serializer requests the 'models' import when emitting 'models.Model' in migration bases.",
+      "steps": [
+        {
+          "reasoning": "Locate the special-case tuple for models.Model to see what imports it requests.",
+          "action": "grep -n \"(models\\.Model, \\\"models\\.Model\\\"\" {repo_root}/django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Update the tuple to include the required import so the writer merges it into the migration header.",
+          "action": "echo \"Edit {repo_root}/django/db/migrations/serializer.py to include ['from django.db import models'] for the models.Model special case.\""
+        },
+        {
+          "reasoning": "Quickly assert the serializer now returns the correct import set for models.Model.",
+          "action": "python - <<'PY'\nimport sys\nsys.path.insert(0, '{repo_root}')\nfrom django.db.migrations.serializer import serializer_factory\nfrom django.db import models\ns, imports = serializer_factory(models.Model).serialize()\nprint('Serialized:', s)\nprint('Imports:', imports)\nassert 'from django.db import models' in imports\nPY"
+        },
+        {
+          "reasoning": "Validate import merging by running migration writer tests.",
+          "action": "cd {repo_root} && PYTHONPATH={repo_root} python tests/runtests.py migrations.test_writer --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-14580"
+      ]
+    }
+  ]
+}

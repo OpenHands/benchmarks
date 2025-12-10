@@ -1,0 +1,247 @@
+PROBLEM: Rendering a formset’s empty_form crashes when empty_permitted is passed via form_kwargs. Expected: empty_permitted should be ignored for empty_form since it’s not used for validation. Actual: accessing formset.empty_form raises an error due to duplicate empty_permitted being passed.
+
+Action 1
+Reasoning: Clarify the issue and plan to inspect Django’s formset implementation, focusing on empty_form and form_kwargs handling.
+Action: Internal reasoning (no tool call).
+
+Action 2
+Reasoning: Open the Django repository and list files to locate formset implementation.
+Action: cd /workspace/django && pwd && ls -la
+
+Action 3
+Reasoning: Search for files related to formsets to find the relevant code.
+Action: find /workspace/django -name "*formset*" -type f | head -20
+
+Action 4
+Reasoning: Navigate to the forms package to inspect formsets code.
+Action: View directory /workspace/django/django/forms
+
+Action 5
+Reasoning: Open formsets.py to find the empty_form property.
+Action: View file /workspace/django/django/forms/formsets.py
+
+Action 6
+Reasoning: Locate the empty_form definition quickly.
+Action: grep -n "empty_form" /workspace/django/django/forms/formsets.py
+
+Action 7
+Reasoning: Inspect the empty_form code around the matched lines to understand how kwargs are passed.
+Action: View /workspace/django/django/forms/formsets.py (lines 250-280)
+
+Action 8
+Reasoning: Review surrounding code for get_form_kwargs behavior and confirm potential duplicates.
+Action: View /workspace/django/django/forms/formsets.py (lines 210-220)
+
+Action 9
+Reasoning: Confirm the root cause: empty_form passes empty_permitted=True and also unpacks form_kwargs which may contain empty_permitted, leading to duplicate kwargs (TypeError).
+Action: View /workspace/django/django/forms/formsets.py (lines 217 and empty_form block)
+
+Action 10
+Reasoning: Check existing tests referencing empty_form to see current coverage.
+Action: grep -n "empty_form" /workspace/django/tests/forms_tests/tests/test_formsets.py | head -20
+
+Action 11
+Reasoning: Open tests to see how empty_form and form_kwargs are currently used.
+Action: View /workspace/django/tests/forms_tests/tests/test_formsets.py (lines 170-185)
+
+Action 12
+Reasoning: Reproduce the issue in a minimal script to confirm the exact error type.
+Action: cd /workspace/django && python3 -c "
+from django.forms import Form
+from django.forms.formsets import formset_factory
+class SimpleForm(Form): from django.forms import CharField; name = CharField()
+FormSet = formset_factory(SimpleForm)
+formset = FormSet(form_kwargs={'empty_permitted': True})
+empty = formset.empty_form
+"
+
+Action 13
+Reasoning: Ensure Django is installed in editable mode to run tests and scripts smoothly.
+Action: cd /workspace/django && python3 -m pip install -e . -q
+
+Action 14
+Reasoning: Properly configure Django settings before running the reproduction script.
+Action: cd /workspace/django && python3 -c "
+from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test-key', INSTALLED_APPS=['django.contrib.contenttypes','django.contrib.auth'])
+import django; django.setup()
+from django.forms import Form, CharField
+from django.forms.formsets import formset_factory
+class SimpleForm(Form): name = CharField()
+FormSet = formset_factory(SimpleForm)
+formset = FormSet(form_kwargs={'empty_permitted': True})
+empty = formset.empty_form
+"
+
+Action 15
+Reasoning: Re-check the specific empty_form code block to align with observed TypeError (duplicate kwargs).
+Action: View /workspace/django/django/forms/formsets.py (lines 258-270)
+
+Action 16
+Reasoning: Inspect get_form_kwargs and form construction paths to understand how regular forms handle empty_permitted differently.
+Action: View /workspace/django/django/forms/formsets.py (lines 219-240)
+
+Action 17
+Reasoning: Review _construct_form logic around defaults and kwargs merging.
+Action: View /workspace/django/django/forms/formsets.py (lines 239-250)
+
+Action 18
+Reasoning: Create a small test script to reproduce and validate fix scenarios for formsets with empty_permitted in form_kwargs.
+Action: Created /workspace/django/test_empty_permitted_issue.py
+- Summary: Added tests for form_kwargs={'empty_permitted': True/False}, without empty_permitted, and normal forms behavior.
+- Example change: Prints empty_form.empty_permitted and catches exceptions.
+
+Action 19
+Reasoning: Run the custom reproduction tests to observe current failure and validate later fixes.
+Action: cd /workspace/django && python test_empty_permitted_issue.py
+
+Action 20
+Reasoning: Conclude that the error is TypeError due to duplicate keyword arguments and plan the minimal fix in empty_form to drop empty_permitted from form_kwargs.
+Action: Internal reasoning (no tool call).
+
+Action 21
+Reasoning: Implement fix by removing empty_permitted from form_kwargs passed to empty_form.
+Action: Modified /workspace/django/django/forms/formsets.py
+- Before:
+  empty_permitted=True, **self.get_form_kwargs(None)
+- After (snippet 3 lines):
+  form_kwargs = self.get_form_kwargs(None)
+  form_kwargs.pop('empty_permitted', None)
+  **form_kwargs
+
+Action 22
+Reasoning: Re-run the reproduction tests to confirm the fix resolves the error.
+Action: cd /workspace/django && python test_empty_permitted_issue.py
+
+Action 23
+Reasoning: Adjust the invalid test case to avoid passing unsupported custom kwargs to Form.
+Action: Modified /workspace/django/test_empty_permitted_issue.py
+- Change: Use FormSet() without custom_arg in test_without_empty_permitted.
+
+Action 24
+Reasoning: Re-run the custom test suite to confirm all tests are green.
+Action: cd /workspace/django && python test_empty_permitted_issue.py
+
+Action 25
+Reasoning: Run an existing Django test targeting empty_form/form_kwargs behavior to ensure no regressions.
+Action: cd /workspace/django && python -m pytest tests/forms_tests/tests/test_formsets.py::FormsetTest::test_form_kwargs_empty_form -xvs
+
+Action 26
+Reasoning: Use Django’s test runner to execute a specific test method for deeper integration validation.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsetTest.test_form_kwargs_empty_form
+
+Action 27
+Reasoning: Identify the correct test class names to target precise tests.
+Action: cd /workspace/django && grep -n "class.*Test.*:" tests/forms_tests/tests/test_formsets.py | head -10
+
+Action 28
+Reasoning: Run the correct test method in the appropriate test class via Django’s runner.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsFormsetTestCase.test_form_kwargs_empty_form
+
+Action 29
+Reasoning: Execute related test methods to broadly validate form_kwargs behavior in formsets.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsFormsetTestCase.test_form_kwargs -v2
+
+Action 30
+Reasoning: Search for other tests involving form_kwargs for broader coverage.
+Action: cd /workspace/django && grep -n "def test.*form_kwargs" tests/forms_tests/tests/test_formsets.py
+
+Action 31
+Reasoning: Run multiple form_kwargs-related tests to ensure consistency after the fix.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsFormsetTestCase.test_form_kwargs_formset forms_tests.tests.test_formsets.FormsFormsetTestCase.test_form_kwargs_formset_dynamic forms_tests.tests.test_formsets.FormsFormsetTestCase.test_form_kwargs_empty_form -v2
+
+Action 32
+Reasoning: Run the entire FormsFormsetTestCase to validate all formset forms behavior.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsFormsetTestCase -v1
+
+Action 33
+Reasoning: Since the issue involves modelformset_factory, run model formset tests as well.
+Action: cd /workspace/django && python tests/runtests.py model_formsets --parallel 1 -v1
+
+Action 34
+Reasoning: Create a test focusing on modelformset_factory reproducing the issue with empty_permitted in form_kwargs.
+Action: Created /workspace/django/test_modelformset_empty_permitted.py
+- Summary: Tests with empty_permitted True/False, verifies empty_form behavior, and normal forms respecting empty_permitted.
+- Example assertion: assert empty_form.empty_permitted == True
+
+Action 35
+Reasoning: Run the modelformset custom tests to confirm the fix applies to model formsets.
+Action: cd /workspace/django && python test_modelformset_empty_permitted.py
+
+Action 36
+Reasoning: Create a test to verify template rendering with {{ formset.empty_form }} when empty_permitted is in form_kwargs.
+Action: Created /workspace/django/test_template_rendering.py
+- Summary: Renders Template('{{ formset }}{{ formset.empty_form }}') with form_kwargs={'empty_permitted': True/False}.
+- Example check: assert '__prefix__' in rendered
+
+Action 37
+Reasoning: Execute the template rendering test to ensure the template scenario from the bug report works.
+Action: python test_template_rendering.py
+
+Action 38
+Reasoning: Add TEMPLATES settings to ensure proper template backend configuration.
+Action: Modified /workspace/django/test_template_rendering.py
+- Change: Added TEMPLATES setting with DjangoTemplates backend.
+
+Action 39
+Reasoning: Run the updated template rendering test again to confirm success.
+Action: cd /workspace/django && python test_template_rendering.py
+
+Action 40
+Reasoning: Run all forms_tests to ensure no unintended breakage across the suite.
+Action: cd /workspace/django && python tests/runtests.py forms_tests --parallel 1 -v0
+
+Action 41
+Reasoning: Create an edge case test suite to validate multiple calls, unbound empty_form, and passing other custom kwargs.
+Action: Created /workspace/django/test_edge_cases.py
+- Summary: Ensures empty_form always has empty_permitted=True, normal forms respect form_kwargs, and empty_form receives other kwargs but overrides empty_permitted.
+
+Action 42
+Reasoning: Run the edge case tests to confirm robustness of the fix.
+Action: cd /workspace/django && python test_edge_cases.py
+
+Action 43
+Reasoning: Review the code change to confirm minimal and targeted modifications.
+Action: View /workspace/django/django/forms/formsets.py (lines 258-272)
+
+Action 44
+Reasoning: Document the fix with a concise summary for maintainers.
+Action: Created /workspace/django/FIX_SUMMARY.md
+- Summary: Explained root cause (duplicate empty_permitted), solution (pop from kwargs), and testing results.
+
+Action 45
+Reasoning: Create a test replicating the exact scenario from the issue description to ensure template rendering and empty_form properties behave properly.
+Action: Created /workspace/django/test_issue_scenario.py
+- Summary: Uses modelformset_factory(MyModel, fields=['a_field']), renders {{ formset }} and {{ formset.empty_form }}, verifies __prefix__ and empty_form properties.
+
+Action 46
+Reasoning: Run the scenario test to confirm expected behavior in real-world-like usage.
+Action: cd /workspace/django && python test_issue_scenario.py
+
+Action 47
+Reasoning: Run inline formset tests to cover related formset variants.
+Action: cd /workspace/django && python tests/runtests.py inline_formsets --parallel 1 -v0
+
+Action 48
+Reasoning: Perform a final comprehensive run of all relevant test suites together.
+Action: cd /workspace/django && python tests/runtests.py forms_tests model_formsets inline_formsets --parallel 1 -v0
+
+Action 49
+Reasoning: Create a final verification report summarizing the fix, rationale, and test outcomes for clarity.
+Action: Created /workspace/django/FINAL_VERIFICATION.md
+- Summary: Documented change in empty_form, why it’s correct, and test pass counts (forms_tests, model_formsets, inline_formsets).
+
+Action 50
+Reasoning: Final internal check to ensure the applied fix is minimal, correct, and thoroughly tested.
+Action: Internal reasoning (no tool call).
+
+Key Code Change (empty_form fix)
+- File: django/forms/formsets.py
+- Change example:
+  form_kwargs = self.get_form_kwargs(None)
+  form_kwargs.pop('empty_permitted', None)
+  form = self.form(..., empty_permitted=True, **form_kwargs, ...)
+
+Outcome
+- The crash was due to TypeError from passing empty_permitted twice; fix removes duplication by stripping empty_permitted from form_kwargs inside empty_form.
+- empty_form now renders correctly even when form_kwargs includes empty_permitted; normal forms still respect empty_permitted in form_kwargs.
+- All targeted tests (custom and Django’s suites) pass after the fix.

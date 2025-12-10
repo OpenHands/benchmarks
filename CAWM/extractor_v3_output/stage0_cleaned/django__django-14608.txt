@@ -1,0 +1,385 @@
+PROBLEM: Add a nonform CSS class for non-form errors in FormSets so custom ErrorList renderers can distinguish between field errors, form non-field errors (nonfield), and formset non-form errors (nonform). This should mirror how forms already add the nonfield class and be documented.
+
+Action 1
+Reasoning: Clarified the goal: Form non-field errors use the nonfield class; FormSet non-form errors should analogously use nonform. Plan: locate where forms add nonfield and implement the same for formsets, then document it.
+Action: Internal planning and scoping the change.
+
+Action 2
+Reasoning: Confirm repository location and ensure correct working directory.
+Action: cd /workspace/django && pwd && ls -la
+
+Action 3
+Reasoning: Identify relevant forms-related files for inspection.
+Action: find django -name "*.py" -path "*/forms/*" | head -20
+
+Action 4
+Reasoning: Navigate to Django forms package to locate forms and formsets code.
+Action: Viewed directory: /workspace/django/django/forms
+
+Action 5
+Reasoning: Find references of nonfield to see how forms add the CSS class.
+Action: grep -r "nonfield" django/forms/ --include="*.py" -n
+
+Action 6
+Reasoning: Inspect forms.py to understand how nonfield is applied.
+Action: Opened file: /workspace/django/django/forms/forms.py
+
+Action 7
+Reasoning: Inspect formsets.py to find how non-form errors are stored and rendered.
+Action: Opened file: /workspace/django/django/forms/formsets.py
+
+Action 8
+Reasoning: Check for constants or patterns around NON_FORM_ERRORS.
+Action: grep -r "NON_FORM_ERRORS" django/ --include="*.py" -n
+
+Action 9
+Reasoning: Locate _non_form_errors usages in formsets to pinpoint construction sites.
+Action: grep -n "_non_form_errors" django/forms/formsets.py
+
+Action 10
+Reasoning: Examine nearby code around earlier match for context.
+Action: Viewed /workspace/django/django/forms/formsets.py lines 295-310
+
+Action 11
+Reasoning: Find the non_form_errors property/method.
+Action: grep -n "def non_form_errors" django/forms/formsets.py
+
+Action 12
+Reasoning: Inspect region around non_form_errors implementation.
+Action: Viewed /workspace/django/django/forms/formsets.py lines 285-300
+
+Action 13
+Reasoning: Inspect init and full_clean to see where _non_form_errors is initialized.
+Action: Viewed /workspace/django/django/forms/formsets.py lines 230-295
+
+Action 14
+Reasoning: Inspect full_clean where formset-level validation is performed and errors collected.
+Action: Viewed /workspace/django/django/forms/formsets.py lines 330-390
+
+Action 15
+Reasoning: Find tests related to formsets for context/verification.
+Action: find tests -name "*formset*" -type f | grep -E "\.py$"
+
+Action 16
+Reasoning: Locate tests interacting with non_form_errors.
+Action: grep -n "non_form" tests/forms_tests/tests/test_formsets.py | head -20
+
+Action 17
+Reasoning: Inspect specific test regions to understand expected behavior.
+Action: Viewed /workspace/django/tests/forms_tests/tests/test_formsets.py lines 973-990
+
+Action 18
+Reasoning: Review ErrorList implementation and parameters (e.g., error_class).
+Action: grep -r "error_class" django/forms/utils.py -A 3 -B 3
+
+Action 19
+Reasoning: Look further into tests around error handling and rendering.
+Action: Viewed /workspace/django/tests/forms_tests/tests/test_formsets.py lines 1129-1150
+
+Action 20
+Reasoning: Search for any existing tests referencing nonfield behavior to mirror patterns.
+Action: grep -r "nonfield" tests/ --include="*.py" | head -20
+
+Action 21
+Reasoning: Revisit formsets full_clean area to confirm where to inject nonform.
+Action: Viewed /workspace/django/django/forms/formsets.py lines 330-390
+
+Action 22
+Reasoning: Create a small script to reproduce current behavior and observe CSS classes for non-form errors.
+Action: Created /workspace/django/test_reproduction.py (reproduction of formset non-form errors; prints ErrorList.error_class and HTML)
+
+Action 23
+Reasoning: Run the reproduction script to see current CSS classes (expect missing nonform).
+Action: cd /workspace/django && python test_reproduction.py
+
+Action 24
+Reasoning: Try running a specific pytest to check existing test behavior (environment might not be set yet).
+Action: cd /workspace/django && python -m pytest tests/forms_tests/tests/test_formsets.py::FormsetTest::test_non_form_errors -xvs 2>&1 | head -50
+
+Action 25
+Reasoning: Use Django’s test runner to target a specific test.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsetTest.test_non_form_errors --verbosity=2 2>&1 | head -100
+
+Action 26
+Reasoning: Check testing setup instructions for Django’s test suite.
+Action: Opened file: /workspace/django/tests/README.rst
+
+Action 27
+Reasoning: Install Django in editable mode to run tests against this checkout.
+Action: cd /workspace/django && pip install -e .
+
+Action 28
+Reasoning: Retry the previously attempted test with Django installed.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsetTest.test_non_form_errors --verbosity=2 2>&1
+
+Action 29
+Reasoning: Find the correct test class name in test_formsets.py.
+Action: grep -n "class.*Test" tests/forms_tests/tests/test_formsets.py | head -10
+
+Action 30
+Reasoning: Run the correct target test method from the proper class.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets.FormsFormsetTestCase.test_non_form_errors --verbosity=2 2>&1
+
+Action 31
+Reasoning: Reflect on results and continue with plan to reproduce and fix behavior.
+Action: No external tool action (continued analysis).
+
+Action 32
+Reasoning: Execute reproduction script again to observe baseline HTML/CSS classes.
+Action: cd /workspace/django && python test_reproduction.py
+
+Action 33
+Reasoning: Re-open forms.py to reaffirm how nonfield is attached for non-field errors.
+Action: Viewed /workspace/django/django/forms/forms.py lines 209-260
+
+Action 34
+Reasoning: Re-open formsets.py to confirm where to add nonform class.
+Action: Viewed /workspace/django/django/forms/formsets.py lines 330-340
+
+Action 35
+Reasoning: Precisely locate nonfield constructor usage in forms.py for parity.
+Action: grep -n "error_class='nonfield'" django/forms/forms.py
+
+Action 36
+Reasoning: Locate the except path where _non_form_errors is (re)constructed from ValidationError list.
+Action: Viewed /workspace/django/django/forms/formsets.py lines 378-386
+
+Action 37
+Reasoning: Ensure all assignments to _non_form_errors are captured for modification.
+Action: grep -n "_non_form_errors = " django/forms/formsets.py
+
+Action 38
+Reasoning: Build a focused test to assert that non_form_errors includes the nonform class and its HTML rendering.
+Action: Created /workspace/django/test_formset_nonform.py (asserts 'nonform' in error_class and in HTML; compares with form nonfield)
+
+Action 39
+Reasoning: Run the new test; expect failure prior to fix, validating the gap.
+Action: cd /workspace/django && python test_formset_nonform.py
+
+Action 40
+Reasoning: Apply the fix where _non_form_errors is first initialized in full_clean.
+Action: Edited /workspace/django/django/forms/formsets.py
+Change example:
+- Before: self._non_form_errors = self.error_class()
+- After:  self._non_form_errors = self.error_class(error_class='nonform')
+
+Action 41
+Reasoning: Apply the fix where _non_form_errors is recreated from ValidationError.
+Action: Edited /workspace/django/django/forms/formsets.py
+Change example:
+- Before: self._non_form_errors = self.error_class(e.error_list)
+- After:  self._non_form_errors = self.error_class(e.error_list, error_class='nonform')
+
+Action 42
+Reasoning: Re-run focused test to confirm the fix produces the nonform class.
+Action: cd /workspace/django && python test_formset_nonform.py
+
+Action 43
+Reasoning: Run the formsets test suite to catch regressions.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets --verbosity=2 2>&1 | tail -50
+
+Action 44
+Reasoning: Search for any tests already referencing nonform to validate coverage.
+Action: grep -r "nonform" tests/ --include="*.py"
+
+Action 45
+Reasoning: Peek into client regression tests around formset errors.
+Action: grep -A 5 -B 5 "nonform.*error" tests/test_client_regress/tests.py | head -40
+
+Action 46
+Reasoning: Run specific client regression assertions around formset errors.
+Action: cd /workspace/django && python tests/runtests.py test_client_regress.AssertFormsetErrorTests.test_no_nonform_error test_client_regress.AssertFormsetErrorTests.test_nonform_error test_client_regress.AssertFormsetErrorTests.test_unknown_nonform_error --verbosity=2 2>&1
+
+Action 47
+Reasoning: Run the entire test_client_regress suite to ensure no regressions.
+Action: cd /workspace/django && python tests/runtests.py test_client_regress --verbosity=1 2>&1 | tail -20
+
+Action 48
+Reasoning: Summarize suite result status.
+Action: cd /workspace/django && python tests/runtests.py test_client_regress --verbosity=1 2>&1 | grep -E "(OK|FAILED|ERROR)" | tail -5
+
+Action 49
+Reasoning: Find documentation mentioning nonfield to mirror documentation style for nonform.
+Action: find docs -name "*.txt" -o -name "*.rst" | xargs grep -l "nonfield" 2>/dev/null | head -10
+
+Action 50
+Reasoning: Go to the forms topic doc where nonfield is documented for forms.
+Action: grep -n "nonfield" docs/topics/forms/index.txt
+
+Action 51
+Reasoning: Inspect that section’s context for consistent documentation style.
+Action: Viewed /workspace/django/docs/topics/forms/index.txt lines 605-630
+
+Action 52
+Reasoning: Locate formset-specific docs to add the nonform documentation.
+Action: find docs -name "formset" -o -name "*form*" -type f | grep -v ".pyc" | head -20
+
+Action 53
+Reasoning: Broaden search for formset documentation files.
+Action: find docs -name "*form*" -type f | grep -v ".pyc" | head -20
+
+Action 54
+Reasoning: Open the formsets topic doc to find the right section to insert content.
+Action: Opened file: /workspace/django/docs/topics/forms/formsets.txt
+
+Action 55
+Reasoning: Find where non_form_errors is discussed to place the note about CSS class.
+Action: grep -n "non_form_errors" docs/topics/forms/formsets.txt
+
+Action 56
+Reasoning: Inspect the surrounding lines for context on where to insert a new subsection.
+Action: Viewed /workspace/django/docs/topics/forms/formsets.txt lines 360-410
+
+Action 57
+Reasoning: Check for mentions of CSS or class to align style of documentation.
+Action: grep -n "class\|CSS\|style" docs/topics/forms/formsets.txt | head -20
+
+Action 58
+Reasoning: Check formsets reference docs as well in case an API note is needed.
+Action: Opened file: /workspace/django/docs/ref/forms/formsets.txt
+
+Action 59
+Reasoning: Verify no existing mentions of errorlist/nonform to avoid duplication.
+Action: grep -n "errorlist\|nonform\|nonfield" docs/topics/forms/formsets.txt | head -20
+
+Action 60
+Reasoning: Confirm coverage of error discussion in formsets doc.
+Action: grep -n "error" docs/topics/forms/formsets.txt | head -30
+
+Action 61
+Reasoning: Pinpoint the exact spot to insert a new subsection under validation.
+Action: Viewed /workspace/django/docs/topics/forms/formsets.txt lines 335-370
+
+Action 62
+Reasoning: Validate insertion context again near non_form_errors.
+Action: Viewed /workspace/django/docs/topics/forms/formsets.txt lines 320-368
+
+Action 63
+Reasoning: Add a documentation subsection describing the new nonform CSS class with example.
+Action: Edited /workspace/django/docs/topics/forms/formsets.txt
+Change example:
+Inserted subsection:
+Non-form errors
+  .. versionadded:: 4.0
+  <ul class="errorlist nonform">
+    <li>…</li>
+  </ul>
+
+Action 64
+Reasoning: Re-run focused test to ensure functionality remains correct after doc changes (sanity check).
+Action: cd /workspace/django && python test_formset_nonform.py
+
+Action 65
+Reasoning: Run formset test suite again to confirm stability.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets --verbosity=1
+
+Action 66
+Reasoning: Check admin inline tests since they often rely on formsets and error rendering.
+Action: cd /workspace/django && python tests/runtests.py admin_inlines --verbosity=1 2>&1 | tail -20
+
+Action 67
+Reasoning: Summarize admin_inlines result state.
+Action: cd /workspace/django && python tests/runtests.py admin_inlines --verbosity=1 2>&1 | grep -E "(OK|FAILED)"
+
+Action 68
+Reasoning: Run admin_views as they also use formsets heavily; ensure no regressions.
+Action: cd /workspace/django && python tests/runtests.py admin_views --verbosity=1 2>&1 | grep -E "(OK|FAILED)"
+
+Action 69
+Reasoning: Spot-check forms tests to ensure form-related changes didn’t regress anything.
+Action: cd /workspace/django && python tests/runtests.py forms_tests --verbosity=1 2>&1 | tail -10
+
+Action 70
+Reasoning: Run formset tests single-threaded for deterministic check.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets --parallel=1 --verbosity=1
+
+Action 71
+Reasoning: Create a comprehensive test script to cover multiple non-form error sources and ensure consistent nonform class.
+Action: Created /workspace/django/comprehensive_test.py (covers clean(), management form errors, validate_min/max, empty lists; asserts 'errorlist nonform')
+
+Action 72
+Reasoning: Execute comprehensive tests to validate across scenarios.
+Action: cd /workspace/django && python comprehensive_test.py
+
+Action 73
+Reasoning: Adjust absolute_max test scenario to trigger expected non-form error path reliably.
+Action: Edited /workspace/django/comprehensive_test.py
+Change example:
+- Before: PersonFormSet = formset_factory(PersonForm, absolute_max=5)
+- After:  PersonFormSet = formset_factory(PersonForm, max_num=5, absolute_max=10)
+
+Action 74
+Reasoning: Re-run comprehensive tests to confirm updates.
+Action: cd /workspace/django && python comprehensive_test.py
+
+Action 75
+Reasoning: Broader run of forms and formsets tests together as a final sanity check.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets forms_tests.tests.test_forms --parallel=1 --verbosity=1 2>&1 | tail -20
+
+Action 76
+Reasoning: Review diff for formsets.py to ensure minimal, focused changes.
+Action: cd /workspace/django && git diff django/forms/formsets.py
+
+Action 77
+Reasoning: Review diff for documentation to ensure accurate insertion.
+Action: cd /workspace/django && git diff docs/topics/forms/formsets.txt
+
+Action 78
+Reasoning: Create a small verification script demonstrating before/after HTML for forms and formsets.
+Action: Created /workspace/django/verify_fix.py (prints ErrorList.error_class and HTML for form nonfield and formset nonform)
+
+Action 79
+Reasoning: Run the verification script to display the rendered classes.
+Action: cd /workspace/django && python verify_fix.py
+
+Action 80
+Reasoning: Run additional related suites one more time to catch any subtle regressions.
+Action: cd /workspace/django && python tests/runtests.py admin_inlines test_client_regress --parallel=1 --verbosity=1 2>&1 | tail -10
+
+Action 81
+Reasoning: Write a concise implementation summary for reviewers and maintainers.
+Action: Created /workspace/django/IMPLEMENTATION_SUMMARY.md (summarizes changes, behavior before/after, tests, benefits)
+
+Action 82
+Reasoning: Final combined run of formsets/forms/error_messages tests to confirm overall health.
+Action: cd /workspace/django && python tests/runtests.py forms_tests.tests.test_formsets forms_tests.tests.test_forms forms_tests.tests.test_error_messages --parallel=1 --verbosity=1 2>&1 | grep -E "(^Ran|OK|FAILED)" | tail -5
+
+Action 83
+Reasoning: Create and run a final verification script asserting all requirements are met (classes and HTML).
+Action: cd /workspace/django && cat << 'EOF' > final_verification.py
+... (script that asserts 'errorlist nonfield' for forms and 'errorlist nonform' for formsets) ...
+EOF
+python final_verification.py
+
+Action 84
+Reasoning: Summarize all changes in a diffstat for a final check on scope.
+Action: cd /workspace/django && git diff --stat
+
+Action 85
+Reasoning: Provide final summary confirming implementation, tests, and documentation.
+Action: Completed and delivered final summary.
+
+Code edits summary (core changes)
+- File: django/forms/formsets.py
+  - Initialize non-form errors with nonform class:
+    - Before: self._non_form_errors = self.error_class()
+    - After:  self._non_form_errors = self.error_class(error_class='nonform')
+  - Preserve nonform class when recreating from ValidationError:
+    - Before: self._non_form_errors = self.error_class(e.error_list)
+    - After:  self._non_form_errors = self.error_class(e.error_list, error_class='nonform')
+
+Documentation edits summary
+- File: docs/topics/forms/formsets.txt
+  - Added subsection describing nonform CSS class:
+    Example snippet:
+    Non-form errors
+      .. versionadded:: 4.0
+      <ul class="errorlist nonform">
+        <li>…</li>
+      </ul>
+
+Outcome
+- Form non-field errors continue rendering with class="errorlist nonfield".
+- FormSet non-form errors now render with class="errorlist nonform".
+- Documentation updated to guide developers.
+- All relevant tests and verification scripts passed; change is backward compatible and minimal.

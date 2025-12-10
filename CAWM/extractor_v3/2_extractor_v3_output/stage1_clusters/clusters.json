@@ -1,0 +1,37 @@
+{
+  "ORM and Model Behavior Bugs": {
+    "description": "Issues in Django ORM and models, including inheritance, choices, ordering, relationships, and migrations path generation.",
+    "instance_ids": [
+      "django__django-12125",
+      "django__django-12284",
+      "django__django-12470",
+      "django__django-12497"
+    ]
+  },
+  "HTTP and URL Handling Bugs": {
+    "description": "Errors in HTTP utilities and URL routing, such as incorrect date parsing and crashes with optional URL parameters.",
+    "instance_ids": [
+      "django__django-11848",
+      "django__django-12184"
+    ]
+  },
+  "Testing and Transaction Rollback": {
+    "description": "Failures in testing infrastructure related to TransactionTestCase and serialized rollback ordering constraints.",
+    "instance_ids": [
+      "django__django-12453"
+    ]
+  },
+  "Internationalization and System Checks": {
+    "description": "Incorrect validation logic and system checks related to translations and language configurations.",
+    "instance_ids": [
+      "django__django-12286"
+    ]
+  },
+  "Development and Debugging Tools": {
+    "description": "Problems in development-time tooling, including the autoreloader and exception reporting/sensitive settings sanitization.",
+    "instance_ids": [
+      "django__django-11583",
+      "django__django-12700"
+    ]
+  }
+}

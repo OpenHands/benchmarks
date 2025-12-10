@@ -1,0 +1,133 @@
+================================================================================
+TYPE 1 WORKFLOWS - General Strategies
+================================================================================
+
+## Investigating Django ORM and Migrations Issues: Minimal Reproduction, Codebase Navigation, and Test Validation
+A general approach to efficiently reproduce, locate, and validate fixes for Django ORM/migrations issues using minimal scripts, systematic codebase search, and targeted tests.
+(Sources: 2 trajectories)
+
+Step 1: Write a compact Python script that defines only the classes or models required to trigger the behavior.
+Step 2: Ensure Django code is importable via PYTHONPATH pointing to the repository or installing Django in editable mode.
+Step 3: If using models without a full app, set app_label in Meta or use minimal settings.
+Step 4: Print or assert key outputs such as field.deconstruct() or serializer_factory(...).serialize() to expose the problem.
+Step 5: Use grep/find to locate strings such as error messages, error codes, or class/function names across django/ and tests/.
+Step 6: Review identified files and surrounding context to understand control flow and data transformations; cross-reference tests under tests/ for expected outputs and corner cases.
+Step 7: Run individual failing tests to confirm reproduction before code changes.
+Step 8: Execute specific test modules related to the change, such as migrations.test_writer or invalid_models_tests.
+Step 9: Run broader related suites (e.g., migrations, many_to_many, m2m_through, m2m_recursive) to detect regressions.
+Step 10: Iterate test runs after incremental changes until all pass consistently.
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+TYPE 2 WORKFLOWS - Specific Action Workflows
+================================================================================
+
+## Fix and validate Django migration serializer for nested class paths
+Locate the migration serializer implementation, apply patches to handle nested classes via __qualname__ and correct module path detection, install Django in editable mode, and run targeted test suites to validate behavior and detect regressions.
+(Sources: 2 trajectories)
+
+Reasoning: Identify where migration serialization is implemented to target the fix.
+Action: cd /workspace/django && find . -type f -name "*.py" | grep -E "(migration|serial)"
+
+Reasoning: Check if serializers currently use __qualname__ to handle nested classes.
+Action: cd /workspace/django && grep -n "__qualname__" django/db/migrations/serializer.py || true
+
+Reasoning: Open and inspect TypeSerializer and DeconstructableSerializer for class name and import path handling.
+Action: cd /workspace/django && sed -n '1,200p' django/db/migrations/serializer.py && sed -n '200,360p' django/db/migrations/serializer.py
+
+Reasoning: Replace usages of __name__ with __qualname__ so inner classes/enums retain full qualification.
+Action: cd /workspace/django && sed -i 's/self.value.__name__/self.value.__qualname__/g' django/db/migrations/serializer.py
+
+Reasoning: Handle local classes by falling back to __name__ when __qualname__ contains '<locals>'.
+Action: cd /workspace/django && awk '1;/class TypeSerializer/{flag=1}flag && /def serialize/{print;getline;print;print "        name = getattr(self.value, \"__qualname__\", self.value.__name__)"; print "        if \"<locals>\" in name:"; print "            name = self.value.__name__"; next}' django/db/migrations/serializer.py > /tmp/serializer.tmp && mv /tmp/serializer.tmp django/db/migrations/serializer.py
+
+Reasoning: Update DeconstructableSerializer._serialize_path to correctly determine the importable module boundary for nested classes.
+Action: cd /workspace/django && python - <<'PY'
+from pathlib import Path
+p=Path('django/db/migrations/serializer.py')
+s=p.read_text()
+s=s.replace('def _serialize_path(self, path):\n        module, name = path.rsplit(".", 1)\n        imports = {"import %s" % module}\n        return name, imports',
+'''def _serialize_path(self, path):
+        import importlib
+        parts = path.split('.')
+        module_parts = []
+        for i in range(1, len(parts)+1):
+            test_path = '.'.join(parts[:i])
+            try:
+                importlib.import_module(test_path)
+                module_parts = parts[:i]
+            except Exception:
+                break
+        module = '.'.join(module_parts) if module_parts else parts[0]
+        imports = {f"import {module}"}
+        return path, imports''')
+p.write_text(s)
+print('Patched _serialize_path')
+PY
+
+Reasoning: Ensure scripts outside the repo can import the modified Django package.
+Action: cd /workspace/django && python -m pip install -e .
+
+Reasoning: Optionally verify presence of required dependencies.
+Action: python -m pip list | grep -i asgiref || true
+
+Reasoning: Confirm migration writer behavior after serializer changes.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations.test_writer --verbosity=2
+
+Reasoning: Execute broader related suites to ensure no regressions in ManyToMany behavior.
+Action: cd /workspace/django && python tests/runtests.py many_to_many m2m_through m2m_recursive --verbosity=1
+
+Reasoning: Run the entire migrations suite for comprehensive validation.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations --verbosity=0
+
+--------------------------------------------------------------------------------
+
+## Investigate invalid relationship hint messages and nested class serialization via grepping and scripts
+Locate the origin of specific ORM hint messages and tests, inspect them, and run minimal reproduction scripts and targeted tests to validate messaging and nested class serialization behavior.
+(Sources: 2 trajectories)
+
+Reasoning: Find the source of a specific ORM hint message in Django code.
+Action: cd /workspace/django && grep -r "If you want to create a recursive relationship" django/db/models/
+
+Reasoning: Discover which tests reference specific error codes like E334/E335.
+Action: cd /workspace/django && grep -r "E334\|E335" tests/
+
+Reasoning: Inspect the relevant test file to understand expected hints.
+Action: cd /workspace/django && sed -n '1,220p' tests/invalid_models_tests/test_relative_fields.py
+
+Reasoning: Run a script that imports Django from the local repository path.
+Action: PYTHONPATH=/workspace/django python /workspace/test_recursive_hint.py
+
+Reasoning: Run a serializer-focused script to check nested class serialization behavior.
+Action: PYTHONPATH=/workspace/django python /workspace/test_inner_class.py
+
+Reasoning: Run a specific failing test for invalid model hints to verify corrected messages.
+Action: cd /workspace/django && python tests/runtests.py invalid_models_tests.test_relative_fields.RelativeFieldTests.test_ambiguous_relationship_model -v 2
+
+--------------------------------------------------------------------------------
+
+## Run targeted Django tests and local reproduction scripts
+Execute Django’s test suite for specific modules/classes and use small local scripts against an editable Django install to reproduce and validate fixes.
+(Sources: 2 trajectories)
+
+Reasoning: Use Django’s built-in test runner for repository tests to ensure environment is correctly set up.
+Action: cd {repo_root} && python tests/runtests.py {test_module} -v 2
+
+Reasoning: Run a specific test class or test method when a settings module is required by the test suite.
+Action: cd {repo_root}/tests && python -m django test {dotted_test_label} --settings={settings_module} -v 2
+
+Reasoning: Execute a broad module to check for regressions across related tests.
+Action: cd {repo_root}/tests && python -m django test {dotted_module_label} --settings={settings_module} -v 2
+
+Reasoning: Install Django in editable mode so local code changes are immediately reflected when running scripts.
+Action: cd {repo_root} && pip install -e .
+
+Reasoning: Run a custom reproduction script that configures settings and invokes the relevant code path to observe behavior.
+Action: cd {repo_root} && python {script_name}.py
+
+Reasoning: Verify that changes don’t introduce regressions; re-run scripts after modifying code to confirm fixes.
+Action: cd {repo_root} && python {script_name}.py
+
+--------------------------------------------------------------------------------

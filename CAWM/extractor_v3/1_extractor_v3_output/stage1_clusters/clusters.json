@@ -1,0 +1,37 @@
+{
+  "ORM and Migrations Bugs": {
+    "description": "Issues in models/ORM behavior, model inheritance, choices resolution, relationship validation hints, and migration generation for inner classes",
+    "instance_ids": [
+      "django__django-12125",
+      "django__django-12284",
+      "django__django-12470",
+      "django__django-12497"
+    ]
+  },
+  "Request Routing and HTTP Parsing": {
+    "description": "Bugs in URL parameter handling and HTTP date parsing per RFC specifications",
+    "instance_ids": [
+      "django__django-11848",
+      "django__django-12184"
+    ]
+  },
+  "Developer Tooling (Autoreload and Test Framework)": {
+    "description": "Failures in developer utilities such as the autoreloader and TransactionTestCase rollback serialization",
+    "instance_ids": [
+      "django__django-11583",
+      "django__django-12453"
+    ]
+  },
+  "Internationalization and Language Settings": {
+    "description": "Validation issues related to language codes and translation system checks",
+    "instance_ids": [
+      "django__django-12286"
+    ]
+  },
+  "Security and Error Reporting Sanitization": {
+    "description": "Insufficient cleaning of settings in exception reports leading to potential information exposure",
+    "instance_ids": [
+      "django__django-12700"
+    ]
+  }
+}

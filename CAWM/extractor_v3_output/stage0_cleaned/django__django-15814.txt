@@ -1,0 +1,403 @@
+PROBLEM: QuerySet.only() after select_related() crashes on proxy models. When querying AnotherModel.objects.select_related("custom").only("custom__name"), where custom is a ForeignKey to a proxy model, evaluation raises ValueError: 'id' is not in list during related object population. Root cause: during field traversal for deferred loading, Django uses proxy model _meta instead of the concrete model’s _meta, causing the PK field not to be included properly.
+
+Action 1
+Reasoning: Establish understanding of the bug: only() with select_related() on a proxy FK fails; likely a metadata mismatch between proxy and concrete models.
+Action: Thought analysis of models, stack trace, and the proposed fix (use concrete_model._meta).
+
+Action 2
+Reasoning: Inspect the codebase to locate relevant ORM internals for query building and population logic.
+Action: Opened /workspace/django to begin exploration.
+
+Action 3
+Reasoning: Look for existing tests referencing proxies, defer, or select_related to see if a similar case exists.
+Action: find /workspace/django/tests -type f -name "*.py" | grep -E "(proxy|defer|select_related)" | head -20
+
+Action 4
+Reasoning: Inspect the query module where the crash occurs to align stack trace with code.
+Action: Viewed django/db/models/query.py.
+
+Action 5
+Reasoning: Locate the exact place in the SQL query builder where metadata is pulled from models.
+Action: grep -n "opts = cur_model._meta" /workspace/django/django/db/models/sql/query.py
+
+Action 6
+Reasoning: Open the SQL query file for deeper context around metadata handling.
+Action: Viewed django/db/models/sql/query.py.
+
+Action 7
+Reasoning: Retrieve nearby context around the discovered line to understand control flow.
+Action: grep -n -A 5 -B 5 "opts = cur_model._meta" /workspace/django/django/db/models/sql/query.py
+
+Action 8
+Reasoning: Expand the context further to see how opts and cur_model advance through relations.
+Action: grep -n -A 20 -B 20 "opts = cur_model._meta" /workspace/django/django/db/models/sql/query.py
+
+Action 9
+Reasoning: Check proxy model tests for related patterns of select_related/deferred fields.
+Action: Viewed /workspace/django/tests/proxy_models directory.
+
+Action 10
+Reasoning: Review proxy models definitions to assess how proxies are used in tests.
+Action: Viewed /workspace/django/tests/proxy_models/models.py.
+
+Action 11
+Reasoning: Search for select_related usage across proxy model tests to identify similar scenarios.
+Action: grep -n "select_related" /workspace/django/tests/proxy_models/tests.py | head -20
+
+Action 12
+Reasoning: Open proxy models test file to look for any overlapping test case.
+Action: Viewed /workspace/django/tests/proxy_models/tests.py.
+
+Action 13
+Reasoning: Search defer tests for only() usage to understand typical patterns and edge cases.
+Action: grep -n "only" /workspace/django/tests/defer/tests.py | head -20
+
+Action 14
+Reasoning: Revisit query.py around related population logic where error arises.
+Action: Viewed django/db/models/query.py (lines 308-376).
+
+Action 15
+Reasoning: Expand selection to see complete RelatedPopulator behavior.
+Action: Viewed django/db/models/query.py (lines 292-385).
+
+Action 16
+Reasoning: Attempt to map to the line from the user’s stack trace.
+Action: Viewed django/db/models/query.py (lines 2240-2250).
+
+Action 17
+Reasoning: Find the exact line computing pk index in init_list to confirm failure point.
+Action: grep -n "self.pk_idx = self.init_list.index" /workspace/django/django/db/models/query.py
+
+Action 18
+Reasoning: Inspect the RelatedPopulator.__init__ code deeply to confirm how pk index is derived.
+Action: Viewed django/db/models/query.py (lines 2580-2620).
+
+Action 19
+Reasoning: Create a minimal script to reproduce the crash outside the full test suite.
+Action: Created /workspace/test_proxy_issue.py with models (CustomModel, ProxyCustomModel, AnotherModel) and the failing query. Example snippet:
+- Query: list(AnotherModel.objects.select_related("custom").only("custom__name").all())
+
+Action 20
+Reasoning: Execute the reproduction to confirm the issue surfaces in this environment.
+Action: cd /workspace/django && python /workspace/test_proxy_issue.py
+
+Action 21
+Reasoning: Review defer models for how only() is commonly tested.
+Action: Viewed /workspace/django/tests/defer/models.py.
+
+Action 22
+Reasoning: Try to find co-occurrence of select_related and only in proxy tests.
+Action: grep -n "select_related.*only\|only.*select_related" /workspace/django/tests/proxy_models/tests.py
+
+Action 23
+Reasoning: Broader search across tests to locate patterns.
+Action: grep -rn "select_related.*only\|only.*select_related" /workspace/django/tests/ --include="*.py" | head -20
+
+Action 24
+Reasoning: Open defer test file where select_related and only interplay is verified.
+Action: Viewed /workspace/django/tests/defer/tests.py (lines 241-260).
+
+Action 25
+Reasoning: Proxy for older regression tests that may cover similar interactions.
+Action: Viewed /workspace/django/tests/defer_regress/tests.py (lines 229-250).
+
+Action 26
+Reasoning: Inspect defer_regress models for a suitable place to add test models.
+Action: Viewed /workspace/django/tests/defer_regress/models.py.
+
+Action 27
+Reasoning: Build a more controlled script covering multiple cases.
+Action: Created /workspace/test_proxy_only.py with FK to proxy, multiple tests (only-only, select_related-only, control case).
+
+Action 28
+Reasoning: Run the newer script to reproduce and see errors cleanly.
+Action: cd /workspace/django && python /workspace/test_proxy_only.py
+
+Action 29
+Reasoning: Try running a specific existing test to confirm environment readiness.
+Action: cd /workspace/django && python -m pytest tests/defer/tests.py::TestDefer2::test_defer_proxy -xvs 2>&1 | head -50
+
+Action 30
+Reasoning: Use Django’s test runner for a more consistent setup.
+Action: cd /workspace/django && python tests/runtests.py defer.tests.TestDefer2.test_defer_proxy --verbosity=2
+
+Action 31
+Reasoning: Ensure module resolution by augmenting PYTHONPATH.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer.tests.TestDefer2.test_defer_proxy --verbosity=2
+
+Action 32
+Reasoning: Check dependencies likely required by Django.
+Action: pip list | grep -i asgiref
+
+Action 33
+Reasoning: Install missing dependency.
+Action: pip install asgiref
+
+Action 34
+Reasoning: Install Django from source in editable mode to run tests and apply local changes.
+Action: pip install -e /workspace/django
+
+Action 35
+Reasoning: Re-run the standalone reproduction to validate runtime environment now.
+Action: cd /workspace/django && python /workspace/test_proxy_only.py
+
+Action 36
+Reasoning: Fix test script settings import order to avoid runtime errors.
+Action: Updated /workspace/test_proxy_only.py to use django.conf.settings before configure. Example change:
+- Before: if not django.conf.settings.configured:
+- After: from django.conf import settings; if not settings.configured:
+
+Action 37
+Reasoning: Re-run after import fix.
+Action: cd /workspace/django && python /workspace/test_proxy_only.py
+
+Action 38
+Reasoning: Ensure a clean database state for script reruns.
+Action: cd /workspace/django && rm -f test.db && python /workspace/test_proxy_only.py
+
+Action 39
+Reasoning: Switch to a file-backed DB and ensure deletion before creating schemas.
+Action: Modified /workspace/test_proxy_only.py to set NAME to 'test_proxy_only.db' and delete it before use.
+
+Action 40
+Reasoning: Execute the script with the new DB handling.
+Action: cd /workspace/django && python /workspace/test_proxy_only.py
+
+Action 41
+Reasoning: Use Django’s test runner to consolidate setup rather than ad-hoc scripts.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer.tests.TestDefer2.test_defer_proxy --verbosity=2
+
+Action 42
+Reasoning: Create a unittest to reproduce the bug within Django’s testing context.
+Action: Created /workspace/test_issue_reproduction.py with TestCase and the failing select_related+only() query.
+
+Action 43
+Reasoning: Attempt to run that specific test via Django’s test runner.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py test_issue_reproduction.ProxySelectRelatedOnlyTest.test_select_related_only_with_proxy_fk --verbosity=2
+
+Action 44
+Reasoning: Run the test module directly as a standalone harness.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python /workspace/test_issue_reproduction.py
+
+Action 45
+Reasoning: Prepare a helper to inject models/tests into existing test modules.
+Action: Created /workspace/test_proxy_select_related_only.py that prints models/tests snippets for defer_regress.
+
+Action 46
+Reasoning: Identify insertion point for additional models.
+Action: Viewed /workspace/django/tests/defer_regress/models.py (lines ~94-97).
+
+Action 47
+Reasoning: Add concrete/proxy/related models mirroring the issue setup.
+Action: Edited tests/defer_regress/models.py to add:
+- class CustomModel(models.Model): name = CharField
+- class ProxyCustomModel(CustomModel): Meta proxy = True
+- class AnotherModel(models.Model): custom = ForeignKey(ProxyCustomModel, ...)
+
+Action 48
+Reasoning: Add imports for new models into tests file.
+Action: Viewed /workspace/django/tests/defer_regress/tests.py.
+
+Action 49
+Reasoning: Update imports to include AnotherModel, CustomModel, ProxyCustomModel.
+Action: Modified import list in tests/defer_regress/tests.py to include the new classes.
+
+Action 50
+Reasoning: Locate DeferRegressionTest class to place new test.
+Action: grep -n "class DeferRegressionTest" /workspace/django/tests/defer_regress/tests.py
+
+Action 51
+Reasoning: Find available test insertion region.
+Action: grep -n "def test" /workspace/django/tests/defer_regress/tests.py | tail -10
+
+Action 52
+Reasoning: Confirm file length for navigation.
+Action: wc -l /workspace/django/tests/defer_regress/tests.py
+
+Action 53
+Reasoning: Open end of file where tests are added to adjust placement.
+Action: Viewed tests/defer_regress/tests.py (lines 300-316).
+
+Action 54
+Reasoning: Add regression test (initially placed near deletion tests; later corrected).
+Action: Inserted test_select_related_only_proxy_fk into tests/defer_regress/tests.py. Snippet:
+- objs = list(AnotherModel.objects.select_related("custom").only("custom__name"))
+- assert custom.name == "test name"
+
+Action 55
+Reasoning: Try running the new test directly.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress.tests.DeferRegressionTest.test_select_related_only_proxy_fk --verbosity=2
+
+Action 56
+Reasoning: Attempt to locate test output if not discovered.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress.tests --verbosity=2 2>&1 | grep -A 5 "test_select_related_only_proxy_fk"
+
+Action 57
+Reasoning: Re-evaluate root cause and confirm fix site in sql/query.py.
+Action: Thought analysis confirming need for concrete_model._meta when traversing relations.
+
+Action 58
+Reasoning: Open the target area in SQL query code where opts is set during relation traversal.
+Action: Viewed django/db/models/sql/query.py (lines ~740-770).
+
+Action 59
+Reasoning: Find method context where field traversal happens.
+Action: grep -n "def set_select" /workspace/django/django/db/models/sql/query.py
+
+Action 60
+Reasoning: Open broader context around traversal of lookup parts.
+Action: Viewed django/db/models/sql/query.py (lines 728-780).
+
+Action 61
+Reasoning: Pinpoint exact lines for the metadata selection.
+Action: Viewed django/db/models/sql/query.py (lines 720-750).
+
+Action 62
+Reasoning: Apply the minimal fix to use concrete model metadata for proxies.
+Action: Changed in django/db/models/sql/query.py:
+- Before: opts = cur_model._meta
+- After:  opts = cur_model._meta.concrete_model._meta
+
+Action 63
+Reasoning: Re-run the regression test to validate the fix.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress.tests.DeferRegressionTest.test_select_related_only_proxy_fk --verbosity=2
+
+Action 64
+Reasoning: Inspect where the added test sits; ensure correct class placement.
+Action: Viewed tests/defer_regress/tests.py (lines 308-332).
+
+Action 65
+Reasoning: Confirm class names to avoid misplacement of test.
+Action: grep -n "class.*Defer.*Test" /workspace/django/tests/defer_regress/tests.py
+
+Action 66
+Reasoning: Inspect the region to move the test to the correct class.
+Action: Viewed tests/defer_regress/tests.py (lines 283-332).
+
+Action 67
+Reasoning: Move the new test into the DeferRegressionTest class end section.
+Action: Str_replace to place test_select_related_only_proxy_fk before next class declaration.
+
+Action 68
+Reasoning: Reopen around class boundary to ensure proper structure.
+Action: Viewed tests/defer_regress/tests.py (lines 230-260).
+
+Action 69
+Reasoning: Ensure the test is within the intended class scope.
+Action: Str_replace to insert the test just before DeferAnnotateSelectRelatedTest begins.
+
+Action 70
+Reasoning: Remove accidental duplicate test added to another class.
+Action: Str_replace to delete the misplaced duplicate from DeferDeletionSignalsTests.
+
+Action 71
+Reasoning: Validate that the regression test passes with the code fix.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress.tests.DeferRegressionTest.test_select_related_only_proxy_fk --verbosity=2
+
+Action 72
+Reasoning: Run the entire defer_regress suite to ensure no regressions.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress --verbosity=2 2>&1 | tail -20
+
+Action 73
+Reasoning: Verify broader defer behavior remains intact.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer --verbosity=2 2>&1 | tail -20
+
+Action 74
+Reasoning: Ensure proxy model behavior overall is unaffected.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py proxy_models --verbosity=2 2>&1 | tail -30
+
+Action 75
+Reasoning: Confirm select_related tests still pass.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py select_related --verbosity=2 2>&1 | tail -20
+
+Action 76
+Reasoning: Validate one-to-one select_related edge cases too.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py select_related_onetoone --verbosity=2 2>&1 | tail -20
+
+Action 77
+Reasoning: Strengthen regression test to cover multiple only fields and including main model fields.
+Action: Updated tests/defer_regress/tests.py test to also run:
+- only("custom__name", "custom__id")
+- only("id", "custom__name")
+
+Action 78
+Reasoning: Re-run the expanded test to ensure stability.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress.tests.DeferRegressionTest.test_select_related_only_proxy_fk --verbosity=2
+
+Action 79
+Reasoning: Run a combined set of suites to increase confidence.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress defer proxy_models select_related select_related_onetoone --verbosity=1 2>&1 | tail -30
+
+Action 80
+Reasoning: Draft a broader standalone check for multiple proxy levels and fields (not required for final verification).
+Action: Created /workspace/test_comprehensive_proxy.py including multiple proxy layers and tests.
+
+Action 81
+Reasoning: Attempt to run the comprehensive script (it’s not strictly necessary given suite coverage).
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python /workspace/test_comprehensive_proxy.py
+
+Action 82
+Reasoning: Run broader queries tests to spot any unexpected effects.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py queries --verbosity=1 2>&1 | tail -10
+
+Action 83
+Reasoning: Create a script that reproduces the exact user scenario end-to-end for demonstration.
+Action: Created /workspace/test_issue_scenario.py to run the exact failing query.
+
+Action 84
+Reasoning: Fix minor import ordering in the new demo test script.
+Action: Added missing import os at top.
+
+Action 85
+Reasoning: Clean up unused imports in the demo script for clarity.
+Action: Removed TestCase and management imports.
+
+Action 86
+Reasoning: Run the demonstration script to show the issue is resolved.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python /workspace/test_issue_scenario.py
+
+Action 87
+Reasoning: Confirm high-level suite status succinctly.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress defer proxy_models --verbosity=1 2>&1 | grep -E "(OK|FAILED|ERROR)" | tail -5
+
+Action 88
+Reasoning: Document the fix and testing for maintainers.
+Action: Created /workspace/FIX_SUMMARY.md describing problem, root cause, fix, tests, and results. Snippet:
+- Before: opts = cur_model._meta
+- After:  opts = cur_model._meta.concrete_model._meta
+
+Action 89
+Reasoning: Final sanity check with key tests.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress.tests.DeferRegressionTest.test_select_related_only_proxy_fk defer.tests.TestDefer2.test_defer_proxy --verbosity=2
+
+Action 90
+Reasoning: Verify the source includes the exact fixed line.
+Action: grep -n "opts = cur_model._meta" /workspace/django/django/db/models/sql/query.py
+
+Action 91
+Reasoning: Automate verification of fix and tests presence.
+Action: Created and ran /tmp/verify_fix.py to check the modified line and presence of new tests/models.
+
+Action 92
+Reasoning: Run a final broader set of suites to ensure no regressions.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py defer_regress defer proxy_models select_related select_related_onetoone update_only_fields --verbosity=1 2>&1 | grep -E "^(Ran|OK|FAILED)" | tail -5
+
+Action 93
+Reasoning: Produce a final verification report summarizing changes and results.
+Action: Created /workspace/FINAL_VERIFICATION.md with details of fix, tests, and passing results.
+
+Action 94
+Reasoning: Provide a final summary for stakeholders confirming the resolution and safety.
+Action: Completed final summary confirming the minimal fix, added tests, and all passing suites.
+
+Summary of Core Code Change
+- File: django/db/models/sql/query.py
+- Change: ensure concrete model metadata is used when stepping through relations for deferred fields
+- Example:
+  Before: opts = cur_model._meta
+  After:  opts = cur_model._meta.concrete_model._meta
+
+Outcome
+- The failing query now works correctly with proxy FKs.
+- New regression test added to defer_regress to prevent future regressions.
+- All related test suites pass, indicating no regressions.

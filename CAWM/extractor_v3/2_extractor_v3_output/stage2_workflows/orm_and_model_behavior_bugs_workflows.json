@@ -1,0 +1,204 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Debugging Migration Serialization of Nested Types",
+      "description": "Identify and fix incorrect paths for inner classes/enums in Django migration serialization",
+      "steps": [
+        "Step 1: Inspect generated migration code or serialized output to pinpoint incorrect references to inner classes or enums",
+        "Step 2: Search django/db/migrations/serializer.py and review TypeSerializer and DeconstructableSerializer to understand how class names and import paths are constructed",
+        "Step 3: Build a minimal reproduction using nested classes/enums and serialize with serializer_factory to confirm the issue and capture current behavior",
+        "Step 4: Update serialization to use __qualname__ for classes while providing a safe fallback for local classes to __name__",
+        "Step 5: Improve path import resolution to correctly determine the module boundary for nested classes rather than splitting on the last dot",
+        "Step 6: Re-run migration writer and broader migrations tests to ensure the fix is correct and does not break existing behavior",
+        "Step 7: Validate end-to-end using MigrationWriter to render a CreateModel operation and verify the output includes fully-qualified nested paths"
+      ],
+      "source_trajectories": [
+        "django__django-12125"
+      ]
+    },
+    {
+      "name": "Correcting Field Validation Hints and Error Messages",
+      "description": "Update incorrect or outdated ORM hints raised during model checks",
+      "steps": [
+        "Step 1: Reproduce the check error with a minimal model scenario using a through model that triggers ambiguity (e.g., multiple ForeignKey fields)",
+        "Step 2: Locate the validation logic in django/db/models/fields/related.py and identify the exact error and hint text blocks",
+        "Step 3: Update the hint to reflect current, correct API usage and remove outdated options",
+        "Step 4: Align or update tests in tests/invalid_models_tests to match the corrected hint",
+        "Step 5: Run specific failing tests and broader ManyToMany-related suites to confirm the fix and avoid regressions"
+      ],
+      "source_trajectories": [
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Building Minimal Reproductions for Django Internals",
+      "description": "Create isolated scripts to reproduce and diagnose issues in Django ORM and migrations without a full project",
+      "steps": [
+        "Step 1: Write a compact Python script that defines only the classes or models required to trigger the behavior",
+        "Step 2: Ensure Django code is importable via PYTHONPATH pointing to the repository or installing Django in editable mode",
+        "Step 3: If using models without a full app, set app_label in Meta or use minimal settings",
+        "Step 4: Print or assert key outputs such as field.deconstruct() or serializer_factory(...).serialize() to expose the problem",
+        "Step 5: Iterate on the script until the failure is reliably reproduced and minimized"
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Systematically Searching and Navigating the Django Codebase",
+      "description": "Efficiently locate implementation points and related tests when investigating ORM and migrations issues",
+      "steps": [
+        "Step 1: Use grep/find to locate strings such as error messages, error codes, or class/function names across django/ and tests/",
+        "Step 2: Open the identified files and review surrounding context to understand control flow and data transformations",
+        "Step 3: Cross-reference tests under tests/ to understand expected outputs and corner cases",
+        "Step 4: Identify minimal, targeted locations to modify and plan changes that align with tests and APIs"
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Validating Changes with Targeted and Broad Test Runs",
+      "description": "Confirm fixes using focused tests and broader suites to catch regressions in Django ORM and migrations",
+      "steps": [
+        "Step 1: Run individual failing tests to confirm reproduction before code changes",
+        "Step 2: Execute specific test modules related to the change, such as migrations.test_writer or invalid_models_tests",
+        "Step 3: Run broader related suites (e.g., migrations, many_to_many, m2m_through, m2m_recursive) to detect regressions",
+        "Step 4: Iterate test runs after incremental changes until all pass consistently"
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating Migration Serializer Implementation",
+      "description": "Find and inspect Django migration serializers responsible for class and path serialization",
+      "steps": [
+        {
+          "reasoning": "Identify where migration serialization is implemented to target the fix",
+          "action": "cd /workspace/django && find . -type f -name \"*.py\" | grep -E \"(migration|serial)\""
+        },
+        {
+          "reasoning": "Check if serializers currently use __qualname__ to handle nested classes",
+          "action": "cd /workspace/django && grep -n \"__qualname__\" django/db/migrations/serializer.py || true"
+        },
+        {
+          "reasoning": "Open and inspect TypeSerializer and DeconstructableSerializer for class name and import path handling",
+          "action": "cd /workspace/django && sed -n '1,200p' django/db/migrations/serializer.py && sed -n '200,360p' django/db/migrations/serializer.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125"
+      ]
+    },
+    {
+      "name": "Applying Serializer Fixes for Nested Class Paths",
+      "description": "Patch serializer to use __qualname__ and correct module path detection for nested classes",
+      "steps": [
+        {
+          "reasoning": "Replace usages of __name__ with __qualname__ so inner classes/enums retain full qualification",
+          "action": "cd /workspace/django && sed -i 's/self.value.__name__/self.value.__qualname__/g' django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Handle local classes by falling back to __name__ when __qualname__ contains '<locals>'",
+          "action": "cd /workspace/django && awk '1;/class TypeSerializer/{flag=1}flag && /def serialize/{print;getline;print;print \"        name = getattr(self.value, \\\"__qualname__\\\", self.value.__name__)\"; print \"        if \\\"<locals>\\\" in name:\"; print \"            name = self.value.__name__\"; next}' django/db/migrations/serializer.py > /tmp/serializer.tmp && mv /tmp/serializer.tmp django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Update DeconstructableSerializer._serialize_path to correctly determine the importable module boundary for nested classes",
+          "action": "cd /workspace/django && python - <<'PY'\nfrom pathlib import Path\np=Path('django/db/migrations/serializer.py')\ns=p.read_text()\ns=s.replace('def _serialize_path(self, path):\\n        module, name = path.rsplit(\".\", 1)\\n        imports = {\"import %s\" % module}\\n        return name, imports',\n'''def _serialize_path(self, path):\n        import importlib\n        parts = path.split('.')\n        module_parts = []\n        for i in range(1, len(parts)+1):\n            test_path = '.'.join(parts[:i])\n            try:\n                importlib.import_module(test_path)\n                module_parts = parts[:i]\n            except Exception:\n                break\n        module = '.'.join(module_parts) if module_parts else parts[0]\n        imports = {f\"import {module}\"}\n        return path, imports''')\np.write_text(s)\nprint('Patched _serialize_path')\nPY"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125"
+      ]
+    },
+    {
+      "name": "Running Targeted Django Tests",
+      "description": "Execute focused tests to validate fixes and detect regressions",
+      "steps": [
+        {
+          "reasoning": "Confirm migration writer behavior after serializer changes",
+          "action": "cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations.test_writer --verbosity=2"
+        },
+        {
+          "reasoning": "Run a specific failing test for invalid model hints to verify corrected messages",
+          "action": "cd /workspace/django && python tests/runtests.py invalid_models_tests.test_relative_fields.RelativeFieldTests.test_ambiguous_relationship_model -v 2"
+        },
+        {
+          "reasoning": "Execute broader related suites to ensure no regressions in ManyToMany behavior",
+          "action": "cd /workspace/django && python tests/runtests.py many_to_many m2m_through m2m_recursive --verbosity=1"
+        },
+        {
+          "reasoning": "Run the entire migrations suite for comprehensive validation",
+          "action": "cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations --verbosity=0"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Installing Django in Editable Mode for Local Testing",
+      "description": "Prepare the environment so local repository changes are importable by scripts and tests",
+      "steps": [
+        {
+          "reasoning": "Ensure scripts outside the repo can import the modified Django package",
+          "action": "cd /workspace/django && python -m pip install -e ."
+        },
+        {
+          "reasoning": "Optionally verify presence of required dependencies",
+          "action": "python -m pip list | grep -i asgiref || true"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Grepping for Error Messages and Tests",
+      "description": "Locate the origin of validation hints and the tests that assert them",
+      "steps": [
+        {
+          "reasoning": "Find the source of a specific ORM hint message in Django code",
+          "action": "cd /workspace/django && grep -r \"If you want to create a recursive relationship\" django/db/models/"
+        },
+        {
+          "reasoning": "Discover which tests reference specific error codes like E334/E335",
+          "action": "cd /workspace/django && grep -r \"E334\\|E335\" tests/"
+        },
+        {
+          "reasoning": "Inspect the relevant test file to understand expected hints",
+          "action": "cd /workspace/django && sed -n '1,220p' tests/invalid_models_tests/test_relative_fields.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Executing Minimal Reproduction Scripts with Django Repo",
+      "description": "Run standalone scripts that import Django directly from the repository to reproduce issues",
+      "steps": [
+        {
+          "reasoning": "Run a script that imports Django from the local repository path",
+          "action": "PYTHONPATH=/workspace/django python /workspace/test_recursive_hint.py"
+        },
+        {
+          "reasoning": "Run a serializer-focused script to check nested class serialization behavior",
+          "action": "PYTHONPATH=/workspace/django python /workspace/test_inner_class.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    }
+  ]
+}

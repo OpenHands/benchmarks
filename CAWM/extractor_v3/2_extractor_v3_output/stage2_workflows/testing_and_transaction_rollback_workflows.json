@@ -1,0 +1,155 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Diagnosing and Fixing Serialized Rollback Failures in Django Tests",
+      "description": "Identify and resolve TransactionTestCase.serialized_rollback failures caused by foreign key ordering during deserialization.",
+      "steps": [
+        "Step 1: Reproduce the failure by running TransactionTestCase-related tests to confirm the issue and capture any integrity errors",
+        "Step 2: Trace the serialized rollback workflow in Django's test infrastructure to find where database state is serialized and restored",
+        "Step 3: Locate the internal deserialization function in django/db/backends/base/creation.py and check whether it runs inside a database transaction",
+        "Step 4: Compare behavior with the loaddata management command to identify established patterns for transactional loading and ordering safety",
+        "Step 5: Update the deserialization implementation to wrap save operations in transaction.atomic(using=connection.alias) to ensure atomicity and correct dependency ordering",
+        "Step 6: Re-run targeted and broader test suites that rely on serialized rollback and fixtures to ensure the fix works and introduces no regressions",
+        "Step 7: Document the change and rationale, noting alignment with loaddata and the benefits for foreign key integrity during deserialization"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Aligning Internal Deserialization with Management Command Best Practices",
+      "description": "Ensure internal database deserialization mirrors the transactional behavior of the loaddata management command.",
+      "steps": [
+        "Step 1: Identify the internal function responsible for deserializing test database state",
+        "Step 2: Inspect the loaddata management command implementation to understand how it ensures atomicity and dependency-safe ordering",
+        "Step 3: Apply the same transactional pattern to the internal deserialization function, including using the correct database alias",
+        "Step 4: Validate the change by running tests that load serialized data, focusing on scenarios with foreign key dependencies",
+        "Step 5: Review and refine any related error handling to keep behavior consistent across code paths"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Regression Testing Transactional Changes Across Django\u2019s Test Suite",
+      "description": "Systematically verify that transaction-related code changes don\u2019t break existing functionality in Django\u2019s test suite.",
+      "steps": [
+        "Step 1: Run focused suites that exercise TransactionTestCase and serialized rollback to confirm the targeted behavior",
+        "Step 2: Expand coverage to migration-related persistence tests which rely on serialization and rollback",
+        "Step 3: Include fixture-loading tests to ensure consistent behavior with serialization and database writes",
+        "Step 4: Execute transactions and test_runner suites to catch broader transaction boundary regressions",
+        "Step 5: If any instability appears with parallel runs, re-run with --parallel=1 to rule out unrelated multiprocessing issues",
+        "Step 6: Use version control diffs to verify the minimal scope of changes before finalizing"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating and Analyzing Database Deserialization Paths in Django",
+      "description": "Find and inspect the internal code paths used by TransactionTestCase for serializing and deserializing database state.",
+      "steps": [
+        {
+          "reasoning": "Need to find where deserialization occurs to understand why FK ordering causes failures.",
+          "action": "grep -r \"deserialize_db_from_string\" django/django --include=\"*.py\""
+        },
+        {
+          "reasoning": "Confirm whether tests reference or trigger the deserialization path.",
+          "action": "grep -r \"deserialize_db_from_string\" django/tests --include=\"*.py\""
+        },
+        {
+          "reasoning": "Open the internal creation module to inspect BaseDatabaseCreation and the target function.",
+          "action": "sed -n '1,200p' django/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Trace how TransactionTestCase triggers serialization and deserialization in the test runner.",
+          "action": "grep -n \"deserialize_db_from_string\" django/django/test/testcases.py && sed -n '900,1050p' django/django/test/testcases.py"
+        },
+        {
+          "reasoning": "Compare with loaddata to see expected transactional behavior during deserialization.",
+          "action": "grep -n \"def handle\" django/django/core/management/commands/loaddata.py && sed -n '60,120p' django/django/core/management/commands/loaddata.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Patching BaseDatabaseCreation.deserialize_db_from_string to Use Transactions",
+      "description": "Apply a minimal, reviewable patch that wraps deserialization in transaction.atomic to prevent FK integrity errors.",
+      "steps": [
+        {
+          "reasoning": "Create a feature branch to isolate changes and keep history clean.",
+          "action": "git checkout -b fix-serialized-rollback-atomic-deserialization"
+        },
+        {
+          "reasoning": "Prepare a small patch that adds the transaction import and wraps saves in an atomic block.",
+          "action": "cat > /tmp/atomic_deser.patch <<'PATCH'\n*** 1,8 ****\n--- 1,8 ----\n  from io import StringIO\n  \n  from django.core import serializers\n- from django.db import router\n+ from django.db import router, transaction\n  from django.db.models.fields import NOT_PROVIDED\n  \n  class BaseDatabaseCreation:\n      # ... other methods ...\n*** 120,140 ****\n      def deserialize_db_from_string(self, data):\n          data = StringIO(data)\n-         for obj in serializers.deserialize(\"json\", data, using=self.connection.alias):\n-             obj.save()\n+         with transaction.atomic(using=self.connection.alias):\n+             for obj in serializers.deserialize(\"json\", data, using=self.connection.alias):\n+                 obj.save()\nPATCH"
+        },
+        {
+          "reasoning": "Apply the patch to the working tree for review.",
+          "action": "git apply /tmp/atomic_deser.patch"
+        },
+        {
+          "reasoning": "Verify the patch applied correctly and only changed the intended lines.",
+          "action": "git diff -- django/django/db/backends/base/creation.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Running Targeted Django Test Suites for Serialized Rollback and Transactions",
+      "description": "Execute Django\u2019s internal test runner on suites most relevant to serialized rollback and transactional behavior.",
+      "steps": [
+        {
+          "reasoning": "Ensure the local Django checkout is importable by tests.",
+          "action": "pip install -e django"
+        },
+        {
+          "reasoning": "Run TransactionTestCase-focused tests to validate serialized rollback behavior.",
+          "action": "cd django && python tests/runtests.py test_utils.test_transactiontestcase --verbosity=2"
+        },
+        {
+          "reasoning": "Run migration persistence tests that rely on serialization and rollback.",
+          "action": "cd django && python tests/runtests.py migration_test_data_persistence --verbosity=2"
+        },
+        {
+          "reasoning": "Include fixture-loading tests to catch regressions in deserialization and data loading.",
+          "action": "cd django && python tests/runtests.py fixtures fixtures_regress --verbosity=1"
+        },
+        {
+          "reasoning": "Run transaction-centric and test runner suites to ensure no broader regressions.",
+          "action": "cd django && python tests/runtests.py transactions test_runner --verbosity=1"
+        },
+        {
+          "reasoning": "If encountering instability related to parallel execution, re-run serially to isolate the change\u2019s impact.",
+          "action": "cd django && python tests/runtests.py test_utils.test_transactiontestcase migration_test_data_persistence --verbosity=2 --parallel=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Verifying and Documenting the Change",
+      "description": "Confirm the patch scope and capture rationale for reviewers.",
+      "steps": [
+        {
+          "reasoning": "Confirm only the intended import and atomic block were introduced.",
+          "action": "cd django && git diff django/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Summarize the root cause, fix, and affected tests for maintainers.",
+          "action": "printf \"%s\\n\" \"Problem: deserialize_db_from_string saved without transaction causing FK errors\" \"Fix: wrap in transaction.atomic(using=self.connection.alias) and import transaction\" \"Tests: test_utils.test_transactiontestcase, migration_test_data_persistence, fixtures, transactions\" > FIX_SUMMARY.txt"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    }
+  ]
+}

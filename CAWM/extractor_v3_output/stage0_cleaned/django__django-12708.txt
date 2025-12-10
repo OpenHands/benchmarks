@@ -1,0 +1,226 @@
+PROBLEM: Migration crashes when deleting index_together if there is a unique_together on the same fields (Django 1.11.10). When both constraints exist on identical columns, Django’s schema editor tries to delete the index by querying constraints with index=True, but finds both the unique (unique=True, index=True) and the index (unique=False, index=True), causing “ValueError: Found wrong number (2) of constraints” in _delete_composed_index().
+
+Action 1
+Reasoning: Begin by understanding repository layout and locate the file mentioned in the error to inspect the problematic logic.
+Action: pwd && ls -la /workspace/django/
+
+Action 2
+Reasoning: Navigate to the backend schema module referenced in the traceback to find the deletion logic.
+Action: View directory /workspace/django/django/db/backends/base
+
+Action 3
+Reasoning: Open the schema editor code to examine _delete_composed_index and calls that lead to the error.
+Action: View file /workspace/django/django/db/backends/base/schema.py
+
+Action 4
+Reasoning: Quickly locate the _delete_composed_index method definition to analyze constraint selection.
+Action: grep -n "_delete_composed_index" /workspace/django/django/db/backends/base/schema.py
+
+Action 5
+Reasoning: Inspect the section around the method to see how constraints are resolved and validated.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 402–420)
+
+Action 6
+Reasoning: Review earlier lines to see how the method is invoked and how kwargs are passed.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 375–400)
+
+Action 7
+Reasoning: Inspect constraint name resolution to understand filtering behavior for index vs unique constraints.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 311–340)
+
+Action 8
+Reasoning: Confirm definition and behavior of constraint name introspection for filtering by flags.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 311–339)
+
+Action 9
+Reasoning: Locate _constraint_names function to confirm its filtering semantics (unique/index flags).
+Action: grep -n "def _constraint_names" /workspace/django/django/db/backends/base/schema.py
+
+Action 10
+Reasoning: Continue searching for the method definition if initial range was off.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 1142–1180)
+
+Action 11
+Reasoning: Survey tests that mention unique_together or index_together for existing coverage and patterns.
+Action: find /workspace/django/tests -type f -name "*.py" | xargs grep -l "index_together\|unique_together" | head -10
+
+Action 12
+Reasoning: Check schema tests for index_together handling to understand expected behavior.
+Action: grep -n "def test.*index_together" /workspace/django/tests/schema/tests.py | head -20
+
+Action 13
+Reasoning: Open schema tests around index handling to see current test cases.
+Action: View /workspace/django/tests/schema/tests.py (lines 2205–2240)
+
+Action 14
+Reasoning: Review backend introspection to understand how constraints are reported (unique/index flags).
+Action: find /workspace/django/django/db -name "introspection.py" | head -5
+
+Action 15
+Reasoning: Investigate naming conventions (_idx/_uniq) and index name generation for extra disambiguation cues.
+Action: grep -n "_create_index_name\|IndexName\|_uniq\|_idx" /workspace/django/django/db/backends/base/schema.py | head -30
+
+Action 16
+Reasoning: Examine DDL references to understand index naming patterns in Django.
+Action: grep -A 20 "class IndexName" /workspace/django/django/db/backends/ddl_references.py
+
+Action 17
+Reasoning: Create a reproduction script to validate the bug by creating a model with both unique_together and index_together and then removing the index.
+Action: Created /workspace/test_issue_reproduction.py
+- Summary change: Script sets up in-memory SQLite, defines TestModel with both unique_together and index_together on two fields, creates table, lists constraints, then runs editor.alter_index_together to remove index_together and reports the ValueError.
+
+Action 18
+Reasoning: Run the reproduction script against the repository’s Django to confirm failure.
+Action: cd /workspace/django && python /workspace/test_issue_reproduction.py
+
+Action 19
+Reasoning: Ensure local Django is importable by adjusting sys.path in the script.
+Action: Edited /workspace/test_issue_reproduction.py
+- Example snippet: Added sys.path.insert(0, '/workspace/django') near the top to import the repo code.
+
+Action 20
+Reasoning: Re-run the reproduction script after fixing path.
+Action: cd /workspace/django && python /workspace/test_issue_reproduction.py
+
+Action 21
+Reasoning: Install dependencies needed to run Django outside full packaging.
+Action: cd /workspace/django && python -m pip install asgiref sqlparse -q
+
+Action 22
+Reasoning: Retry the reproduction script with dependencies installed.
+Action: cd /workspace/django && python /workspace/test_issue_reproduction.py
+
+Action 23
+Reasoning: Install pytz which Django may require in this environment.
+Action: cd /workspace/django && python -m pip install pytz -q
+
+Action 24
+Reasoning: Retry running the reproduction script.
+Action: cd /workspace/django && python /workspace/test_issue_reproduction.py
+
+Action 25
+Reasoning: Analyze root cause: unique constraints also report index=True, so filtering only on index=True matches both. The fix is to exclude unique constraints when deleting indexes.
+Action: ThinkAction (no tool call)
+
+Action 26
+Reasoning: Verify _constraint_names respects multiple filters so we can pass both index=True and unique=False.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 386–401)
+
+Action 27
+Reasoning: Confirm filtering semantics by re-checking the relevant part of _constraint_names.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 1142–1171)
+
+Action 28
+Reasoning: Decide the minimal fix: when deleting index_together, call _delete_composed_index with {'index': True, 'unique': False}.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 386–401)
+
+Action 29
+Reasoning: Apply the fix in alter_index_together to exclude unique constraints from index deletion.
+Action: Edited /workspace/django/django/db/backends/base/schema.py
+- Example snippet:
+  - Before: self._delete_composed_index(model, fields, {'index': True}, self.sql_delete_index)
+  - After:  self._delete_composed_index(model, fields, {'index': True, 'unique': False}, self.sql_delete_index)
+
+Action 30
+Reasoning: Re-run the original reproduction script to confirm the ValueError is gone.
+Action: cd /workspace/django && python /workspace/test_issue_reproduction.py
+
+Action 31
+Reasoning: Create a broader test script to validate multiple scenarios (remove index keep unique, reverse, index-only, unique-only, multiple sets).
+Action: Created /workspace/test_comprehensive.py
+- Summary: Defines several models and uses schema_editor to create/alter constraints; asserts expected constraint counts and properties.
+
+Action 32
+Reasoning: Run the comprehensive test suite to ensure the fix is robust.
+Action: cd /workspace/django && python /workspace/test_comprehensive.py
+
+Action 33
+Reasoning: Try running specific Django schema tests to ensure suite compatibility.
+Action: cd /workspace/django && python -m pytest tests/schema/tests.py::SchemaTests::test_index_together -xvs
+
+Action 34
+Reasoning: Use Django’s internal test runner with proper settings to execute specific tests.
+Action: cd /workspace/django && python tests/runtests.py schema.tests.SchemaTests.test_index_together --settings=test_sqlite
+
+Action 35
+Reasoning: Set PYTHONPATH explicitly for Django’s test runner.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py schema.tests.SchemaTests.test_index_together --settings=test_sqlite
+
+Action 36
+Reasoning: Run a related test to ensure index removal doesn’t affect Meta.indexes.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py schema.tests.SchemaTests.test_remove_index_together_does_not_remove_meta_indexes --settings=test_sqlite
+
+Action 37
+Reasoning: Run more index_together-related schema tests for broader coverage.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py schema.tests.SchemaTests.test_index_together_with_fk schema.tests.SchemaTests.test_create_index_together schema.tests.SchemaTests.test_remove_index_together_does_not_remove_meta_indexes --settings=test_sqlite
+
+Action 38
+Reasoning: Run unique_together-related tests to ensure no regression.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py schema.tests.SchemaTests.test_unique_together --settings=test_sqlite
+
+Action 39
+Reasoning: Execute the entire schema test package to catch any unexpected breakages.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py schema --settings=test_sqlite 2>&1 | head -100
+
+Action 40
+Reasoning: Check if test file already contains scenarios with both unique_together and index_together on same fields.
+Action: grep -n "unique_together" /workspace/django/tests/schema/tests.py | grep -i "index"
+
+Action 41
+Reasoning: Search for tests that explicitly combine unique and index together usage.
+Action: grep -B 5 -A 20 "test_unique_together_with_fk_with_existing_index" /workspace/django/tests/schema/tests.py
+
+Action 42
+Reasoning: Verify there’s no direct test for simultaneous unique/index together on same fields to motivate added scripts, but per instructions, no changes needed to Django tests.
+Action: grep -n "index_together.*unique_together\|unique_together.*index_together" /workspace/django/tests/schema/tests.py
+
+Action 43
+Reasoning: Inspect schema test models to see if any model uses both together on identical fields.
+Action: grep -A 10 "class.*Model.*:" /workspace/django/tests/schema/models.py | grep -B 5 -A 5 "unique_together\|index_together" | head -50
+
+Action 44
+Reasoning: Re-open schema.py near the change to double-check the edit.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 386–401)
+
+Action 45
+Reasoning: Create a targeted migration scenario test that mimics refactoring from index_together to Meta.indexes.
+Action: Created /workspace/test_migration_scenario.py
+- Summary: Creates model with both constraints, removes index_together, then adds an Index via Meta.indexes and verifies constraints.
+
+Action 46
+Reasoning: Run the migration scenario test to confirm fix behavior end-to-end.
+Action: cd /workspace/django && python /workspace/test_migration_scenario.py
+
+Action 47
+Reasoning: Also run migrations operation tests related to alter_index_together for sanity check.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations.test_operations.OperationTests.test_alter_index_together --settings=test_sqlite
+
+Action 48
+Reasoning: Confirm no remaining calls use the old constraint_kwargs that could trigger the same issue.
+Action: cd /workspace/django && grep -n "_delete_composed_index.*{'index': True}" django/db/backends/base/schema.py
+
+Action 49
+Reasoning: View the surrounding lines to ensure only the intended occurrence was changed.
+Action: View /workspace/django/django/db/backends/base/schema.py (lines 394–397)
+
+Action 50
+Reasoning: Add more edge case tests to stress the logic (simultaneous add/remove, three-field combos, multiple indexes).
+Action: Created /workspace/test_edge_cases.py
+- Summary: Multiple mini-tests creating models with various constraint combinations and asserting correct outcomes after alterations.
+
+Action 51
+Reasoning: Run the edge case tests to confirm robustness.
+Action: cd /workspace/django && python /workspace/test_edge_cases.py
+
+Action 52
+Reasoning: Run the schema test package again to verify stability under verbose mode.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py schema.tests --settings=test_sqlite -v 2 2>&1 | tail -30
+
+Action 53
+Reasoning: Document the fix with a concise summary for maintainers and reviewers.
+Action: Created /workspace/SOLUTION_SUMMARY.md
+- Example snippet: “Changed line 396 in alter_index_together: from {'index': True} to {'index': True, 'unique': False} to avoid deleting unique constraints when removing index_together.”
+
+Action 54
+Reasoning: Provide a final summary of changes, rationale, and validation, confirming the minimal, backward-compatible fix.
+Action: FinishAction with summary detailing problem, solution (one-line change), and successful test coverage.

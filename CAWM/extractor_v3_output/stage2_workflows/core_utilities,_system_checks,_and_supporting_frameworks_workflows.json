@@ -1,0 +1,292 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Diagnosing and Fixing Inconsistencies in Django System Checks",
+      "description": "Systematic approach to identify, reproduce, and correct discrepancies in Django\u2019s core system checks (e.g., translation and template checks) and align them with runtime behavior.",
+      "steps": [
+        "Step 1: Review the reported error and Django documentation to understand expected behavior and identify the specific system check involved",
+        "Step 2: Locate the check implementation in django/core/checks/ and related modules that influence the check\u2019s logic",
+        "Step 3: Create a minimal reproducible configuration using settings.configure and django.setup to trigger the system check and observe failures",
+        "Step 4: Compare the check\u2019s logic with the corresponding runtime behavior in Django utilities and modules to identify mismatches (e.g., language fallback logic or template library discovery)",
+        "Step 5: Design and implement a minimal, targeted patch that aligns the check with runtime behavior while preserving invalid-case detection",
+        "Step 6: Add a regression test demonstrating the previously failing scenario and verifying the corrected behavior",
+        "Step 7: Run targeted test suites (e.g., check_framework, i18n, templates) to ensure the fix is correct and doesn\u2019t introduce regressions",
+        "Step 8: Document the fix and rationale to aid future maintenance"
+      ],
+      "source_trajectories": [
+        "django__django-12286",
+        "django__django-15790"
+      ]
+    },
+    {
+      "name": "Adding Operator Support to LazyObject/SimpleLazyObject Proxies",
+      "description": "General strategy to extend LazyObject/SimpleLazyObject with missing magic methods so Python operator dispatch works and preserves lazy semantics.",
+      "steps": [
+        "Step 1: Identify the missing magic method(s) causing operator dispatch failures and confirm how Python resolves these special methods on the class",
+        "Step 2: Create minimal reproduction tests demonstrating failures for both forward and reverse operator forms",
+        "Step 3: Inspect django/utils/functional.py to understand LazyObject/SimpleLazyObject method proxying and lazy initialization behavior",
+        "Step 4: Implement the missing magic method(s) directly on LazyObject to ensure class-level operator resolution while calling _setup() if _wrapped is empty",
+        "Step 5: Validate behavior across numeric, string, list, and custom wrapped types, ensuring lazy evaluation is preserved",
+        "Step 6: Run Django\u2019s utils tests to confirm no regressions and adjust edge-case tests as needed",
+        "Step 7: Document the change and its rationale, emphasizing minimal surface area and operator semantics"
+      ],
+      "source_trajectories": [
+        "django__django-15400"
+      ]
+    },
+    {
+      "name": "Preserving Function Metadata in Method Decorator Bindings",
+      "description": "Approach to ensure decorators applied to methods retain function attributes (name, module, docstring) so wrappers and introspection work correctly.",
+      "steps": [
+        "Step 1: Reproduce the failure with a decorator that accesses function attributes (e.g., __name__) when applied via method_decorator",
+        "Step 2: Inspect django/utils/decorators.py and locate where the method is bound and passed to decorators",
+        "Step 3: Replace metadata-stripping constructs (e.g., functools.partial) with a real wrapper bound to self and copy metadata via functools.update_wrapper",
+        "Step 4: Validate behavior with single and multiple decorators, including class-level decoration via method_decorator(name=...)",
+        "Step 5: Run focused decorators and utils tests to ensure compatibility and confirm no regressions",
+        "Step 6: Provide a concise verification demonstrating preserved metadata under typical decorator patterns"
+      ],
+      "source_trajectories": [
+        "django__django-14787"
+      ]
+    },
+    {
+      "name": "Fixing Serialization Round-Trip Integrity in Django\u2019s Messages Framework",
+      "description": "Guidance to diagnose and fix serialization/deserialization edge cases in messages storage so values round-trip correctly through backends.",
+      "steps": [
+        "Step 1: Create minimal reproduction for encoder/decoder round-trip with edge inputs (e.g., empty strings vs None) to confirm the bug",
+        "Step 2: Inspect Message and storage backends (cookie and session) to locate where encoding/decoding decisions are made",
+        "Step 3: Identify conditions relying on truthiness that mis-handle valid falsy values and adjust them to explicitly check for None",
+        "Step 4: Validate storage cycles for cookie and session backends and confirm templates can safely use message.extra_tags",
+        "Step 5: Run messages-specific tests to ensure the patch does not regress other behaviors",
+        "Step 6: Document the change and its impact on template usage and storage backends"
+      ],
+      "source_trajectories": [
+        "django__django-15347"
+      ]
+    },
+    {
+      "name": "Extending Utility Functions with Optional, Backward-Compatible Parameters",
+      "description": "Pattern to add optional parameters to core utilities (e.g., JSON encoder in json_script) while preserving defaults and updating dependent wrappers.",
+      "steps": [
+        "Step 1: Locate the utility function and any wrapper implementations (e.g., template filters) that depend on it",
+        "Step 2: Define the new optional parameter with a default that matches current behavior to ensure backward compatibility",
+        "Step 3: Update wrappers to accept and pass through the parameter, maintaining current call patterns",
+        "Step 4: Write tests and examples that exercise both default behavior and customized usage",
+        "Step 5: Run targeted test suites for the utility and wrappers to confirm correctness",
+        "Step 6: Document usage and best practices, including how to extend the default encoder or behavior for Django-specific types"
+      ],
+      "source_trajectories": [
+        "django__django-15789"
+      ]
+    },
+    {
+      "name": "Making Configuration Validation Inheritance-Aware",
+      "description": "Strategy to correct configuration validation that relies on subclass relationships (e.g., DEFAULT_AUTO_FIELD) by ensuring metaclass checks recognize subclasses.",
+      "steps": [
+        "Step 1: Reproduce the failure with custom subclasses that should pass validation but are rejected",
+        "Step 2: Inspect the metaclass or type-checking logic used during validation to understand how subclass checks are performed",
+        "Step 3: Update subclass detection to use inheritance-aware checks (e.g., issubclass against known base classes) instead of equality membership",
+        "Step 4: Add tests covering direct and multi-level subclassing and rejection of non-subclasses to ensure correctness",
+        "Step 5: Run related model_fields and model_options test suites to verify the change does not introduce regressions",
+        "Step 6: Provide a clear summary of the fix and confirm that real-world configurations now pass validation"
+      ],
+      "source_trajectories": [
+        "django__django-14238"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating an Implementation in the Django Source Tree",
+      "description": "Search and open relevant files to find the code implementing a feature, check, or utility.",
+      "steps": [
+        {
+          "reasoning": "Need to quickly identify where a function or check is implemented to begin diagnosis.",
+          "action": "cd /workspace/django && find . -type f -name \"*.py\" -exec grep -n \"{symbol_name}\" {} + | head -20"
+        },
+        {
+          "reasoning": "Once the file is found, open it to inspect surrounding logic and context.",
+          "action": "view /workspace/django/{relative_path_to_file}"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286",
+        "django__django-14238",
+        "django__django-14787",
+        "django__django-15347",
+        "django__django-15400",
+        "django__django-15789",
+        "django__django-15790"
+      ]
+    },
+    {
+      "name": "Running Django\u2019s Custom Test Runner for Targeted Suites",
+      "description": "Execute specific Django test modules or classes using the built-in test runner.",
+      "steps": [
+        {
+          "reasoning": "Need to verify a fix without running the entire test suite; Django provides tests/runtests.py for targeted runs.",
+          "action": "cd /workspace/django && python tests/runtests.py {module_path} --verbosity=2"
+        },
+        {
+          "reasoning": "Run a specific test class or test method to focus on a failing scenario.",
+          "action": "cd /workspace/django && python tests/runtests.py {module_path}.{TestClassName}[.{test_method_name}] --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286",
+        "django__django-14238",
+        "django__django-14787",
+        "django__django-15347",
+        "django__django-15789",
+        "django__django-15790"
+      ]
+    },
+    {
+      "name": "Creating and Running a Minimal Reproduction Script",
+      "description": "Set up a minimal environment to reproduce a bug or verify a behavior without full test infrastructure.",
+      "steps": [
+        {
+          "reasoning": "Ensure Django uses in-tree sources and configure settings before using Django APIs.",
+          "action": "cd /workspace/django && PYTHONPATH=/workspace/django python -c \"from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test-key', USE_TZ=True, INSTALLED_APPS={installed_apps}); import django; django.setup(); {repro_code}\""
+        },
+        {
+          "reasoning": "Alternatively, write a script for clarity and reusability.",
+          "action": "Create /workspace/{script_name}.py with settings.configure, django.setup(), and minimal {repro_code}; then run: cd /workspace/django && PYTHONPATH=/workspace/django python /workspace/{script_name}.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286",
+        "django__django-14238",
+        "django__django-14787",
+        "django__django-15347",
+        "django__django-15789",
+        "django__django-15790"
+      ]
+    },
+    {
+      "name": "Installing Django In Editable Mode for In-Tree Testing",
+      "description": "Install the repository as an editable package so scripts and tests resolve imports consistently.",
+      "steps": [
+        {
+          "reasoning": "Editable install ensures local changes are importable by Python and test runners.",
+          "action": "cd /workspace/django && python -m pip install -e ."
+        },
+        {
+          "reasoning": "Confirm that Python resolves to the local Django installation.",
+          "action": "python -c \"import django; print(django.__file__)\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-14238",
+        "django__django-14787",
+        "django__django-15347",
+        "django__django-15789",
+        "django__django-15790"
+      ]
+    },
+    {
+      "name": "Implementing a Focused Patch and Verifying via Diff",
+      "description": "Apply a minimal change and inspect the diff to ensure scope and correctness.",
+      "steps": [
+        {
+          "reasoning": "Make a precise code edit in the identified file, keeping changes minimal and aligned with intended behavior.",
+          "action": "Edit /workspace/django/{relative_path_to_file} to apply the patch (e.g., adjust conditions, add methods, or change parameters)"
+        },
+        {
+          "reasoning": "Verify exactly what changed and ensure no unintended edits are present.",
+          "action": "cd /workspace/django && git diff {relative_path_to_file}"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286",
+        "django__django-14238",
+        "django__django-14787",
+        "django__django-15347",
+        "django__django-15400",
+        "django__django-15789",
+        "django__django-15790"
+      ]
+    },
+    {
+      "name": "Aligning a System Check with Runtime Fallback Logic (i18n)",
+      "description": "Adjust a translation-related system check to mirror runtime language variant resolution.",
+      "steps": [
+        {
+          "reasoning": "Inspect how runtime resolves language codes and variants to ensure the check behaves consistently.",
+          "action": "cd /workspace/django && grep -n \"get_supported_language_variant\\|generic_lang_code\" django/utils/translation/trans_real.py"
+        },
+        {
+          "reasoning": "Use prefix matching and base language fallbacks in the system check to mirror runtime behavior.",
+          "action": "Edit /workspace/django/django/core/checks/translation.py to add base-code and prefix-based acceptance before raising the error"
+        },
+        {
+          "reasoning": "Exercise scenarios where sublanguage should fall back to base language or sibling variants.",
+          "action": "cd /workspace/django && python tests/runtests.py check_framework.test_translation --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Adding a Regression Test to Django\u2019s Test Suite",
+      "description": "Create a test case capturing the broken scenario and validating the fix within Django\u2019s tests.",
+      "steps": [
+        {
+          "reasoning": "Locate the most relevant test module to host the new test, matching existing style and fixtures.",
+          "action": "cd /workspace/django && find tests -name \"{module_glob}\" -type f"
+        },
+        {
+          "reasoning": "Add a new test that reproduces the issue and asserts the corrected behavior.",
+          "action": "Edit /workspace/django/tests/{relative_test_path}.py to insert test_{scenario_name}() or a new TestCase class with focused assertions"
+        },
+        {
+          "reasoning": "Run the specific new test (or test class) to confirm it passes, then run the broader module to check for regressions.",
+          "action": "cd /workspace/django && python tests/runtests.py {module_path}.{TestClassName}[.{test_method_name}] --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-14238",
+        "django__django-15790"
+      ]
+    },
+    {
+      "name": "Validating Messages Encoder/Decoder Behavior via Inline Python",
+      "description": "Use one-liners to confirm serialization edge cases and round-trip behavior for messages.",
+      "steps": [
+        {
+          "reasoning": "Quickly check whether empty strings are preserved during encode/decode without writing a full script.",
+          "action": "PYTHONPATH=/workspace/django python -c \"from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test', INSTALLED_APPS=['django.contrib.messages']); import django; django.setup(); from django.contrib.messages.storage.base import Message; from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder; m=Message(10,'msg',extra_tags=''); print(MessageDecoder().decode(MessageEncoder().encode(m)).extra_tags=='')\""
+        },
+        {
+          "reasoning": "Repeat for None and non-empty values to ensure behavior across cases.",
+          "action": "PYTHONPATH=/workspace/django python -c \"from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test', INSTALLED_APPS=['django.contrib.messages']); import django; django.setup(); from django.contrib.messages.storage.base import Message; from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder; print(MessageDecoder().decode(MessageEncoder().encode(Message(10,'msg',extra_tags=None))).extra_tags is None); print(MessageDecoder().decode(MessageEncoder().encode(Message(10,'msg',extra_tags='important'))).extra_tags=='important')\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-15347"
+      ]
+    },
+    {
+      "name": "Extending a Utility Function and Updating a Template Filter",
+      "description": "Add an optional parameter to a utility and pass it through the template filter wrapper.",
+      "steps": [
+        {
+          "reasoning": "Modify the utility to accept an encoder while defaulting to the existing behavior.",
+          "action": "Edit /workspace/django/django/utils/html.py: change def json_script(value, element_id=None) to def json_script(value, element_id=None, encoder=None); use encoder or DjangoJSONEncoder when calling json.dumps"
+        },
+        {
+          "reasoning": "Update the default filter wrapper to accept and forward the parameter.",
+          "action": "Edit /workspace/django/django/template/defaultfilters.py: change def json_script(value, element_id=None) to def json_script(value, element_id=None, encoder=None); return _json_script(value, element_id, encoder)"
+        },
+        {
+          "reasoning": "Run focused tests to validate both default and customized encoder behavior.",
+          "action": "cd /workspace/django && python tests/runtests.py utils_tests.test_html template_tests.filter_tests.test_json_script --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-15789"
+      ]
+    }
+  ]
+}

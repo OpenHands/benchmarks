@@ -1,0 +1,272 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Eliminating Duplicate Choices from Forms and Admin Selects",
+      "description": "Diagnose and fix duplicate options appearing in form fields or admin choices when limit_choices_to uses joins or complex filters.",
+      "steps": [
+        "Step 1: Reproduce the issue with a minimal ModelForm or ModelAdmin that uses limit_choices_to with a Q join to confirm duplicates are present",
+        "Step 2: Identify where the queryset is restricted for form fields and choice generation (forms/models.py and db/models/fields get_choices paths)",
+        "Step 3: Implement a fix by enforcing distinct() after applying complex_filter(limit_choices_to) in the central utility functions used by form fields and get_choices",
+        "Step 4: Add regression tests that create multiple related rows causing duplicate rows on join and assert choices and form field querysets contain unique IDs",
+        "Step 5: Run targeted and broader test suites to ensure the change eliminates duplicates without breaking other behavior"
+      ],
+      "source_trajectories": [
+        "django__django-13315"
+      ]
+    },
+    {
+      "name": "Standardizing Form Field Validation Error Messages",
+      "description": "Ensure consistency of ValidationError messages across form fields by including offending values and passing params for interpolation.",
+      "steps": [
+        "Step 1: Check existing error messages for related fields (e.g., ModelChoiceField vs ModelMultipleChoiceField) to identify inconsistencies",
+        "Step 2: Reproduce the inconsistent message by calling clean() with an invalid value and observing the error string",
+        "Step 3: Update default_error_messages to include placeholders like %(value)s for the offending value",
+        "Step 4: Pass params={'value': <input>} when raising ValidationError so the message formats correctly",
+        "Step 5: Add tests or scripts asserting the offending value appears in the error message and run the form-related test suites"
+      ],
+      "source_trajectories": [
+        "django__django-13933"
+      ]
+    },
+    {
+      "name": "Distinguishing Form and FormSet Error Rendering",
+      "description": "Add or adjust CSS classes to ErrorList for non-field errors (forms) and non-form errors (formsets) to enable custom rendering.",
+      "steps": [
+        "Step 1: Inspect how forms assign the nonfield class and identify formset code paths that construct non-form errors",
+        "Step 2: Ensure FormSet-level non-form errors are constructed with a consistent error_class such as nonform",
+        "Step 3: Preserve the nonform class when recreating ErrorList from ValidationError instances",
+        "Step 4: Update documentation to describe the new class and provide examples of rendered HTML",
+        "Step 5: Run formsets, admin inlines, and client regression tests to confirm error rendering and class names are stable"
+      ],
+      "source_trajectories": [
+        "django__django-14608"
+      ]
+    },
+    {
+      "name": "Managing Deprecation Warnings in Form Rendering",
+      "description": "Suppress irrelevant deprecation warnings for forms that render only hidden inputs (e.g., ManagementForm) to avoid noisy logs.",
+      "steps": [
+        "Step 1: Reproduce the deprecation warning by rendering the target form or formset and confirm the template path causing the warning",
+        "Step 2: Identify the renderer or mixin where the default template deprecation warnings are emitted",
+        "Step 3: Add a special-case check to skip warnings when the form has no visible_fields (only hidden inputs)",
+        "Step 4: Validate with a reproduction script that warnings are suppressed for ManagementForm but still raised for regular forms",
+        "Step 5: Run relevant formsets and deprecation-related tests to ensure correct behavior across the board"
+      ],
+      "source_trajectories": [
+        "django__django-15902"
+      ]
+    },
+    {
+      "name": "Safely Constructing FormSet.empty_form with form_kwargs",
+      "description": "Prevent crashes when constructing a formset\u2019s empty_form by avoiding duplicated kwargs such as empty_permitted.",
+      "steps": [
+        "Step 1: Reproduce the crash by accessing empty_form when empty_permitted is present in form_kwargs",
+        "Step 2: Locate the empty_form construction path and inspect how kwargs are combined",
+        "Step 3: Remove or override conflicting entries (e.g., pop empty_permitted from form_kwargs) when building empty_form",
+        "Step 4: Add test cases for both True/False values of empty_permitted and ensure normal forms still respect form_kwargs",
+        "Step 5: Run formsets and model formsets suites to confirm the fix works across variants and does not regress template rendering"
+      ],
+      "source_trajectories": [
+        "django__django-16041"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Finding and Fixing limit_choices_to Application Points",
+      "description": "Locate where limit_choices_to filters are applied to form fields and choices, and enforce distinct() to remove duplicates.",
+      "steps": [
+        {
+          "reasoning": "Identify all code paths that apply limit_choices_to to querysets for both forms and choice generation.",
+          "action": "grep -r \"limit_choices_to\" django/ --include=\"*.py\""
+        },
+        {
+          "reasoning": "Pinpoint form-side application of limit_choices_to for ModelChoiceField generation.",
+          "action": "grep -n \"apply_limit_choices_to_to_formfield\" django/forms/models.py && sed -n '80,130p' django/forms/models.py"
+        },
+        {
+          "reasoning": "Inspect get_choices implementations on model fields and reverse-related fields that may use complex_filter.",
+          "action": "sed -n '850,920p' django/db/models/fields/__init__.py && sed -n '130,180p' django/db/models/fields/reverse_related.py"
+        },
+        {
+          "reasoning": "Implement distinct() after complex_filter(limit_choices_to) to eliminate duplicates from joins.",
+          "action": "Apply change in your editor: in django/forms/models.py apply_limit_choices_to_to_formfield(), set formfield.queryset = formfield.queryset.complex_filter(limit_choices_to).distinct()"
+        },
+        {
+          "reasoning": "Ensure choices for admin/widgets also respect distinct() to avoid duplicate dropdown options.",
+          "action": "Apply change in your editor: in django/db/models/fields/__init__.py Field.get_choices(), set qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()"
+        },
+        {
+          "reasoning": "Propagate distinct() for reverse-related get_choices to cover all relation directions.",
+          "action": "Apply change in your editor: in django/db/models/fields/reverse_related.py ForeignObjectRel.get_choices(), set qs = self.related_model._default_manager.complex_filter(limit_choices_to).distinct()"
+        },
+        {
+          "reasoning": "Validate behavior with a focused test run in model_fields where limit_choices_to is exercised.",
+          "action": "cd tests && python runtests.py model_fields --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13315"
+      ]
+    },
+    {
+      "name": "Updating ModelChoiceField Invalid Choice Message",
+      "description": "Make ModelChoiceField include the offending value in its invalid_choice message and pass the value via params.",
+      "steps": [
+        {
+          "reasoning": "Locate ModelChoiceField to inspect default_error_messages and ValidationError raising.",
+          "action": "grep -n \"class ModelChoiceField\" django/forms/models.py && sed -n '1180,1310p' django/forms/models.py"
+        },
+        {
+          "reasoning": "Compare behavior with ModelMultipleChoiceField which already includes %(value)s.",
+          "action": "grep -n \"class ModelMultipleChoiceField\" django/forms/models.py && sed -n '1310,1400p' django/forms/models.py"
+        },
+        {
+          "reasoning": "Update the default error message to include the offending value placeholder.",
+          "action": "Apply change in your editor: in ModelChoiceField.default_error_messages['invalid_choice'], use 'Select a valid choice. %(value)s is not one of the available choices.'"
+        },
+        {
+          "reasoning": "Ensure the ValidationError includes params so the message interpolates the submitted value.",
+          "action": "Apply change in your editor: in ModelChoiceField.to_python(), raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', params={'value': value})"
+        },
+        {
+          "reasoning": "Run targeted tests to verify error message formatting and overall stability.",
+          "action": "cd tests && python runtests.py model_forms.test_modelchoicefield --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13933"
+      ]
+    },
+    {
+      "name": "Adding nonform CSS Class to FormSet Non-form Errors",
+      "description": "Modify FormSet non-form error construction to include a nonform class and document the behavior.",
+      "steps": [
+        {
+          "reasoning": "Find where FormSet constructs non-form errors to attach a CSS class.",
+          "action": "grep -n \"non_form_errors\" django/forms/formsets.py && sed -n '280,390p' django/forms/formsets.py"
+        },
+        {
+          "reasoning": "Initialize non-form errors with ErrorList that carries nonform class.",
+          "action": "Apply change in your editor: set self._non_form_errors = self.error_class(error_class='nonform') in FormSet.full_clean() before validation aggregation"
+        },
+        {
+          "reasoning": "Preserve nonform when recreating ErrorList from a ValidationError.",
+          "action": "Apply change in your editor: when catching ValidationError e, set self._non_form_errors = self.error_class(e.error_list, error_class='nonform')"
+        },
+        {
+          "reasoning": "Update documentation to inform users about the nonform class on FormSet errors.",
+          "action": "Edit docs/topics/forms/formsets.txt to add a 'Non-form errors' subsection describing the <ul class=\"errorlist nonform\"> output"
+        },
+        {
+          "reasoning": "Run formset tests and admin inlines to confirm error rendering remains correct.",
+          "action": "cd tests && python runtests.py forms_tests.tests.test_formsets admin_inlines --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-14608"
+      ]
+    },
+    {
+      "name": "Suppressing Default Template Deprecation Warning for Hidden-only Forms",
+      "description": "Special-case forms like ManagementForm to avoid emitting the default.html deprecation warning when rendering only hidden fields.",
+      "steps": [
+        {
+          "reasoning": "Locate where form rendering emits the deprecation warning for default templates.",
+          "action": "grep -n \"DEFAULT_TEMPLATE_DEPRECATION\" django/forms/utils.py && sed -n '1,220p' django/forms/utils.py"
+        },
+        {
+          "reasoning": "Implement a condition to skip the warning for forms that have no visible fields.",
+          "action": "Apply change in your editor: in RenderableMixin.render(), before warnings.warn(...), check hasattr(self, 'visible_fields') and not self.visible_fields()"
+        },
+        {
+          "reasoning": "Verify suppression with a reproduction script that renders ManagementForm and inspects warnings.",
+          "action": "python - << 'PY'\nimport warnings, django\nfrom django.conf import settings\nsettings.configure(DEBUG=True, SECRET_KEY='x', FORM_RENDERER='django.forms.renderers.DjangoTemplates')\ndjango.setup()\nfrom django.forms.formsets import ManagementForm\nwith warnings.catch_warnings(record=True) as w:\n    warnings.simplefilter('always')\n    _ = ManagementForm().as_table()\n    print('Warnings count:', len(w))\nPY"
+        },
+        {
+          "reasoning": "Run targeted deprecation tests to ensure regular forms still emit the appropriate warnings.",
+          "action": "cd tests && python runtests.py forms_tests.tests.test_formsets.DeprecationTests.test_warning --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-15902"
+      ]
+    },
+    {
+      "name": "Fixing FormSet.empty_form Duplicate kwargs",
+      "description": "Prevent TypeError when empty_form is constructed with form_kwargs containing empty_permitted by removing duplicated kwarg.",
+      "steps": [
+        {
+          "reasoning": "Find empty_form construction to see how kwargs are combined and why duplicates occur.",
+          "action": "grep -n \"empty_form\" django/forms/formsets.py && sed -n '250,280p' django/forms/formsets.py"
+        },
+        {
+          "reasoning": "Remove conflicting entries like empty_permitted from form_kwargs before calling the form constructor.",
+          "action": "Apply change in your editor: in FormSet.empty_form, assign form_kwargs = self.get_form_kwargs(None); form_kwargs.pop('empty_permitted', None); then pass empty_permitted=True explicitly"
+        },
+        {
+          "reasoning": "Run focused tests confirming empty_form construction works even when form_kwargs includes empty_permitted.",
+          "action": "cd tests && python -m pytest tests/forms_tests/tests/test_formsets.py::FormsFormsetTestCase::test_form_kwargs_empty_form -q"
+        },
+        {
+          "reasoning": "Validate across variants including model formsets and inline formsets.",
+          "action": "cd tests && python runtests.py model_formsets inline_formsets --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-16041"
+      ]
+    },
+    {
+      "name": "Running Django Tests for Specific Modules or Test Cases",
+      "description": "Use Django\u2019s custom test runner to execute specific apps or test methods to validate focused changes.",
+      "steps": [
+        {
+          "reasoning": "Install the repository in editable mode so tests run against local changes.",
+          "action": "cd {repo_root} && pip install -e ."
+        },
+        {
+          "reasoning": "Run a specific module suite to verify a related fix without running the entire test suite.",
+          "action": "cd {repo_root} && python tests/runtests.py {module_name} --verbosity=2"
+        },
+        {
+          "reasoning": "Execute a single test class or method to quickly validate a particular behavior.",
+          "action": "cd {repo_root} && python tests/runtests.py {dotted_test_path} --verbosity=2"
+        },
+        {
+          "reasoning": "Optionally run with pytest for ad-hoc targeting if preferred.",
+          "action": "cd {repo_root} && python -m pytest {file_path}::{test_class_or_method} -xvs"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13315",
+        "django__django-14608",
+        "django__django-15902",
+        "django__django-16041"
+      ]
+    },
+    {
+      "name": "Creating a Minimal Django Reproduction Script",
+      "description": "Build a small script with a configured Django environment to reproduce and inspect a specific form or formset behavior.",
+      "steps": [
+        {
+          "reasoning": "Configure Django settings programmatically for a minimal environment.",
+          "action": "python - << 'PY'\nfrom django.conf import settings\nsettings.configure(DEBUG=True, SECRET_KEY='test-key', INSTALLED_APPS=['django.contrib.contenttypes','django.contrib.auth'], DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}, FORM_RENDERER='django.forms.renderers.DjangoTemplates')\nimport django; django.setup()\nPY"
+        },
+        {
+          "reasoning": "Define minimal models/forms and create data to exercise the target behavior.",
+          "action": "python - << 'PY'\nfrom django.db import models\nfrom django.forms import ModelForm\n# Define models and form here, create data and print problematic behavior\nPY"
+        },
+        {
+          "reasoning": "Inspect warnings, errors, or querysets to confirm the issue and later validate the fix.",
+          "action": "python - << 'PY'\nimport warnings\n# render or clean fields under warnings.catch_warnings to capture deprecations\nPY"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13933",
+        "django__django-15902",
+        "django__django-16041"
+      ]
+    }
+  ]
+}

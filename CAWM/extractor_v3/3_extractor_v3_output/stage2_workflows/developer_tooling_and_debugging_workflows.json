@@ -1,0 +1,151 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Debugging Development Autoreloader and File Watching Errors",
+      "description": "Identify and fix crashes or misbehavior in Django\u2019s development autoreloader without disrupting its functionality.",
+      "steps": [
+        "Step 1: Review the error stack trace to identify the failing module and line number; if a stack trace is unavailable, search for the error string in the repository",
+        "Step 2: Locate the relevant source file (e.g., django/utils/autoreload.py) and read the surrounding code to understand how paths or modules are collected and resolved",
+        "Step 3: Identify the risky operations (e.g., Path.resolve()) and assess current exception handling for invalid inputs or rare filesystem states",
+        "Step 4: Design a defensive fix that gracefully skips problematic inputs (e.g., catch ValueError alongside FileNotFoundError) while preserving normal behavior",
+        "Step 5: Create a minimal reproduction (e.g., mock Path.resolve() to raise the observed exception) to validate the fix\u2019s behavior deterministically",
+        "Step 6: Implement the fix with minimal, targeted changes and ensure it covers all relevant call sites",
+        "Step 7: Add unit tests that simulate the failure mode and assert the autoreloader continues without crashing",
+        "Step 8: Run targeted and then broader test suites to ensure the fix introduces no regressions",
+        "Step 9: Clean up any temporary scripts and document the change for future maintainers"
+      ],
+      "source_trajectories": [
+        "django__django-11583"
+      ]
+    },
+    {
+      "name": "Strengthening Exception Reporting Sanitization Across Nested Structures",
+      "description": "Ensure Django\u2019s SafeExceptionReporterFilter properly cleanses sensitive values in nested settings structures, including lists and tuples.",
+      "steps": [
+        "Step 1: Examine the implementation of SafeExceptionReporterFilter (e.g., cleanse_setting) to understand current recursion and type handling",
+        "Step 2: Review existing tests to see what is covered and identify gaps in list/tuple recursion and type preservation",
+        "Step 3: Create a minimal settings configuration with nested lists/tuples containing sensitive keys to reproduce the sanitization gap",
+        "Step 4: Design a fix to recursively cleanse dicts and iterables, preserve container types, and avoid recursing into strings/bytes",
+        "Step 5: Implement the fix by extending cleanse_setting to handle lists/tuples and maintain original types",
+        "Step 6: Add tests for lists, nested lists, tuples, and mixed structures to comprehensively validate sanitization behavior",
+        "Step 7: Run the relevant test modules/classes using Django\u2019s test runner with appropriate settings to verify the changes",
+        "Step 8: Verify behavior with standalone scripts and remove any temporary files after validation"
+      ],
+      "source_trajectories": [
+        "django__django-12700"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating Failing Code from a Traceback and Inspecting Context",
+      "description": "Quickly find the relevant code paths and inspect surrounding context using repository search tools.",
+      "steps": [
+        {
+          "reasoning": "Start from the observed error to pinpoint where in the codebase the failure occurs.",
+          "action": "cd {repo_root} && grep -R \"{error_keyword}\" -n django | head -20"
+        },
+        {
+          "reasoning": "If the failing module is known, find the exact file path for inspection.",
+          "action": "cd {repo_root} && find django -type f -name \"{module_file_name}\" | head -5"
+        },
+        {
+          "reasoning": "Locate specific function calls or patterns (e.g., Path.resolve) to narrow down the problematic region.",
+          "action": "cd {repo_root} && grep -n \"{pattern}\" django/{relative_module_path}"
+        },
+        {
+          "reasoning": "Inspect surrounding lines to understand current logic and exception handling.",
+          "action": "sed -n '{start_line},{end_line}p' {repo_root}/django/{relative_module_path}"
+        },
+        {
+          "reasoning": "Discover related tests to assess existing coverage and plan new tests.",
+          "action": "cd {repo_root} && find tests -name \"*{module_or_feature_keyword}*\" -type f | xargs grep -l \"{class_or_function_name}\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11583",
+        "django__django-12700"
+      ]
+    },
+    {
+      "name": "Running Targeted Django Tests with Custom Settings",
+      "description": "Run Django\u2019s tests for specific modules, classes, or methods using the appropriate test runner and settings.",
+      "steps": [
+        {
+          "reasoning": "Use Django\u2019s custom test runner to run a specific test module with verbose output.",
+          "action": "cd {repo_root}/tests && python runtests.py {module_name} --settings={settings_module} -v 2"
+        },
+        {
+          "reasoning": "Run a specific test class or method via django-admin test when the repo is installed or importable.",
+          "action": "cd {repo_root}/tests && python -m django test {full_test_path} --settings={settings_module} -v 2"
+        },
+        {
+          "reasoning": "If imports fail due to environment issues, install the repository in editable mode first.",
+          "action": "cd {repo_root} && pip install -e ."
+        },
+        {
+          "reasoning": "As a fallback, run tests directly via unittest for simple modules or local checks.",
+          "action": "cd {repo_root} && python -m unittest {python_test_module_path}"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11583",
+        "django__django-12700"
+      ]
+    },
+    {
+      "name": "Patching Autoreloader to Handle Invalid Paths and Validating with Tests",
+      "description": "Modify Django\u2019s autoreloader to defensively handle unexpected path resolution errors and ensure behavior with tests.",
+      "steps": [
+        {
+          "reasoning": "Identify all call sites where Path.resolve() is used to collect files/directories.",
+          "action": "cd {repo_root} && grep -rn \"resolve\\(.*\\).*absolute\\(\\)\\|resolve\\(strict\" --include=\"*.py\" django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "Patch exception handling to skip invalid paths (e.g., embedded null bytes) without crashing.",
+          "action": "sed -i \"s/except FileNotFoundError:/except (FileNotFoundError, ValueError):/g\" {repo_root}/django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "Create a small reproduction to simulate Path.resolve raising ValueError and ensure the autoreloader does not crash.",
+          "action": "cat > {repo_root}/test_embedded_null_byte.py <<'PY'\\nfrom unittest import mock\\nfrom django.utils import autoreload\\nclass M: pass\\nmock_module = M(); mock_module.__file__ = '/tmp/x.py'\\nwith mock.patch('django.utils.autoreload.Path') as mock_path_class:\\n    mock_path_instance = mock_path_class.return_value\\n    mock_path_instance.resolve.side_effect = ValueError('embedded null byte')\\n    result = autoreload.iter_modules_and_files((mock_module,), frozenset())\\n    print(result)\\nPY\\ncd {repo_root} && python test_embedded_null_byte.py"
+        },
+        {
+          "reasoning": "Run existing autoreload tests to confirm no regressions and that the new behavior is covered.",
+          "action": "cd {repo_root} && tests/runtests.py utils_tests.test_autoreload -v 2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11583"
+      ]
+    },
+    {
+      "name": "Extending SafeExceptionReporterFilter to Recurse into Lists/Tuples and Verifying",
+      "description": "Update the exception reporter filter to cleanse nested iterables and verify via tests and scripts.",
+      "steps": [
+        {
+          "reasoning": "Locate the cleanse_setting implementation to determine current recursion behavior.",
+          "action": "cd {repo_root} && grep -n \"class SafeExceptionReporterFilter\" django/views/debug.py && grep -n \"def cleanse_setting\" django/views/debug.py"
+        },
+        {
+          "reasoning": "Patch cleanse_setting to handle lists/tuples while preserving container types and avoiding string/bytes recursion.",
+          "action": "python - <<'PY'\\nimport io, sys\\np = '{repo_root}/django/views/debug.py'\\ns = open(p).read()\\ns = s.replace('elif isinstance(value, dict):', 'elif isinstance(value, dict):')\\n# Insert a list/tuple branch if missing\\nif '(list, tuple)' not in s:\\n    s = s.replace('\\n        elif isinstance(value, dict):', '\\n        elif isinstance(value, dict):\\n            return {k: self.cleanse_setting(k, v) for k, v in value.items()}\\n        elif isinstance(value, (list, tuple)):\\n            return type(value)(self.cleanse_setting(key, item) for item in value)')\\nopen(p, 'w').write(s)\\nprint('Patched:', p)\\nPY"
+        },
+        {
+          "reasoning": "Add tests to ensure cleansing recurses into lists, nested lists, tuples, and mixed structures.",
+          "action": "cat >> {repo_root}/tests/view_tests/tests/test_debug.py <<'PY'\\nclass ExceptionReporterFilterTests_ListTupleRecursion:\\n    def test_cleanse_setting_recurses_in_list(self):\\n        from django.views.debug import SafeExceptionReporterFilter\\n        rf = SafeExceptionReporterFilter()\\n        value = [{'password': 'p'}, {'token': 't'}, {'other': 'x'}]\\n        result = rf.cleanse_setting('SETTING', value)\\n        assert result[0]['password'] == rf.cleansed_substitute\\n        assert result[1]['token'] == rf.cleansed_substitute\\n        assert result[2]['other'] == 'x'\\n    def test_cleanse_setting_recurses_in_nested_lists(self):\\n        from django.views.debug import SafeExceptionReporterFilter\\n        rf = SafeExceptionReporterFilter()\\n        value = [[{'secret': 's'}], [{'apikey': 'a'}]]\\n        result = rf.cleanse_setting('SETTING', value)\\n        assert result[0][0]['secret'] == rf.cleansed_substitute\\n        assert result[1][0]['apikey'] == rf.cleansed_substitute\\n    def test_cleanse_setting_recurses_in_tuple_preserves_type(self):\\n        from django.views.debug import SafeExceptionReporterFilter\\n        rf = SafeExceptionReporterFilter()\\n        value = ({'password': 'p'}, {'token': 't'})\\n        result = rf.cleanse_setting('SETTING', value)\\n        assert isinstance(result, tuple)\\n        assert result[0]['password'] == rf.cleansed_substitute\\n        assert result[1]['token'] == rf.cleansed_substitute\\nPY"
+        },
+        {
+          "reasoning": "Run the relevant tests via Django\u2019s runner with an appropriate settings module.",
+          "action": "cd {repo_root}/tests && python -m django test view_tests.tests.test_debug --settings=test_sqlite -v 2"
+        },
+        {
+          "reasoning": "Optionally verify with a standalone script that mimics production settings nesting.",
+          "action": "cat > {repo_root}/verify_sanitize.py <<'PY'\\nimport pprint\\nfrom django.conf import settings\\nfrom django.views.debug import SafeExceptionReporterFilter\\nsettings.configure(MY_SETTING={'else': [[{'token': 't'}], [{'secret': 's'}]]})\\nrf = SafeExceptionReporterFilter()\\nprint(pprint.pformat(rf.get_safe_settings()['MY_SETTING']))\\nPY\\ncd {repo_root} && python verify_sanitize.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12700"
+      ]
+    }
+  ]
+}

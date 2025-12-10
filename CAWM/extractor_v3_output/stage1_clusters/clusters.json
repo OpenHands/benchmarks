@@ -1,0 +1,92 @@
+{
+  "ORM and Query/Model Behavior Bugs": {
+    "description": "Issues in Django ORM related to query composition, ordering, relations, inheritance, and expression handling.",
+    "instance_ids": [
+      "django__django-12284",
+      "django__django-12470",
+      "django__django-12497",
+      "django__django-13033",
+      "django__django-13158",
+      "django__django-13590",
+      "django__django-14017",
+      "django__django-14672",
+      "django__django-15814"
+    ]
+  },
+  "Forms and Formsets Behavior and Rendering": {
+    "description": "Problems and enhancements related to forms, formsets, validation messages, and rendering.",
+    "instance_ids": [
+      "django__django-13315",
+      "django__django-13933",
+      "django__django-14608",
+      "django__django-15902",
+      "django__django-16041"
+    ]
+  },
+  "Admin and Autocomplete Features": {
+    "description": "Admin site bugs and enhancements including inline defaults, autocomplete responses, context, and auth admin links.",
+    "instance_ids": [
+      "django__django-13447",
+      "django__django-13710",
+      "django__django-14752",
+      "django__django-16139"
+    ]
+  },
+  "HTTP and URL Handling": {
+    "description": "Parsing and handling of HTTP headers and URL routing/view parameter issues.",
+    "instance_ids": [
+      "django__django-11848",
+      "django__django-12184",
+      "django__django-15498"
+    ]
+  },
+  "Migrations and Schema Operations": {
+    "description": "Bugs in migration generation and execution, including operations conflicts and code generation.",
+    "instance_ids": [
+      "django__django-12125",
+      "django__django-12708",
+      "django__django-14580"
+    ]
+  },
+  "Developer Tooling (CLI, Devserver, Introspection)": {
+    "description": "Issues in developer tools such as management commands, dbshell, startapp, inspectdb, and autoreloader.",
+    "instance_ids": [
+      "django__django-11583",
+      "django__django-13658",
+      "django__django-14382",
+      "django__django-15851",
+      "django__django-15819"
+    ]
+  },
+  "Security and Authentication": {
+    "description": "Security-related issues and authentication flows, including settings sanitization and password reset tokens.",
+    "instance_ids": [
+      "django__django-12700",
+      "django__django-13551"
+    ]
+  },
+  "Testing Framework and Transactions": {
+    "description": "Test case and database transaction/rollback issues in the test framework.",
+    "instance_ids": [
+      "django__django-12453"
+    ]
+  },
+  "Core Utilities, System Checks, and Supporting Frameworks": {
+    "description": "Core helpers and checks including decorators, LazyObject behavior, configuration validation, template utilities, and messages storage.",
+    "instance_ids": [
+      "django__django-12286",
+      "django__django-14238",
+      "django__django-14787",
+      "django__django-15347",
+      "django__django-15400",
+      "django__django-15789",
+      "django__django-15790"
+    ]
+  },
+  "Miscellaneous and Less Common Frameworks": {
+    "description": "Tasks that don't fit well into other clusters, e.g., syndication framework enhancement.",
+    "instance_ids": [
+      "django__django-13230"
+    ]
+  }
+}

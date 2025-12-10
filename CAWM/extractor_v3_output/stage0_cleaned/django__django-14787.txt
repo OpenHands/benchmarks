@@ -1,0 +1,158 @@
+PROBLEM: method_decorator() should preserve wrapper assignments. When applied to methods, Django’s method_decorator passes a functools.partial object to the decorator. Since partial objects lack function attributes like __name__ and __module__, decorators that rely on these attributes (e.g., via functools.wraps or direct access) raise AttributeError: 'functools.partial' object has no attribute '__name__'.
+
+Action 1
+Reasoning: Clarify the core issue: method_decorator returns a partial lacking function attributes, breaking decorators that expect standard function metadata. Plan to locate Django’s method_decorator implementation and assess how it binds methods.
+Action: Internal analysis of the problem and expected behavior.
+
+Action 2
+Reasoning: Identify where decorators and utilities are implemented in Django to find method_decorator. Start with a filesystem search scoped to utils/decorator modules.
+Action: find /workspace/django -type f -name "*.py" | grep -E "(decorator|util)" | head -20
+
+Action 3
+Reasoning: Directly search for method_decorator in the codebase to locate its definition. This will guide subsequent code inspection and fixes.
+Action: find /workspace/django -type f -name "*.py" -exec grep -l "method_decorator" {} \; | head -20
+
+Action 4
+Reasoning: If file listing isn’t sufficient, grep through Python files to pinpoint occurrences and references of method_decorator. This helps locate the exact file for inspection.
+Action: grep -r "method_decorator" /workspace/django --include="*.py" | head -20
+
+Action 5
+Reasoning: Navigate to the utils package where decorators are typically defined. Prepare to open the decorators file for review.
+Action: Open directory for inspection: view /workspace/django/django/utils
+
+Action 6
+Reasoning: Inspect the implementation of method_decorator within Django utils to understand how it binds methods and applies decorators. Look for partial usage.
+Action: View file: /workspace/django/django/utils/decorators.py
+
+Action 7
+Reasoning: Check for tests around decorators to understand current expected behavior and potential edge cases. This informs regression risk.
+Action: find /workspace/django -type f -name "*test*decorator*.py" -o -name "test_decorators.py"
+
+Action 8
+Reasoning: Open utils-specific decorators tests to see how method_decorator is used and validated. This helps to align fixes with test expectations.
+Action: View file: /workspace/django/tests/utils_tests/test_decorators.py
+
+Action 9
+Reasoning: Search the test suite for usages of method_decorator to evaluate coverage and ensure compatibility after the fix. 
+Action: grep -r "method_decorator" /workspace/django/tests --include="*.py" | head -30
+
+Action 10
+Reasoning: Inspect decorators tests further for patterns and integration details that might be affected. 
+Action: View file: /workspace/django/tests/decorators/tests.py
+
+Action 11
+Reasoning: Create a minimal reproduction to confirm the reported AttributeError and validate the fix locally. Use a decorator that accesses func.__name__.
+Action: Create file /workspace/reproduce_issue.py with a TestClass using @method_decorator(logger) and logger printing func.__name__.
+
+Action 12
+Reasoning: Run the reproduction script to verify the failure occurs as reported. Confirm baseline behavior before changes.
+Action: cd /workspace && python reproduce_issue.py
+
+Action 13
+Reasoning: Analyze the code path: _multi_decorate uses partial(method.__get__(...)), which strips function metadata. Replace partial with a real function wrapper and copy attributes via update_wrapper.
+Action: Internal analysis of the decorators.py implementation and plan for fix.
+
+Action 14
+Reasoning: Open the specific section of decorators.py around _multi_decorate to target the change precisely. Confirm placement and logic.
+Action: View /workspace/django/django/utils/decorators.py (lines 22–51)
+
+Action 15
+Reasoning: Implement the fix by replacing the partial with a wrapper function that retains attributes via update_wrapper, then pass this wrapper through decorators. This preserves __name__ and others.
+Action: Modify /workspace/django/django/utils/decorators.py
+- Changed inside _multi_decorate’s _wrapper:
+  - Before: bound_method = partial(method.__get__(self, type(self)))
+  - After:
+    - bound_method = method.__get__(self, type(self))
+    - def bound_method_wrapper(*args2, **kwargs2): return bound_method(*args2, **kwargs2)
+    - update_wrapper(bound_method_wrapper, method)
+    - Pass bound_method_wrapper through decorators
+
+Action 16
+Reasoning: Re-run the reproduction script to confirm the fix resolves the AttributeError and preserves func.__name__ during decoration.
+Action: cd /workspace && python reproduce_issue.py
+
+Action 17
+Reasoning: Run pytest on decorators tests to ensure no regressions and validate compatibility. Start with focused tests if available.
+Action: cd /workspace/django && python -m pytest tests/decorators/tests.py -xvs
+
+Action 18
+Reasoning: Use Django’s test runner to execute the decorators test suite for broader verification. 
+Action: cd /workspace/django && python tests/runtests.py decorators.tests -v 2
+
+Action 19
+Reasoning: Activate the provided test environment and re-run the decorators tests to avoid environment issues. 
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /workspace/django && python tests/runtests.py decorators.tests -v 2
+
+Action 20
+Reasoning: Run utils decorators tests to check utilities integration and ensure method_decorator behavior across modules remains intact.
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /workspace/django && python tests/runtests.py utils_tests.test_decorators -v 2
+
+Action 21
+Reasoning: Create a comprehensive test script covering attribute preservation, normal and error flows, multiple decorators, and class-level application. This validates robustness of the fix.
+Action: Create file /workspace/test_comprehensive.py with tests:
+- capturing_decorator reads __name__, __module__, __doc__, __qualname__
+- logger decorator accessing func.__name__
+- multiple decorators call order
+- class-level decoration via method_decorator(..., name="...")
+
+Action 22
+Reasoning: Execute the comprehensive tests to validate the fix across scenarios and ensure function attributes are preserved during decoration.
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python /workspace/test_comprehensive.py
+
+Action 23
+Reasoning: Adjust the logger test to rethrow exceptions and log in except rather than finally, ensuring accurate error semantics. Update the test expectations accordingly.
+Action: Modify /workspace/test_comprehensive.py
+- Changed logger decorator:
+  - Before (finally logging, swallowing exception into string)
+  - After (log in try on success; log in except on error; re-raise)
+  - Example:
+    - except Exception as e:
+      - result = str(e)
+      - msg = f"{func.__name__} ... raised: {result}"
+      - log_messages.append(msg)
+      - raise
+
+Action 24
+Reasoning: Re-run the comprehensive test to confirm the corrected error handling and that attribute preservation still holds. 
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python /workspace/test_comprehensive.py
+
+Action 25
+Reasoning: Execute a broader decorators test suite to catch any subtle regressions introduced by the change. 
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /workspace/django && python tests/runtests.py decorators --verbosity=2
+
+Action 26
+Reasoning: Run utils decorators and views debug tests to check integration points beyond the utils package. 
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /workspace/django && python tests/runtests.py utils_tests.test_decorators views.tests.test_debug --verbosity=2
+
+Action 27
+Reasoning: Correct test module naming and re-run to avoid discovery issues. Keep focus on utils tests as the change targets decorators.
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /workspace/django && python tests/runtests.py utils_tests.test_decorators view_tests.test_debug --verbosity=2
+
+Action 28
+Reasoning: Re-run utils decorators tests to validate stability and confirm no issues with method_decorator after the fix.
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /workspace/django && python tests/runtests.py utils_tests.test_decorators --verbosity=2
+
+Action 29
+Reasoning: Check auth decorators tests for any implicit reliance on method_decorator behavior. This broadens confidence in the change.
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /workspace/django && python tests/runtests.py auth_tests.test_decorators --verbosity=2
+
+Action 30
+Reasoning: Add a final minimal script matching the exact issue description to demonstrate the bug is fixed in its original form. 
+Action: Create file /workspace/test_exact_issue.py with:
+- logger using @wraps and printing func.__name__
+- class Test with @method_decorator(logger) on hello_world
+
+Action 31
+Reasoning: Run the exact-issue script to confirm the AttributeError no longer occurs and that the method returns correctly with logging. 
+Action: source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python /workspace/test_exact_issue.py
+
+Summary of the Fix:
+- In django/utils/decorators.py within _multi_decorate, replaced usage of functools.partial with a real function wrapper bound to self and copied attributes from the original method via update_wrapper.
+- Example change:
+  - Before: bound_method = partial(method.__get__(self, type(self)))
+  - After:
+    - bound_method = method.__get__(self, type(self))
+    - def bound_method_wrapper(*args2, **kwargs2): return bound_method(*args2, **kwargs2)
+    - update_wrapper(bound_method_wrapper, method)
+    - bound_method_wrapper = dec(bound_method_wrapper) for each decorator
+- This preserves function metadata (__name__, __module__, __doc__, etc.) for decorators, resolving the AttributeError.

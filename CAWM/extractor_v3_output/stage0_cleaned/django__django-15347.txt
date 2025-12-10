@@ -1,0 +1,191 @@
+PROBLEM: Django’s messages framework serializes/deserializes Message.extra_tags incorrectly when it’s an empty string. Specifically, extra_tags == "" becomes None after a serialize/deserialize cycle because MessageEncoder uses a truthiness check instead of checking for None. This breaks template code like "{% if x not in message.extra_tags %}" when messages are passed through storage backends (e.g., during redirects), since None doesn’t support membership checks. All standard API helpers default extra_tags to "".
+
+Action 1
+Reasoning: Establish understanding of the bug, its reproduction steps, and identify likely locations (Message, MessageEncoder/Decoder in messages storage).
+Action: Internal planning; no external command executed.
+
+Action 2
+Reasoning: Locate message storage code to inspect the encoder/decoder implementations.
+Action: find /workspace/django -type f -name "*.py" | grep -E "messages.*storage" | head -20
+
+Action 3
+Reasoning: Open the cookie storage backend to review MessageEncoder/MessageDecoder logic.
+Action: Opened file for inspection: /workspace/django/django/contrib/messages/storage/cookie.py
+
+Action 4
+Reasoning: Review the Message class to confirm constructor defaults and parameters.
+Action: Opened file for inspection: /workspace/django/django/contrib/messages/storage/base.py
+
+Action 5
+Reasoning: Identify any existing tests that may cover this area.
+Action: find /workspace/django -type f -name "*.py" -path "*/messages/tests/*" | head -10
+
+Action 6
+Reasoning: Search for references to MessageEncoder/MessageDecoder across the codebase.
+Action: find /workspace/django -type f -name "*.py" | xargs grep -l "MessageEncoder\|MessageDecoder" | head -10
+
+Action 7
+Reasoning: Inspect cookie storage tests to understand current coverage and behavior.
+Action: Opened file for inspection: /workspace/django/tests/messages_tests/test_cookie.py
+
+Action 8
+Reasoning: Create a reproduction script to validate the bug with empty string, None, and non-empty extra_tags.
+Action: Created /workspace/test_reproduction.py with minimal Django setup and three checks (empty string, None, value). Example snippet:
+- original = Message(10, "Here is a message", extra_tags="")
+- encoded = MessageEncoder().encode(original)
+- decoded = MessageDecoder().decode(encoded)
+- print(decoded.extra_tags is None)
+
+Action 9
+Reasoning: Run the reproduction script to observe the bug.
+Action: cd /workspace && python test_reproduction.py
+
+Action 10
+Reasoning: Fix import path issues to ensure the script can import Django.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python /workspace/test_reproduction.py
+
+Action 11
+Reasoning: Install the local Django package to ensure proper imports.
+Action: cd /workspace/django && pip install -e .
+
+Action 12
+Reasoning: Re-run the reproduction after installation to confirm the bug.
+Action: cd /workspace/django && python /workspace/test_reproduction.py
+
+Action 13
+Reasoning: Adjust settings and setup order to satisfy Django initialization requirements.
+Action: Edited /workspace/test_reproduction.py (reordered settings.configure and django.setup).
+
+Action 14
+Reasoning: Ensure settings are configured before importing Django modules and adjust sys.path.
+Action: Edited /workspace/test_reproduction.py to set sys.path and call django.setup only after configuring settings.
+
+Action 15
+Reasoning: Try a minimal inline Python check to isolate the encoder/decoder behavior.
+Action: cd /workspace && PYTHONPATH=/workspace/django python -c "from django.contrib.messages.storage.base import Message; from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder; original_message = Message(10, 'Here is a message', extra_tags=''); encoded_message = MessageEncoder().encode(original_message); decoded_message = MessageDecoder().decode(encoded_message); print(decoded_message.extra_tags is None)"
+
+Action 16
+Reasoning: Ensure INSTALLED_APPS includes messages and configure settings before any Django import.
+Action: Edited /workspace/test_reproduction.py to set INSTALLED_APPS=['django.contrib.messages'] and validate setup order.
+
+Action 17
+Reasoning: Run the reproduction script again to confirm current behavior.
+Action: cd /workspace/django && python /workspace/test_reproduction.py
+
+Action 18
+Reasoning: Analyze and confirm root cause: truthiness check skips empty strings; must check for None explicitly.
+Action: Internal planning; no external command executed.
+
+Action 19
+Reasoning: Implement the fix by changing the encoder condition to preserve empty strings.
+Action: Edited /workspace/django/django/contrib/messages/storage/cookie.py
+- Change:
+  - if obj.extra_tags:
+  - to:
+  - if obj.extra_tags is not None:
+
+Action 20
+Reasoning: Verify the fix by re-running the reproduction script.
+Action: cd /workspace/django && python /workspace/test_reproduction.py
+
+Action 21
+Reasoning: Prepare to run existing Django tests focused on messages.
+Action: find /workspace/django/tests -name "*message*" -type d
+
+Action 22
+Reasoning: Attempt to run pytest for the cookie storage tests directly.
+Action: cd /workspace/django && python -m pytest tests/messages_tests/test_cookie.py -xvs
+
+Action 23
+Reasoning: Use Django’s test runner for greater compatibility with the test suite.
+Action: cd /workspace/django && python tests/runtests.py messages_tests.test_cookie -v 2
+
+Action 24
+Reasoning: Run the broader messages_tests suite to ensure no regressions.
+Action: cd /workspace/django && python tests/runtests.py messages_tests -v 1
+
+Action 25
+Reasoning: Inspect SessionStorage to confirm shared behavior and potential impact of fix.
+Action: Opened file for inspection: /workspace/django/django/contrib/messages/storage/session.py
+
+Action 26
+Reasoning: Create a comprehensive test to validate encoder/decoder, cookie/session storages, and API behavior.
+Action: Created /workspace/test_comprehensive.py with multiple tests. Example snippets:
+- Direct encoder/decoder check for extra_tags="" preserved.
+- CookieStorage cycle adding storage.add(10, "msg", extra_tags="") and verifying retrieved extra_tags == "".
+- SessionStorage cycle with "", None, and "important" tags.
+
+Action 27
+Reasoning: Run the comprehensive test suite to validate end-to-end scenarios.
+Action: cd /workspace/django && python /workspace/test_comprehensive.py
+
+Action 28
+Reasoning: Improve cookie test robustness by confirming the message cookie is set before proceeding.
+Action: Edited /workspace/test_comprehensive.py to check:
+- if storage.cookie_name not in response.cookies: fail early
+
+Action 29
+Reasoning: Avoid marking messages as used before storing; store messages explicitly.
+Action: Edited /workspace/test_comprehensive.py CookieStorage test to:
+- storage._prepare_messages(storage._queued_messages)
+- messages_to_store = storage._loaded_messages + storage._queued_messages
+- storage._store(messages_to_store, response)
+
+Action 30
+Reasoning: Re-run the comprehensive test after adjustments.
+Action: cd /workspace/django && python /workspace/test_comprehensive.py
+
+Action 31
+Reasoning: Run existing session tests via Django’s test runner for confidence.
+Action: cd /workspace/django && python tests/runtests.py messages_tests.test_session -v 2
+
+Action 32
+Reasoning: Create a final, focused verification script covering the original bug, cookie cycle, template scenario, and edge cases.
+Action: Created /workspace/test_final.py. Example snippets:
+- Original bug: encode/decode with extra_tags="" and assert equality.
+- Template scenario: "important" not in decoded.extra_tags executes without TypeError.
+- Edge cases: "", None, " ", "tag1 tag2", "error".
+
+Action 33
+Reasoning: Run the final verification suite to demonstrate the fix clearly.
+Action: cd /workspace/django && python /workspace/test_final.py
+
+Action 34
+Reasoning: Run all messages tests again to ensure stability.
+Action: cd /workspace/django && python tests/runtests.py messages_tests -v 1
+
+Action 35
+Reasoning: Document the fix, root cause, and test coverage for maintainers and reviewers.
+Action: Created /workspace/FIX_SUMMARY.md summarizing the change and its impact; included before/after snippet:
+- Before: if obj.extra_tags:
+- After:  if obj.extra_tags is not None:
+
+Action 36
+Reasoning: Perform a final minimal inline verification of the exact bug report scenario.
+Action: cd /workspace && python -c "
+from django.conf import settings
+settings.configure(DEBUG=True, SECRET_KEY='test-key', USE_TZ=True, INSTALLED_APPS=['django.contrib.messages'])
+import django; django.setup()
+from django.contrib.messages.storage.base import Message
+from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder
+original = Message(10, 'Here is a message', extra_tags='')
+decoded = MessageDecoder().decode(MessageEncoder().encode(original))
+print(decoded.extra_tags == '')
+"
+
+Action 37
+Reasoning: Ensure the inline verification runs with the correct PYTHONPATH when needed.
+Action: cd /workspace && PYTHONPATH=/workspace/django python -c "...same check as above..."
+
+Action 38
+Reasoning: Visually confirm the code change is in place in the encoder implementation.
+Action: Opened /workspace/django/django/contrib/messages/storage/cookie.py (lines 17–25) to verify:
+- if obj.extra_tags is not None: (present)
+
+Action 39
+Reasoning: Final run of the messages test suite to validate no regressions.
+Action: cd /workspace/django && python tests/runtests.py messages_tests --parallel=1 -v 0
+
+Action 40
+Reasoning: Provide a concise resolution summary emphasizing the minimal change, correctness, and test coverage.
+Action: Finalized report noting the fix (truthiness to explicit None check), tests passed, and impact on CookieStorage/SessionStorage and templates.

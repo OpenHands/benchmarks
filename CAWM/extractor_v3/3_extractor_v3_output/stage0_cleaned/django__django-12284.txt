@@ -1,0 +1,359 @@
+PROBLEM: Model.get_FOO_display() does not work correctly with inherited choices. An abstract base model defines a CharField with choices [("A","output1"),("B","output2")]. A child model overrides that field with extended choices [("A","output1"),("B","output2"),("C","output3")]. On the child instance, get_field_foo_display() returns the correct labels for "A" and "B" but returns "C" (raw value) instead of "output3" for the new choice.
+
+Action 1
+Reasoning: Start by locating the repository and establishing context.
+Action: pwd
+
+Action 2
+Reasoning: Move into the Django source tree to explore files and tests.
+Action: cd /workspace/django && pwd && ls -la
+
+Action 3
+Reasoning: Plan approach: find how get_FOO_display() is implemented and how choices are bound to fields during model class construction.
+Action: No external action (thinking phase)
+
+Action 4
+Reasoning: Inspect the tests layout to see if similar scenarios exist.
+Action: ls -la tests/
+
+Action 5
+Reasoning: Search for tests around model inheritance and choices to guide reproduction.
+Action: find tests -name "*.py" | grep -E "(model_inheritance|choice)" | head -20
+
+Action 6
+Reasoning: Locate the implementation of get_FOO_display().
+Action: grep -r "get_.*_display" --include="*.py" django/ | head -20
+
+Action 7
+Reasoning: Identify where model-level display helpers are wired.
+Action: find django/db/models -name "*.py" -exec grep -l "get_.*_display" {} \;
+
+Action 8
+Reasoning: Open models package to navigate quickly to relevant files.
+Action: View directory: /workspace/django/django/db/models
+
+Action 9
+Reasoning: Open the Model base class to find display resolution logic.
+Action: View file: /workspace/django/django/db/models/base.py
+
+Action 10
+Reasoning: Jump directly to the private display helper.
+Action: grep -n "_get_FIELD_display" django/db/models/base.py
+
+Action 11
+Reasoning: Inspect how the display value is computed; verify it uses field choices.
+Action: View /workspace/django/django/db/models/base.py lines 940-960
+Example snippet:
+- def _get_FIELD_display(self, field):
+-     value = getattr(self, field.attname)
+-     choices_dict = dict(make_hashable(field.flatchoices))
+-     return force_str(choices_dict.get(make_hashable(value), value), strings_only=True)
+
+Action 12
+Reasoning: Find where get_<field>_display methods are attached to model classes.
+Action: grep -n "get_%s_display" django/db/models/fields/__init__.py | head -20
+
+Action 13
+Reasoning: Examine Field.contribute_to_class where methods are added.
+Action: View /workspace/django/django/db/models/fields/__init__.py lines 760-780
+Example snippet (before fix):
+- if self.choices is not None:
+-     if not hasattr(cls, 'get_%s_display' % self.name):
+-         setattr(cls, 'get_%s_display' % self.name, partialmethod(cls._get_FIELD_display, field=self))
+
+Action 14
+Reasoning: Confirm contribute_to_class logic and inheritance nuances.
+Action: grep -n "contribute_to_class" django/db/models/fields/__init__.py | head -20
+
+Action 15
+Reasoning: Re-open the exact block to ensure accurate understanding.
+Action: View /workspace/django/django/db/models/fields/__init__.py lines 750-773
+
+Action 16
+Reasoning: Search for existing tests invoking get_.*_display.
+Action: find tests -name "*.py" -exec grep -l "get_.*_display" {} \; | head -10
+
+Action 17
+Reasoning: Retry search with different grep invocation to capture usage.
+Action: grep -r "get_.*_display" tests/ --include="*.py" | head -20
+
+Action 18
+Reasoning: Review model_fields tests for patterns around choices and display.
+Action: View directory: /workspace/django/tests/model_fields
+
+Action 19
+Reasoning: Open tests to see how display is covered.
+Action: View file: /workspace/django/tests/model_fields/tests.py
+
+Action 20
+Reasoning: Inspect models used in model_fields tests for choices setup.
+Action: View file: /workspace/django/tests/model_fields/models.py
+
+Action 21
+Reasoning: Check model_inheritance tests for related scenarios.
+Action: ls tests/model_inheritance/
+
+Action 22
+Reasoning: Open inheritance models to assess overriding patterns.
+Action: View file: /workspace/django/tests/model_inheritance/models.py
+
+Action 23
+Reasoning: Search for field overriding mentions.
+Action: grep -r "field.*override" tests/model_inheritance/ --include="*.py" | head -20
+
+Action 24
+Reasoning: Try to list model class defs to understand structure.
+Action: grep -rn "class.*Model.*models.Model" tests/model_inheritance/ --include="*.py" | head -20
+
+Action 25
+Reasoning: Create a minimal script to reproduce the issue outside the test suite.
+Action: Create /workspace/test_reproduction.py (standalone script defining BaseModel (abstract) and ChildModel overriding choices; prints display values)
+
+Action 26
+Reasoning: Execute the reproduction script to observe the bug.
+Action: chmod +x /workspace/test_reproduction.py && python /workspace/test_reproduction.py
+
+Action 27
+Reasoning: Fix import path/setup so the script uses the local Django source.
+Action: Edit /workspace/test_reproduction.py to chdir into '/workspace/django' and add sys.path.
+Example change:
+- Added: os.chdir('/workspace/django'); sys.path.insert(0, '/workspace/django')
+
+Action 28
+Reasoning: Retry running the reproduction script with corrected path.
+Action: python /workspace/test_reproduction.py
+
+Action 29
+Reasoning: Try running an existing test via pytest for a quick signal.
+Action: cd /workspace/django && python -m pytest tests/model_fields/tests.py::GetFieldDisplayTests::test_choices_and_field_display -xvs
+
+Action 30
+Reasoning: Verify Django import by printing version to ensure environment placement.
+Action: cd /workspace/django && python -c "import sys; sys.path.insert(0, '.'); import django; print(django.VERSION)"
+
+Action 31
+Reasoning: Create a Django TestCase-style script to run minimal tests directly.
+Action: Create /workspace/django/test_inheritance_display.py (abstract base and child; asserts expected display values)
+
+Action 32
+Reasoning: Run the test file; resolve missing deps as they appear.
+Action: cd /workspace/django && python test_inheritance_display.py
+
+Action 33
+Reasoning: Install required dependency asgiref.
+Action: pip install asgiref
+
+Action 34
+Reasoning: Retry the test after installing dependency.
+Action: cd /workspace/django && python test_inheritance_display.py
+
+Action 35
+Reasoning: Install other known Django dependencies.
+Action: pip install pytz sqlparse
+
+Action 36
+Reasoning: Run the test again to see next error.
+Action: cd /workspace/django && python test_inheritance_display.py
+
+Action 37
+Reasoning: Ensure settings are configured before importing models in the test.
+Action: Edit /workspace/django/test_inheritance_display.py to configure settings prior to model imports.
+Example change:
+- Moved settings.configure(...) and django.setup() before: "from django.db import models"
+
+Action 38
+Reasoning: Retry the test script.
+Action: cd /workspace/django && python test_inheritance_display.py
+
+Action 39
+Reasoning: Create a minimal app to hold models for tests.
+Action: Create directory /workspace/django/myapp and file myapp/__init__.py
+
+Action 40
+Reasoning: Ensure the app directory exists in repo.
+Action: cd /workspace/django && mkdir -p myapp && touch myapp/__init__.py
+
+Action 41
+Reasoning: Define the BaseModel and ChildModel in a reusable app module.
+Action: Create /workspace/django/myapp/models.py (abstract BaseModel with choices A/B; ChildModel overrides with A/B/C)
+
+Action 42
+Reasoning: Create a simple script that prints display outputs to confirm the bug and later the fix.
+Action: Create /workspace/django/test_display_bug.py (configures Django, imports myapp.ChildModel, asserts display for A/B, checks display for C)
+
+Action 43
+Reasoning: Run the bug-display script to confirm current behavior.
+Action: cd /workspace/django && python test_display_bug.py
+
+Action 44
+Reasoning: Analyze root cause: get_<field>_display is bound in parent via hasattr gate; child inherits that bound method, so child's extended choices are ignored.
+Action: No external action (analysis)
+
+Action 45
+Reasoning: Re-open contribute_to_class to apply a code change.
+Action: View /workspace/django/django/db/models/fields/__init__.py lines 750-773
+
+Action 46
+Reasoning: Implement an initial fix: always set the display method when choices exist (remove hasattr check).
+Action: Edit /workspace/django/django/db/models/fields/__init__.py
+Example change:
+- Before:
+  if self.choices is not None:
+      if not hasattr(cls, 'get_%s_display' % self.name):
+          setattr(cls, 'get_%s_display' % self.name, partialmethod(cls._get_FIELD_display, field=self))
+- After:
+  if self.choices is not None:
+      setattr(cls, 'get_%s_display' % self.name, partialmethod(cls._get_FIELD_display, field=self))
+
+Action 47
+Reasoning: Test the initial fix on the simple reproduction script.
+Action: cd /workspace/django && python test_display_bug.py
+
+Action 48
+Reasoning: Add comprehensive scenarios, including multiple inheritance levels and manual overrides, to validate behavior.
+Action: Create /workspace/django/test_comprehensive_display.py (several abstract inheritance cases; initially also included invalid concrete override)
+
+Action 49
+Reasoning: Run comprehensive tests; observe that manual overrides could be clobbered and concrete override is invalid in Django.
+Action: cd /workspace/django && python test_comprehensive_display.py
+
+Action 50
+Reasoning: Remove the concrete (non-abstract) override scenario since Django doesn’t allow it.
+Action: Edit /workspace/django/test_comprehensive_display.py to remove ConcreteBaseModel/ConcreteChildModel block.
+Example change:
+- Replaced the concrete inheritance scenario with a comment explaining its invalidity.
+
+Action 51
+Reasoning: Re-run tests but still preserve manual get_FOO_display overrides; the “always set” fix overwrites them.
+Action: cd /workspace/django && python test_comprehensive_display.py
+
+Action 52
+Reasoning: Refine the fix to preserve explicit user overrides while still overriding inherited methods in child classes.
+Action: Edit /workspace/django/django/db/models/fields/__init__.py
+Example change (final fix):
+- Replaced logic with:
+  method_name = 'get_%s_display' % self.name
+  if method_name not in cls.__dict__:
+      setattr(cls, method_name, partialmethod(cls._get_FIELD_display, field=self))
+
+Action 53
+Reasoning: Validate refined fix across comprehensive scenarios.
+Action: cd /workspace/django && python test_comprehensive_display.py
+
+Action 54
+Reasoning: Re-verify original bug reproduction passes with the refined fix.
+Action: cd /workspace/django && python test_display_bug.py
+
+Action 55
+Reasoning: Run Django’s specific tests for GetFieldDisplay to ensure no regressions.
+Action: cd /workspace/django && python tests/runtests.py model_fields.tests.GetFieldDisplayTests --verbosity=2
+
+Action 56
+Reasoning: Adjust path and run the full model_fields test suite for broader coverage.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py model_fields --verbosity=1 2>&1 | tail -40
+
+Action 57
+Reasoning: Run model_inheritance tests to ensure inheritance behavior is intact.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py model_inheritance --verbosity=1 2>&1 | tail -40
+
+Action 58
+Reasoning: Run model_forms tests since they also use choices handling.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py model_forms --verbosity=1 2>&1 | tail -20
+
+Action 59
+Reasoning: Create a Django TestCase file that mirrors the bug scenario and adds multi-level inheritance and manual override preservation.
+Action: Create /workspace/django/test_inheritance_choices.py (TestCase with abstract inheritance, multi-level, and manual override tests)
+
+Action 60
+Reasoning: Run the new test file; address any settings/model setup issues.
+Action: cd /workspace/django && python test_inheritance_choices.py
+
+Action 61
+Reasoning: Ensure Django settings are configured before model declarations in the test file.
+Action: Edit /workspace/django/test_inheritance_choices.py to configure settings and call django.setup() first.
+Example change:
+- Added settings.configure(...) and django.setup() before importing models.
+
+Action 62
+Reasoning: Inspect test file for further adjustments required (app labels).
+Action: View /workspace/django/test_inheritance_choices.py lines 140-180
+
+Action 63
+Reasoning: Retry running the adjusted test file.
+Action: cd /workspace/django && python test_inheritance_choices.py
+
+Action 64
+Reasoning: Add app_label to Meta for test models to avoid app registration issues.
+Action: Edit /workspace/django/test_inheritance_choices.py to add app_label='test_app' in Meta for BaseModel/ChildModel.
+Example change:
+- class Meta: abstract = True; app_label = 'test_app'
+
+Action 65
+Reasoning: Add app_label to all other relevant abstract test models.
+Action: Edit /workspace/django/test_inheritance_choices.py adding app_label='test_app' for MultiLevel* and ManualDisplay* classes.
+
+Action 66
+Reasoning: Consider INSTALLED_APPS updates (no change needed due to app_label usage).
+Action: No-op change; settings remained as-is.
+
+Action 67
+Reasoning: Re-run the test file to ensure all assertions pass.
+Action: cd /workspace/django && python test_inheritance_choices.py
+
+Action 68
+Reasoning: Run inheritance regression test suites as a final check.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py model_inheritance model_inheritance_regress --verbosity=1 2>&1 | tail -10
+
+Action 69
+Reasoning: Run a basic test suite subset for sanity.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py basic --verbosity=1 2>&1 | tail -10
+
+Action 70
+Reasoning: Write a human-readable summary of the fix and test coverage.
+Action: Create /workspace/FIX_SUMMARY.md (explains root cause, final code change, and testing results)
+
+Action 71
+Reasoning: Run all custom tests in one go to confirm consistent success.
+Action: cd /workspace/django && echo "Test 1: Original bug reproduction" && python test_display_bug.py && echo -e "\nTest 2: Comprehensive tests" && python test_comprehensive_display.py && echo -e "\nTest 3: Django-style test" && python test_inheritance_choices.py 2>&1 | grep -A 50 "Ran"
+
+Action 72
+Reasoning: Re-open the changed code section to verify the final state.
+Action: View /workspace/django/django/db/models/fields/__init__.py lines 760-780
+
+Action 73
+Reasoning: Check for existing tests around inherited choices to ensure we aren’t overlapping or missing similar cases.
+Action: cd /workspace/django && grep -r "inherit.*choice" tests/ --include="*.py" | grep -i display
+
+Action 74
+Reasoning: Broadly scan for abstract choices usage in tests.
+Action: cd /workspace/django && grep -r "abstract.*choice" tests/ --include="*.py" | head -20
+
+Action 75
+Reasoning: Write a final exact reproduction that mirrors the issue description verbatim to demonstrate the fix clearly.
+Action: Create /workspace/django/test_exact_issue.py (abstract A with A/B; child B adds C; asserts A->output1, B->output2, C->output3)
+
+Action 76
+Reasoning: Run the exact-issue script to confirm the fix matches the reported behavior.
+Action: cd /workspace/django && python test_exact_issue.py
+
+Action 77
+Reasoning: Summarize the fix, root cause, final code change, and test outcomes.
+Action: Provided final summary (no code changes)
+
+Key Code Change (final)
+- File: django/db/models/fields/__init__.py (in Field.contribute_to_class)
+- Change:
+  - Before:
+    if self.choices is not None:
+        if not hasattr(cls, 'get_%s_display' % self.name):
+            setattr(cls, 'get_%s_display' % self.name, partialmethod(cls._get_FIELD_display, field=self))
+  - After:
+    if self.choices is not None:
+        method_name = 'get_%s_display' % self.name
+        if method_name not in cls.__dict__:
+            setattr(cls, method_name, partialmethod(cls._get_FIELD_display, field=self))
+
+Outcome
+- get_FOO_display() now correctly uses the child's overridden field choices (e.g., returns "output3" for value "C").
+- Preserves manual user overrides of get_FOO_display().
+- All related Django test suites pass (model_fields, model_inheritance, model_forms), plus custom verification scripts.

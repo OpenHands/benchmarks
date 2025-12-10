@@ -1,0 +1,206 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Ensuring RFC-Compliant HTTP Date Parsing and Boundary Logic",
+      "description": "Identify and fix protocol compliance issues in HTTP date parsing (e.g., RFC 7231 two-digit year handling) while preserving existing behavior for other formats.",
+      "steps": [
+        "Step 1: Review the specification or bug report to understand the expected behavior and identify the target utility (e.g., parse_http_date) and affected formats (RFC1123, RFC850, asctime).",
+        "Step 2: Locate the implementation and related tests to understand current behavior and constraints.",
+        "Step 3: Create a minimal test harness to reproduce current behavior across formats and boundary conditions (e.g., \u226450 vs >50 years ahead for RFC850).",
+        "Step 4: Implement the logic fix with minimal changes (e.g., dynamic two-digit year mapping based on the current year) without affecting unrelated formats.",
+        "Step 5: Add comprehensive boundary and cross-format tests to validate behavior (including exact 50-year boundary and four-digit year cases).",
+        "Step 6: Run Django\u2019s relevant test suites (e.g., utils_tests.test_http) and any custom scripts to verify correctness and guard against regressions.",
+        "Step 7: Ensure parse_http_date_safe and other public helpers retain their contract and document changes for maintainers."
+      ],
+      "source_trajectories": [
+        "django__django-11848",
+        "django__django-15498"
+      ]
+    },
+    {
+      "name": "Debugging URL Resolver Argument Handling with Optional Groups",
+      "description": "Resolve issues where optional URL parameters cause incorrect positional arguments or TypeErrors when invoking views.",
+      "steps": [
+        "Step 1: Build a minimal reproducible example using a URLConf with re_path and optional named groups to trigger the failing behavior.",
+        "Step 2: Inspect django/urls/resolvers.py to understand how match results are converted into args and kwargs, noting how named groups override positional groups.",
+        "Step 3: Identify None values from optional groups being passed as positional args and plan to filter them out or adjust logic as needed.",
+        "Step 4: Implement a minimal, targeted fix (e.g., drop None from positional args, keep args empty when kwargs exist) without altering documented resolver behavior.",
+        "Step 5: Re-run the reproducer and Django\u2019s URL-related test suites (e.g., urlpatterns_reverse) to ensure the fix works and no regressions are introduced.",
+        "Step 6: Validate adjacent components (e.g., RoutePattern/path) are unaffected and document the change."
+      ],
+      "source_trajectories": [
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Restoring Backward-Compatible Handling of HTTP Headers in Views",
+      "description": "Recover behavior where empty or invalid HTTP headers (e.g., If-Modified-Since) should be ignored rather than causing exceptions.",
+      "steps": [
+        "Step 1: Reproduce the issue with a minimal script using RequestFactory or direct function calls to the affected view helper (e.g., was_modified_since).",
+        "Step 2: Identify the code path (e.g., django/views/static.py) and confirm the exception source (e.g., regex match indexing on None).",
+        "Step 3: Compare against prior behavior or relevant commits to pinpoint the regression and determine the smallest safe change.",
+        "Step 4: Adjust exception handling or guard conditions to treat empty/invalid headers as ignored (i.e., behave as modified) without masking other errors.",
+        "Step 5: Validate with targeted scripts and run related suites (e.g., view_tests, staticfiles_tests) to confirm no regressions.",
+        "Step 6: Document the fix clearly, noting the restored backward-compatible behavior and its rationale."
+      ],
+      "source_trajectories": [
+        "django__django-15498"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating and Auditing HTTP Utilities and Tests",
+      "description": "Find and inspect the HTTP date parsing implementation and its tests to prepare a fix.",
+      "steps": [
+        {
+          "reasoning": "Need to locate the file implementing HTTP utilities to audit the target function (parse_http_date).",
+          "action": "find {repo_root}/django -path '*/utils/http.py'"
+        },
+        {
+          "reasoning": "Open the file to inspect current logic and pinpoint the function to modify.",
+          "action": "sed -n '1,220p' {repo_root}/django/django/utils/http.py | sed -n '/def parse_http_date/,/def/p'"
+        },
+        {
+          "reasoning": "Identify existing tests referencing the function to understand current expectations and avoid regressions.",
+          "action": "grep -R \"parse_http_date\" {repo_root}/django/tests -n --include='*.py'"
+        },
+        {
+          "reasoning": "Open the relevant test module to see concrete cases and edge conditions.",
+          "action": "sed -n '1,220p' {repo_root}/django/tests/utils_tests/test_http.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848",
+        "django__django-15498"
+      ]
+    },
+    {
+      "name": "Creating and Running a Dynamic RFC850 Boundary Test Harness",
+      "description": "Validate two-digit year parsing logic relative to the current year to ensure RFC 7231 compliance.",
+      "steps": [
+        {
+          "reasoning": "Need a quick, repeatable script that computes expected years based on current UTC year for RFC850 dates.",
+          "action": "cat > {workspace}/test_rfc850_boundary.py << 'EOF'\nimport sys, datetime\nsys.path.insert(0, '{repo_root}/django')\nfrom django.utils.http import parse_http_date\ncases = [\n    'Sunday, 06-Nov-70 08:49:37 GMT',\n    'Sunday, 06-Nov-85 08:49:37 GMT',\n    'Sunday, 06-Nov-00 08:49:37 GMT',\n]\nnow_year = datetime.datetime.utcnow().year\nfor s in cases:\n    ts = parse_http_date(s)\n    y = datetime.datetime.utcfromtimestamp(ts).year\n    print(s, '->', y, '(current:', now_year, ')')\nEOF"
+        },
+        {
+          "reasoning": "Execute the harness to observe current behavior and baseline failures before implementing a fix.",
+          "action": "python {workspace}/test_rfc850_boundary.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Implementing Dynamic Two-Digit Year Logic in parse_http_date",
+      "description": "Apply RFC 7231-compliant two-digit year interpretation for RFC850 dates.",
+      "steps": [
+        {
+          "reasoning": "Open the target function to modify year handling while keeping imports minimal and behavior unchanged for four-digit years.",
+          "action": "sed -n '150,210p' {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Replace hardcoded 0\u201369/70\u201399 mapping with current-year comparison to decide 19xx vs 20xx.",
+          "action": "applypatch << 'PATCH'\n*** Begin Patch\n*** Update File: {repo_root}/django/django/utils/http.py\n@@\n-    if year < 100:\n-        if year < 70:\n-            year += 2000\n-        else:\n-            year += 1900\n+    # RFC 7231: interpret RFC850 two-digit years relative to the current year.\n+    if year < 100:\n+        current_year = datetime.datetime.utcnow().year\n+        year = year + (1900 if 2000 + year > current_year + 50 else 2000)\n*** End Patch\nPATCH"
+        },
+        {
+          "reasoning": "Re-run the boundary harness to confirm the new logic handles >50 years ahead as previous century and <=50 years ahead as current century.",
+          "action": "python {workspace}/test_rfc850_boundary.py"
+        },
+        {
+          "reasoning": "Execute Django\u2019s utils test suite to ensure no regressions.",
+          "action": "cd {repo_root}/django && python tests/runtests.py utils_tests.test_http --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Reproducing and Fixing Optional URL Parameter TypeError",
+      "description": "Create a self-contained reproducer for optional named groups in re_path and fix argument derivation in the resolver.",
+      "steps": [
+        {
+          "reasoning": "Construct an in-memory URLConf to isolate and reproduce the issue without a full project.",
+          "action": "cat > {workspace}/test_optional_param.py << 'EOF'\nimport sys, types\nsys.path.insert(0, '{repo_root}/django')\nfrom django.conf import settings\nsettings.configure(DEBUG=True, ROOT_URLCONF='tmp_urls', ALLOWED_HOSTS=['*'], INSTALLED_APPS=['django.contrib.contenttypes'])\nimport django; django.setup()\nfrom django.urls import re_path, resolve\nmod = types.ModuleType('tmp_urls')\n\ndef modules(request, format='html'):\n    return f'format={format}'\nmod.modules = modules\nmod.urlpatterns = [re_path(r'^module/(?P<format>(html|json|xml))?/?$', modules)]\nsys.modules['tmp_urls'] = mod\nprint('Resolving /module/ ...')\nprint(resolve('/module/').args, resolve('/module/').kwargs)\nprint('Resolving /module/html/ ...')\nprint(resolve('/module/html/').args, resolve('/module/html/').kwargs)\nEOF\npython {workspace}/test_optional_param.py"
+        },
+        {
+          "reasoning": "Audit the resolver code to see how args and kwargs are computed from regex matches and where None may leak into positional args.",
+          "action": "sed -n '140,180p' {repo_root}/django/django/urls/resolvers.py"
+        },
+        {
+          "reasoning": "Modify the args derivation to exclude None from optional groups while preserving the rule that named groups suppress positional args.",
+          "action": "applypatch << 'PATCH'\n*** Begin Patch\n*** Update File: {repo_root}/django/django/urls/resolvers.py\n@@\n-            args = () if kwargs else match.groups()\n+            args = () if kwargs else tuple(g for g in match.groups() if g is not None)\n*** End Patch\nPATCH"
+        },
+        {
+          "reasoning": "Re-run the reproducer to confirm that the TypeError no longer occurs and the view receives correct arguments.",
+          "action": "python {workspace}/test_optional_param.py"
+        },
+        {
+          "reasoning": "Execute URL-related test suites to ensure correctness and detect any regressions.",
+          "action": "cd {repo_root}/django && python tests/runtests.py urlpatterns_reverse --parallel=1 -v 1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Restoring Empty If-Modified-Since Header Behavior",
+      "description": "Ensure empty or invalid If-Modified-Since headers are ignored (treated as modified) rather than raising exceptions.",
+      "steps": [
+        {
+          "reasoning": "Create a minimal script to invoke was_modified_since and serve() with empty and invalid headers to reproduce the crash.",
+          "action": "cat > {workspace}/test_empty_ims.py << 'EOF'\nimport sys, os, datetime\nsys.path.insert(0, '{repo_root}/django')\nfrom django.views.static import was_modified_since\nfrom django.test.client import RequestFactory\nfrom django.http import HttpResponse\n\n# Direct call\nprint('was_modified_since(\"\") ->', was_modified_since(None, None, ''))\n\n# Serve-like check via RequestFactory\nrf = RequestFactory()\nreq = rf.get('/static/file.txt', HTTP_IF_MODIFIED_SINCE='')\nprint('Empty header request built OK')\nEOF\npython {workspace}/test_empty_ims.py"
+        },
+        {
+          "reasoning": "Open the view helper to inspect exception handling around regex matches and date parsing.",
+          "action": "sed -n '114,145p' {repo_root}/django/django/views/static.py"
+        },
+        {
+          "reasoning": "Expand the exception clause to include TypeError raised by match indexing when there is no regex match.",
+          "action": "applypatch << 'PATCH'\n*** Begin Patch\n*** Update File: {repo_root}/django/django/views/static.py\n@@\n-    except (AttributeError, ValueError, OverflowError):\n+    except (AttributeError, TypeError, ValueError, OverflowError):\n         return True\n*** End Patch\nPATCH"
+        },
+        {
+          "reasoning": "Re-run the script to verify empty headers no longer crash and are treated as modified.",
+          "action": "python {workspace}/test_empty_ims.py"
+        },
+        {
+          "reasoning": "Run related test suites to confirm no regressions in static serving behavior.",
+          "action": "cd {repo_root}/django && python tests/runtests.py view_tests.tests.test_static staticfiles_tests --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-15498"
+      ]
+    },
+    {
+      "name": "Running Targeted Django Test Suites",
+      "description": "Execute specific subsets of Django\u2019s test suite to validate changes quickly and avoid full test runs.",
+      "steps": [
+        {
+          "reasoning": "Ensure the local Django checkout is importable by the test runner and matches the edited code.",
+          "action": "cd {repo_root}/django && pip install -e ."
+        },
+        {
+          "reasoning": "Use Django\u2019s built-in test runner for a focused module to validate a change area.",
+          "action": "cd {repo_root}/django && python tests/runtests.py {suite_name} --verbosity=2"
+        },
+        {
+          "reasoning": "When needing to run a single test case or method, specify the fully qualified path.",
+          "action": "cd {repo_root}/django && python tests/runtests.py {test_module}::{test_class}::{test_method} --verbosity=2"
+        },
+        {
+          "reasoning": "If environment path issues arise, prepend the source path to PYTHONPATH.",
+          "action": "cd {repo_root}/django && PYTHONPATH={repo_root}/django:$PYTHONPATH python tests/runtests.py {suite_name} -v 2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848",
+        "django__django-12184",
+        "django__django-15498"
+      ]
+    }
+  ]
+}

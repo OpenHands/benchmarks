@@ -1,0 +1,172 @@
+PROBLEM: Django’s system check check_for_template_tags_with_the_same_name falsely reports templates.E003 when a template tag library is both explicitly configured in TEMPLATES['OPTIONS']['libraries'] and auto-discovered via INSTALLED_APPS, resulting in the same module path appearing twice in the error.
+
+Action 1
+Reasoning: Begin by orienting within the repository to understand where the template checks live and confirm the problem context.
+Action: View directory /workspace/django
+
+Action 2
+Reasoning: Analyze the reported error and hypothesize that duplicate collection occurs from explicit config and auto-discovery.
+Action: Internal analysis (no external tool call)
+
+Action 3
+Reasoning: Locate the implementation of check_for_template_tags_with_the_same_name to inspect its logic.
+Action: find /workspace/django -name "*.py" -type f | xargs grep -l "check_for_template_tags_with_the_same_name" | head -20
+
+Action 4
+Reasoning: Open the checks file to review how template libraries are collected and validated.
+Action: View /workspace/django/django/core/checks/templates.py
+
+Action 5
+Reasoning: Inspect the Django template backend to see how template tag modules are discovered (e.g., get_template_tag_modules).
+Action: View /workspace/django/django/template/backends/django.py
+
+Action 6
+Reasoning: Review existing tests to understand current coverage and behavior related to template tag library checks.
+Action: View /workspace/django/tests/check_framework/test_templates.py
+
+Action 7
+Reasoning: Search for test apps involved in template tag library checks to reuse them for reproduction.
+Action: grep -r "check_framework.template_test_apps" /workspace/django/tests/check_framework/ --include="*.py" | head -20
+
+Action 8
+Reasoning: Enumerate test apps to identify available templatetags modules for reproduction.
+Action: find /workspace/django/tests/check_framework/template_test_apps -type f -name "*.py" | head -20
+
+Action 9
+Reasoning: Confirm root cause: explicit libraries plus auto-discovered modules create duplicates in the collection.
+Action: Internal analysis (no external tool call)
+
+Action 10
+Reasoning: Create a script to reproduce the duplicate error by explicitly configuring a library also present in INSTALLED_APPS.
+Action: Create /workspace/test_duplicate_issue.py
+- Summary of change: New script configures settings and runs the check.
+- Example snippet:
+  - TEMPLATES['OPTIONS']['libraries'] = {'same_tags': 'check_framework.template_test_apps.same_tags_app_1.templatetags.same_tags'}
+  - INSTALLED_APPS includes 'check_framework.template_test_apps.same_tags_app_1'
+
+Action 11
+Reasoning: Execute the reproduction script to see if the error manifests.
+Action: cd /workspace/django && python /workspace/test_duplicate_issue.py
+
+Action 12
+Reasoning: Install the local Django package to ensure imports and setup work.
+Action: cd /workspace/django && pip install -e .
+
+Action 13
+Reasoning: Retry running the reproduction after installation.
+Action: cd /workspace/django && python /workspace/test_duplicate_issue.py
+
+Action 14
+Reasoning: Fix import order and setup timing to properly configure Django before using it.
+Action: Edit /workspace/test_duplicate_issue.py (str_replace)
+- Summary of change: Move django.setup() after settings.configure and imports.
+- Example snippet:
+  - import django
+  - django.setup()
+
+Action 15
+Reasoning: Run the corrected reproduction script.
+Action: cd /workspace/django && python /workspace/test_duplicate_issue.py
+
+Action 16
+Reasoning: Verify django module availability and properties to debug import/setup issues.
+Action: cd /workspace/django && python -c "import django; print(django.__file__); print(dir(django))"
+
+Action 17
+Reasoning: Confirm that settings.configure + django.setup path works in isolation.
+Action: cd /workspace/django && python -c "from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test'); import django; print('setup' in dir(django)); django.setup()"
+
+Action 18
+Reasoning: Create an alternative minimal repro by writing a settings file and setting DJANGO_SETTINGS_MODULE.
+Action: Create /workspace/test_reproduce.py
+- Summary: Writes /workspace/test_settings.py with INSTALLED_APPS and TEMPLATES libraries, then calls django.setup() and runs the check.
+
+Action 19
+Reasoning: Build a unittest-based reproduction using override_settings for a more controlled environment.
+Action: Create /workspace/test_simple_repro.py
+- Summary: SimpleTestCase that sets libraries={'same_tags': '...same_tags'} with INSTALLED_APPS=['...same_tags_app_1'] and asserts no errors.
+
+Action 20
+Reasoning: Attempt to run an existing targeted test to understand current behavior.
+Action: cd /workspace/django && python tests/runtests.py check_framework.test_templates::CheckTemplateTagLibrariesWithSameName.test_template_tags_with_same_library_name_and_module_name --verbosity=2
+
+Action 21
+Reasoning: Retry with correct test path syntax for Django’s runner.
+Action: cd /workspace/django && python tests/runtests.py check_framework.test_templates.CheckTemplateTagLibrariesWithSameName.test_template_tags_with_same_library_name_and_module_name --verbosity=2
+
+Action 22
+Reasoning: Run the standalone unittest reproduction script to validate assumptions.
+Action: python /workspace/test_simple_repro.py
+
+Action 23
+Reasoning: Run the full check_framework test suite to ensure baseline passes before changes.
+Action: cd /workspace/django && python tests/runtests.py check_framework.test_templates --verbosity=2 2>&1 | head -50
+
+Action 24
+Reasoning: Inspect the actual templatetags file used by the test app for clarity on library name and module.
+Action: View /workspace/django/tests/check_framework/template_test_apps/same_tags_app_1/templatetags/same_tags.py
+
+Action 25
+Reasoning: Create another minimal repro script that sets DJANGO_SETTINGS_MODULE and performs the check, expecting the duplicate error.
+Action: Create /workspace/test_reproduce_simple.py
+- Summary: Adds 'same_tags' in libraries and in INSTALLED_APPS, runs check_for_template_tags_with_the_same_name, prints errors.
+
+Action 26
+Reasoning: Execute the simple repro to confirm the duplicate error appears.
+Action: cd /workspace/django && python /workspace/test_reproduce_simple.py
+
+Action 27
+Reasoning: Adjust sys.path to include tests so the test apps can be imported by the repro script.
+Action: Edit /workspace/test_reproduce_simple.py (str_replace)
+- Summary: Add tests directory to sys.path.
+- Example snippet:
+  - sys.path.insert(0, '/workspace/django/tests')
+
+Action 28
+Reasoning: Run the adjusted repro script again to reproduce the issue conclusively.
+Action: cd /workspace/django && python /workspace/test_reproduce_simple.py
+
+Action 29
+Reasoning: Conclude that duplicates come from both explicit libraries and auto-discovery; plan to deduplicate when collecting modules.
+Action: Internal analysis (no external tool call)
+
+Action 30
+Reasoning: Reopen the checks file to pinpoint the line where duplicate appends happen.
+Action: View /workspace/django/django/core/checks/templates.py
+
+Action 31
+Reasoning: Implement a minimal fix by skipping duplicate module paths during auto-discovery aggregation.
+Action: Edit /workspace/django/django/core/checks/templates.py (str_replace)
+- Summary of change: Avoid appending a module_path that’s already recorded for a library.
+- Before:
+  - for module_name, module_path in get_template_tag_modules():
+      libraries[module_name].append(module_path)
+- After:
+  - for module_name, module_path in get_template_tag_modules():
+      if module_path not in libraries[module_name]:
+          libraries[module_name].append(module_path)
+
+Action 32
+Reasoning: Verify the fix using the simple reproduction script; expect the false duplicate error to disappear.
+Action: cd /workspace/django && python /workspace/test_reproduce_simple.py
+
+Action 33
+Reasoning: Run the existing tests to ensure no regressions were introduced by the change.
+Action: cd /workspace/django && python tests/runtests.py check_framework.test_templates --verbosity=2
+
+Action 34
+Reasoning: Reopen the tests file to add a regression test for this scenario.
+Action: View /workspace/django/tests/check_framework/test_templates.py (lines 160–210)
+
+Action 35
+Reasoning: Add a targeted test verifying that explicit library plus auto-discovery of the same module does not raise E003.
+Action: Edit /workspace/django/tests/check_framework/test_templates.py (str_replace)
+- Summary of change: Add test_template_tags_library_configured_and_autodiscovered to CheckTemplateTagLibrariesWithSameName.
+- Example snippet:
+  - with self.settings(TEMPLATES=[self.get_settings("same_tags", "same_tags_app_1.templatetags.same_tags")]):
+      self.assertEqual(check_for_template_tags_with_the_same_name(None), [])
+
+Summary of Fix:
+- Root cause: The check aggregated template libraries from both explicit configuration and auto-discovery without deduplication, causing the same module path to appear twice.
+- Change: In django/core/checks/templates.py, skip appending module_path from get_template_tag_modules() if it’s already present for that library.
+- Tests: Existing suite passes; added a regression test ensuring no false E003 when the same module is both configured and auto-discovered.

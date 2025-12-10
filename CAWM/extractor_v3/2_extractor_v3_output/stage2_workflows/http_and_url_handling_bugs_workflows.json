@@ -1,0 +1,118 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Fixing RFC Compliance in Django HTTP Date Parsing",
+      "description": "General strategy to identify and fix RFC-related issues in Django's HTTP utilities, ensuring correct parsing across supported date formats.",
+      "steps": [
+        "Step 1: Review the relevant RFC requirement and identify the discrepancy with current behavior in Django",
+        "Step 2: Locate the implementation in the Django repository (e.g., django/utils/http.py) responsible for the behavior",
+        "Step 3: Inspect the function logic, focusing on the specific problematic branch (e.g., two-digit year handling)",
+        "Step 4: Review existing tests in tests/utils_tests/test_http.py to understand current expectations and coverage",
+        "Step 5: Design a standards-compliant fix that minimizes scope and preserves backward compatibility where appropriate",
+        "Step 6: Implement the change in the utility function, ensuring necessary imports are present",
+        "Step 7: Run targeted tests for the module or write small verification scripts if the full test runner isn\u2019t available",
+        "Step 8: Validate behavior across all supported HTTP date formats (RFC1123, RFC850, and asctime)",
+        "Step 9: Add or update tests to cover edge cases and boundary conditions (e.g., 50-year rule boundaries)",
+        "Step 10: Document the change and its rationale for maintainers"
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Validating Django Changes Without Full Test Runner Availability",
+      "description": "Approach for verifying Django code changes when the standard test runner may not be usable in the environment.",
+      "steps": [
+        "Step 1: Attempt to run the relevant tests using Django\u2019s tests/runtests.py for the specific module or test class",
+        "Step 2: If the runner isn\u2019t available or fails due to environment constraints, write small Python scripts that import the local Django package by adding the repository path to sys.path",
+        "Step 3: Reproduce the issue and assert expected outcomes within these scripts to validate the fix",
+        "Step 4: Iterate on the implementation and re-run the scripts until the behavior aligns with requirements",
+        "Step 5: Expand the ad-hoc scripts to include additional formats, edge cases, and boundary conditions to ensure robustness"
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating and Inspecting Django HTTP Utility Function",
+      "description": "Concrete steps to locate and inspect the parse_http_date function in Django's HTTP utilities and identify related tests.",
+      "steps": [
+        {
+          "reasoning": "Need to find the file that implements HTTP utility functions to modify parse_http_date.",
+          "action": "find {repo_root}/django -path \"*/utils/http.py\""
+        },
+        {
+          "reasoning": "Confirm where parse_http_date is defined and locate its exact lines for inspection.",
+          "action": "grep -n \"parse_http_date\" {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Open the file to review imports and the target function implementation.",
+          "action": "sed -n '1,60p' {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Search for existing tests referencing parse_http_date to understand coverage and expectations.",
+          "action": "find {repo_root}/django -name \"*.py\" -path \"*/tests/*\" | xargs grep -l \"parse_http_date\" 2>/dev/null"
+        },
+        {
+          "reasoning": "Open the main HTTP utils test file to see current test cases and edge cases.",
+          "action": "sed -n '1,220p' {repo_root}/django/tests/utils_tests/test_http.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Implementing RFC 7231 50-Year Rule in parse_http_date",
+      "description": "Modify two-digit year handling in parse_http_date to comply with RFC 7231 using dynamic comparison against the current year.",
+      "steps": [
+        {
+          "reasoning": "Ensure datetime is imported to access the current UTC year.",
+          "action": "grep -n \"^import datetime\" {repo_root}/django/django/utils/http.py || sed -i '1i import datetime' {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Replace the hardcoded two-digit year logic with dynamic 50-year rule comparison per RFC 7231.",
+          "action": "git -C {repo_root}/django apply <<'PATCH'\n*** Begin Patch\n*** Update File: django/utils/http.py\n@@\n-    if year < 100:\n-        if year < 70:\n-            year += 2000\n-        else:\n-            year += 1900\n+    if year < 100:\n+        current_year = datetime.datetime.utcnow().year\n+        if 2000 + year > current_year + 50:\n+            year += 1900\n+        else:\n+            year += 2000\n*** End Patch\nPATCH"
+        },
+        {
+          "reasoning": "Re-open the modified section to verify the change is applied correctly and in context.",
+          "action": "sed -n '150,210p' {repo_root}/django/django/utils/http.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Running Django Tests and Fallback Ad-hoc Verification",
+      "description": "Run Django\u2019s targeted tests for HTTP utilities and fall back to ad-hoc Python scripts when necessary.",
+      "steps": [
+        {
+          "reasoning": "Run the specific test class for HTTP date processing using Django's test runner.",
+          "action": "cd {repo_root}/django && python tests/runtests.py utils_tests.test_http.HttpDateProcessingTests -v 2"
+        },
+        {
+          "reasoning": "If import path issues occur, set PYTHONPATH to include the local Django repository.",
+          "action": "cd {repo_root}/django && PYTHONPATH={repo_root}/django:$PYTHONPATH python tests/runtests.py utils_tests.test_http.HttpDateProcessingTests -v 2"
+        },
+        {
+          "reasoning": "If the test runner is unavailable, perform a smoke test to ensure the module can be imported.",
+          "action": "cd {repo_root}/django && python -c \"import sys; sys.path.insert(0, '{repo_root}/django'); from django.utils.http import parse_http_date; print('Module imported successfully')\""
+        },
+        {
+          "reasoning": "Run a quick ad-hoc verification of RFC850 two-digit year handling around boundary cases.",
+          "action": "python - <<'PY'\nimport sys, datetime\nsys.path.insert(0, '{repo_root}/django')\nfrom django.utils.http import parse_http_date\n\ndef year_from_date(s):\n    return datetime.datetime.utcfromtimestamp(parse_http_date(s)).year\n\ncurrent_year = datetime.datetime.utcnow().year\ncases = [\n    (f\"Sunday, 06-Nov-70 08:49:37 GMT\", None),  # Year computed dynamically; we will print it\n    (f\"Sunday, 06-Nov-85 08:49:37 GMT\", None),\n    (f\"Sunday, 06-Nov-99 08:49:37 GMT\", None),\n    (f\"Sunday, 06-Nov-00 08:49:37 GMT\", None),\n]\nfor s, _ in cases:\n    y = year_from_date(s)\n    print(s, '->', y)\n\n# Verify other formats remain unaffected\nprint('RFC1123:', year_from_date('Sun, 06 Nov 1994 08:49:37 GMT'))\nprint('asctime:', year_from_date('Sun Nov  6 08:49:37 1994'))\nPY"
+        },
+        {
+          "reasoning": "Search for related tests and references to ensure broader coverage is not affected.",
+          "action": "find {repo_root}/django/tests -type f -name \"*.py\" | xargs grep -l \"parse_http_date\\|RFC850\\|rfc850\" 2>/dev/null"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    }
+  ]
+}

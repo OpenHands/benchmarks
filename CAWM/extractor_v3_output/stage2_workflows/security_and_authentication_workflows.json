@@ -1,0 +1,99 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Hardening Sensitive Data Sanitization in Error Reporting",
+      "description": "Identify and fix gaps in Django's settings sanitization to ensure sensitive values are masked across nested structures in error reports.",
+      "steps": [
+        "Step 1: Locate the sanitization filter class and review its cleansing logic to understand supported types and recursion behavior",
+        "Step 2: Create a minimal reproduction using nested dictionaries, lists, and tuples containing sensitive keys to confirm current leaks",
+        "Step 3: Validate the current behavior by running the filter on the reproduction and inspecting outputs for uncensored values",
+        "Step 4: Design a fix to traverse nested containers (e.g., dicts, lists, tuples) while preserving container types and avoiding recursion into strings/bytes",
+        "Step 5: Add unit tests covering dictionaries, lists, tuples, nested and mixed structures, ensuring sensitive keys are masked and non-sensitive data remains unchanged",
+        "Step 6: Implement the fix with a minimal diff, introducing recursion for relevant iterables and maintaining case-insensitive key matching as needed",
+        "Step 7: Run focused tests for the filter and broader debug tests to catch regressions and verify overall stability",
+        "Step 8: Validate with an end-to-end scenario mirroring real settings structures, then document the change and its rationale"
+      ],
+      "source_trajectories": [
+        "django__django-12700"
+      ]
+    },
+    {
+      "name": "Ensuring Password Reset Tokens Invalidate on User Attribute Changes",
+      "description": "Strengthen token generators so that changes to key user attributes (e.g., email) invalidate previously issued tokens while preserving compatibility with custom user models.",
+      "steps": [
+        "Step 1: Audit the token generator to inventory which user fields contribute to the hash value and identify missing attributes that should trigger invalidation",
+        "Step 2: Decide which user attributes (e.g., email) must be included to invalidate tokens appropriately on change",
+        "Step 3: Plan for custom user models by using APIs like get_email_field_name() and safe getattr defaults if the attribute is absent",
+        "Step 4: Add tests asserting tokens become invalid after changing the chosen attribute and retain existing tests for other behaviors",
+        "Step 5: Modify the hash construction to include the selected attribute value in a timezone-stable and null-safe manner",
+        "Step 6: Run token-related tests and the broader authentication suite to ensure backward compatibility and detect regressions",
+        "Step 7: Provide an end-to-end demonstration and documentation confirming invalidation on attribute change and correct behavior for new tokens"
+      ],
+      "source_trajectories": [
+        "django__django-13551"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating and Patching Django Security/Authentication Code",
+      "description": "Find relevant Django core code and tests for a security/authentication issue, inspect context, and apply a minimal patch.",
+      "steps": [
+        {
+          "reasoning": "Need to quickly find where a target symbol (class/function) is implemented to inspect and modify behavior.",
+          "action": "cd {repo_root} && grep -R --line-number \"{target_symbol}\" django | head -20"
+        },
+        {
+          "reasoning": "After locating a candidate file, inspect the surrounding lines to understand the implementation and potential patch points.",
+          "action": "sed -n '{start_line},{end_line}p' {file_path}"
+        },
+        {
+          "reasoning": "Identify existing tests referencing this symbol to understand coverage and where to add new tests if needed.",
+          "action": "find {repo_root}/tests -name \"*.py\" -type f | xargs grep -l \"{target_symbol}\" | sort | head -20"
+        },
+        {
+          "reasoning": "Apply a minimal, reviewable patch to adjust the implementation while keeping changes focused.",
+          "action": "git -C {repo_root} apply - <<'PATCH'\n--- a/{file_path}\n+++ b/{file_path}\n@@\n{patch_hunk}\nPATCH"
+        },
+        {
+          "reasoning": "Verify that only the intended changes were made before running tests.",
+          "action": "git -C {repo_root} diff -- {file_path}"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12700",
+        "django__django-13551"
+      ]
+    },
+    {
+      "name": "Running Targeted Django Tests and Minimal Reproductions",
+      "description": "Create a lightweight reproduction, ensure editable install is active, and run focused Django tests for rapid feedback.",
+      "steps": [
+        {
+          "reasoning": "Confirm the issue in isolation to ensure you understand the failure and can verify the fix later.",
+          "action": "cat > {repo_root}/{script_name}.py <<'PY'\n{script_contents}\nPY\npython {repo_root}/{script_name}.py"
+        },
+        {
+          "reasoning": "Ensure local changes are importable and used by scripts/tests by installing Django in editable mode.",
+          "action": "cd {repo_root} && pip install -e . && python -c \"import django; print(django.get_version())\""
+        },
+        {
+          "reasoning": "Run a specific Django test (file/class/method) with the correct settings to validate behavior quickly.",
+          "action": "cd {repo_root}/tests && python -m django test {dotted_test_target} --settings={settings_module} -v 2"
+        },
+        {
+          "reasoning": "Alternatively, use Django\u2019s top-level test runner to execute an entire app/module suite when appropriate.",
+          "action": "cd {repo_root} && python tests/runtests.py {app_or_module} -v 2"
+        },
+        {
+          "reasoning": "After applying a fix, re-run the reproduction to verify the specific behavior change.",
+          "action": "python {repo_root}/{script_name}.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12700",
+        "django__django-13551"
+      ]
+    }
+  ]
+}

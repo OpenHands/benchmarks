@@ -1,0 +1,349 @@
+PROBLEM: QuerySet.none() on combined queries returns all results. In a ModelMultipleChoiceField using a queryset built with union(), submitting the form with no selections incorrectly adds all items from the queryset. Using the bitwise OR operator (|) behaves correctly and adds none.
+
+Action 1
+Reasoning: Establish a high-level understanding of the issue: .none() on union() results returns all items when the form is submitted empty. Plan to inspect QuerySet.none(), union(), and ModelMultipleChoiceField.clean().
+Action: ThinkAction (no tool call)
+
+Action 2
+Reasoning: Navigate to the Django repository to explore source structure.
+Action: cd /workspace/django && pwd && ls -la
+
+Action 3
+Reasoning: Quick repo check; prepare to locate relevant modules and tests.
+Action: cat README.rst | head -50
+
+Action 4
+Reasoning: Confirm Python environment compatibility for running tests/scripts.
+Action: which python && python --version
+
+Action 5
+Reasoning: Locate query-related files to find QuerySet definitions and combinator methods.
+Action: find django -type f -name "*.py" | grep -i query | head -20
+
+Action 6
+Reasoning: Identify where QuerySet.none() is implemented.
+Action: grep -r "def none" django/db/models/ --include="*.py" | head -10
+
+Action 7
+Reasoning: Identify union() implementation in QuerySet.
+Action: grep -r "def union" django/db/models/ --include="*.py" | head -10
+
+Action 8
+Reasoning: Open QuerySet implementation to inspect class structure.
+Action: view /workspace/django/django/db/models/query.py (lines 1-100)
+
+Action 9
+Reasoning: Continue scanning for relevant methods around combinators.
+Action: view /workspace/django/django/db/models/query.py (lines 1500-1600)
+
+Action 10
+Reasoning: Jump to none() definition precisely.
+Action: grep -n "def none" django/db/models/query.py
+
+Action 11
+Reasoning: Inspect none() to see how empty state is set.
+Action: view /workspace/django/django/db/models/query.py (lines 915-930)
+
+Action 12
+Reasoning: Find where the query emptiness is set internally.
+Action: grep -r "def set_empty" django/db/models/ --include="*.py"
+
+Action 13
+Reasoning: Load SQL query class to see empty handling.
+Action: view /workspace/django/django/db/models/sql/query.py (lines 1-100)
+
+Action 14
+Reasoning: Locate set_empty() in SQL Query.
+Action: grep -n "def set_empty" django/db/models/sql/query.py
+
+Action 15
+Reasoning: Inspect set_empty() implementation details (NothingNode).
+Action: view /workspace/django/django/db/models/sql/query.py (lines 1775-1790)
+
+Action 16
+Reasoning: Check QuerySet internals around chaining/cloning logic.
+Action: view /workspace/django/django/db/models/query.py (lines 1160-1250)
+
+Action 17
+Reasoning: Inspect combinator setup method to understand combined_queries storage.
+Action: view /workspace/django/django/db/models/query.py (lines 1480-1580)
+
+Action 18
+Reasoning: Find union() method source location precisely.
+Action: grep -n "def union" django/db/models/query.py
+
+Action 19
+Reasoning: Inspect union() implementation.
+Action: view /workspace/django/django/db/models/query.py (lines 995-1030)
+
+Action 20
+Reasoning: Review combinator query composition helper.
+Action: view /workspace/django/django/db/models/query.py (lines 970-1000)
+
+Action 21
+Reasoning: Move to forms to understand ModelMultipleChoiceField behavior on empty submissions.
+Action: find django -type f -name "*.py" -path "*/forms/*" | grep -i field
+
+Action 22
+Reasoning: Locate ModelMultipleChoiceField class for clean() logic.
+Action: grep -r "class ModelMultipleChoiceField" django --include="*.py"
+
+Action 23
+Reasoning: Open forms/models.py to locate the field class.
+Action: view /workspace/django/django/forms/models.py (lines 1-50)
+
+Action 24
+Reasoning: Jump to ModelMultipleChoiceField in file.
+Action: grep -n "class ModelMultipleChoiceField" django/forms/models.py
+
+Action 25
+Reasoning: Inspect clean() method’s handling of empty selections (queryset.none()).
+Action: view /workspace/django/django/forms/models.py (lines 1295-1380)
+
+Action 26
+Reasoning: Track how combined queries are represented (combined_queries).
+Action: grep -r "combined_queries" django/db/models/ --include="*.py" | head -20
+
+Action 27
+Reasoning: Find compiler section handling combined queries.
+Action: grep -n "combined_queries" django/db/models/sql/compiler.py
+
+Action 28
+Reasoning: Open compiler to inspect get_combinator_sql() and as_sql() flow.
+Action: view /workspace/django/django/db/models/sql/compiler.py (lines 430-450)
+
+Action 29
+Reasoning: Inspect chaining behavior to understand cloning and empty propagation.
+Action: grep -n "def _chain" django/db/models/query.py | head -5
+
+Action 30
+Reasoning: Check QuerySet cloning internals near _chain.
+Action: view /workspace/django/django/db/models/query.py (lines 1275-1310)
+
+Action 31
+Reasoning: Hypothesize that none() marks parent query empty but doesn’t clear combined_queries, and compiler ignores parent emptiness. Plan reproduction tests.
+Action: No tool call
+
+Action 32
+Reasoning: Refine fix direction: either clear combined_queries on set_empty(), or check parent is_empty() in compiler before executing combinators.
+Action: ThinkAction (no tool call)
+
+Action 33
+Reasoning: Create a reproduction script with Publication/Article models and a ModelMultipleChoiceField using union(); verify empty submission behavior.
+Action: Created /workspace/reproduce_issue.py (summary: sets up in-memory SQLite, defines Publication/Article, uses union in ModelMultipleChoiceField, tests empty submit). Example snippet:
+- publications = ModelMultipleChoiceField(Publication.objects.filter(id__lt=2).union(Publication.objects.filter(id__gt=5)), required=False)
+
+Action 34
+Reasoning: Attempt to run reproduction script.
+Action: cd /workspace && python reproduce_issue.py
+
+Action 35
+Reasoning: Retry with PYTHONPATH to ensure local Django is importable.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python /workspace/reproduce_issue.py
+
+Action 36
+Reasoning: Explore existing test coverage for union and queries.
+Action: find tests -name "*union*" -o -name "*query*" | grep -i test | head -10
+
+Action 37
+Reasoning: Search for tests about query combinators.
+Action: find tests -name "*combin*" | head -10
+
+Action 38
+Reasoning: Open combinator tests to understand patterns.
+Action: view /workspace/django/tests/queries/test_qs_combinators.py (lines 1-100)
+
+Action 39
+Reasoning: Inspect section with union and none tests.
+Action: view /workspace/django/tests/queries/test_qs_combinators.py (lines 89-120)
+
+Action 40
+Reasoning: Check whether .none() on combined queries is already tested.
+Action: grep -n "none()" tests/queries/test_qs_combinators.py
+
+Action 41
+Reasoning: Create a focused script to test .none() on union queries without forms complexity.
+Action: Created /workspace/test_none_on_union.py (summary: minimal model, builds union_qs, calls union_qs.none(), compares counts; prints combined_queries and is_empty flags)
+
+Action 42
+Reasoning: Run test script from Django dir to ensure imports work.
+Action: cd /workspace/django && python /workspace/test_none_on_union.py
+
+Action 43
+Reasoning: List tests directory to understand structure.
+Action: cd /workspace/django && ls tests/ | head -20
+
+Action 44
+Reasoning: Confirm Django version loaded from the local source.
+Action: cd /workspace/django && python -c "import django; print(django.__version__)"
+
+Action 45
+Reasoning: Try running a specific test module to validate the environment.
+Action: cd /workspace/django && python tests/runtests.py queries.test_qs_combinators -v 2
+
+Action 46
+Reasoning: Install Django in editable mode for the test runner and imports.
+Action: cd /workspace/django && pip install -e .
+
+Action 47
+Reasoning: Run an existing empty queryset union test to validate setup.
+Action: cd /workspace/django && python tests/runtests.py queries.test_qs_combinators::QuerySetSetOperationTests.test_union_with_empty_qs -v 2
+
+Action 48
+Reasoning: Correct test runner invocation syntax.
+Action: cd /workspace/django && python tests/runtests.py queries.test_qs_combinators.QuerySetSetOperationTests.test_union_with_empty_qs -v 2
+
+Action 49
+Reasoning: Build an end-to-end reproduction including forms to match the reported issue.
+Action: Created /workspace/test_bug_reproduction.py (summary: Publication/Article models, union queryset in ModelMultipleChoiceField, empty submission should result in no M2M rows; prints results)
+
+Action 50
+Reasoning: Run the reproduction script.
+Action: cd /workspace/django && python /workspace/test_bug_reproduction.py
+
+Action 51
+Reasoning: Create an even simpler script to confirm core bug with union().none().
+Action: Created /workspace/test_bug_simple.py (summary: TestModel with integers; union(id<2, id>5).none() should yield 0; asserts and prints counts/IDs)
+
+Action 52
+Reasoning: Execute the simple test to confirm bug behavior.
+Action: cd /workspace/django && python /workspace/test_bug_simple.py
+
+Action 53
+Reasoning: Adjust test data to match expected union count (include id=8).
+Action: Updated /workspace/test_bug_simple.py test data block to add obj6 id=8. Example change:
+- Added: TestModel.objects.create(name="obj6", id=8)
+
+Action 54
+Reasoning: Re-run simple test to confirm union count and bug reproduction.
+Action: cd /workspace/django && python /workspace/test_bug_simple.py
+
+Action 55
+Reasoning: Inspect compiler get_combinator_sql() area around combined query generation.
+Action: view /workspace/django/django/db/models/sql/compiler.py (lines 433-470)
+
+Action 56
+Reasoning: Confirm exact location of get_combinator_sql().
+Action: grep -n "get_combinator_sql" django/db/models/sql/compiler.py
+
+Action 57
+Reasoning: Review as_sql() combinator branch to see invocation of get_combinator_sql().
+Action: view /workspace/django/django/db/models/sql/compiler.py (lines 500-550)
+
+Action 58
+Reasoning: Inspect as_sql() earlier sections for empty checks and flow.
+Action: view /workspace/django/django/db/models/sql/compiler.py (lines 470-520)
+
+Action 59
+Reasoning: Create a diagnostic script to print parent and combined_queries emptiness before and after .none().
+Action: cat > /workspace/test_check_empty.py << 'EOF' ... EOF; python /workspace/test_check_empty.py
+
+Action 60
+Reasoning: Re-run diagnostic script to validate behavior consistently.
+Action: python /workspace/test_check_empty.py
+
+Action 61
+Reasoning: Re-open get_combinator_sql() where the fix should be applied.
+Action: view /workspace/django/django/db/models/sql/compiler.py (lines 433-486)
+
+Action 62
+Reasoning: Implement fix: if parent query is empty, do not execute combined_queries; raise EmptyResultSet. This aligns with empty regular queries behavior.
+Action: Updated /workspace/django/django/db/models/sql/compiler.py get_combinator_sql() to guard on parent emptiness. Example change:
+- Inserted:
+  if self.query.is_empty():
+      raise EmptyResultSet
+
+Action 63
+Reasoning: Verify the fix with the simple bug script; expect .none() on union to return zero results.
+Action: cd /workspace/django && python /workspace/test_bug_simple.py
+
+Action 64
+Reasoning: Validate diagnostic script shows parent empty and combined_queries ignored.
+Action: cd /workspace/django && python /workspace/test_check_empty.py
+
+Action 65
+Reasoning: Attempt full ModelForm scenario to mirror the original report, post-fix.
+Action: Created /workspace/test_modelform.py (summary: Publication/Article models, ModelMultipleChoiceField with union queryset, test empty selection then valid selection and invalid selection cases)
+
+Action 66
+Reasoning: Run ModelForm script; debug M2M setup issues in minimal environment.
+Action: cd /workspace/django && python /workspace/test_modelform.py
+
+Action 67
+Reasoning: Avoid an early M2M query that may fail in simplified setup; keep focus on form save behavior.
+Action: Updated /workspace/test_modelform.py to remove initial publications.all() access. Example change:
+- Removed printing list(article.publications.all()) at creation.
+
+Action 68
+Reasoning: Re-run ModelForm test; accept skipping if environment hurdles persist since core fix validated.
+Action: cd /workspace/django && python /workspace/test_modelform.py
+
+Action 69
+Reasoning: Ensure existing queryset combinator tests still pass after modification.
+Action: cd /workspace/django && python tests/runtests.py queries.test_qs_combinators -v 2
+
+Action 70
+Reasoning: Check for existing tests involving ModelMultipleChoiceField to consider adding coverage.
+Action: grep -r "ModelMultipleChoiceField" tests/ --include="*.py" | grep -i test | head -10
+
+Action 71
+Reasoning: Open model forms tests to understand current coverage patterns.
+Action: view /workspace/django/tests/model_forms/tests.py (lines 1-50)
+
+Action 72
+Reasoning: Find the specific test class for ModelMultipleChoiceField.
+Action: grep -n "class ModelMultipleChoiceFieldTests" tests/model_forms/tests.py
+
+Action 73
+Reasoning: Inspect relevant section of ModelMultipleChoiceField tests for .none() handling.
+Action: view /workspace/django/tests/model_forms/tests.py (lines 1694-1800)
+
+Action 74
+Reasoning: Return to qs combinators tests to add regression coverage for .none() on combined queries.
+Action: view /workspace/django/tests/queries/test_qs_combinators.py (lines 95-130)
+
+Action 75
+Reasoning: Add a regression test ensuring .none() on union/intersection/difference returns empty results.
+Action: Updated /workspace/django/tests/queries/test_qs_combinators.py by adding test_none_on_combined_qs. Example snippet:
+- self.assertEqual(len(union_qs.none()), 0)
+- self.assertEqual(len(intersection_qs.none()), 0)
+- self.assertEqual(len(difference_qs.none()), 0)
+
+Action 76
+Reasoning: Run the new test specifically to validate behavior.
+Action: cd /workspace/django && python tests/runtests.py queries.test_qs_combinators.QuerySetSetOperationTests.test_none_on_combined_qs -v 2
+
+Action 77
+Reasoning: Execute the entire qs_combinators suite to ensure no regressions.
+Action: cd /workspace/django && python tests/runtests.py queries.test_qs_combinators -v 2
+
+Action 78
+Reasoning: Run model_forms suite for broader regression signal.
+Action: cd /workspace/django && python tests/runtests.py model_forms --verbosity=2 2>&1 | head -100
+
+Action 79
+Reasoning: Confirm pass/fail status concisely for model_forms.
+Action: cd /workspace/django && python tests/runtests.py model_forms --verbosity=1 2>&1 | grep -E "(OK|FAILED|ERROR)" | tail -5
+
+Action 80
+Reasoning: Confirm pass/fail status concisely for queries.
+Action: cd /workspace/django && python tests/runtests.py queries --verbosity=1 2>&1 | grep -E "(OK|FAILED|ERROR)" | tail -5
+
+Action 81
+Reasoning: Re-run original simple reproduction to double-check.
+Action: cd /workspace/django && python /workspace/test_bug_simple.py
+
+Action 82
+Reasoning: Summarize changes, root cause, and verification; ensure minimal invasive change with comprehensive tests.
+Action: FinishAction (summary of fix: added parent is_empty() check in get_combinator_sql(), added regression test, verified across suites)
+
+Summary of Code Changes:
+- Modified django/db/models/sql/compiler.py get_combinator_sql() to bail out when the parent query is empty:
+  - Added:
+    if self.query.is_empty():
+        raise EmptyResultSet
+- Added tests/queries/test_qs_combinators.py::test_none_on_combined_qs to assert that .none() on union/intersection/difference returns 0 results.
+
+Outcome:
+- .none() on combined QuerySets now correctly returns an empty queryset.
+- Regression test added; all existing queries and model_forms tests pass, indicating no regressions.

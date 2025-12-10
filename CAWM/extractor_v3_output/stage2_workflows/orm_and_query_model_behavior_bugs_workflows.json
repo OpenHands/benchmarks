@@ -1,0 +1,301 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Debugging Django ORM SQL Ordering and Path Resolution",
+      "description": "Identify and fix issues in SQL ORDER BY generation, including multi-table inheritance and self-referential path resolution.",
+      "steps": [
+        "Step 1: Examine model definitions and Meta.ordering to understand intended order, especially when inheritance or foreign key paths are involved",
+        "Step 2: Create a minimal reproduction that prints queryset.query to capture generated SQL and confirm the issue",
+        "Step 3: Inspect django/db/models/sql/compiler.py (get_order_by, find_ordering_name) and django/db/models/sql/query.py (names_to_path, setup_joins) to trace how field paths and ordering are resolved",
+        "Step 4: Add targeted guards or comparisons in the compiler (e.g., avoid relation recursion when ordering by pk; compare attname against the last path piece) to preserve explicit ASC/DESC and prevent extra joins",
+        "Step 5: Re-run focused and broader test suites (ordering, queries) to verify correctness and avoid regressions"
+      ],
+      "source_trajectories": [
+        "django__django-12470",
+        "django__django-13033"
+      ]
+    },
+    {
+      "name": "Fixing Model Metadata and Inheritance Issues",
+      "description": "Address problems caused by abstract/concrete inheritance and proxy models by ensuring correct metadata and method binding.",
+      "steps": [
+        "Step 1: Reproduce the behavior with small models that demonstrate inheritance or proxy usage (e.g., overriding choices or select_related() + only() on a proxy FK)",
+        "Step 2: Locate where Django binds model methods or traverses metadata (e.g., Field.contribute_to_class for get_FOO_display and sql/query.py for deferred loading)",
+        "Step 3: Ensure child overrides are respected and user-defined methods preserved (bind display methods to the current class unless explicitly overridden in the class; use concrete_model._meta when traversing proxies)",
+        "Step 4: Implement minimal changes and verify with targeted tests (model_fields, model_inheritance, defer_regress, proxy_models)",
+        "Step 5: Run related suites to confirm no regressions across inheritance and proxy behavior"
+      ],
+      "source_trajectories": [
+        "django__django-12284",
+        "django__django-15814"
+      ]
+    },
+    {
+      "name": "Handling QuerySet Combinators and Emptiness",
+      "description": "Ensure QuerySet.none() and set operations (union/intersection/difference) correctly propagate emptiness.",
+      "steps": [
+        "Step 1: Reproduce with simple union()/intersection()/difference() queries and call .none() to observe behavior",
+        "Step 2: Inspect SQL compilation for combinators (django/db/models/sql/compiler.py get_combinator_sql) to understand how combined_queries are executed",
+        "Step 3: Add an early empty check in the compiler to short-circuit combined execution when the parent query is empty",
+        "Step 4: Add regression tests around .none() on combined querysets and verify form behavior if relevant (ModelMultipleChoiceField)",
+        "Step 5: Run queries and model_forms suites to ensure broad correctness"
+      ],
+      "source_trajectories": [
+        "django__django-13158"
+      ]
+    },
+    {
+      "name": "Correcting Expression and Lookup Handling",
+      "description": "Fix operator commutativity issues between Q and Exists and ensure iterable lookup reconstruction supports named tuples.",
+      "steps": [
+        "Step 1: Reproduce the problem in isolation (e.g., Q(...) & Exists(...) raising TypeError; __range with namedtuple failing TypeError)",
+        "Step 2: Inspect operator protocols for Q and expressions (query_utils.py and expressions.py) and type reconstruction in resolve_lookup_value (sql/query.py)",
+        "Step 3: Make & and | commutative by returning NotImplemented in Q when the other side is a conditional non-Q and implementing __rand__/__ror__ in Combinable",
+        "Step 4: Adjust tuple reconstruction to unpack values for named tuples while preserving behavior for plain tuples and lists",
+        "Step 5: Run expressions, queries, and lookup suites to verify behavior without regressions"
+      ],
+      "source_trajectories": [
+        "django__django-14017",
+        "django__django-13590"
+      ]
+    },
+    {
+      "name": "Improving Relationship Metadata and Validator Hints",
+      "description": "Ensure relation identities are hashable and update error messages/hints for relationship validation.",
+      "steps": [
+        "Step 1: Reproduce hash errors involving relation identity (e.g., ManyToManyRel.identity with through_fields=list)",
+        "Step 2: Wrap unhashable identity components with make_hashable() to prevent TypeError during checks",
+        "Step 3: Locate and correct misleading validator hints (e.g., recursive relationship guidance) to modern, accurate suggestions",
+        "Step 4: Add or update tests asserting identity shape and hint text",
+        "Step 5: Run m2m_through, proxy_models, and invalid_models_tests to confirm correctness"
+      ],
+      "source_trajectories": [
+        "django__django-14672",
+        "django__django-12497"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Tracing ORDER BY Generation and Fixing Inherited -pk Handling",
+      "description": "Locate ORDER BY generation logic and implement an upstream-aligned fix to preserve descending pk across multi-table inheritance.",
+      "steps": [
+        {
+          "reasoning": "Find where ORDER BY terms are resolved to columns and directions to locate the recursion that flips '-pk' incorrectly.",
+          "action": "grep -n \"def find_ordering_name\" django/db/models/sql/compiler.py && sed -n '690,750p' django/db/models/sql/compiler.py"
+        },
+        {
+          "reasoning": "Confirm how default order and name are used when traversing relations; identify the pk shortcut to avoid relation recursion.",
+          "action": "sed -n '714,735p' django/db/models/sql/compiler.py"
+        },
+        {
+          "reasoning": "Implement the targeted condition to skip relation-based ordering when the name is the 'pk' shortcut.",
+          "action": "apply_patch {repo_path}/django/db/models/sql/compiler.py 's/\\(getattr(field, \\\"attname\\\", None) != name\\)/\\1 and name != \\\"pk\\\"/g'"
+        },
+        {
+          "reasoning": "Verify the fix with a minimal reproduction that prints SQL for the child model query.",
+          "action": "python {workspace}/test_reproduce_issue.py"
+        },
+        {
+          "reasoning": "Run ordering and queries suites to check for regressions and ensure nested relation ordering remains correct.",
+          "action": "cd {repo_path}/tests && python runtests.py ordering queries --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12470"
+      ]
+    },
+    {
+      "name": "Prevent Extra JOIN and Wrong Direction for Self-Referential FK order_by('..._id')",
+      "description": "Adjust comparison in the compiler to avoid injecting related model default ordering when ordering on a foreign key column.",
+      "steps": [
+        {
+          "reasoning": "Locate the condition that applies related model Meta.ordering when a relation is traversed; ensure it compares to the last lookup piece.",
+          "action": "grep -A 10 \"field.is_relation and opts.ordering\" {repo_path}/django/db/models/sql/compiler.py"
+        },
+        {
+          "reasoning": "Change comparison to use the last path piece (pieces[-1]) rather than the full lookup name to correctly detect FK column orderings.",
+          "action": "apply_patch {repo_path}/django/db/models/sql/compiler.py \"s/getattr(field, 'attname', None) != name/getattr(field, 'attname', None) != pieces[-1]/\""
+        },
+        {
+          "reasoning": "Run a reproducer to print SQL for order_by('ref__parent_id') vs 'ref__parent__id' and verify no extra join and correct ASC/DESC.",
+          "action": "python {workspace}/test_self_ref_ordering.py"
+        },
+        {
+          "reasoning": "Execute the ordering suite to validate no regressions across standard cases.",
+          "action": "cd {repo_path}/tests && python runtests.py ordering --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13033"
+      ]
+    },
+    {
+      "name": "Respect Child Choices in get_FOO_display with Inheritance",
+      "description": "Ensure get_FOO_display binds to the child field when overriding choices, while preserving explicit method overrides.",
+      "steps": [
+        {
+          "reasoning": "Locate the auto-binding of get_FOO_display during field contribution to the class to understand how methods are attached.",
+          "action": "grep -n \"contribute_to_class\" {repo_path}/django/db/models/fields/__init__.py && sed -n '750,780p' {repo_path}/django/db/models/fields/__init__.py"
+        },
+        {
+          "reasoning": "Modify the guard to avoid using inherited methods when choices are overridden, but keep user-defined methods intact.",
+          "action": "apply_patch {repo_path}/django/db/models/fields/__init__.py \"s/if not hasattr(cls, 'get_%s_display' % self.name):/method_name = 'get_%s_display' % self.name\\n        if method_name not in cls.__dict__:/\""
+        },
+        {
+          "reasoning": "Create a minimal app with an abstract base and child overriding choices; call get_field_display for new choice values.",
+          "action": "python {repo_path}/test_display_bug.py"
+        },
+        {
+          "reasoning": "Run model_fields and model_inheritance tests to ensure no regressions in display and inheritance behavior.",
+          "action": "cd {repo_path} && PYTHONPATH={repo_path} python tests/runtests.py model_fields model_inheritance --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12284"
+      ]
+    },
+    {
+      "name": "Propagate emptiness for QuerySet.none() with combinators",
+      "description": "Short-circuit combined query execution when the parent query is empty so .none() returns no results for union/intersection/difference.",
+      "steps": [
+        {
+          "reasoning": "Open the SQL compiler method handling combined queries and identify where combined_queries are executed.",
+          "action": "grep -n \"def get_combinator_sql\" {repo_path}/django/db/models/sql/compiler.py && sed -n '433,486p' {repo_path}/django/db/models/sql/compiler.py"
+        },
+        {
+          "reasoning": "Insert an early guard to raise EmptyResultSet when the parent Query is empty.",
+          "action": "apply_patch {repo_path}/django/db/models/sql/compiler.py \"\\n    if self.query.is_empty():\\n        raise EmptyResultSet\\n\""
+        },
+        {
+          "reasoning": "Verify with a minimal script that union().none() yields zero rows and that forms using union() don't accidentally add all items.",
+          "action": "python {workspace}/test_bug_simple.py"
+        },
+        {
+          "reasoning": "Run combinator and model_forms tests to ensure no regressions.",
+          "action": "cd {repo_path}/tests && python runtests.py queries.test_qs_combinators model_forms --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13158"
+      ]
+    },
+    {
+      "name": "Make Q and Exists Commutative under & and |",
+      "description": "Enable Python's reverse operator resolution by returning NotImplemented from Q when appropriate and implement __rand__/__ror__ for expressions.",
+      "steps": [
+        {
+          "reasoning": "Locate Q operator definitions that currently enforce Q-only combinations and block reverse operator resolution.",
+          "action": "sed -n '28,98p' {repo_path}/django/db/models/query_utils.py"
+        },
+        {
+          "reasoning": "Modify Q.__and__/__or__ to return NotImplemented when the right operand is a conditional non-Q (e.g., Exists).",
+          "action": "apply_patch {repo_path}/django/db/models/query_utils.py \"\\n    def __and__(self, other):\\n        if not isinstance(other, Q) and getattr(other, 'conditional', False):\\n            return NotImplemented\\n        return self._combine(other, self.AND)\\n\\n    def __or__(self, other):\\n        if not isinstance(other, Q) and getattr(other, 'conditional', False):\\n            return NotImplemented\\n        return self._combine(other, self.OR)\\n\""
+        },
+        {
+          "reasoning": "Implement __rand__/__ror__ on Combinable to wrap both sides in Q and delegate to Q combination for conditional expressions.",
+          "action": "apply_patch {repo_path}/django/db/models/expressions.py \"\\n    def __rand__(self, other):\\n        from django.db.models.query_utils import Q\\n        if getattr(self, 'conditional', False):\\n            return Q(other) & Q(self)\\n        return NotImplemented\\n\\n    def __ror__(self, other):\\n        from django.db.models.query_utils import Q\\n        if getattr(self, 'conditional', False):\\n            return Q(other) | Q(self)\\n        return NotImplemented\\n\""
+        },
+        {
+          "reasoning": "Verify with a script that Exists() & Q() and Q() & Exists() both work and return a Q.",
+          "action": "python {workspace}/test_issue_exact.py"
+        },
+        {
+          "reasoning": "Run expressions and queries suites to ensure overall stability.",
+          "action": "cd {repo_path}/tests && python runtests.py expressions queries --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-14017"
+      ]
+    },
+    {
+      "name": "Fix named tuple support in __range lookup",
+      "description": "Update resolve_lookup_value to unpack generator elements for named tuples, preserving behavior for tuples and lists.",
+      "steps": [
+        {
+          "reasoning": "Locate resolve_lookup_value where tuple-like values are reconstructed from generators.",
+          "action": "grep -n \"def resolve_lookup_value\" {repo_path}/django/db/models/sql/query.py && sed -n '1070,1120p' {repo_path}/django/db/models/sql/query.py"
+        },
+        {
+          "reasoning": "Compute resolved sub-values and unpack them when rebuilding named tuples; keep container behavior for plain tuples/lists.",
+          "action": "apply_patch {repo_path}/django/db/models/sql/query.py \"\\n    resolved_values = tuple(self.resolve_lookup_value(sub_value, can_reuse, allow_joins) for sub_value in value)\\n    if hasattr(value, '_fields'):\\n        return type(value)(*resolved_values)\\n    else:\\n        return type(value)(resolved_values)\\n\""
+        },
+        {
+          "reasoning": "Run a minimal reproduction using a namedtuple Range with __range lookup to confirm no TypeError.",
+          "action": "python {workspace}/test_namedtuple_range.py"
+        },
+        {
+          "reasoning": "Execute expressions and queries tests covering iterable lookup behaviors to guard against regressions.",
+          "action": "cd {repo_path}/tests && python runtests.py expressions lookup queries --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13590"
+      ]
+    },
+    {
+      "name": "Ensure ManyToManyRel.identity is hashable with through_fields",
+      "description": "Wrap through_fields with make_hashable() to prevent TypeError during relation hashing and model checks.",
+      "steps": [
+        {
+          "reasoning": "Open reverse_related.py to inspect ManyToManyRel.identity composition and identify where through_fields are included.",
+          "action": "sed -n '300,320p' {repo_path}/django/db/models/fields/reverse_related.py"
+        },
+        {
+          "reasoning": "Wrap through_fields in make_hashable() to convert lists into tuples and nested containers into hashable types.",
+          "action": "apply_patch {repo_path}/django/db/models/fields/reverse_related.py \"s/self.through_fields,/make_hashable(self.through_fields),/\""
+        },
+        {
+          "reasoning": "Add or run a regression test verifying identity[-2] is a tuple and hashing works with proxy models and through_fields=['child','parent'].",
+          "action": "cd {repo_path}/tests && python runtests.py m2m_through --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-14672"
+      ]
+    },
+    {
+      "name": "Update recursive relationship validation hint",
+      "description": "Correct invalid guidance suggesting ForeignKey with symmetrical=False; direct developers to ManyToManyField with through.",
+      "steps": [
+        {
+          "reasoning": "Search for the exact hint text in related field validation to locate the erroneous string.",
+          "action": "grep -n \"If you want to create a recursive relationship\" {repo_path}/django/db/models/fields/related.py"
+        },
+        {
+          "reasoning": "Replace the hint to recommend ManyToManyField with through and remove mention of symmetrical=False.",
+          "action": "apply_patch {repo_path}/django/db/models/fields/related.py \"s/use ForeignKey(\\\"%s\\\", symmetrical=False, through=\\\"%s\\\")\\./use ManyToManyField(\\\"%s\\\", through=\\\"%s\\\")\\./g\""
+        },
+        {
+          "reasoning": "Run invalid model tests to confirm the updated hint appears and assertions pass.",
+          "action": "cd {repo_path}/tests && python runtests.py invalid_models_tests.test_relative_fields --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Use concrete_model._meta when traversing proxies for only()+select_related()",
+      "description": "Ensure PK and deferred fields are populated correctly when following a proxy foreign key via select_related() with only().",
+      "steps": [
+        {
+          "reasoning": "Locate metadata traversal during select-related population and deferred field resolution.",
+          "action": "grep -n \"opts = cur_model._meta\" {repo_path}/django/db/models/sql/query.py && sed -n '720,760p' {repo_path}/django/db/models/sql/query.py"
+        },
+        {
+          "reasoning": "Change to use cur_model._meta.concrete_model._meta so proxy models defer to the concrete model's metadata.",
+          "action": "apply_patch {repo_path}/django/db/models/sql/query.py \"s/opts = cur_model._meta/opts = cur_model._meta.concrete_model._meta/\""
+        },
+        {
+          "reasoning": "Run a regression test that queries select_related('custom').only('custom__name') where custom is a proxy FK to confirm no ValueError.",
+          "action": "cd {repo_path}/tests && python runtests.py defer_regress.tests.DeferRegressionTest.test_select_related_only_proxy_fk --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-15814"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "ORM and Model Behavior Bugs": {
+    "oversized_trajectories": [
+      "django__django-12284",
+      "django__django-12470"
+    ],
+    "missing_trajectories": []
+  },
+  "HTTP and URL Handling Bugs": {
+    "oversized_trajectories": [
+      "django__django-12184"
+    ],
+    "missing_trajectories": []
+  }
+}

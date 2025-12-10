@@ -1,0 +1,161 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Ensuring Standards-Compliant HTTP Date Parsing",
+      "description": "Identify and fix issues where Django's HTTP utilities diverge from RFC specifications, especially around date parsing.",
+      "steps": [
+        "Step 1: Review the relevant RFCs (e.g., RFC 7231, RFC 2822) and clarify the expected behavior for edge cases like two-digit years",
+        "Step 2: Create a minimal reproducible test script that exercises the affected utility with representative inputs and verifies expected outputs",
+        "Step 3: Locate the implementation in the Django source (e.g., django/utils/http.py) and identify the logic that deviates from the spec",
+        "Step 4: Design a fix that adheres to the RFC, considering dynamic context (e.g., current UTC year) and boundary conditions",
+        "Step 5: Implement the change with minimal impact, ensuring clear comments and maintainable code",
+        "Step 6: Run targeted verification scripts to confirm the fix, including boundary and format variations",
+        "Step 7: Execute Django\u2019s relevant test suites to detect regressions in other HTTP utilities or formats",
+        "Step 8: Document the change, rationale, and expected behavior for maintainers and reviewers"
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Debugging URL Resolver Behavior with Optional Regex Groups",
+      "description": "Systematically diagnose and fix issues where Django URL resolution passes unexpected arguments due to optional regex groups.",
+      "steps": [
+        "Step 1: Build a minimal URLConf and view to reproduce the error, using patterns with optional named groups",
+        "Step 2: Verify Python regex behavior with the chosen pattern to understand groupdict and groups outputs, especially None values for unmatched optional groups",
+        "Step 3: Inspect Django's URL resolver implementation (e.g., django/urls/resolvers.py) to trace how matches are converted to args and kwargs",
+        "Step 4: Identify incorrect fallback handling (e.g., passing None from unmatched optional groups as positional args)",
+        "Step 5: Implement a fix to filter out None values or adjust args/kwargs precedence appropriately",
+        "Step 6: Validate using the minimal reproduction and additional edge cases (named vs unnamed groups, presence/absence of optional segments)",
+        "Step 7: Run Django's URL-related test suites to ensure no regressions introduced",
+        "Step 8: Document the root cause, fix, and outcomes to aid future maintenance"
+      ],
+      "source_trajectories": [
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Establishing Minimal Reproducible Cases Within Django",
+      "description": "Create concise, isolated scripts and URLConfs to reproduce and validate issues and fixes without full project overhead.",
+      "steps": [
+        "Step 1: Configure lightweight Django settings programmatically (e.g., ROOT_URLCONF and INSTALLED_APPS) for a single script",
+        "Step 2: Dynamically define a minimal URLConf with the problematic pattern and a simple view to isolate behavior",
+        "Step 3: Use Django\u2019s resolve() or direct utility calls to exercise the code path and print args/kwargs or parsed outputs",
+        "Step 4: Iterate on the minimal case to cover multiple paths and edge scenarios, ensuring reproducibility",
+        "Step 5: Keep scripts focused on the specific behavior to speed up debugging and validation",
+        "Step 6: After implementing fixes, reuse the scripts to confirm corrected behavior and boundary handling"
+      ],
+      "source_trajectories": [
+        "django__django-11848",
+        "django__django-12184"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating and Inspecting a Django Utility Function Implementation",
+      "description": "Find the implementation of a Django utility function and open it for review to understand and modify behavior.",
+      "steps": [
+        {
+          "reasoning": "Need to locate the exact file and function definition to inspect current logic.",
+          "action": "grep -Rn \"def {function_name}\" {repo_root}/django | head -10"
+        },
+        {
+          "reasoning": "Open the identified file to review the implementation details around the function.",
+          "action": "sed -n '{start_line},{end_line}p' {repo_root}/django/{relative_path_to_file}"
+        },
+        {
+          "reasoning": "Quickly jump to the function within the file to focus on its logic.",
+          "action": "grep -n \"{function_name}\" {repo_root}/django/{relative_path_to_file}"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848",
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Quickly Inspect Regex Group Behavior for Optional Named Groups",
+      "description": "Use a Python one-liner to observe how Python regex captures groups and groupdict for optional segments.",
+      "steps": [
+        {
+          "reasoning": "Verify whether optional groups produce None values that could be incorrectly propagated.",
+          "action": "python -c 'import re; p = re.compile(r\"{pattern}\"); m = p.search(\"{path}\"); print(\"groupdict:\", m.groupdict()); print(\"groups:\", m.groups())'"
+        },
+        {
+          "reasoning": "Compare behavior with and without the optional group present to understand boundary cases.",
+          "action": "python -c 'import re; p = re.compile(r\"{pattern}\"); m1 = p.search(\"{path_without_optional}\"); m2 = p.search(\"{path_with_optional}\"); print(\"no optional:\", m1.groupdict(), m1.groups()); print(\"with optional:\", m2.groupdict(), m2.groups())'"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Running Django\u2019s Internal Test Runner for Specific Modules",
+      "description": "Execute Django\u2019s built-in test runner to validate fixes against targeted modules and prevent regressions.",
+      "steps": [
+        {
+          "reasoning": "Verify a fix in a focused area by running only the relevant test suite.",
+          "action": "cd {repo_root}/django && python tests/runtests.py {module_name} -v 2"
+        },
+        {
+          "reasoning": "Run a specific test case or class when narrowing down behavior or regressions.",
+          "action": "cd {repo_root}/django && python tests/runtests.py {module_name}.{test_class_or_method} --settings={settings_module} -v 2"
+        },
+        {
+          "reasoning": "Optionally install Django in editable mode to simplify imports and environment setup for tests.",
+          "action": "cd {repo_root}/django && pip install -e ."
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848",
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Implementing a Minimal URLConf and Resolving Paths Programmatically",
+      "description": "Create a dynamic URLConf with optional parameters and use Django\u2019s resolver to inspect args/kwargs and view invocation.",
+      "steps": [
+        {
+          "reasoning": "Set up a lightweight Django environment that can resolve URLs without a full project.",
+          "action": "python -c \"import sys, types; sys.path.insert(0, '{repo_root}/django'); from django.conf import settings; settings.configure(DEBUG=True, ROOT_URLCONF='test_urls', ALLOWED_HOSTS=['*'], INSTALLED_APPS=['django.contrib.contenttypes']); import django; django.setup(); test_urls = types.ModuleType('test_urls'); def {view_name}(request, {param_name}='{default_value}'): return f'{param_name}: {{{param_name}}}'; test_urls.{view_name} = {view_name}; from django.urls import re_path; test_urls.urlpatterns = [re_path(r'{regex_pattern}', {view_name}, name='{url_name}')]; sys.modules['test_urls'] = test_urls; from django.urls import resolve; rm1 = resolve('{path1}'); print('Args1:', rm1.args, 'Kwargs1:', rm1.kwargs); rm2 = resolve('{path2}'); print('Args2:', rm2.args, 'Kwargs2:', rm2.kwargs)\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Editing a Specific Logic Block In-Place Using sed",
+      "description": "Perform a minimal, targeted code change to adjust logic (e.g., filter None from args or update century selection).",
+      "steps": [
+        {
+          "reasoning": "Fix URL resolver fallback when optional groups are present by ignoring None values.",
+          "action": "sed -i \"s/args = () if kwargs else match.groups()/args = () if kwargs else tuple(g for g in match.groups() if g is not None)/\" {repo_root}/django/django/urls/resolvers.py"
+        },
+        {
+          "reasoning": "Update century selection logic to use a dynamic comparison against the current year plus 50 years as per RFC 7231.",
+          "action": "sed -i \"s/if year < 70:\\n\\s*year += 2000\\n\\s*else:\\n\\s*year += 1900/ current_year = datetime.datetime.utcnow().year\\n            if 2000 + year > current_year + 50:\\n                year += 1900\\n            else:\\n                year += 2000/\" {repo_root}/django/django/utils/http.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848",
+        "django__django-12184"
+      ]
+    },
+    {
+      "name": "Verifying HTTP Date Parsing Across Formats via a One-Off Script",
+      "description": "Run a quick Python script to check date parsing behavior for RFC1123, RFC850, and asctime formats, including edge cases.",
+      "steps": [
+        {
+          "reasoning": "Ensure the fix doesn\u2019t regress other formats and correctly handles two-digit years according to the RFC.",
+          "action": "python -c \"import sys; sys.path.insert(0, '{repo_root}/django'); from django.utils.http import parse_http_date; from datetime import datetime; cases = ['Sun, 06 Nov 1994 08:49:37 GMT', 'Sunday, 06-Nov-70 08:49:37 GMT', 'Sun Nov  6 08:49:37 0037']; for c in cases: ts = parse_http_date(c); print(c, '->', datetime.utcfromtimestamp(ts))\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    }
+  ]
+}

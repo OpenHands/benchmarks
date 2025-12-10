@@ -1,0 +1,151 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Refactoring Django Admin to Expose Extension Points",
+      "description": "Add or improve extension points in Django admin (e.g., making helper methods public or extracting serialization hooks) to enable customization without overriding entire views.",
+      "steps": [
+        "Step 1: Identify rigid or private logic that downstream code frequently needs to customize (e.g., private helpers or hardcoded response formats)",
+        "Step 2: Locate the implementation and its callers in django/contrib/admin to understand the data flow and usage",
+        "Step 3: Refactor the logic into a public method or hook (e.g., rename a private method, add a serialize_result() method) with a sensible default implementation",
+        "Step 4: Update internal callers to use the new extension point and ensure signatures remain backward compatible",
+        "Step 5: Document the new extension point (docstrings) and include examples of common overrides",
+        "Step 6: Add or update tests to verify default behavior remains intact and that custom overrides work as expected",
+        "Step 7: Run focused admin test suites to confirm no regressions (e.g., admin_views, admin_widgets)"
+      ],
+      "source_trajectories": [
+        "django__django-13447",
+        "django__django-14752"
+      ]
+    },
+    {
+      "name": "Aligning Admin Default Behaviors with Model Meta Semantics",
+      "description": "Ensure admin components default values mirror Django model Meta behavior for consistency (e.g., deriving verbose_name_plural from verbose_name when not explicitly set).",
+      "steps": [
+        "Step 1: Identify inconsistencies between admin defaults and model Meta behavior by reviewing relevant components",
+        "Step 2: Inspect the admin implementation to see how defaults are currently computed and when overrides apply",
+        "Step 3: Implement conditional defaulting logic that derives values from existing attributes when explicit values are not provided",
+        "Step 4: Preserve explicit overrides and avoid changing behavior when no custom values are specified",
+        "Step 5: Consider localization by using lazy formatting where applicable",
+        "Step 6: Add tests covering scenarios with and without explicit verbose_name_plural and with custom verbose_name",
+        "Step 7: Run admin_inlines and related suites to ensure compatibility"
+      ],
+      "source_trajectories": [
+        "django__django-13710"
+      ]
+    },
+    {
+      "name": "Hardening Admin URLs Against to_field and Alternative PKs",
+      "description": "Fix admin links that break when navigating via ForeignKey with to_field or alternate identifiers by generating URLs using the true object PK or reversing named URLs.",
+      "steps": [
+        "Step 1: Reproduce the broken navigation path and capture the generated URL that fails",
+        "Step 2: Locate the form/template code that constructs the relative link or path",
+        "Step 3: Replace brittle relative paths with URLs that use the object\u2019s primary key or reverse-resolved routes",
+        "Step 4: Verify the link generation for both standard PK and to_field-based navigation",
+        "Step 5: Ensure changes are minimal and do not alter unrelated help text or UI",
+        "Step 6: Add a small test or script that confirms the link resolves correctly in both contexts",
+        "Step 7: Run auth_tests and admin_views subsets to confirm no regressions"
+      ],
+      "source_trajectories": [
+        "django__django-16139"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating Admin Implementations and References",
+      "description": "Find where a symbol (method/class/view) is implemented and referenced across Django\u2019s admin to map the change surface.",
+      "steps": [
+        {
+          "reasoning": "Need to find the defining location of a target symbol and all references to understand scope of change.",
+          "action": "grep -r \"{symbol_name}\" {project_root}/django/contrib/admin --include=\"*.py\""
+        },
+        {
+          "reasoning": "Discover related files (e.g., views, options, sites) that may contain the logic to modify.",
+          "action": "find {project_root}/django/django -name \"*{keyword}*.py\" -path \"*/admin/*\""
+        },
+        {
+          "reasoning": "Confirm exact file and line numbers to prepare for edits.",
+          "action": "grep -n \"{symbol_name}\" {project_root}/django/django/contrib/admin/{module}.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13447",
+        "django__django-13710",
+        "django__django-14752"
+      ]
+    },
+    {
+      "name": "Running Focused Django Test Suites",
+      "description": "Execute subsets of Django\u2019s test suite using the built-in runner to validate changes and detect regressions.",
+      "steps": [
+        {
+          "reasoning": "Ensure local repository code is used by the test runner.",
+          "action": "cd {project_root}/django && pip install -e ."
+        },
+        {
+          "reasoning": "Run a specific module\u2019s tests to verify targeted functionality.",
+          "action": "cd {project_root}/django && python tests/runtests.py {module_name} --verbosity=2"
+        },
+        {
+          "reasoning": "Execute a single test class or test method for rapid feedback.",
+          "action": "cd {project_root}/django && python tests/runtests.py {module}.{TestClass}[.{test_method}] --verbosity=2"
+        },
+        {
+          "reasoning": "Summarize results to quickly spot failures or errors.",
+          "action": "cd {project_root}/django && python tests/runtests.py {module_name} --verbosity=1 2>&1 | grep -E \"(Ran|OK|FAILED|ERROR)\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13447",
+        "django__django-13710",
+        "django__django-14752",
+        "django__django-16139"
+      ]
+    },
+    {
+      "name": "Verifying Source Changes via Python Introspection",
+      "description": "Confirm method presence, signatures, and call sites with Python inspect and substring checks without running full tests.",
+      "steps": [
+        {
+          "reasoning": "Check that a refactored method exists on a class and old method is gone.",
+          "action": "python -c \"from django.contrib.admin.sites import AdminSite; import inspect; print('build_app_dict exists:', hasattr(AdminSite, 'build_app_dict')); print('old _build_app_dict exists:', hasattr(AdminSite, '_build_app_dict'))\""
+        },
+        {
+          "reasoning": "Verify internal callers now use the new method name.",
+          "action": "python -c \"from django.contrib.admin.sites import AdminSite; import inspect; src=inspect.getsource(AdminSite.get_app_list); print('Calls build_app_dict:', 'build_app_dict(' in src)\""
+        },
+        {
+          "reasoning": "Confirm new extension hook exists and returns expected default structure.",
+          "action": "python -c \"from django.contrib.admin.views.autocomplete import AutocompleteJsonView; import inspect; print('serialize_result exists:', hasattr(AutocompleteJsonView,'serialize_result')); print(inspect.getsource(AutocompleteJsonView.serialize_result))\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13447",
+        "django__django-14752"
+      ]
+    },
+    {
+      "name": "Bootstrapping a Minimal Django Environment for Quick Checks",
+      "description": "Run small verification scripts against Django\u2019s code using the test settings without spinning up the full suite.",
+      "steps": [
+        {
+          "reasoning": "Point Python to the local repo and Django tests settings to initialize Django.",
+          "action": "python -c \"import os, sys, django; sys.path.insert(0, '{project_root}/django'); sys.path.insert(0, '{project_root}/django/tests'); os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_sqlite'); django.setup(); print('Django initialized')\""
+        },
+        {
+          "reasoning": "Import relevant admin components and execute a quick check (e.g., building app list or calling a view method).",
+          "action": "python -c \"import os, sys, django; sys.path.insert(0, '{project_root}/django'); sys.path.insert(0, '{project_root}/django/tests'); os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_sqlite'); django.setup(); from django.contrib.admin.views.autocomplete import AutocompleteJsonView; v=AutocompleteJsonView(); print('Has serialize_result:', hasattr(v,'serialize_result'))\""
+        },
+        {
+          "reasoning": "Confirm behavior aligns with expectations without writing a full test case file.",
+          "action": "python -c \"import os, sys, django; sys.path.insert(0, '{project_root}/django'); sys.path.insert(0, '{project_root}/django/tests'); os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_sqlite'); django.setup(); from django.contrib.admin.sites import AdminSite; from django.contrib.auth.models import User; site=AdminSite(); print('AdminSite ready')\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13447",
+        "django__django-14752",
+        "django__django-16139"
+      ]
+    }
+  ]
+}

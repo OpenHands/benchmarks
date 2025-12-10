@@ -1,0 +1,298 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Diagnose configuration-vs-runtime inconsistency",
+      "description": "Identify and reconcile mismatches between system checks and runtime behavior (e.g., translation fallback).",
+      "steps": [
+        {
+          "reasoning": "You need to understand where the rule is enforced to know what to fix.",
+          "action": "Locate the validation/check implementation and read its logic."
+        },
+        {
+          "reasoning": "Runtime behavior (e.g., fallback resolution) defines the intended semantics.",
+          "action": "Identify and study the runtime code that resolves language variants/fallbacks."
+        },
+        {
+          "reasoning": "Documentation and tests define expected behavior and constraints.",
+          "action": "Review docs and tests around the feature (e.g., language code fallback) to confirm expectations."
+        },
+        {
+          "reasoning": "A clear mapping of check logic vs runtime logic reveals gaps causing false positives.",
+          "action": "Compare the check's conditions to how runtime resolves languages and list discrepancies."
+        }
+      ]
+    },
+    {
+      "name": "Design a minimal, behavior-preserving fix",
+      "description": "Craft a change that aligns checks with runtime while minimizing risk and scope.",
+      "steps": [
+        {
+          "reasoning": "Small, well-scoped changes reduce risk and ease review.",
+          "action": "Target the conditional(s) that cause the misclassification rather than broad refactors."
+        },
+        {
+          "reasoning": "Mirroring runtime semantics ensures consistency (e.g., base-language acceptance for sublanguages).",
+          "action": "Align check logic with runtime variant resolution (e.g., exact match, base-language fallback, prefix handling)."
+        },
+        {
+          "reasoning": "Edge cases (e.g., multi-segment tags like zh-hans-cn) frequently break naive logic.",
+          "action": "Enumerate edge patterns and ensure the new logic handles them explicitly."
+        },
+        {
+          "reasoning": "Backwards compatibility prevents new false negatives/positives.",
+          "action": "Confirm unchanged behavior in unaffected paths and document any intentional behavior change."
+        }
+      ]
+    },
+    {
+      "name": "Establish a reproducible failing case",
+      "description": "Create a minimal example that demonstrates the issue and can verify the fix.",
+      "steps": [
+        {
+          "reasoning": "A minimal reproducer accelerates debugging and validates correctness repeatedly.",
+          "action": "Write a small script/test configuring only the necessary settings to trigger the issue."
+        },
+        {
+          "reasoning": "Automating setup avoids environment-specific noise and errors.",
+          "action": "Programmatically configure the framework (e.g., settings.configure) and run the relevant checks."
+        },
+        {
+          "reasoning": "Capturing the exact error code ensures you\u2019re fixing the right issue.",
+          "action": "Filter and assert on the specific check ID (e.g., translation.E004) in the output."
+        }
+      ]
+    },
+    {
+      "name": "Iterative validation with targeted test suites",
+      "description": "Validate changes incrementally to isolate regressions early.",
+      "steps": [
+        {
+          "reasoning": "Targeted suites run quickly and focus on the area of change.",
+          "action": "Run only the relevant test modules (e.g., check framework/i18n) before broader runs."
+        },
+        {
+          "reasoning": "Broader suites catch unintended side effects.",
+          "action": "Once targeted suites pass, run larger subsets or the full test suite."
+        },
+        {
+          "reasoning": "Quick feedback loops reduce iteration time.",
+          "action": "Repeat tests after each small code adjustment."
+        }
+      ]
+    },
+    {
+      "name": "Edge-case driven expansion",
+      "description": "Systematically uncover and address non-trivial cases in language tag handling.",
+      "steps": [
+        {
+          "reasoning": "Language tags can be multi-part and nuanced; common pitfalls often appear in these cases.",
+          "action": "List and test multi-segment variants (e.g., zh-hans-cn), region-specific codes (e.g., fr-ca), and generic prefixes."
+        },
+        {
+          "reasoning": "Ensuring runtime and checks treat these uniformly prevents inconsistencies.",
+          "action": "Verify both the system checks and runtime resolvers accept the same set of variants."
+        },
+        {
+          "reasoning": "Prevent regressions by codifying these cases.",
+          "action": "Add or update tests to cover each edge case explicitly."
+        }
+      ]
+    },
+    {
+      "name": "Change verification and documentation",
+      "description": "Summarize, verify, and communicate the changes made and their impact.",
+      "steps": [
+        {
+          "reasoning": "Reviewing diffs ensures only intended lines changed.",
+          "action": "Inspect the code diff for the modified files."
+        },
+        {
+          "reasoning": "A clear summary speeds up review and future maintenance.",
+          "action": "Document the problem, the changes, and verification results (including tests and manual checks)."
+        },
+        {
+          "reasoning": "Visibility into verification increases confidence and reproducibility.",
+          "action": "Include example inputs and outputs showing pre- and post-fix behavior."
+        }
+      ]
+    },
+    {
+      "name": "Environment readiness for framework development",
+      "description": "Prepare the environment to run framework tests and develop locally.",
+      "steps": [
+        {
+          "reasoning": "Missing dependencies block tests and scripts.",
+          "action": "Install all required runtime and test dependencies."
+        },
+        {
+          "reasoning": "Editable installs and correct PYTHONPATH ensure your local changes are executed.",
+          "action": "Install the project in editable mode or set PYTHONPATH to point to the working tree."
+        },
+        {
+          "reasoning": "Consistency across runs reduces flakiness.",
+          "action": "Standardize command invocations (e.g., use the project\u2019s test runner)."
+        }
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locate translation check implementation and E004",
+      "description": "Find where translation.E004 is defined and implemented.",
+      "steps": [
+        {
+          "reasoning": "Identify files that contain the translation checks.",
+          "action": "cd /workspace/django && find django -type f -name \"*.py\" | grep core/checks | xargs grep -n \"translation\""
+        },
+        {
+          "reasoning": "Open the file to inspect the check logic and E004.",
+          "action": "sed -n '1,200p' django/django/core/checks/translation.py"
+        },
+        {
+          "reasoning": "Search tests referencing the specific check ID for expectations.",
+          "action": "grep -R \"translation.E004\" tests/ --include=\"*.py\" -n"
+        }
+      ]
+    },
+    {
+      "name": "Inspect runtime language fallback logic",
+      "description": "Study how Django resolves language variants at runtime to mirror in checks.",
+      "steps": [
+        {
+          "reasoning": "Find the module handling translation internals and fallback logic.",
+          "action": "grep -R \"get_supported_language_variant\\|generic_lang_code\" django/django/utils/translation -n"
+        },
+        {
+          "reasoning": "Open the relevant sections to understand exact behavior.",
+          "action": "sed -n '1,150p' django/django/utils/translation/trans_real.py; sed -n '350,520p' django/django/utils/translation/trans_real.py"
+        },
+        {
+          "reasoning": "Cross-reference public API usage.",
+          "action": "sed -n '1,180p' django/django/utils/translation/__init__.py"
+        }
+      ]
+    },
+    {
+      "name": "Run targeted tests for translation checks",
+      "description": "Execute only the tests related to translation checks for quick feedback.",
+      "steps": [
+        {
+          "reasoning": "Validate current behavior and identify failing expectations.",
+          "action": "python tests/runtests.py check_framework.test_translation -v 2"
+        },
+        {
+          "reasoning": "If using pytest is preferred or available, run the specific test.",
+          "action": "pytest tests/check_framework/test_translation.py::TranslationCheckTests::test_inconsistent_language_settings -xvs"
+        }
+      ]
+    },
+    {
+      "name": "Create and run a minimal reproduction script for translation.E004",
+      "description": "Programmatically trigger the E004 system check to reproduce the issue.",
+      "steps": [
+        {
+          "reasoning": "A small script isolates the failing condition without full test overhead.",
+          "action": "cat > reproduce_issue.py << 'PY'\nfrom django.conf import settings\nfrom django.core.checks import run_checks\n\nif not settings.configured:\n    settings.configure(\n        SECRET_KEY='x',\n        INSTALLED_APPS=[],\n        USE_I18N=True,\n        LANGUAGE_CODE='de-at',\n        LANGUAGES=[('de', 'German')],\n    )\n\nerrors = [e for e in run_checks() if e.id.startswith('translation.E004')]\nprint('E004 count:', len(errors))\nfor e in errors:\n    print(e.id, e.msg)\nPY"
+        },
+        {
+          "reasoning": "Run and confirm the error reproduces before fixing.",
+          "action": "python reproduce_issue.py"
+        },
+        {
+          "reasoning": "If imports fail due to missing dependencies, install them.",
+          "action": "pip install asgiref pytz sqlparse"
+        },
+        {
+          "reasoning": "Re-run after resolving dependencies to confirm reproduction.",
+          "action": "python reproduce_issue.py"
+        }
+      ]
+    },
+    {
+      "name": "Prepare development environment for running Django from source",
+      "description": "Ensure local changes are used when running tests and scripts.",
+      "steps": [
+        {
+          "reasoning": "Editable install makes Python import the local working tree.",
+          "action": "cd /workspace/django && pip install -e ."
+        },
+        {
+          "reasoning": "If not using editable install, set PYTHONPATH to include the source tree.",
+          "action": "export PYTHONPATH=/workspace/django:$PYTHONPATH"
+        },
+        {
+          "reasoning": "Confirm the Django version/source in use.",
+          "action": "python -c \"import django,inspect; print(django.__version__, inspect.getsourcefile(django))\""
+        }
+      ]
+    },
+    {
+      "name": "Implement and iterate on translation check fix",
+      "description": "Modify the check to accept sublanguages when the base language is present and handle prefixes.",
+      "steps": [
+        {
+          "reasoning": "Open the file to implement the change.",
+          "action": "vi django/django/core/checks/translation.py"
+        },
+        {
+          "reasoning": "Add logic: accept exact match; if '-' in LANGUAGE_CODE, accept if base is in LANGUAGES; also accept any LANGUAGES entry starting with base+'-'.",
+          "action": "Edit the check function (e.g., check_language_settings_consistent) to mirror get_supported_language_variant semantics."
+        },
+        {
+          "reasoning": "Quickly validate the fix against the minimal reproducer.",
+          "action": "python reproduce_issue.py"
+        },
+        {
+          "reasoning": "Test tricky variants align with runtime.",
+          "action": "python - << 'PY'\nfrom django.conf import settings\nfrom django.utils.translation import get_supported_language_variant\nsettings.configure(SECRET_KEY='x', LANGUAGES=[('zh-hans',''),('de',''),('en','')])\nfor code in ['zh-hans-cn','de-at','en-us']:\n    print(code, '->', get_supported_language_variant(code, strict=False))\nPY"
+        }
+      ]
+    },
+    {
+      "name": "Run targeted and broader test suites",
+      "description": "Execute relevant test groups and escalate to broader coverage.",
+      "steps": [
+        {
+          "reasoning": "Check only the relevant areas first for rapid feedback.",
+          "action": "python tests/runtests.py check_framework i18n -v 1"
+        },
+        {
+          "reasoning": "Confirm overall stability after targeted passes.",
+          "action": "python tests/runtests.py -v 0"
+        },
+        {
+          "reasoning": "Summarize outcomes quickly.",
+          "action": "python tests/runtests.py check_framework i18n --verbosity=1 2>&1 | grep -E \"^(Ran|OK|FAILED)\""
+        }
+      ]
+    },
+    {
+      "name": "Verify checks programmatically via run_checks and filter E004",
+      "description": "Ensure translation.E004 no longer triggers for acceptable variants.",
+      "steps": [
+        {
+          "reasoning": "Programmatic verification replicates production usage of system checks.",
+          "action": "python - << 'PY'\nfrom django.conf import settings\nfrom django.core.checks import run_checks\nsettings.configure(SECRET_KEY='x', USE_I18N=True, LANGUAGE_CODE='de-at', LANGUAGES=[('de','German')])\nerrs = [e for e in run_checks() if e.id=='translation.E004']\nprint('translation.E004 found:', bool(errs))\nPY"
+        },
+        {
+          "reasoning": "Test multiple scenarios to cover variants and direct matches.",
+          "action": "python - << 'PY'\nfrom django.conf import settings\nfrom django.core.checks import run_checks\ncases=[('de-at',[('de','German')]), ('es-ar',[('es-ar','')]), ('zh-hans-cn',[('zh-hans','')])]\nfor code, langs in cases:\n    settings._wrapped=None\n    settings.configure(SECRET_KEY='x', USE_I18N=True, LANGUAGE_CODE=code, LANGUAGES=langs)\n    errs=[e for e in run_checks() if e.id=='translation.E004']\n    print(code, 'E004:', bool(errs))\nPY"
+        }
+      ]
+    },
+    {
+      "name": "Review and present changes",
+      "description": "Show what changed and summarize verification.",
+      "steps": [
+        {
+          "reasoning": "A diff helps reviewers focus on the exact modifications.",
+          "action": "git diff django/django/core/checks/translation.py"
+        },
+        {
+          "reasoning": "A short report communicates impact and test results.",
+          "action": "printf \"%s\\n\" \"Summary of fix, rationale, and test outcomes\" > VERIFICATION_REPORT.md && cat VERIFICATION_REPORT.md"
+        }
+      ]
+    }
+  ]
+}

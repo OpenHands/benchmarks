@@ -1,0 +1,560 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Debugging Migration Serialization of Nested Types",
+      "description": "Identify and fix incorrect import paths for inner classes/enums during Django migration serialization, ensuring fully-qualified nested references are rendered correctly.",
+      "steps": [
+        "Step 1: Inspect generated migration code or serialized output to pinpoint incorrect references to inner classes or enums.",
+        "Step 2: Search django/db/migrations/serializer.py and review TypeSerializer and DeconstructableSerializer to understand how class names and import paths are constructed.",
+        "Step 3: Build a minimal reproduction using nested classes/enums and serialize with serializer_factory to confirm the issue and capture current behavior.",
+        "Step 4: Update serialization to use __qualname__ for classes while providing a safe fallback for local classes to __name__.",
+        "Step 5: Improve path import resolution to correctly determine the module boundary for nested classes rather than splitting on the last dot.",
+        "Step 6: Re-run migration writer and broader migrations tests to ensure the fix is correct and does not break existing behavior.",
+        "Step 7: Validate end-to-end using MigrationWriter to render a CreateModel operation and verify the output includes fully-qualified nested paths."
+      ],
+      "source_clusters": [
+        "ORM and Model Behavior Bugs"
+      ],
+      "source_trajectories": [
+        "django__django-12125"
+      ]
+    },
+    {
+      "name": "Correcting Field Validation Hints and Error Messages",
+      "description": "Update incorrect or outdated ORM hints raised during Django model checks to reflect current API usage and reduce ambiguity.",
+      "steps": [
+        "Step 1: Reproduce the check error with a minimal model scenario using a through model that triggers ambiguity (e.g., multiple ForeignKey fields).",
+        "Step 2: Locate the validation logic in django/db/models/fields/related.py and identify the exact error and hint text blocks.",
+        "Step 3: Update the hint to reflect current, correct API usage and remove outdated options.",
+        "Step 4: Align or update tests in tests/invalid_models_tests to match the corrected hint.",
+        "Step 5: Run specific failing tests and broader ManyToMany-related suites to confirm the fix and avoid regressions."
+      ],
+      "source_clusters": [
+        "ORM and Model Behavior Bugs"
+      ],
+      "source_trajectories": [
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Investigating Django ORM and Migrations Issues: Minimal Reproduction, Codebase Navigation, and Test Validation",
+      "description": "A general approach to efficiently reproduce, locate, and validate fixes for Django ORM/migrations issues using minimal scripts, systematic codebase search, and targeted tests.",
+      "steps": [
+        "Step 1: Write a compact Python script that defines only the classes or models required to trigger the behavior.",
+        "Step 2: Ensure Django code is importable via PYTHONPATH pointing to the repository or installing Django in editable mode.",
+        "Step 3: If using models without a full app, set app_label in Meta or use minimal settings.",
+        "Step 4: Print or assert key outputs such as field.deconstruct() or serializer_factory(...).serialize() to expose the problem.",
+        "Step 5: Use grep/find to locate strings such as error messages, error codes, or class/function names across django/ and tests/.",
+        "Step 6: Review identified files and surrounding context to understand control flow and data transformations; cross-reference tests under tests/ for expected outputs and corner cases.",
+        "Step 7: Run individual failing tests to confirm reproduction before code changes.",
+        "Step 8: Execute specific test modules related to the change, such as migrations.test_writer or invalid_models_tests.",
+        "Step 9: Run broader related suites (e.g., migrations, many_to_many, m2m_through, m2m_recursive) to detect regressions.",
+        "Step 10: Iterate test runs after incremental changes until all pass consistently."
+      ],
+      "source_clusters": [
+        "ORM and Model Behavior Bugs"
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Fixing RFC Compliance in Django HTTP Date Parsing with Flexible Validation",
+      "description": "Identify and resolve RFC-related issues in Django's HTTP date parsing utilities, and validate changes even when the full test runner isn\u2019t available.",
+      "steps": [
+        "Step 1: Review the relevant RFC requirement and identify the discrepancy with current behavior in Django.",
+        "Step 2: Locate the implementation in django/utils/http.py responsible for the behavior.",
+        "Step 3: Inspect the function logic, focusing on the specific problematic branch (e.g., two-digit year handling).",
+        "Step 4: Review existing tests in tests/utils_tests/test_http.py to understand current expectations and coverage.",
+        "Step 5: Design a standards-compliant fix that minimizes scope and preserves backward compatibility where appropriate.",
+        "Step 6: Implement the change in the utility function, ensuring necessary imports are present.",
+        "Step 7: Attempt to run targeted tests using Django\u2019s tests/runtests.py for the specific module or test class.",
+        "Step 8: If the runner isn\u2019t available or fails due to environment constraints, write small Python scripts that import the local Django package by adding the repository path to sys.path.",
+        "Step 9: Reproduce the issue and assert expected outcomes within these scripts; iterate until behavior aligns with RFC requirements.",
+        "Step 10: Validate behavior across all supported HTTP date formats (RFC1123, RFC850, and asctime), including boundary conditions (e.g., 50-year rule).",
+        "Step 11: Add or update tests to cover edge cases and document the change and its rationale for maintainers."
+      ],
+      "source_clusters": [
+        "HTTP and URL Handling Bugs"
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Ensuring Atomic Deserialization for Serialized Rollback in TransactionTestCase",
+      "description": "Fix TransactionTestCase.serialized_rollback failures by aligning internal deserialization with loaddata\u2019s transactional behavior and validating the change across test suites.",
+      "steps": [
+        "Step 1: Reproduce the failure by running TransactionTestCase-related tests to confirm the issue and capture any integrity errors.",
+        "Step 2: Trace the serialized rollback workflow in Django's test infrastructure to find where database state is serialized and restored.",
+        "Step 3: Locate the internal deserialization function in django/db/backends/base/creation.py and check whether it runs inside a database transaction.",
+        "Step 4: Compare behavior with the loaddata management command to identify established patterns for transactional loading and ordering safety.",
+        "Step 5: Update the deserialization implementation to wrap save operations in transaction.atomic(using=connection.alias) to ensure atomicity and correct dependency ordering.",
+        "Step 6: Re-run targeted and broader test suites that rely on serialized rollback and fixtures to ensure the fix works and introduces no regressions.",
+        "Step 7: Include migration-related persistence tests, fixture-loading tests, and transactions/test_runner suites to catch broader transaction boundary regressions.",
+        "Step 8: If any instability appears with parallel runs, re-run with --parallel=1 to rule out unrelated multiprocessing issues.",
+        "Step 9: Document the change and rationale, noting alignment with loaddata and the benefits for foreign key integrity during deserialization."
+      ],
+      "source_clusters": [
+        "Testing and Transaction Rollback"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Aligning Translation System Checks with Runtime Language Variant Resolution",
+      "description": "Ensure Django\u2019s translation system checks (e.g., translation.E004) mirror runtime fallback logic for language variants, with minimal reproductions and comprehensive test validation.",
+      "steps": [
+        "Step 1: Survey translation-related modules to locate system check implementations and runtime resolution utilities.",
+        "Step 2: Identify the system check module validating LANGUAGE_CODE against LANGUAGES and read its logic.",
+        "Step 3: Review runtime language resolution functions (e.g., get_supported_language_variant) to understand fallback behavior for sublanguages and variants.",
+        "Step 4: Create a minimal reproduction using settings that simulate the issue; import and call the translation system check to capture errors.",
+        "Step 5: Update the system check to mirror runtime fallback patterns (e.g., base language presence, prefix matching for variants) before raising errors.",
+        "Step 6: Add focused tests covering exact match, base fallback, complex multi-part variants, and invalid configurations; use override_settings to isolate cases.",
+        "Step 7: Run Django's check_framework and i18n test suites to validate the fix and ensure no regressions.",
+        "Step 8: Document the change, the rationale, and verification steps for maintainers."
+      ],
+      "source_clusters": [
+        "Internationalization and System Checks"
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Debugging Django Autoreloader Path Resolution Errors",
+      "description": "Identify and fix issues in Django\u2019s autoreloader related to filesystem path resolution (e.g., ValueError from Path.resolve()) and add regression coverage.",
+      "steps": [
+        "Step 1: Review the error stack trace to identify the failing module and line number in django/utils/autoreload.py.",
+        "Step 2: Locate Path.resolve() usages in the autoreloader and examine surrounding code for existing exception handling.",
+        "Step 3: Determine which exceptions should be caught to handle odd filesystem entries (e.g., ValueError for embedded null bytes) and update the exception handling accordingly.",
+        "Step 4: Run Django\u2019s autoreload test suite to establish a baseline and confirm no regressions after changes.",
+        "Step 5: Add a regression test that simulates the problematic Path.resolve() behavior (e.g., via mocking) to ensure the autoreloader no longer crashes.",
+        "Step 6: Re-run the test suite and dedicated reproduction scripts to validate the fix on both tests and simulated cases."
+      ],
+      "source_clusters": [
+        "Development and Debugging Tools"
+      ],
+      "source_trajectories": [
+        "django__django-11583"
+      ]
+    },
+    {
+      "name": "Extending SafeExceptionReporterFilter to Cleanse Nested Iterables",
+      "description": "Improve exception reporting by ensuring sensitive settings are cleaned inside nested lists and tuples of dicts, preserving container types and avoiding unintended transformations.",
+      "steps": [
+        "Step 1: Review the cleanse_setting() method in django/views/debug.py to understand how sensitive values are masked and what data structures are currently supported.",
+        "Step 2: Create a minimal reproduction using settings with nested lists/tuples containing dicts with sensitive keys to observe current behavior.",
+        "Step 3: Modify cleanse_setting() to recurse into lists and tuples, preserving the container type and avoiding strings/bytes.",
+        "Step 4: Add tests covering lists, nested lists, tuples, and mixed structures to verify sensitive values are cleansed and types preserved.",
+        "Step 5: Run the view tests (including ExceptionReporterFilter tests) using Django\u2019s test runner and appropriate settings module to check for regressions.",
+        "Step 6: Validate edge cases such as deep nesting, callables, and empty containers; ensure non-sensitive values remain unchanged."
+      ],
+      "source_clusters": [
+        "Development and Debugging Tools"
+      ],
+      "source_trajectories": [
+        "django__django-12700"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Fix and validate Django migration serializer for nested class paths",
+      "description": "Locate the migration serializer implementation, apply patches to handle nested classes via __qualname__ and correct module path detection, install Django in editable mode, and run targeted test suites to validate behavior and detect regressions.",
+      "steps": [
+        {
+          "reasoning": "Identify where migration serialization is implemented to target the fix.",
+          "action": "cd /workspace/django && find . -type f -name \"*.py\" | grep -E \"(migration|serial)\""
+        },
+        {
+          "reasoning": "Check if serializers currently use __qualname__ to handle nested classes.",
+          "action": "cd /workspace/django && grep -n \"__qualname__\" django/db/migrations/serializer.py || true"
+        },
+        {
+          "reasoning": "Open and inspect TypeSerializer and DeconstructableSerializer for class name and import path handling.",
+          "action": "cd /workspace/django && sed -n '1,200p' django/db/migrations/serializer.py && sed -n '200,360p' django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Replace usages of __name__ with __qualname__ so inner classes/enums retain full qualification.",
+          "action": "cd /workspace/django && sed -i 's/self.value.__name__/self.value.__qualname__/g' django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Handle local classes by falling back to __name__ when __qualname__ contains '<locals>'.",
+          "action": "cd /workspace/django && awk '1;/class TypeSerializer/{flag=1}flag && /def serialize/{print;getline;print;print \"        name = getattr(self.value, \\\"__qualname__\\\", self.value.__name__)\"; print \"        if \\\"<locals>\\\" in name:\"; print \"            name = self.value.__name__\"; next}' django/db/migrations/serializer.py > /tmp/serializer.tmp && mv /tmp/serializer.tmp django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Update DeconstructableSerializer._serialize_path to correctly determine the importable module boundary for nested classes.",
+          "action": "cd /workspace/django && python - <<'PY'\nfrom pathlib import Path\np=Path('django/db/migrations/serializer.py')\ns=p.read_text()\ns=s.replace('def _serialize_path(self, path):\\n        module, name = path.rsplit(\".\", 1)\\n        imports = {\"import %s\" % module}\\n        return name, imports',\n'''def _serialize_path(self, path):\n        import importlib\n        parts = path.split('.')\n        module_parts = []\n        for i in range(1, len(parts)+1):\n            test_path = '.'.join(parts[:i])\n            try:\n                importlib.import_module(test_path)\n                module_parts = parts[:i]\n            except Exception:\n                break\n        module = '.'.join(module_parts) if module_parts else parts[0]\n        imports = {f\"import {module}\"}\n        return path, imports''')\np.write_text(s)\nprint('Patched _serialize_path')\nPY"
+        },
+        {
+          "reasoning": "Ensure scripts outside the repo can import the modified Django package.",
+          "action": "cd /workspace/django && python -m pip install -e ."
+        },
+        {
+          "reasoning": "Optionally verify presence of required dependencies.",
+          "action": "python -m pip list | grep -i asgiref || true"
+        },
+        {
+          "reasoning": "Confirm migration writer behavior after serializer changes.",
+          "action": "cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations.test_writer --verbosity=2"
+        },
+        {
+          "reasoning": "Execute broader related suites to ensure no regressions in ManyToMany behavior.",
+          "action": "cd /workspace/django && python tests/runtests.py many_to_many m2m_through m2m_recursive --verbosity=1"
+        },
+        {
+          "reasoning": "Run the entire migrations suite for comprehensive validation.",
+          "action": "cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations --verbosity=0"
+        }
+      ],
+      "source_clusters": [
+        "ORM and Model Behavior Bugs"
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Investigate invalid relationship hint messages and nested class serialization via grepping and scripts",
+      "description": "Locate the origin of specific ORM hint messages and tests, inspect them, and run minimal reproduction scripts and targeted tests to validate messaging and nested class serialization behavior.",
+      "steps": [
+        {
+          "reasoning": "Find the source of a specific ORM hint message in Django code.",
+          "action": "cd /workspace/django && grep -r \"If you want to create a recursive relationship\" django/db/models/"
+        },
+        {
+          "reasoning": "Discover which tests reference specific error codes like E334/E335.",
+          "action": "cd /workspace/django && grep -r \"E334\\|E335\" tests/"
+        },
+        {
+          "reasoning": "Inspect the relevant test file to understand expected hints.",
+          "action": "cd /workspace/django && sed -n '1,220p' tests/invalid_models_tests/test_relative_fields.py"
+        },
+        {
+          "reasoning": "Run a script that imports Django from the local repository path.",
+          "action": "PYTHONPATH=/workspace/django python /workspace/test_recursive_hint.py"
+        },
+        {
+          "reasoning": "Run a serializer-focused script to check nested class serialization behavior.",
+          "action": "PYTHONPATH=/workspace/django python /workspace/test_inner_class.py"
+        },
+        {
+          "reasoning": "Run a specific failing test for invalid model hints to verify corrected messages.",
+          "action": "cd /workspace/django && python tests/runtests.py invalid_models_tests.test_relative_fields.RelativeFieldTests.test_ambiguous_relationship_model -v 2"
+        }
+      ],
+      "source_clusters": [
+        "ORM and Model Behavior Bugs"
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Implement RFC 7231 two-digit year rule in parse_http_date and validate",
+      "description": "Locate and inspect Django's parse_http_date, modify two-digit year handling to comply with RFC 7231 using the 50-year sliding window, and run targeted tests and ad-hoc scripts to verify behavior.",
+      "steps": [
+        {
+          "reasoning": "Need to find the file that implements HTTP utility functions to modify parse_http_date.",
+          "action": "find {repo_root}/django -path \"*/utils/http.py\""
+        },
+        {
+          "reasoning": "Confirm where parse_http_date is defined and locate its exact lines for inspection.",
+          "action": "grep -n \"parse_http_date\" {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Open the file to review imports and the target function implementation.",
+          "action": "sed -n '1,60p' {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Search for existing tests referencing parse_http_date to understand coverage and expectations.",
+          "action": "find {repo_root}/django -name \"*.py\" -path \"*/tests/*\" | xargs grep -l \"parse_http_date\" 2>/dev/null"
+        },
+        {
+          "reasoning": "Open the main HTTP utils test file to see current test cases and edge cases.",
+          "action": "sed -n '1,220p' {repo_root}/django/tests/utils_tests/test_http.py"
+        },
+        {
+          "reasoning": "Ensure datetime is imported to access the current UTC year.",
+          "action": "grep -n \"^import datetime\" {repo_root}/django/django/utils/http.py || sed -i '1i import datetime' {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Replace the hardcoded two-digit year logic with dynamic 50-year rule comparison per RFC 7231.",
+          "action": "git -C {repo_root}/django apply <<'PATCH'\n*** Begin Patch\n*** Update File: django/utils/http.py\n@@\n-    if year < 100:\n-        if year < 70:\n-            year += 2000\n-        else:\n-            year += 1900\n+    if year < 100:\n+        current_year = datetime.datetime.utcnow().year\n+        if 2000 + year > current_year + 50:\n+            year += 1900\n+        else:\n+            year += 2000\n*** End Patch\nPATCH"
+        },
+        {
+          "reasoning": "Re-open the modified section to verify the change is applied correctly and in context.",
+          "action": "sed -n '150,210p' {repo_root}/django/django/utils/http.py"
+        },
+        {
+          "reasoning": "Run the specific test class for HTTP date processing using Django's test runner.",
+          "action": "cd {repo_root}/django && python tests/runtests.py utils_tests.test_http.HttpDateProcessingTests -v 2"
+        },
+        {
+          "reasoning": "If import path issues occur, set PYTHONPATH to include the local Django repository.",
+          "action": "cd {repo_root}/django && PYTHONPATH={repo_root}/django:$PYTHONPATH python tests/runtests.py utils_tests.test_http.HttpDateProcessingTests -v 2"
+        },
+        {
+          "reasoning": "If the test runner is unavailable, perform a smoke test to ensure the module can be imported.",
+          "action": "cd {repo_root}/django && python -c \"import sys; sys.path.insert(0, '{repo_root}/django'); from django.utils.http import parse_http_date; print('Module imported successfully')\""
+        },
+        {
+          "reasoning": "Run a quick ad-hoc verification of RFC850 two-digit year handling around boundary cases.",
+          "action": "python - <<'PY'\nimport sys, datetime\nsys.path.insert(0, '{repo_root}/django')\nfrom django.utils.http import parse_http_date\n\ndef year_from_date(s):\n    return datetime.datetime.utcfromtimestamp(parse_http_date(s)).year\n\ncurrent_year = datetime.datetime.utcnow().year\ncases = [\n    (f\"Sunday, 06-Nov-70 08:49:37 GMT\", None),  # Year computed dynamically; we will print it\n    (f\"Sunday, 06-Nov-85 08:49:37 GMT\", None),\n    (f\"Sunday, 06-Nov-99 08:49:37 GMT\", None),\n    (f\"Sunday, 06-Nov-00 08:49:37 GMT\", None),\n]\nfor s, _ in cases:\n    y = year_from_date(s)\n    print(s, '->', y)\n\n# Verify other formats remain unaffected\nprint('RFC1123:', year_from_date('Sun, 06 Nov 1994 08:49:37 GMT'))\nprint('asctime:', year_from_date('Sun Nov  6 08:49:37 1994'))\nPY"
+        },
+        {
+          "reasoning": "Search for related tests and references to ensure broader coverage is not affected.",
+          "action": "find {repo_root}/django/tests -type f -name \"*.py\" | xargs grep -l \"parse_http_date\\|RFC850\\|rfc850\" 2>/dev/null"
+        }
+      ],
+      "source_clusters": [
+        "HTTP and URL Handling Bugs"
+      ],
+      "source_trajectories": [
+        "django__django-11848"
+      ]
+    },
+    {
+      "name": "Wrap database deserialization in transactions for serialized rollback and validate",
+      "description": "Locate and inspect database deserialization paths used by TransactionTestCase, patch BaseDatabaseCreation.deserialize_db_from_string to use transaction.atomic, and run targeted test suites to validate serialized rollback behavior.",
+      "steps": [
+        {
+          "reasoning": "Need to find where deserialization occurs to understand why FK ordering causes failures.",
+          "action": "grep -r \"deserialize_db_from_string\" django/django --include=\"*.py\""
+        },
+        {
+          "reasoning": "Confirm whether tests reference or trigger the deserialization path.",
+          "action": "grep -r \"deserialize_db_from_string\" django/tests --include=\"*.py\""
+        },
+        {
+          "reasoning": "Open the internal creation module to inspect BaseDatabaseCreation and the target function.",
+          "action": "sed -n '1,200p' django/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Trace how TransactionTestCase triggers serialization and deserialization in the test runner.",
+          "action": "grep -n \"deserialize_db_from_string\" django/django/test/testcases.py && sed -n '900,1050p' django/django/test/testcases.py"
+        },
+        {
+          "reasoning": "Compare with loaddata to see expected transactional behavior during deserialization.",
+          "action": "grep -n \"def handle\" django/django/core/management/commands/loaddata.py && sed -n '60,120p' django/django/core/management/commands/loaddata.py"
+        },
+        {
+          "reasoning": "Create a feature branch to isolate changes and keep history clean.",
+          "action": "git checkout -b fix-serialized-rollback-atomic-deserialization"
+        },
+        {
+          "reasoning": "Prepare a small patch that adds the transaction import and wraps saves in an atomic block.",
+          "action": "cat > /tmp/atomic_deser.patch <<'PATCH'\n*** 1,8 ****\n--- 1,8 ----\n  from io import StringIO\n  \n  from django.core import serializers\n- from django.db import router\n+ from django.db import router, transaction\n  from django.db.models.fields import NOT_PROVIDED\n  \n  class BaseDatabaseCreation:\n      # ... other methods ...\n*** 120,140 ****\n      def deserialize_db_from_string(self, data):\n          data = StringIO(data)\n-         for obj in serializers.deserialize(\"json\", data, using=self.connection.alias):\n-             obj.save()\n+         with transaction.atomic(using=self.connection.alias):\n+             for obj in serializers.deserialize(\"json\", data, using=self.connection.alias):\n+                 obj.save()\nPATCH"
+        },
+        {
+          "reasoning": "Apply the patch to the working tree for review.",
+          "action": "git apply /tmp/atomic_deser.patch"
+        },
+        {
+          "reasoning": "Verify the patch applied correctly and only changed the intended lines.",
+          "action": "git diff -- django/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Ensure the local Django checkout is importable by tests.",
+          "action": "pip install -e django"
+        },
+        {
+          "reasoning": "Run TransactionTestCase-focused tests to validate serialized rollback behavior.",
+          "action": "cd django && python tests/runtests.py test_utils.test_transactiontestcase --verbosity=2"
+        },
+        {
+          "reasoning": "Run migration persistence tests that rely on serialization and rollback.",
+          "action": "cd django && python tests/runtests.py migration_test_data_persistence --verbosity=2"
+        },
+        {
+          "reasoning": "Include fixture-loading tests to catch regressions in deserialization and data loading.",
+          "action": "cd django && python tests/runtests.py fixtures fixtures_regress --verbosity=1"
+        },
+        {
+          "reasoning": "Run transaction-centric and test runner suites to ensure no broader regressions.",
+          "action": "cd django && python tests/runtests.py transactions test_runner --verbosity=1"
+        },
+        {
+          "reasoning": "If encountering instability related to parallel execution, re-run serially to isolate the change\u2019s impact.",
+          "action": "cd django && python tests/runtests.py test_utils.test_transactiontestcase migration_test_data_persistence --verbosity=2 --parallel=1"
+        },
+        {
+          "reasoning": "Confirm only the intended import and atomic block were introduced.",
+          "action": "cd django && git diff django/django/db/backends/base/creation.py"
+        },
+        {
+          "reasoning": "Summarize the root cause, fix, and affected tests for maintainers.",
+          "action": "printf \"%s\\n\" \"Problem: deserialize_db_from_string saved without transaction causing FK errors\" \"Fix: wrap in transaction.atomic(using=self.connection.alias) and import transaction\" \"Tests: test_utils.test_transactiontestcase, migration_test_data_persistence, fixtures, transactions\" > FIX_SUMMARY.txt"
+        }
+      ],
+      "source_clusters": [
+        "Testing and Transaction Rollback"
+      ],
+      "source_trajectories": [
+        "django__django-12453"
+      ]
+    },
+    {
+      "name": "Align translation system checks with language variant resolution",
+      "description": "Locate translation-related system check implementation, review runtime language resolution and get_supported_language_variant, run translation check and i18n test suites, and reproduce translation.E004 programmatically to validate check behavior against variant fallbacks.",
+      "steps": [
+        {
+          "reasoning": "Need to locate the file where translation checks are defined to understand and modify E004 logic.",
+          "action": "cd {repo_root}/django && find django/core/checks -type f -name \"*.py\" | grep -i translation"
+        },
+        {
+          "reasoning": "Open the translation checks file to inspect E004 validation logic.",
+          "action": "cd {repo_root}/django && cat django/core/checks/translation.py"
+        },
+        {
+          "reasoning": "Review runtime language resolution to mirror fallback logic in the system check.",
+          "action": "cd {repo_root}/django && sed -n '1,150p' django/utils/translation/trans_real.py"
+        },
+        {
+          "reasoning": "Locate get_supported_language_variant implementation and related fallback behavior.",
+          "action": "cd {repo_root}/django && grep -n \"def get_supported_language_variant\" -n django/utils/translation/trans_real.py && sed -n '350,520p' django/utils/translation/trans_real.py"
+        },
+        {
+          "reasoning": "Use Django's custom test runner to execute the translation check tests.",
+          "action": "cd {repo_root}/django && python tests/runtests.py check_framework.test_translation -v 2"
+        },
+        {
+          "reasoning": "Validate internationalization tests to ensure broader compatibility after changes.",
+          "action": "cd {repo_root}/django && python tests/runtests.py i18n --verbosity=1"
+        },
+        {
+          "reasoning": "Quickly assess test status by filtering for key summary lines.",
+          "action": "cd {repo_root}/django && python tests/runtests.py i18n --verbosity=1 2>&1 | grep -E \"^(Ran|OK|FAILED|ERROR)\""
+        },
+        {
+          "reasoning": "Run combined subsets to confirm stability across checks and i18n.",
+          "action": "cd {repo_root}/django && python tests/runtests.py check_framework i18n --verbosity=1"
+        },
+        {
+          "reasoning": "Create a minimal script that sets LANGUAGE_CODE and LANGUAGES to simulate the reported scenario.",
+          "action": "cd {repo_root}/django && cat > reproduce_issue.py << 'EOF'\nfrom django.conf import settings\nfrom django.core.checks.translation import check_language_settings_consistent\n\nsettings.configure(\n    DEBUG=True,\n    SECRET_KEY='test',\n    USE_I18N=True,\n    LANGUAGE_CODE='de-at',\n    LANGUAGES=[('de','German'),('en','English')],\n    INSTALLED_APPS=['django.contrib.contenttypes'],\n)\n\nerrors = check_language_settings_consistent(None)\nprint('E004 present' if any(e.id=='translation.E004' for e in errors) else 'No E004')\nEOF"
+        },
+        {
+          "reasoning": "Install required dependencies to run Django components in isolation.",
+          "action": "pip install asgiref pytz sqlparse"
+        },
+        {
+          "reasoning": "Execute the reproduction script to confirm current behavior.",
+          "action": "cd {repo_root}/django && python reproduce_issue.py"
+        },
+        {
+          "reasoning": "Run full system checks to verify whether E004 is raised end-to-end.",
+          "action": "cd {repo_root}/django && python -c \"import django; from django.conf import settings; from django.core.checks import run_checks; settings.configure(DEBUG=True,SECRET_KEY='test',USE_I18N=True,LANGUAGE_CODE='de-at',LANGUAGES=[('de','German'),('en','English')],INSTALLED_APPS=['django.contrib.contenttypes']); django.setup(); errors=run_checks(); print([e.id for e in errors if e.id=='translation.E004'])\""
+        },
+        {
+          "reasoning": "Test variant resolution to ensure fallback behavior aligns with expectations (e.g., zh-hans-cn -> zh-hans).",
+          "action": "cd {repo_root}/django && python -c \"from django.conf import settings; from django.utils.translation.trans_real import get_supported_language_variant; settings.configure(LANGUAGES=[('zh-hans','Chinese Simplified'),('en','English')]); print(get_supported_language_variant('zh-hans-cn'))\""
+        },
+        {
+          "reasoning": "Validate behavior for multiple cases including existing base, missing base, and default en-us.",
+          "action": "cd {repo_root}/django && python -c \"from django.conf import settings; from django.utils.translation.trans_real import get_supported_language_variant; settings.configure(LANGUAGES=[('de','German'),('en','English')]); import sys; cases=['de-at','fr-ca','en-us'];\nfor c in cases:\n    try:\n        print(c, '->', get_supported_language_variant(c, strict=False))\n    except LookupError:\n        print(c, '-> LookupError')\""
+        }
+      ],
+      "source_clusters": [
+        "Internationalization and System Checks"
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Diagnose Path.resolve usage and exceptions in Django autoreloader",
+      "description": "Locate and inspect Path.resolve() usage inside django/utils/autoreload.py to diagnose exceptions and adjust error handling consistently across related functions.",
+      "steps": [
+        {
+          "reasoning": "Need to locate the autoreloader module to inspect Path.resolve() usage and surrounding error handling.",
+          "action": "cd {repo_root} && find django -type f -name \"autoreload.py\" | head -20"
+        },
+        {
+          "reasoning": "Identify exact lines where resolve() is called to target the fix.",
+          "action": "grep -n \"resolve(\" django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "View the code around the resolve() call to understand existing behavior and exceptions caught.",
+          "action": "sed -n '{start_line},{end_line}p' django/utils/autoreload.py"
+        },
+        {
+          "reasoning": "Confirm other functions (e.g., sys_path_directories) also use resolve() and require consistent handling.",
+          "action": "grep -n \"sys_path_directories\\|iter_modules_and_files\" django/utils/autoreload.py"
+        }
+      ],
+      "source_clusters": [
+        "Development and Debugging Tools"
+      ],
+      "source_trajectories": [
+        "django__django-11583"
+      ]
+    },
+    {
+      "name": "Find and review SafeExceptionReporterFilter test coverage",
+      "description": "Search and open tests referencing SafeExceptionReporterFilter to understand current coverage and identify insertion points for new tests.",
+      "steps": [
+        {
+          "reasoning": "Locate test files that mention SafeExceptionReporterFilter to review existing test coverage.",
+          "action": "cd {repo_root} && find tests -name \"*.py\" -type f | xargs grep -l \"SafeExceptionReporterFilter\" | head -10"
+        },
+        {
+          "reasoning": "Search within the debug tests for specific methods or patterns to identify insertion points for new tests.",
+          "action": "cd {repo_root} && grep -n \"cleanse_setting\" tests/view_tests/tests/test_debug.py"
+        },
+        {
+          "reasoning": "View the surrounding lines of a target test to understand context and structure.",
+          "action": "cd {repo_root} && sed -n '{start_line},{end_line}p' tests/view_tests/tests/test_debug.py"
+        }
+      ],
+      "source_clusters": [
+        "Development and Debugging Tools"
+      ],
+      "source_trajectories": [
+        "django__django-12700"
+      ]
+    },
+    {
+      "name": "Run targeted Django tests and local reproduction scripts",
+      "description": "Execute Django\u2019s test suite for specific modules/classes and use small local scripts against an editable Django install to reproduce and validate fixes.",
+      "steps": [
+        {
+          "reasoning": "Use Django\u2019s built-in test runner for repository tests to ensure environment is correctly set up.",
+          "action": "cd {repo_root} && python tests/runtests.py {test_module} -v 2"
+        },
+        {
+          "reasoning": "Run a specific test class or test method when a settings module is required by the test suite.",
+          "action": "cd {repo_root}/tests && python -m django test {dotted_test_label} --settings={settings_module} -v 2"
+        },
+        {
+          "reasoning": "Execute a broad module to check for regressions across related tests.",
+          "action": "cd {repo_root}/tests && python -m django test {dotted_module_label} --settings={settings_module} -v 2"
+        },
+        {
+          "reasoning": "Install Django in editable mode so local code changes are immediately reflected when running scripts.",
+          "action": "cd {repo_root} && pip install -e ."
+        },
+        {
+          "reasoning": "Run a custom reproduction script that configures settings and invokes the relevant code path to observe behavior.",
+          "action": "cd {repo_root} && python {script_name}.py"
+        },
+        {
+          "reasoning": "Verify that changes don\u2019t introduce regressions; re-run scripts after modifying code to confirm fixes.",
+          "action": "cd {repo_root} && python {script_name}.py"
+        }
+      ],
+      "source_clusters": [
+        "Development and Debugging Tools"
+      ],
+      "source_trajectories": [
+        "django__django-11583",
+        "django__django-12700"
+      ]
+    }
+  ]
+}

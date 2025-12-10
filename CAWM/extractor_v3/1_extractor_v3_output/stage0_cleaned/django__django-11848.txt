@@ -1,0 +1,165 @@
+PROBLEM: django.utils.http.parse_http_date two-digit year check is incorrect. RFC 7231 requires that rfc850 two-digit years more than 50 years in the future be interpreted as the most recent past year with the same last two digits. Django currently hardcodes 00–69 → 2000–2069 and 70–99 → 1970–1999 instead of comparing to the current year.
+
+Action 1 (Time: 0.0s)
+Reasoning: Clarified issue: update parse_http_date to follow RFC 7231 50-year rule; replace hardcoded ranges with dynamic comparison; add tests.
+Action: Planned approach and initial code exploration.
+
+Action 2 (Time: 1.7s)
+Reasoning: Find relevant files in the repo.
+Action: Searched for Python files likely containing http/utils code.
+
+Action 3 (Time: 1.9s)
+Reasoning: Locate django.utils.http module.
+Action: Found path to django/utils/http.py.
+
+Action 4 (Time: 2.1s)
+Reasoning: Inspect current implementation.
+Action: Opened django/utils/http.py.
+
+Action 5 (Time: 5.0s)
+Reasoning: Identify parse_http_date implementation and the two-digit year logic.
+Action: Grepped for parse_http_date; found hardcoded logic mapping 0–69 → +2000 and 70–99 → +1900.
+
+Action 6 (Time: 2.7s)
+Reasoning: Check existing tests for parse_http_date behavior.
+Action: Searched tests for parse_http_date references.
+
+Action 7 (Time: 2.6s)
+Reasoning: Review existing test expectations.
+Action: Opened tests/utils_tests/test_http.py.
+
+Action 8 (Time: 9.5s)
+Reasoning: Reconfirm exact location of year parsing logic and consider correct dynamic approach per RFC 7231.
+Action: Viewed the specific code block around year handling.
+
+Action 9 (Time: 6.8s)
+Reasoning: Look for tests around “year less than 70.”
+Action: Grepped for the related test snippet in test_http.py.
+
+Action 10 (Time: 27.0s)
+Reasoning: Validate current behavior against RFC 7231 with a quick script.
+Action: Created test_year_parsing.py to probe two-digit year outcomes.
+
+Action 11 (Time: 3.0s)
+Reasoning: Run the probe to observe current misbehavior (e.g., 70/74 wrongly in 1900s).
+Action: Executed test_year_parsing.py.
+
+Action 12 (Time: 18.6s)
+Reasoning: Plan fix: for yy, if 2000+yy > current_year+50 use 1900+yy else 2000+yy; keep UTC.
+Action: Finalized fix logic details.
+
+Action 13 (Time: 3.6s)
+Reasoning: Ensure datetime is imported.
+Action: Viewed top of http.py for imports.
+
+Action 14 (Time: 10.8s)
+Reasoning: Implement RFC 7231 logic replacing hardcoded ranges.
+Action: Edited http.py to compute current year via datetime.utcnow().year and choose 1900/2000 based on 50-year threshold.
+
+Action 15 (Time: 11.7s)
+Reasoning: Re-run probe to confirm fix results (70/74/75 in 2000s; 85/99 in 1900s).
+Action: Executed test_year_parsing.py again.
+
+Action 16 (Time: 4.1s)
+Reasoning: Try running relevant Django tests via pytest.
+Action: Attempted pytest for HttpDateProcessingTests (not available).
+
+Action 17 (Time: 4.1s)
+Reasoning: Use Django test runner instead.
+Action: Ran tests with Django’s runtests.py.
+
+Action 18 (Time: 4.5s)
+Reasoning: Verify module accessibility for custom scripts.
+Action: Imported parse_http_date via Python one-liner.
+
+Action 19 (Time: 14.2s)
+Reasoning: Check that core existing parsing behavior remains intact.
+Action: Created test_existing_behavior.py referencing known cases (RFC1123/asctime and a 0037 case).
+
+Action 20 (Time: 3.5s)
+Reasoning: Validate no regressions in common formats/known dates.
+Action: Ran test_existing_behavior.py.
+
+Action 21 (Time: 25.2s)
+Reasoning: Build a broader RFC 7231 compliance test with dynamic current year expectations.
+Action: Created test_rfc7231_compliance.py.
+
+Action 22 (Time: 8.0s)
+Reasoning: Verify 50-year rule across a range of yy values.
+Action: Ran test_rfc7231_compliance.py.
+
+Action 23 (Time: 24.7s)
+Reasoning: Ensure other supported formats aren't impacted incorrectly.
+Action: Created test_all_date_formats.py covering RFC1123/RFC850/asctime cases.
+
+Action 24 (Time: 2.6s)
+Reasoning: Validate cross-format behavior with the new logic.
+Action: Ran test_all_date_formats.py.
+
+Action 25 (Time: 9.1s)
+Reasoning: Confirm specific existing test case (0037 → 2037) still passes.
+Action: Ran quick Python check for 'Sun Nov  6 08:49:37 0037' → 2037.
+
+Action 26 (Time: 7.0s)
+Reasoning: See if other tests reference RFC850 or parse_http_date.
+Action: Searched across tests for references.
+
+Action 27 (Time: 26.3s)
+Reasoning: Create a thorough edge-case test around 50-year boundary.
+Action: Wrote test_comprehensive_edge_cases.py.
+
+Action 28 (Time: 3.7s)
+Reasoning: Validate boundaries (49, 50, 51 years ahead), recent past, years 00/99, current and next year.
+Action: Ran test_comprehensive_edge_cases.py.
+
+Action 29 (Time: 6.1s)
+Reasoning: Reinspect modified code region for correctness and minimalism.
+Action: Viewed http.py around the edited lines.
+
+Action 30 (Time: 11.3s)
+Reasoning: Document change and outcomes.
+Action: Created FIX_SUMMARY.md summarizing the change and test results.
+
+Action 31 (Time: 7.8s)
+Reasoning: Check parse_http_date_safe and ensure no regressions across valid/invalid inputs.
+Action: Ran a Python script testing parse_http_date_safe and several valid strings.
+
+Action 32 (Time: 5.5s)
+Reasoning: Check for additional tests using http_date/HttpDate.
+Action: Searched tests for related names.
+
+Action 33 (Time: 49.0s)
+Reasoning: Reflected: other files don’t directly use parse_http_date; unlikely impacted.
+Action: No tool call.
+
+Action 34 (Time: 2.6s)
+Reasoning: Confirm specific files don’t call parse_http_date.
+Action: Grepped in test_static.py and test_cookie.py; none found.
+
+Action 35 (Time: 26.2s)
+Reasoning: Verified all phases completed; ensured changes meet issue requirements.
+Action: No tool call.
+
+Action 36 (Time: 14.5s)
+Reasoning: Add a script directly mirroring issue’s requirements to assert behavior change from hardcoded to dynamic.
+Action: Created test_issue_requirements.py.
+
+Action 37 (Time: 5.0s)
+Reasoning: Execute the issue-specific verification.
+Action: Ran test_issue_requirements.py.
+
+Action 38 (Time: 7.5s)
+Reasoning: Final manual code check of the modified block context.
+Action: Viewed http.py lines 158–195.
+
+Action 39 (Time: 8.3s)
+Reasoning: Run a consolidated verification suite including original, RFC 7231, and format tests.
+Action: Executed a final Python verification script.
+
+Action 40 (Time: 15.0s)
+Reasoning: Produce a comprehensive implementation report.
+Action: Created IMPLEMENTATION_COMPLETE.md.
+
+Action 41 (Time: 15.7s)
+Reasoning: Provide final summary of the change and its verification.
+Action: Submitted final message summarizing the fix, logic, and test results.

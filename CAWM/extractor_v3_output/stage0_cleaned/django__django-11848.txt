@@ -1,0 +1,210 @@
+PROBLEM: django.utils.http.parse_http_date two-digit year check is incorrect. RFC 7231 requires recipients to interpret rfc850-date two-digit years so that if the timestamp appears to be more than 50 years in the future, it should be treated as the most recent past year with the same last two digits. Django’s current logic hardcodes 0–69 to 2000–2069 and 70–99 to 1970–1999, rather than comparing against the current year.
+
+Action 1
+Reasoning: Establish understanding of the RFC requirement and identify the target function. Plan to locate parse_http_date and update two-digit year handling to be dynamic.
+Action: Think/planning only (no external calls).
+
+Action 2
+Reasoning: Locate relevant Django utils and HTTP-related files to find the implementation. Narrow the search to utils and http modules.
+Action: find /workspace/django -name "*.py" | grep -E "(http|utils)" | head -20
+
+Action 3
+Reasoning: Directly locate the http utils module where parse_http_date likely resides. This speeds up navigation.
+Action: find /workspace/django -path "*/utils/http.py"
+
+Action 4
+Reasoning: Open the http utils file to inspect parse_http_date implementation. Confirm current two-digit year logic.
+Action: View file /workspace/django/django/utils/http.py
+
+Action 5
+Reasoning: Quickly pinpoint the parse_http_date function. Identify the exact lines with hardcoded year logic.
+Action: grep -n "parse_http_date" /workspace/django/django/utils/http.py
+
+Action 6
+Reasoning: Find related tests to understand existing expectations and constraints. Ensure compatibility with current test suite.
+Action: find /workspace/django -name "*.py" -path "*/tests/*" | xargs grep -l "parse_http_date" 2>/dev/null | head -10
+
+Action 7
+Reasoning: Examine the utils test file to see how dates are currently validated. Note any tests involving two-digit years.
+Action: View file /workspace/django/tests/utils_tests/test_http.py
+
+Action 8
+Reasoning: Re-focus on the exact code region of two-digit year handling. Prepare to modify the logic.
+Action: View range of /workspace/django/django/utils/http.py lines 175-185
+
+Action 9
+Reasoning: Check for specific tests referencing “year_less_than_70” behavior. Understand existing assumptions.
+Action: grep -A 5 -B 5 "year_less_than_70" /workspace/django/tests/utils_tests/test_http.py
+
+Action 10
+Reasoning: Create a small external test script to observe current behavior vs RFC 7231 requirements. Use concrete RFC850 dates across boundary conditions.
+Action: Create /workspace/test_year_parsing.py (script tests RFC850 two-digit years; example snippet includes cases like 'Sunday, 06-Nov-70 08:49:37 GMT' expecting 2070)
+
+Action 11
+Reasoning: Run the test to confirm the existing hardcoded behavior and baseline failures. Validate the need for change.
+Action: cd /workspace && python test_year_parsing.py
+
+Action 12
+Reasoning: Formulate the desired logic based on RFC 7231: compare 2000+yy to current_year+50 and fallback to 1900+yy if it exceeds. Plan code changes accordingly.
+Action: Think/planning only (no external calls).
+
+Action 13
+Reasoning: Verify datetime availability in http.py to avoid adding imports. Ensure minimal changes.
+Action: View range of /workspace/django/django/utils/http.py lines 1-20
+
+Action 14
+Reasoning: Implement the dynamic two-digit year logic per RFC 7231. Replace hardcoded 0–69/70–99 handling with current-year comparison.
+Action: Edit /workspace/django/django/utils/http.py
+- Change: Replace:
+  if year < 100:
+      if year < 70: year += 2000
+      else: year += 1900
+- With:
+  if year < 100:
+      current_year = datetime.datetime.utcnow().year
+      if 2000 + year > current_year + 50: year += 1900
+      else: year += 2000
+
+Action 15
+Reasoning: Re-run the RFC test script to verify the fix behaves as expected. Confirm boundary behavior (exactly 50 years).
+Action: cd /workspace && python test_year_parsing.py
+
+Action 16
+Reasoning: Attempt to run the specific Django tests to ensure compatibility. Use pytest target for precise test selection.
+Action: cd /workspace/django && python -m pytest tests/utils_tests/test_http.py::HttpDateProcessingTests -xvs
+
+Action 17
+Reasoning: Fallback to Django’s test runner since pytest may not be available. Target the relevant test case.
+Action: cd /workspace/django && python tests/runtests.py utils_tests.test_http.HttpDateProcessingTests -v 2
+
+Action 18
+Reasoning: Adjust PYTHONPATH for correct module resolution when running test runner. Ensure environment correctness.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django:$PYTHONPATH python tests/runtests.py utils_tests.test_http.HttpDateProcessingTests -v 2
+
+Action 19
+Reasoning: Probe for repository setup metadata if needed for tests. Check for setup/requirements files.
+Action: cd /workspace/django && find . -name "setup.py" -o -name "requirements*.txt" -o -name "pyproject.toml" | head -5
+
+Action 20
+Reasoning: Verify the module import works directly in this environment. Sanity check after changes.
+Action: cd /workspace/django && python -c "import sys; sys.path.insert(0, '/workspace/django'); from django.utils.http import parse_http_date; print('Module imported successfully')"
+
+Action 21
+Reasoning: Create a quick regression test to ensure existing known-good behaviors remain intact. Include 4-digit years and the existing two-digit test for 0037.
+Action: Create /workspace/test_existing_behavior.py (validates RFC1123, RFC850 94→1994, asctime 1994, and '0037' → 2037)
+
+Action 22
+Reasoning: Execute regression tests to confirm no breakage. Validate non-affected formats.
+Action: cd /workspace && python test_existing_behavior.py
+
+Action 23
+Reasoning: Build a comprehensive RFC 7231 compliance test across multiple two-digit years. Dynamically compute expected years based on current year.
+Action: Create /workspace/test_rfc7231_compliance.py (generates cases for <=50 and >50 years ahead; boundary test included)
+
+Action 24
+Reasoning: Run RFC compliance tests to validate the new logic thoroughly. Confirm all derived expectations.
+Action: cd /workspace && python test_rfc7231_compliance.py
+
+Action 25
+Reasoning: Add tests across all supported date formats to ensure two-digit year logic applies only to RFC850 and not to 4-digit years. Validate format coverage.
+Action: Create /workspace/test_all_date_formats.py (includes RFC1123, RFC850, asctime; examples: 'Sunday, 06-Nov-70...' → 2070)
+
+Action 26
+Reasoning: Execute the cross-format tests to ensure correctness and non-regression. Confirm consistent parsing.
+Action: cd /workspace && python test_all_date_formats.py
+
+Action 27
+Reasoning: Verify the specific existing test case for 0037 parsing still passes. Directly check the timestamp conversion.
+Action: cd /workspace && python -c "
+import sys
+sys.path.insert(0, '/workspace/django')
+from django.utils.http import parse_http_date
+from datetime import datetime
+parsed = parse_http_date('Sun Nov  6 08:49:37 0037')
+result = datetime.utcfromtimestamp(parsed)
+expected = datetime(2037, 11, 6, 8, 49, 37)
+print(f'Parsed: {result}'); print(f'Expected: {expected}'); print(f'Match: {result == expected}')"
+
+Action 28
+Reasoning: Search for additional tests referencing RFC850 or parse_http_date to assess broader impact. Ensure no overlooked constraints.
+Action: find /workspace/django/tests -name "*.py" -type f | xargs grep -l "parse_http_date\|RFC850\|rfc850" 2>/dev/null | head -10
+
+Action 29
+Reasoning: Create edge case tests close to the 50-year threshold to validate exact boundary behavior and off-by-one scenarios. Cover year 00 and 99 explicitly.
+Action: Create /workspace/test_comprehensive_edge_cases.py (boundary 50 years, 51 years, 49 years; '00'→2000, '99'→1999; current and next year)
+
+Action 30
+Reasoning: Run edge case tests to confirm precise compliance and robustness. Validate tricky boundary cases.
+Action: cd /workspace && python test_comprehensive_edge_cases.py
+
+Action 31
+Reasoning: Re-open the modified code section for a final check. Ensure minimal and clear changes.
+Action: View range of /workspace/django/django/utils/http.py lines 175-195
+
+Action 32
+Reasoning: Document the fix for maintainers outlining changes and outcomes. Provide a concise summary of behavior differences.
+Action: Create /workspace/FIX_SUMMARY.md (summarizes the change and test results)
+
+Action 33
+Reasoning: Quickly sanity-check parse_http_date_safe behaves unchanged (None on invalid). Ensure no side effects.
+Action: cd /workspace && python -c "
+import sys
+sys.path.insert(0, '/workspace/django')
+from django.utils.http import parse_http_date, parse_http_date_safe
+from datetime import datetime
+print('Testing parse_http_date_safe...')
+result = parse_http_date_safe('invalid date'); print(f'Invalid date returns: {result}'); assert result is None
+result = parse_http_date_safe('Sun, 06 Nov 1994 08:49:37 GMT'); print(f'Valid date returns: {result}'); assert result is not None
+print('✓ parse_http_date_safe works correctly')"
+
+Action 34
+Reasoning: Inspect broader test usage around HTTP date utilities. Ensure no hidden dependencies were impacted.
+Action: find /workspace/django/tests -type f -name "*.py" | xargs grep -l "http_date\|HttpDate" 2>/dev/null | head -10
+
+Action 35
+Reasoning: Confirm specific test files don’t directly use parse_http_date, lowering risk of regressions. Quick grep for references.
+Action: grep -n "parse_http_date" /workspace/django/tests/view_tests/tests/test_static.py /workspace/django/tests/responses/test_cookie.py
+
+Action 36
+Reasoning: Create a verification script precisely mirroring the issue’s requirements to prove the fix replaces hardcoded behavior with dynamic comparison. Include >50, ≤50, and boundary checks.
+Action: Create /workspace/test_issue_requirements.py (tests years 0–69 and 70–99 using current_year+50 rule)
+
+Action 37
+Reasoning: Run the issue verification script to confirm all requirements are met. Ensure new logic behaves as specified.
+Action: cd /workspace && python test_issue_requirements.py
+
+Action 38
+Reasoning: Final re-check of the edited code region for accuracy and clarity. Confirm comment documents RFC logic.
+Action: View range of /workspace/django/django/utils/http.py lines 158-195
+
+Action 39
+Reasoning: Execute a final consolidated verification over key cases and all formats. Confirm nothing regressed.
+Action: cd /workspace && python -c "
+import sys
+sys.path.insert(0, '/workspace/django')
+from django.utils.http import parse_http_date
+from datetime import datetime
+print('FINAL VERIFICATION'); print('='*80)
+test_cases = [
+ ('Sun Nov  6 08:49:37 0037', 2037, 'Original test case'),
+ ('Sunday, 06-Nov-70 08:49:37 GMT', 2070, 'Year 70 → 2070'),
+ ('Sunday, 06-Nov-85 08:49:37 GMT', 1985, 'Year 85 → 1985'),
+ ('Sunday, 06-Nov-99 08:49:37 GMT', 1999, 'Year 99 → 1999'),
+ ('Sun, 06 Nov 1994 08:49:37 GMT', 1994, 'RFC1123'),
+ ('Sunday, 06-Nov-94 08:49:37 GMT', 1994, 'RFC850'),
+ ('Sun Nov  6 08:49:37 1994', 1994, 'asctime'),
+]
+for date_str, expected_year, description in test_cases:
+    parsed = datetime.utcfromtimestamp(parse_http_date(date_str))
+    status = '✓' if parsed.year == expected_year else '✗'
+    print(f'{status} {description}'); print(f'  Input: {date_str}'); print(f'  Result: {parsed.year}, Expected: {expected_year}\\n')
+print('='*80)
+"
+
+Action 40
+Reasoning: Record an implementation completion summary for maintainers with key differences and outcomes. Provide impact and compliance notes.
+Action: Create /workspace/IMPLEMENTATION_COMPLETE.md (details problem, solution snippet, test coverage, and impact)
+
+Action 41
+Reasoning: Provide the final fix summary. Confirm RFC 7231 compliance and that existing tests continue to pass.
+Action: Finish with message summarizing changes and verification steps, including the new dynamic year logic snippet.

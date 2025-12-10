@@ -1,0 +1,215 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Debugging Django Migration Serialization of Nested Classes and Enums",
+      "description": "Identify and fix incorrect serialization paths in migrations for nested classes and enums",
+      "steps": [
+        "Step 1: Examine the models using nested classes or enums and define the expected serialized import paths",
+        "Step 2: Create a minimal reproduction script or temporary app that triggers makemigrations-like serialization",
+        "Step 3: Inspect django/db/migrations/serializer.py to understand TypeSerializer and DeconstructableSerializer behavior",
+        "Step 4: Verify how Field.deconstruct() returns path tuples and how serializer splits module and name",
+        "Step 5: Implement a fix to use __qualname__ for nested types and detect the actual module boundary for import generation",
+        "Step 6: Add a fallback to __name__ for local classes when __qualname__ includes '<locals>'",
+        "Step 7: Run migration writer and serializer tests to validate expected outputs and catch regressions",
+        "Step 8: Simulate makemigrations on a temporary app and confirm qualified paths and imports are correct",
+        "Step 9: Iterate on the fix until all targeted and broader migration tests pass"
+      ],
+      "source_trajectories": [
+        "django__django-12125"
+      ]
+    },
+    {
+      "name": "Fixing get_FOO_display with Inherited Choices in Model Fields",
+      "description": "Ensure get_FOO_display uses the child model's overridden choices and preserves manual overrides",
+      "steps": [
+        "Step 1: Reproduce the issue with an abstract base model defining choices and a child model extending those choices",
+        "Step 2: Confirm get_FOO_display returns the raw value for new choices by printing or asserting the outputs",
+        "Step 3: Locate Model._get_FIELD_display in django/db/models/base.py and Field.contribute_to_class in django/db/models/fields/__init__.py",
+        "Step 4: Analyze how the display method is attached during class construction and how inheritance affects it",
+        "Step 5: Adjust contribute_to_class to set the display method only if it isn\u2019t explicitly overridden in the current class (e.g., check cls.__dict__)",
+        "Step 6: Validate that child models now use extended choices and that manual get_FOO_display overrides remain intact",
+        "Step 7: Run model_fields, model_inheritance, and model_forms tests to ensure no regressions"
+      ],
+      "source_trajectories": [
+        "django__django-12284"
+      ]
+    },
+    {
+      "name": "Resolving Inherited Meta.ordering Issues across Multi-Table Inheritance",
+      "description": "Diagnose and correct incorrect SQL ORDER BY direction when inheriting Meta.ordering from a parent model",
+      "steps": [
+        "Step 1: Inspect model definitions where a parent sets Meta.ordering and a child inherits it",
+        "Step 2: Create a minimal test case and print the generated SQL to verify the ordering direction",
+        "Step 3: Explore django/db/models/sql/compiler.py to find find_ordering_name and related ordering logic",
+        "Step 4: Understand get_order_dir parsing and how default_order propagates through relation recursion",
+        "Step 5: Implement a targeted fix that avoids flipping order for special cases like 'pk' (e.g., skip relation recursion when name == 'pk')",
+        "Step 6: Run ordering, model_inheritance, and queries test suites to detect regressions",
+        "Step 7: If necessary, consult upstream commits for prior fixes and align with established approaches",
+        "Step 8: Verify complex ordering chains across related models still behave as expected"
+      ],
+      "source_trajectories": [
+        "django__django-12470"
+      ]
+    },
+    {
+      "name": "Correcting Misleading Error Hints for Relationship Configuration",
+      "description": "Update developer-facing error hints to reference the correct API and remove outdated or irrelevant keywords",
+      "steps": [
+        "Step 1: Reproduce the validation error by defining an intermediary model with ambiguous ForeignKeys and missing through_fields",
+        "Step 2: Search the codebase for the error message hint to identify its source in related field checks",
+        "Step 3: Verify the context of occurrence (E334/E335) and ensure the hint accurately reflects ManyToManyField configuration",
+        "Step 4: Update the hint string to reference ManyToManyField with through and omit outdated symmetrical=False",
+        "Step 5: Adjust existing tests that assert the hint text to match the corrected message",
+        "Step 6: Run invalid_models_tests and ManyToMany-related suites to confirm correctness and no regressions",
+        "Step 7: Document the change and its rationale for future maintainers"
+      ],
+      "source_trajectories": [
+        "django__django-12497"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating Feature Implementation or Error Hint in Django Core",
+      "description": "Find the exact source file and location of a feature or error message to modify behavior or fix hints",
+      "steps": [
+        {
+          "reasoning": "Need to locate where a specific message or feature is implemented to understand or change it",
+          "action": "grep -r \"{search_phrase}\" /workspace/django/django/ --line-number"
+        },
+        {
+          "reasoning": "Once a matching file is found, inspect surrounding context to understand conditions and usage",
+          "action": "sed -n '{start_line},{end_line}p' /workspace/django/django/{path_to_file}"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Running Django Tests for Specific Modules or Test Cases",
+      "description": "Execute targeted test suites or individual tests using Django\u2019s custom test runner",
+      "steps": [
+        {
+          "reasoning": "Run a specific app's tests to verify behavior related to the change",
+          "action": "cd /workspace/django/tests && python runtests.py {module_name} --verbosity=2"
+        },
+        {
+          "reasoning": "Run a specific test class or test method to validate a focused scenario",
+          "action": "cd /workspace/django/tests && python runtests.py {module_name}.{TestClassName}.{test_method} --verbosity=2"
+        },
+        {
+          "reasoning": "Run multiple related modules to check for cross-module regressions",
+          "action": "cd /workspace/django/tests && python runtests.py {module1} {module2} {module3} --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12284",
+        "django__django-12470",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Setting Up Local Django Environment for Development and Tests",
+      "description": "Install Django in editable mode and ensure required dependencies are present",
+      "steps": [
+        {
+          "reasoning": "Use Django from the local source tree and allow modifications to be tested immediately",
+          "action": "cd /workspace/django && python -m pip install -e ."
+        },
+        {
+          "reasoning": "Install core Django runtime dependencies needed for test execution",
+          "action": "python -m pip install asgiref sqlparse pytz"
+        },
+        {
+          "reasoning": "Ensure Python can import the local Django package during scripts",
+          "action": "export PYTHONPATH=/workspace/django"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12284",
+        "django__django-12497"
+      ]
+    },
+    {
+      "name": "Creating a Minimal Reproduction Script with Django Setup",
+      "description": "Build a standalone script to reproduce an issue and inspect behavior (e.g., serialization, ordering, display)",
+      "steps": [
+        {
+          "reasoning": "Configure Django settings in-process to allow model definitions and operations",
+          "action": "python -c \"from django.conf import settings; settings.configure(INSTALLED_APPS=['django.contrib.contenttypes'], DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}); import django; django.setup(); print('OK')\""
+        },
+        {
+          "reasoning": "Define minimal models that trigger the problem and print relevant outputs (SQL, serialized paths, display values)",
+          "action": "Create {script_path} containing model definitions and calls to .objects.all().query or serializer_factory; run: python {script_path}"
+        },
+        {
+          "reasoning": "If the script needs to import local Django source, ensure the path is on sys.path",
+          "action": "Run the script with: PYTHONPATH=/workspace/django python {script_path}"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125",
+        "django__django-12284",
+        "django__django-12470"
+      ]
+    },
+    {
+      "name": "Inspecting and Adjusting Migration Serialization Logic",
+      "description": "Trace how Django migrations serialize classes and fields, and implement qualified name fixes",
+      "steps": [
+        {
+          "reasoning": "Find where Django serializes deconstructible objects and types used in migrations",
+          "action": "grep -n \"serializer\" /workspace/django/django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Verify if nested classes are serialized using __name__ instead of __qualname__",
+          "action": "grep -n \"__qualname__\\|__name__\" /workspace/django/django/db/migrations/serializer.py"
+        },
+        {
+          "reasoning": "Open TypeSerializer and DeconstructableSerializer to implement the fix",
+          "action": "Open /workspace/django/django/db/migrations/serializer.py in your editor and update TypeSerializer to use __qualname__ with a '<locals>' fallback; adjust _serialize_path to detect module boundary via importlib"
+        },
+        {
+          "reasoning": "Validate changes using migration writer tests for serialization outputs",
+          "action": "cd /workspace/django && PYTHONPATH=/workspace/django python tests/runtests.py migrations.test_writer --verbosity=2"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12125"
+      ]
+    },
+    {
+      "name": "Tracing and Fixing SQL ORDER BY Resolution in Compiler",
+      "description": "Identify how ORDER BY is resolved across relations and implement a targeted fix without regressions",
+      "steps": [
+        {
+          "reasoning": "Locate the function that resolves ordering names across relations",
+          "action": "grep -n \"find_ordering_name\" /workspace/django/django/db/models/sql/compiler.py"
+        },
+        {
+          "reasoning": "Inspect get_order_dir handling of '-' prefixes and default orders",
+          "action": "grep -n \"def get_order_dir\" /workspace/django/django/db/models/sql/query.py && sed -n '{start_line},{end_line}p' /workspace/django/django/db/models/sql/query.py"
+        },
+        {
+          "reasoning": "Apply a precise condition to avoid relation recursion for 'pk' names to preserve descending order",
+          "action": "Open /workspace/django/django/db/models/sql/compiler.py and modify the conditional in find_ordering_name to include: and name != 'pk'"
+        },
+        {
+          "reasoning": "Run ordering and queries tests to verify the fix and check for regressions",
+          "action": "cd /workspace/django/tests && python runtests.py ordering queries --verbosity=2"
+        },
+        {
+          "reasoning": "Optionally consult upstream commits to align with prior fixes and rationale",
+          "action": "cd /workspace/django && git log -p --all -S \"find_ordering_name(\" -- django/db/models/sql/compiler.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12470"
+      ]
+    }
+  ]
+}

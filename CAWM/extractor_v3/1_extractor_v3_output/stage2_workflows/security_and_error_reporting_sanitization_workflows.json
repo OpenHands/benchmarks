@@ -1,0 +1,220 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Diagnose and Fix Sensitive Data Leakage in Exception Reports",
+      "description": "Identify insufficient sanitization in error reporting and deliver a safe, regression-free fix.",
+      "steps": [
+        {
+          "reasoning": "Understanding the code location and responsibility helps target the fix to the right component.",
+          "action": "Locate the exception reporting filter implementation and review how settings are cleansed."
+        },
+        {
+          "reasoning": "Tests reveal current behavior and constraints, guiding what changes are safe.",
+          "action": "Explore existing tests related to exception reporting to learn expected sanitization."
+        },
+        {
+          "reasoning": "A minimal reproduction clarifies the exact failure mode and confirms assumptions.",
+          "action": "Create a focused script or scenario using nested settings structures to demonstrate the leak."
+        },
+        {
+          "reasoning": "Before changing code, planning the approach avoids breaking behavior and preserves compatibility.",
+          "action": "Design a recursive sanitization that handles dicts and non-dict iterables, preserving types and respecting sensitive keys."
+        },
+        {
+          "reasoning": "Adding targeted tests prevents regressions and documents the newly supported scenarios.",
+          "action": "Write tests covering lists, tuples, nested containers, and mixed structures with sensitive keys."
+        },
+        {
+          "reasoning": "Running the suite ensures that the change integrates without impacting other components.",
+          "action": "Execute relevant subsets and the broader test suite to validate the patch comprehensively."
+        },
+        {
+          "reasoning": "Cleanup and summarization provide maintainability and transparency.",
+          "action": "Remove temporary artifacts and document the fix rationale and coverage."
+        }
+      ]
+    },
+    {
+      "name": "Design Robust Recursive Cleansing for Nested Data Structures",
+      "description": "Extend a sanitize function to correctly handle nested dicts and iterable containers while preserving types.",
+      "steps": [
+        {
+          "reasoning": "A precise definition of sensitive keys avoids over-sanitization and maintains useful debugging information.",
+          "action": "Determine which keys (e.g., 'secret', 'token', 'password') should be redacted and at what nesting levels."
+        },
+        {
+          "reasoning": "Understanding data shape diversity prevents blind spots (e.g., lists of dicts, tuples, mixed containers).",
+          "action": "Enumerate supported structures: dicts, lists, tuples, possibly sets; decide recursion rules and type preservation."
+        },
+        {
+          "reasoning": "Type-preserving transformations ensure downstream code and reports behave consistently.",
+          "action": "Map the cleanse function over iterable items, reconstructing the same container type."
+        },
+        {
+          "reasoning": "Avoiding mutation and maintaining immutability where expected reduces side effects.",
+          "action": "Return new containers rather than mutating in place, unless framework conventions dictate otherwise."
+        },
+        {
+          "reasoning": "Guarding recursion depth and unexpected types reduces the risk of performance issues or errors.",
+          "action": "Include base cases for primitives and add defensive checks for unsupported or callable values."
+        },
+        {
+          "reasoning": "Comprehensive tests across edge cases ensure reliability.",
+          "action": "Test deep nesting, empty containers, mixed types, and values with both sensitive and non-sensitive keys."
+        }
+      ]
+    },
+    {
+      "name": "Regression-Safe Patch Integration in Mature Codebases",
+      "description": "Integrate changes with minimal disruption using targeted testing, tooling awareness, and verification.",
+      "steps": [
+        {
+          "reasoning": "Knowing how the project\u2019s test runner is configured saves time and avoids false negatives.",
+          "action": "Identify and use the project-preferred test runner and settings (e.g., Django\u2019s test command over pytest in some setups)."
+        },
+        {
+          "reasoning": "Focusing on impacted modules speeds iteration and isolates failures.",
+          "action": "Run subsets of tests relevant to the modified component (e.g., debug-related tests or specific test classes)."
+        },
+        {
+          "reasoning": "Iterative verification from micro to macro catches issues early and confirms overall stability.",
+          "action": "Start with custom reproduction tests, then module tests, and finally broader suite runs."
+        },
+        {
+          "reasoning": "Visibility into changes helps reviewers and future maintainers.",
+          "action": "Generate diffs of modified core and test files and provide succinct change notes."
+        },
+        {
+          "reasoning": "Project hygiene avoids repository noise and confusion.",
+          "action": "Remove temporary scripts and artifacts once the fix is validated."
+        }
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locate Implementation and Related Tests",
+      "description": "Find the target module and existing test coverage for exception reporting and sanitization.",
+      "steps": [
+        {
+          "reasoning": "Navigating into the repository root ensures commands run in the correct context.",
+          "action": "Terminal: cd /workspace/django \u2192 ls"
+        },
+        {
+          "reasoning": "Opening the suspected module reveals current implementation details.",
+          "action": "View file: django/views/debug.py"
+        },
+        {
+          "reasoning": "Searching tests by keyword quickly surfaces existing behaviors and constraints.",
+          "action": "Terminal: grep -R \"SafeExceptionReporterFilter\" tests"
+        },
+        {
+          "reasoning": "Scanning the specific test file gives the expectations around cleanse_setting.",
+          "action": "View file: tests/view_tests/tests/test_debug.py"
+        },
+        {
+          "reasoning": "Pinpointing test names allows targeted runs during iteration.",
+          "action": "Terminal: grep -n \"cleanse_setting\" tests/view_tests/tests/test_debug.py"
+        }
+      ]
+    },
+    {
+      "name": "Create and Run a Reproduction for Nested Iterable Sanitization",
+      "description": "Demonstrate the sanitization failure with lists/tuples containing dicts with sensitive keys.",
+      "steps": [
+        {
+          "reasoning": "A minimal script reproduces the exact leak and serves as a quick validation tool.",
+          "action": "Create file: reproduce_issue.py (construct settings with nested lists/tuples containing {'token': 'secret'} and print sanitized output)"
+        },
+        {
+          "reasoning": "Ensuring the local package is importable allows the script to use the current code.",
+          "action": "Terminal: pip install -e ."
+        },
+        {
+          "reasoning": "Running the reproduction confirms the issue is present before changes.",
+          "action": "Terminal: python reproduce_issue.py"
+        }
+      ]
+    },
+    {
+      "name": "Implement Recursive Iterable Cleansing",
+      "description": "Modify the sanitization to recurse into lists/tuples while preserving container type.",
+      "steps": [
+        {
+          "reasoning": "Identifying where to implement recursion prevents scattered changes.",
+          "action": "View file: django/views/debug.py (focus on cleanse_setting implementation)"
+        },
+        {
+          "reasoning": "Adding a branch for iterable types introduces recursive cleansing while keeping dict handling intact.",
+          "action": "Edit django/views/debug.py: add handling for (list, tuple) \u2192 map cleanse_setting over items \u2192 reconstruct list or tuple"
+        },
+        {
+          "reasoning": "Quick local validation speeds iteration and catches obvious mistakes.",
+          "action": "Terminal: python test_fix.py (custom tests hitting lists/tuples/mixed)"
+        },
+        {
+          "reasoning": "Re-validate with the original reproduction to ensure the symptom is resolved.",
+          "action": "Terminal: python reproduce_issue.py"
+        }
+      ]
+    },
+    {
+      "name": "Run Targeted and Suite-Level Tests in Django",
+      "description": "Use Django\u2019s test runner to validate changes without switching frameworks midstream.",
+      "steps": [
+        {
+          "reasoning": "Running specific classes and modules accelerates feedback cycles.",
+          "action": "Terminal: django test view_tests.tests.test_debug.ExceptionReporterFilterTests -v 2"
+        },
+        {
+          "reasoning": "If initial attempts with pytest fail or mismatch environment, switch to Django\u2019s runner for consistency.",
+          "action": "Conditional: If pytest errors or uses wrong settings \u2192 Terminal: django test view_tests.tests.test_debug -v 2"
+        },
+        {
+          "reasoning": "Inspecting head/tail of test output quickly surfaces failure context.",
+          "action": "Terminal: django test view_tests.tests.test_debug -v 2 | head \u2192 django test view_tests.tests.test_debug | tail"
+        },
+        {
+          "reasoning": "Locating exact test function/class names helps granular troubleshooting.",
+          "action": "Terminal: grep -n \"test_cleanse_setting_recurses_in_dictionary\" tests/view_tests/tests/test_debug.py \u2192 grep -n \"class .*Tests\" -n tests/view_tests/tests/test_debug.py"
+        },
+        {
+          "reasoning": "Broad test runs ensure no regressions in related areas.",
+          "action": "Terminal: django test view_tests -v 2"
+        }
+      ]
+    },
+    {
+      "name": "Add New Tests and Verify",
+      "description": "Extend the test suite with scenarios covering nested lists, tuples, and mixed structures.",
+      "steps": [
+        {
+          "reasoning": "Placing new tests near existing ones keeps coverage discoverable and consistent.",
+          "action": "Edit tests/view_tests/tests/test_debug.py: add tests for list/tuple/mixed recursive cleansing"
+        },
+        {
+          "reasoning": "Running new test methods directly validates their correctness.",
+          "action": "Terminal: django test view_tests.tests.test_debug.SafeExceptionReporterFilterTests.test_cleanse_setting_recurses_in_list -v 2 (repeat for each new test)"
+        },
+        {
+          "reasoning": "Running the encompassing class confirms cohesive behavior.",
+          "action": "Terminal: django test view_tests.tests.test_debug.SafeExceptionReporterFilterTests -v 2"
+        }
+      ]
+    },
+    {
+      "name": "Produce Diffs and Clean Temporary Artifacts",
+      "description": "Show changes clearly and keep the repository tidy.",
+      "steps": [
+        {
+          "reasoning": "Diffs communicate the precise modifications for review.",
+          "action": "Terminal: git diff django/views/debug.py \u2192 git diff tests/view_tests/tests/test_debug.py"
+        },
+        {
+          "reasoning": "Removing temporary scripts avoids clutter and accidental commits.",
+          "action": "Terminal: rm reproduce_issue.py test_fix.py test_edge_cases.py final_verification.py"
+        }
+      ]
+    }
+  ]
+}

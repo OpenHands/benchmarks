@@ -1,7 +1,5 @@
 # OpenHands Benchmarks
 
-test-build edit
-
 This repository contains benchmark evaluation infrastructure for [OpenHands](https://github.com/OpenHands/OpenHands/) agents. It provides standardized evaluation pipelines for testing agent capabilities across various real-world tasks.
 
 ⚠️ **Migration in Progress**: We are currently migrating the [benchmarks from OpenHands V0](https://github.com/OpenHands/OpenHands/tree/main/evaluation) to work with the [OpenHands Software Agent SDK](https://github.com/OpenHands/software-agent-sdk) infrastructure in V1.
@@ -129,6 +127,14 @@ Uses local Docker containers to run agent evaluations. Images are built locally 
 - **Pros**: No additional setup required, works offline
 - **Cons**: Resource-intensive on local machine, slower for large-scale evaluations
 - **Use case**: Development, testing, small-scale evaluations
+
+**⚠️ Docker Rate Limits**: Docker Hub has rate limits (100 pulls per 6 hours for unauthenticated users, 200 for authenticated). To avoid evaluation failures due to rate limits, pre-pull all required images using:
+
+```bash
+uv run pull-swebench-images --dataset princeton-nlp/SWE-bench_Lite --split test --skip-existing
+```
+
+See [DOCKER_IMAGE_PULLING.md](DOCKER_IMAGE_PULLING.md) for detailed instructions and options.
 
 ### Remote Workspace
 

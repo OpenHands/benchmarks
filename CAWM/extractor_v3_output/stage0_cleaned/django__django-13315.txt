@@ -1,0 +1,440 @@
+PROBLEM: limit_choices_to on a ForeignKey can render duplicate options in formfield. When a Q object involving a join is used for limit_choices_to, the form field’s queryset may include duplicates. The fix is to ensure the queryset is made distinct after applying the complex filter so choices aren’t repeated.
+
+Action 1
+Reasoning: Begin by exploring the repository to understand structure and locate relevant modules for ForeignKey behavior and forms. This sets the context for where limit and filtering logic resides.
+Action: cd /workspace/django && pwd && ls -la
+
+Action 2
+Reasoning: Search for files potentially related to foreign keys, choices, and forms to narrow down the code areas. This helps target implementation points for limit_choices_to.
+Action: find /workspace/django -type f -name "*.py" | grep -E "(foreign|choices|form)" | head -20
+
+Action 3
+Reasoning: Inspect Django’s db/models directory to identify model field implementations. Foreign key logic lives here.
+Action: find /workspace/django -type f -name "*.py" -path "*/db/models/*" | head -20
+
+Action 4
+Reasoning: Locate references to limit_choices_to in the models codebase to see how it’s currently applied. This reveals the filter application points.
+Action: grep -r "limit_choices_to" /workspace/django/django/db/models/ --include="*.py" | head -20
+
+Action 5
+Reasoning: Check the test suite for cases using limit_choices_to to understand present coverage and constraints. This informs how the issue manifests and what's expected.
+Action: find /workspace/django/tests -type f -name "*.py" | xargs grep -l "limit_choices_to" | head -10
+
+Action 6
+Reasoning: Explore tests related to foreign keys to find any behavior-specific test cases. Joins and Q objects are likely tested here.
+Action: find /workspace/django/tests -type f -name "*.py" -path "*foreign*" | head -10
+
+Action 7
+Reasoning: Search for tests mentioning duplicates with limit_choices_to to locate regression test references. This validates whether a test exists for this bug.
+Action: grep -r "duplicate" /workspace/django/tests --include="*.py" | grep -i "limit_choices_to" | head -10
+
+Action 8
+Reasoning: Look for explicit mentions of regression tests to find prior patches or failing test cases. This helps align the fix to documented behavior.
+Action: grep -r "regressiontest" /workspace/django/tests --include="*.py" | head -10
+
+Action 9
+Reasoning: Review recent git history to find commits related to limit_choices_to. Past fixes can guide present approach.
+Action: cd /workspace/django && git log --oneline --all -20
+
+Action 10
+Reasoning: Filter git logs for limit_choices_to-related commits to identify prior fixes and context. This often includes distinct() usage fixes.
+Action: git log --all --grep="limit_choices_to" --oneline
+
+Action 11
+Reasoning: Open the specific commit that fixed this issue historically to understand exact changes. This provides the precedent for adding distinct().
+Action: git show 6902824ac2
+
+Action 12
+Reasoning: Confirm commit references and messages to link to issue #11707. This assures we target the same problem.
+Action: cd /workspace/django && git log --oneline --all | grep -i "11707\|duplicate.*choice"
+
+Action 13
+Reasoning: Inspect ForeignKey.formfield implementation to see current queryset construction. The absence of distinct() likely causes duplicates.
+Action: cat /workspace/django/django/db/models/fields/related.py | grep -A 10 "def formfield"
+
+Action 14
+Reasoning: Open related.py to contextually check how ForeignKey and related fields apply form field defaults. Helps see if limit choices are applied here.
+Action: View file /workspace/django/django/db/models/fields/related.py
+
+Action 15
+Reasoning: Locate ForeignKey class in file to inspect its formfield logic. This is the likely site of bug impact.
+Action: grep -n "class ForeignKey" /workspace/django/django/db/models/fields/related.py | head -5
+
+Action 16
+Reasoning: Read the ForeignKey definitions and relevant methods. Determine where the queryset is constructed.
+Action: sed -n '771,1000p' /workspace/django/django/db/models/fields/related.py
+
+Action 17
+Reasoning: Consider ForeignObject/RelatedField for inherited formfield behavior. Limit choices may be passed through parents.
+Action: grep -n "class ForeignObject" /workspace/django/django/db/models/fields/related.py | head -5
+
+Action 18
+Reasoning: Inspect ForeignObject methods to see where limit_choices_to gets propagated. This influences where distinct() should be added.
+Action: sed -n '444,770p' /workspace/django/django/db/models/fields/related.py
+
+Action 19
+Reasoning: Review top parts for how related fields are assembled and defaults passed. This helps pinpoint logic flow.
+Action: sed -n '83,443p' /workspace/django/django/db/models/fields/related.py
+
+Action 20
+Reasoning: Broaden search of test suite for more limit_choices_to usage to understand behavior variations. Ensures we cover both dicts and Q.
+Action: find /workspace/django/tests -type f -name "*.py" -exec grep -l "limit_choices_to" {} \; | head -10
+
+Action 21
+Reasoning: Expand search scope without head cap to see all occurrences. This reveals more cases of usage.
+Action: find /workspace/django/tests -type f -name "*.py" -exec grep -l "limit_choices_to" {} \;
+
+Action 22
+Reasoning: Check if a specific test for distinct choice limit exists. This aligns with the commit description.
+Action: grep -A 30 "test_distinct_choice_limit" /workspace/django/tests/model_fields/tests.py
+
+Action 23
+Reasoning: Search for duplicate FK tests to see existing coverage. Duplicates would be detected in choice rendering.
+Action: find /workspace/django/tests -type f -name "*.py" -exec grep -l "duplicate.*ForeignKey\|ForeignKey.*duplicate" {} \;
+
+Action 24
+Reasoning: Inspect the exact lines of ForeignKey.formfield to confirm absence of distinct(). This validates the need for a fix.
+Action: sed -n '955,965p' /workspace/django/django/db/models/fields/related.py
+
+Action 25
+Reasoning: Find the formfield definition to examine its implementation. Helps see how queryset is created.
+Action: grep -n "def formfield" /workspace/django/django/db/models/fields/related.py
+
+Action 26
+Reasoning: Read ForeignKey.formfield completely for confirmation. Limit choices are not applied here currently.
+Action: sed -n '984,1000p' /workspace/django/django/db/models/fields/related.py
+
+Action 27
+Reasoning: Check parent class’s formfield to see how limit_choices_to is passed. Likely deferred to forms.
+Action: sed -n '401,431p' /workspace/django/django/db/models/fields/related.py
+
+Action 28
+Reasoning: Search in forms/models.py for limit_choices_to handling to locate where filtering is applied to formfield queryset. This is where distinct() fix should go.
+Action: grep -n "limit_choices_to" /workspace/django/django/forms/models.py
+
+Action 29
+Reasoning: Read relevant sections of forms/models.py to see field generation. This clarifies filter application.
+Action: sed -n '1190,1230p' /workspace/django/django/forms/models.py
+
+Action 30
+Reasoning: Look specifically at apply_limit_choices_to_to_formfield function to confirm current behavior. It applies complex_filter without distinct().
+Action: sed -n '98,110p' /workspace/django/django/forms/models.py
+
+Action 31
+Reasoning: Inspect queryset handling in forms to understand lifecycle of choices restriction. Ensures placement of distinct() won’t break behavior.
+Action: grep -n "_get_queryset\|get_queryset" /workspace/django/django/forms/models.py | head -20
+
+Action 32
+Reasoning: Check model_fields test models to see current relationships used in tests. This helps create representative test cases.
+Action: find /workspace/django/tests -type f -name "models.py" -path "*model_fields*" -exec cat {} \;
+
+Action 33
+Reasoning: Create a minimal inline script to reproduce the duplicate issue via a ModelForm. This validates the bug in isolation.
+Action: cd /workspace/django && python -c "<inline script defining Foo/Bar/Baz with limit_choices_to Q join, create data, render BazForm, print queryset>"
+
+Action 34
+Reasoning: Install Django package in editable mode to ensure the inline scripts use the local codebase. This allows testing fixes immediately.
+Action: cd /workspace/django && pip install -e . -q
+
+Action 35
+Reasoning: Re-run the reproduction script after installing to verify behavior with local code. This checks for duplicates.
+Action: cd /workspace/django && python -c "<same inline script>"
+
+Action 36
+Reasoning: Inspect regression test in the old commit to mirror expected behavior. Understand how the old test was structured.
+Action: cd /workspace/django && git show 6902824ac2:tests/regressiontests/model_fields/tests.py | grep -A 20 "test_distinct_choice_limit"
+
+Action 37
+Reasoning: Confirm the exact change in related.py from the old commit for distinct(). This guides our modification.
+Action: cd /workspace/django && git show 6902824ac2:django/db/models/fields/related.py | grep -A 10 "def formfield"
+
+Action 38
+Reasoning: Inspect current test files in model_fields directory to plan where to add new tests. Ensure integration.
+Action: find /workspace/django/tests -type f -name "*.py" -path "*model_fields*" -exec ls -la {} \;
+
+Action 39
+Reasoning: Attempt to run pytest on a specific test to check behavior. Pivot to Django’s test runner if needed.
+Action: cd /workspace/django && python -m pytest tests/model_fields/test_foreignkey.py -v
+
+Action 40
+Reasoning: Use Django’s built-in test runner to run specific test modules. Ensure consistent environment.
+Action: cd /workspace/django && python tests/runtests.py model_fields.test_foreignkey -v 2
+
+Action 41
+Reasoning: Create a stand-alone test script to reproduce duplicates with a Q join on reverse relation. Establish baseline failing behavior.
+Action: Create file /workspace/django/test_duplicate_choices.py
+Summary of edit: Wrote a script defining Foo/Bar/Baz; Baz has ForeignKey(Foo, limit_choices_to=Q(bar__b__startswith='a')); creates multiple Bar rows for one Foo; renders BazForm and prints the queryset. Example snippet:
+- foo = models.ForeignKey(Foo, on_delete=models.CASCADE, limit_choices_to=models.Q(bar__b__startswith='a'))
+- form = BazForm(); queryset = form.fields['foo'].queryset
+
+Action 42
+Reasoning: Execute the stand-alone test to observe duplicate occurrences. This confirms the need for fix.
+Action: cd /workspace/django && python test_duplicate_choices.py
+
+Action 43
+Reasoning: Inspect model_fields test directory contents to align custom test with current test structure. Helps integrate new tests properly.
+Action: ls /workspace/django/tests/model_fields/
+
+Action 44
+Reasoning: Review Foo model in tests to ensure consistency with our added tests. Validates attribute usage (like Decimal fields).
+Action: grep -A 10 "class Foo" /workspace/django/tests/model_fields/models.py
+
+Action 45
+Reasoning: Examine Bar model to understand existing related_name conventions used by current tests. Ensures correct Q path usage.
+Action: grep -B 5 -A 15 "class Bar" /workspace/django/tests/model_fields/models.py
+
+Action 46
+Reasoning: Continue reviewing Bar definition for precise details (related_name) to build correct Q objects. Ensures no mismatch.
+Action: grep -A 20 "class Bar" /workspace/django/tests/model_fields/models.py
+
+Action 47
+Reasoning: Explore ModelForm initialization for where queryset modification happens. Confirms filter application timing.
+Action: grep -B 5 -A 15 "def __init__" /workspace/django/django/forms/models.py | head -50
+
+Action 48
+Reasoning: Re-open the utility applying limit_choices_to to confirm needed change location. This is the best place to add distinct().
+Action: grep -B 10 -A 20 "def apply_limit_choices_to_to_formfield" /workspace/django/django/forms/models.py
+
+Action 49
+Reasoning: Plan the fix to add distinct() where limit_choices_to is applied to form field querysets, and also where choices are generated. This ensures no duplicates across contexts.
+Action: ThinkAction (no command)
+
+Action 50
+Reasoning: Implement distinct() in forms/models.py when applying limit_choices_to, which is central for ModelChoiceField querysets. This mirrors the historical fix.
+Action: Edit file /workspace/django/django/forms/models.py
+Summary of edit: Append distinct() to complex_filter in apply_limit_choices_to_to_formfield():
+- Changed: formfield.queryset = formfield.queryset.complex_filter(limit_choices_to)
+- To: formfield.queryset = formfield.queryset.complex_filter(limit_choices_to).distinct()
+
+Action 51
+Reasoning: Search for other usages of complex_filter(limit_choices_to) in models to add distinct() where choices are built. Eliminates duplicates for admin filters and get_choices().
+Action: grep -rn "complex_filter.*limit_choices_to\|limit_choices_to.*complex_filter" /workspace/django/django/db/models/ --include="*.py"
+
+Action 52
+Reasoning: Check related.py location (validate method) using complex_filter to determine if distinct is needed. Validation doesn’t need distinct.
+Action: sed -n '915,930p' /workspace/django/django/db/models/fields/related.py
+
+Action 53
+Reasoning: Inspect fields/__init__.py get_choices logic where complex_filter is used. Add distinct() here to remove duplicate choice entries.
+Action: sed -n '875,890p' /workspace/django/django/db/models/fields/__init__.py
+
+Action 54
+Reasoning: Open reverse_related.py get_choices to apply distinct() for reverse relation choices. This impacts admin filters.
+Action: sed -n '140,160p' /workspace/django/django/db/models/fields/reverse_related.py
+
+Action 55
+Reasoning: Modify Field.get_choices() to add distinct() so that choices returned are unique even after joins. This complements forms fix.
+Action: Edit file /workspace/django/django/db/models/fields/__init__.py
+Summary of edit: Add distinct() after complex_filter:
+- Changed: qs = rel_model._default_manager.complex_filter(limit_choices_to)
+- To: qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+
+Action 56
+Reasoning: Update ForeignObjectRel.get_choices() similarly to add distinct() on joined filters. Ensures no duplicates in reverse-related contexts.
+Action: Edit file /workspace/django/django/db/models/fields/reverse_related.py
+Summary of edit: Add distinct() after complex_filter:
+- Changed: qs = self.related_model._default_manager.complex_filter(limit_choices_to)
+- To: qs = self.related_model._default_manager.complex_filter(limit_choices_to).distinct()
+
+Action 57
+Reasoning: Create a verification script testing both form field queryset and field.get_choices with a related_name. Ensures distinct() works as intended for Q joins.
+Action: Create file /workspace/django/test_fix_verification.py
+Summary of edit: Script defines Foo/Bar(with related_name='bars')/Baz with limit_choices_to=Q(bars__b__startswith='a'); tests choices and form queryset for duplicates.
+
+Action 58
+Reasoning: Run the verification script to check duplicates are removed and filtering is correct. Validates the fix behavior externally.
+Action: cd /workspace/django && python test_fix_verification.py
+
+Action 59
+Reasoning: Compare with the original regression test to ensure parity in model definitions. Confirms correct reverse relation lookup path (bar__ vs bars__).
+Action: cd /workspace/django && git show 6902824ac2:tests/regressiontests/model_fields/models.py | grep -A 10 "class Baz"
+
+Action 60
+Reasoning: Check Bar model in the same old commit for related_name usage context. Ensures we match the intended join path.
+Action: cd /workspace/django && git show 6902824ac2:tests/regressiontests/model_fields/models.py | grep -B 5 -A 5 "class Bar"
+
+Action 61
+Reasoning: Adjust the test script to reflect correct reverse relation usage; try both default and explicit related_name to ensure robust behavior. This provides compatibility coverage.
+Action: Edit file /workspace/django/test_fix_verification.py
+Summary of edit: Toggled ForeignKey related_name and Q lookup path between bar__ and bars__; settled on bars__b__startswith for explicit related_name.
+
+Action 62
+Reasoning: Re-run adjusted test script after correcting related path. Validate distinct behavior again.
+Action: cd /workspace/django && python test_fix_verification.py
+
+Action 63
+Reasoning: Look for existing tests referencing limit_choices_to to ensure our change fits with broader test expectations. This reduces the chance of regressions.
+Action: find tests -name "*.py" -exec grep -l "test.*limit.*choice\|limit_choices_to" {} \; | head -5
+
+Action 64
+Reasoning: Examine model_fields test suite for current behavior and patterns of limit_choices_to usage. Helps place our new tests correctly.
+Action: grep -r "limit_choices_to" /workspace/django/tests/model_fields/ --include="*.py"
+
+Action 65
+Reasoning: Review specific test sections to see how get_choices is currently evaluated. Integration of new tests should respect existing patterns.
+Action: grep -B 20 "limit_choices_to" /workspace/django/tests/model_fields/tests.py | head -50
+
+Action 66
+Reasoning: Revisit Bar model in tests to align on related_name usage with our new tests. Ensures no mismatch in join traversal.
+Action: grep -A 5 "class Bar" /workspace/django/tests/model_fields/models.py
+
+Action 67
+Reasoning: Solidify the test script using related_name='bars' and Q(bars__...) to be consistent with current test models. This ensures correctness.
+Action: Edit file /workspace/django/test_fix_verification.py
+Summary of edit: Set Bar.a ForeignKey related_name='bars' and Baz limitChoicesTo Q uses bars__b__startswith='a'.
+
+Action 68
+Reasoning: Run the verification script with final configuration to confirm the fix in both form field and get_choices contexts. This double-checks distinct effectiveness.
+Action: cd /workspace/django && python test_fix_verification.py
+
+Action 69
+Reasoning: Execute existing limit_choices_to-related tests to ensure no regressions in current suite. Confidence check before adding new tests.
+Action: cd /workspace/django && python tests/runtests.py model_fields.GetChoicesLimitChoicesToTests -v 2
+
+Action 70
+Reasoning: Run the named test class path with full dotted module to verify the runner path is correct. Ensures the test is addressed.
+Action: cd /workspace/django && python tests/runtests.py model_fields.tests.GetChoicesLimitChoicesToTests -v 2
+
+Action 71
+Reasoning: Search for mentions of duplicate handling in tests to verify no prior coverage exists. Validates necessity of new tests.
+Action: grep -r "duplicate\|distinct" /workspace/django/tests/model_fields/ --include="*.py" | grep -i choice
+
+Action 72
+Reasoning: Inspect ForeignKey tests to understand focus areas and perhaps add new test near similar ones. Maintain structure continuity.
+Action: grep -A 30 "class ForeignKeyTests" /workspace/django/tests/model_fields/tests.py
+
+Action 73
+Reasoning: Execute the entire model_fields test suite to ensure our changes don't break anything. This is essential before landing new tests.
+Action: cd /workspace/django && python tests/runtests.py model_fields.tests --verbosity=2
+
+Action 74
+Reasoning: Open the file to append a new test class verifying duplicates are eliminated with Q joins. This codifies the fix.
+Action: View file /workspace/django/tests/model_fields/tests.py
+
+Action 75
+Reasoning: Measure file length to find a suitable insertion point without disrupting existing tests. Keep organization clean.
+Action: wc -l /workspace/django/tests/model_fields/tests.py
+
+Action 76
+Reasoning: View end region of tests file to append new test logic. Ensure imports and helpers are available.
+Action: View file /workspace/django/tests/model_fields/tests.py (lines 340-355)
+
+Action 77
+Reasoning: Adjust view to locate insertion point precisely. This ensures the new test class is placed appropriately.
+Action: View file /workspace/django/tests/model_fields/tests.py (lines 335-355)
+
+Action 78
+Reasoning: Add auxiliary models for testing duplicates via Q joins; isolate to avoid interfering with existing models/tests. These enable deterministic test behavior.
+Action: Edit file /workspace/django/tests/model_fields/models.py
+Summary of edit: Added BarDup and Baz (with Baz.foo = ForeignKey(Foo, limit_choices_to=Q(bardups__b__startswith='a'))). Example snippet:
+- class BarDup(models.Model): b = CharField(...); a = ForeignKey(Foo, related_name='bardups')
+- class Baz(models.Model): foo = ForeignKey(Foo, limit_choices_to=Q(bardups__b__startswith='a'))
+
+Action 79
+Reasoning: Update imports in tests to include new models. Ensures references resolve in test methods.
+Action: Edit file /workspace/django/tests/model_fields/tests.py
+Summary of edit: Modified import list to include BarDup and Baz:
+- from .models import (Bar, BarDup, Baz, Choiceful, Foo, ...)
+
+Action 80
+Reasoning: Add tests that assert no duplicates appear in choices and form field querysets when using limit_choices_to with joins. This formally verifies the fix.
+Action: Edit file /workspace/django/tests/model_fields/tests.py
+Summary of edit: Added LimitChoicesToDuplicatesTests with setUpTestData creating bardups; tests check get_choices() and ModelChoiceField queryset for duplicates. Example snippet:
+- choices = field.get_choices(); ids = [c[0] for c in choices if c[0]]
+- form = BazForm(); queryset = form.fields['foo'].queryset; assert counts per id
+
+Action 81
+Reasoning: Run the new test class to validate behavior after code changes. This confirms correctness.
+Action: cd /workspace/django && python tests/runtests.py model_fields.tests.LimitChoicesToDuplicatesTests -v 2
+
+Action 82
+Reasoning: Fix missing Decimal import in tests file used by setUpTestData. Avoid NameError.
+Action: Edit file /workspace/django/tests/model_fields/tests.py
+Summary of edit: Add import for Decimal:
+- Added: from decimal import Decimal
+
+Action 83
+Reasoning: Re-run the new test class with the corrected import. Validate end-to-end.
+Action: cd /workspace/django && python tests/runtests.py model_fields.tests.LimitChoicesToDuplicatesTests -v 2
+
+Action 84
+Reasoning: Run full model_fields test suite to ensure no regressions from added distinct() behavior. Broad validation needed.
+Action: cd /workspace/django && python tests/runtests.py model_fields --verbosity=2
+
+Action 85
+Reasoning: Run model_forms tests to check the forms change didn’t break general form behavior. This ensures robustness.
+Action: cd /workspace/django && python tests/runtests.py model_forms --verbosity=2 2>&1 | head -100
+
+Action 86
+Reasoning: Execute model_forms suite fully to confirm broad compatibility. Confidence testing after significant forms change.
+Action: cd /workspace/django && python tests/runtests.py model_forms --verbosity=0
+
+Action 87
+Reasoning: Run admin-related suites since admin uses form fields and get_choices; distinct() should prevent duplicate dropdown choices. This increases coverage.
+Action: cd /workspace/django && python tests/runtests.py admin_views admin_widgets --verbosity=0
+
+Action 88
+Reasoning: Run foreign_object tests to ensure related fields logic isn’t impacted adversely. This checks reverse relation paths too.
+Action: cd /workspace/django && python tests/runtests.py foreign_object --verbosity=0
+
+Action 89
+Reasoning: Search for other limit-related tests across the suite to spot potential impacts. Sanity check for broader behavior.
+Action: cd /workspace/django && python tests/runtests.py --verbosity=0 2>&1 | grep -i "limit"
+
+Action 90
+Reasoning: Run queries suite to ensure queryset changes don’t impact generic query behavior. Distinct() usage should be safe.
+Action: cd /workspace/django && python tests/runtests.py queries --verbosity=0
+
+Action 91
+Reasoning: Review diff for forms/models.py to confirm precise changes and no accidental modifications. This ensures clarity of fix.
+Action: cd /workspace/django && git diff django/forms/models.py
+
+Action 92
+Reasoning: Verify changes in fields/__init__.py to ensure distinct() added exactly where needed. Keep change minimal.
+Action: cd /workspace/django && git diff django/db/models/fields/__init__.py
+
+Action 93
+Reasoning: Check reverse_related.py diff to confirm distinct() added appropriately. Maintain consistency.
+Action: cd /workspace/django && git diff django/db/models/fields/reverse_related.py
+
+Action 94
+Reasoning: Review test changes to ensure proper import and models additions. Validate tests reference new models correctly.
+Action: cd /workspace/django && git diff tests/model_fields/
+
+Action 95
+Reasoning: Run additional suites (admin_views, admin_widgets, validation, model_forms) as a final regression check. Confirms system-wide integrity.
+Action: cd /workspace/django && python tests/runtests.py admin_views admin_widgets validation model_forms --verbosity=0
+
+Action 96
+Reasoning: Re-run both the new duplicates test class and existing GetChoicesLimitChoicesToTests to ensure combined behavior remains correct. Cross-verification helpful.
+Action: cd /workspace/django && python tests/runtests.py model_fields.tests.LimitChoicesToDuplicatesTests model_fields.tests.GetChoicesLimitChoicesToTests --verbosity=2
+
+Action 97
+Reasoning: Write a summary document capturing the problem, root cause, changes, and test coverage. Useful for review/PR.
+Action: Create file /workspace/django/SOLUTION_SUMMARY.md
+Summary of edit: Documented issue, root cause (joins causing duplicate rows), solution (add distinct() post complex_filter), tests added, and files modified. Included code snippets:
+- formfield.queryset = formfield.queryset.complex_filter(limit_choices_to).distinct()
+- qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+
+Action 98
+Reasoning: Run entire suite tail to confirm broad success. Sanity check final output.
+Action: cd /workspace/django && python tests/runtests.py --verbosity=0 2>&1 | tail -20
+
+Action 99
+Reasoning: Run focused suites one more time for reassurance of stability. Confidence check prior to finalization.
+Action: cd /workspace/django && python tests/runtests.py model_fields model_forms admin_views --verbosity=1
+
+Action 100
+Reasoning: Create a final independent verification script simulating a realistic join (Category–Product–Order) to demonstrate no duplicates in both field choices and form. Confirms fix in different models.
+Action: Create file /workspace/django/final_verification_test.py
+Summary of edit: Script defines Category/Product(active)/Order.product FK to Category with limit_choices_to=Q(products__active=True); asserts distinct results in get_choices() and ModelForm field queryset. Example snippet:
+- product = models.ForeignKey(Category, limit_choices_to=models.Q(products__active=True))
+- queryset = form.fields['product'].queryset; assert count per category == expected.
+
+Summary of Fix:
+- Problem: limit_choices_to with Q joins produced duplicate options in form fields.
+- Solution: Added distinct() after complex_filter(limit_choices_to) in:
+  - django/forms/models.py (apply_limit_choices_to_to_formfield)
+  - django/db/models/fields/__init__.py (Field.get_choices)
+  - django/db/models/fields/reverse_related.py (ForeignObjectRel.get_choices)
+- Tests: Added new models and tests ensuring no duplicates in choices and form querysets when using join-based limit_choices_to. All relevant test suites pass.

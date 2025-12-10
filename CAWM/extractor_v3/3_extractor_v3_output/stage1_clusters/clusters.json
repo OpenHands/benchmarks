@@ -1,0 +1,37 @@
+{
+  "Django ORM, Migrations, and Model Relations Bugs": {
+    "description": "Issues with Django models including inheritance, choices display, ordering, relationship hints, and migration generation.",
+    "instance_ids": [
+      "django__django-12125",
+      "django__django-12284",
+      "django__django-12470",
+      "django__django-12497"
+    ]
+  },
+  "HTTP and URL Handling": {
+    "description": "Problems in HTTP utilities and URL routing/view handling.",
+    "instance_ids": [
+      "django__django-11848",
+      "django__django-12184"
+    ]
+  },
+  "Internationalization and Translation Validation": {
+    "description": "Issues in the i18n framework, including language code validation and checks.",
+    "instance_ids": [
+      "django__django-12286"
+    ]
+  },
+  "Testing and Transaction Rollback": {
+    "description": "Failures in Django's testing framework related to database serialization and rollback handling.",
+    "instance_ids": [
+      "django__django-12453"
+    ]
+  },
+  "Developer Tooling and Debugging": {
+    "description": "Bugs in development-time tooling such as the auto-reloader and exception reporting/sanitization.",
+    "instance_ids": [
+      "django__django-11583",
+      "django__django-12700"
+    ]
+  }
+}

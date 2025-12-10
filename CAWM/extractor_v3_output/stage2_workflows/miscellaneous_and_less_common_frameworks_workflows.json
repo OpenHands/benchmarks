@@ -1,0 +1,114 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Propagating supported fields through layered frameworks",
+      "description": "A general strategy to wire an already-supported field from the output/generator layer back through upstream view/controller layers so it appears in generated artifacts.",
+      "steps": [
+        "Step 1: Verify the output or generator layer already supports the target field by reviewing its API and output format",
+        "Step 2: Trace the data flow upstream to identify where items are constructed and passed to the generator",
+        "Step 3: Inspect the view/controller layer for dynamic attribute accessors or mapping patterns for item fields",
+        "Step 4: Implement the pass-through by adding the missing field to the existing mapping using established dynamic access patterns",
+        "Step 5: Add or update tests to assert the field appears in the generated output (e.g., RSS element) and follows expected behavior",
+        "Step 6: Validate with a minimal reproducer and run the relevant test subset to ensure no regressions"
+      ],
+      "source_trajectories": [
+        "django__django-13230"
+      ]
+    },
+    {
+      "name": "Enhancing Django\u2019s syndication Feed with new item_* attributes",
+      "description": "A Django-specific workflow to add a new item_* attribute to the syndication framework and ensure it is passed to the feed generator.",
+      "steps": [
+        "Step 1: Review django/utils/feedgenerator.py to identify supported item fields and their parameter names",
+        "Step 2: Inspect django/contrib/syndication/views.py to see how item_* methods on Feed are mapped to add_item() parameters",
+        "Step 3: Add a new item_* method on Feed subclasses and propagate it by passing the corresponding parameter to feed.add_item() via the dynamic attribute accessor",
+        "Step 4: Mirror existing tests in tests/syndication_tests to assert the output (e.g., RSS <comments> element) includes the new field",
+        "Step 5: Run the syndication_tests subset with Django\u2019s test runner and iterate until the new behavior is verified",
+        "Step 6: Update documentation for the Feed API if the new item_* attribute is public and intended for feed authors"
+      ],
+      "source_trajectories": [
+        "django__django-13230"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Navigating Django\u2019s syndication and feedgenerator code to wire a missing field",
+      "description": "Concrete steps to locate relevant files, confirm generator support, and add pass-through logic in the syndication views.",
+      "steps": [
+        {
+          "reasoning": "Need to find the modules that implement syndication and feed generation to locate integration points.",
+          "action": "find /workspace/django -type f -name \"*.py\" | grep -E \"(syndication|feed)\""
+        },
+        {
+          "reasoning": "Confirm the syndication app layout and locate views where feed items are constructed.",
+          "action": "ls -la /workspace/django/django/contrib/syndication"
+        },
+        {
+          "reasoning": "Inspect the syndication views to find where add_item() is called and how dynamic attributes are retrieved.",
+          "action": "sed -n '1,240p' /workspace/django/django/contrib/syndication/views.py"
+        },
+        {
+          "reasoning": "Verify the feed generator supports the target field and determine the exact parameter name to pass.",
+          "action": "sed -n '1,300p' /workspace/django/django/utils/feedgenerator.py"
+        },
+        {
+          "reasoning": "Confirm the presence of the target field (e.g., comments) in the feed generator.",
+          "action": "grep -n \"comments\" /workspace/django/django/utils/feedgenerator.py"
+        },
+        {
+          "reasoning": "Identify the current add_item() call in views to see which fields are already passed through.",
+          "action": "grep -n \"add_item\" /workspace/django/django/contrib/syndication/views.py"
+        },
+        {
+          "reasoning": "Implement the pass-through by adding the missing parameter mapping in the add_item() call following existing patterns.",
+          "action": "Open /workspace/django/django/contrib/syndication/views.py in your editor and add within feed.add_item(...): comments=self._get_dynamic_attr('item_comments', item)"
+        },
+        {
+          "reasoning": "Ensure coding style and patterns match adjacent parameters for consistency.",
+          "action": "Review nearby parameters (e.g., categories=self._get_dynamic_attr('item_categories', item)) in views.py and mirror the same structure"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13230"
+      ]
+    },
+    {
+      "name": "Running Django syndication tests and a minimal reproducer",
+      "description": "Concrete steps to validate behavior via the Django test runner and an ad-hoc script to reproduce and inspect field propagation.",
+      "steps": [
+        {
+          "reasoning": "Examine existing syndication tests to learn how item_* fields are asserted and ensure consistent coverage.",
+          "action": "sed -n '1,240p' /workspace/django/tests/syndication_tests/tests.py"
+        },
+        {
+          "reasoning": "Check whether the target field (e.g., comments) is already covered; if not, plan new tests.",
+          "action": "grep -rn \"comments\" /workspace/django/tests/syndication_tests/"
+        },
+        {
+          "reasoning": "Install Django in editable mode so the test suite runs against local code changes.",
+          "action": "cd /workspace/django/tests && python -m pip install -e .."
+        },
+        {
+          "reasoning": "Run the syndication test subset using Django\u2019s dedicated test runner to quickly validate changes.",
+          "action": "cd /workspace/django/tests && python runtests.py syndication_tests -v 2"
+        },
+        {
+          "reasoning": "Iterate faster on a focused test to see RSS output and confirm the new field appears.",
+          "action": "cd /workspace/django/tests && python runtests.py syndication_tests.tests.SyndicationFeedTest.test_rss2_feed -v 2"
+        },
+        {
+          "reasoning": "Create a minimal reproducer script to validate end-to-end field propagation without relying on the full test harness.",
+          "action": "Create /workspace/test_item_comments.py that defines a Feed subclass with item_comments() returning a URL, then run: cd /workspace/django && python /workspace/test_item_comments.py"
+        },
+        {
+          "reasoning": "If environment constraints interfere with the reproducer, use an inline script to bootstrap Django and exercise the Feed class.",
+          "action": "cd /workspace/django/tests && python -c \"import django; django.setup(); from django.contrib.syndication import views; class F(views.Feed): pass; print('Django setup OK')\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-13230"
+      ]
+    }
+  ]
+}

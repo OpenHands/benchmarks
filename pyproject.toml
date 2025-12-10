@@ -41,6 +41,7 @@ swebench-eval = "benchmarks.swe_bench.eval_infer:main"
 swtbench-eval = "benchmarks.swt_bench.eval_infer:main"
 gaia-infer = "benchmarks.gaia.run_infer:main"
 openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
+pull-swebench-images = "benchmarks.scripts.pull_swebench_images_batch:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

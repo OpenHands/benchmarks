@@ -1,0 +1,144 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Aligning Translation System Checks with Runtime Language Resolution",
+      "description": "Identify and fix mismatches between Django's translation system checks (e.g., translation.E004) and runtime language variant resolution logic.",
+      "steps": [
+        "Step 1: Survey translation-related modules to locate system check implementations and runtime resolution utilities",
+        "Step 2: Identify the translation system check module and read the logic for validating LANGUAGE_CODE against LANGUAGES",
+        "Step 3: Review runtime language resolution functions (e.g., get_supported_language_variant) to understand fallback behavior for sublanguages and variants",
+        "Step 4: Create a minimal reproduction using settings that simulate the reported issue and verify current behavior",
+        "Step 5: Update the system check to mirror runtime fallback patterns (e.g., base language presence, prefix matching for variants) before raising errors",
+        "Step 6: Add focused tests covering exact match, base fallback, complex multi-part variants, and invalid configurations",
+        "Step 7: Run Django's check_framework and i18n test suites to validate the fix and ensure no regressions",
+        "Step 8: Document the change, the rationale, and verification steps for maintainers"
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Creating Minimal Reproductions for Language Configuration Checks",
+      "description": "Build small, isolated scripts to reproduce and analyze issues with LANGUAGE_CODE and LANGUAGES validation.",
+      "steps": [
+        "Step 1: Write a script that configures minimal Django settings (USE_I18N, LANGUAGE_CODE, LANGUAGES, INSTALLED_APPS)",
+        "Step 2: Import and call the translation system check (check_language_settings_consistent) to capture errors",
+        "Step 3: Iterate through multiple scenarios (exact match, sublanguage with base, invalid language code) and log outcomes",
+        "Step 4: Use override_settings to isolate configuration per test case without reconfiguring settings globally",
+        "Step 5: Confirm the reproduction aligns with documented behavior and existing runtime resolution",
+        "Step 6: Use these reproductions to validate fixes quickly during development"
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Verifying Internationalization Changes Across Django Test Suites",
+      "description": "Run targeted and broader Django tests to ensure internationalization-related changes are correct and stable.",
+      "steps": [
+        "Step 1: Install Django in editable mode to run tests against local changes",
+        "Step 2: Run specific test modules related to system checks (check_framework.test_translation) to validate targeted fixes",
+        "Step 3: Run broader i18n and translation modules to detect unexpected side effects",
+        "Step 4: Review output for FAIL/ERROR indicators and iterate on fixes as needed",
+        "Step 5: Maintain verification scripts and reports summarizing test coverage and outcomes"
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Locating Translation System Check Implementation",
+      "description": "Find and inspect the code responsible for translation-related system checks (e.g., translation.E004).",
+      "steps": [
+        {
+          "reasoning": "Need to locate the file where translation checks are defined to understand and modify E004 logic.",
+          "action": "cd {repo_root}/django && find django/core/checks -type f -name \"*.py\" | grep -i translation"
+        },
+        {
+          "reasoning": "Open the translation checks file to inspect E004 validation logic.",
+          "action": "cd {repo_root}/django && cat django/core/checks/translation.py"
+        },
+        {
+          "reasoning": "Review runtime language resolution to mirror fallback logic in the system check.",
+          "action": "cd {repo_root}/django && sed -n '1,150p' django/utils/translation/trans_real.py"
+        },
+        {
+          "reasoning": "Locate get_supported_language_variant implementation and related fallback behavior.",
+          "action": "cd {repo_root}/django && grep -n \"def get_supported_language_variant\" -n django/utils/translation/trans_real.py && sed -n '350,520p' django/utils/translation/trans_real.py"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Running Django Test Suites for Translation Checks",
+      "description": "Execute Django's test runner against specific modules to validate translation system checks and i18n behavior.",
+      "steps": [
+        {
+          "reasoning": "Use Django's custom test runner to execute the translation check tests.",
+          "action": "cd {repo_root}/django && python tests/runtests.py check_framework.test_translation -v 2"
+        },
+        {
+          "reasoning": "Validate internationalization tests to ensure broader compatibility after changes.",
+          "action": "cd {repo_root}/django && python tests/runtests.py i18n --verbosity=1"
+        },
+        {
+          "reasoning": "Quickly assess test status by filtering for key summary lines.",
+          "action": "cd {repo_root}/django && python tests/runtests.py i18n --verbosity=1 2>&1 | grep -E \"^(Ran|OK|FAILED|ERROR)\""
+        },
+        {
+          "reasoning": "Run combined subsets to confirm stability across checks and i18n.",
+          "action": "cd {repo_root}/django && python tests/runtests.py check_framework i18n --verbosity=1"
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Programmatic Reproduction of translation.E004 with Custom Settings",
+      "description": "Configure Django settings in a small script and run system checks to reproduce or verify translation.E004 behavior.",
+      "steps": [
+        {
+          "reasoning": "Create a minimal script that sets LANGUAGE_CODE and LANGUAGES to simulate the reported scenario.",
+          "action": "cd {repo_root}/django && cat > reproduce_issue.py << 'EOF'\nfrom django.conf import settings\nfrom django.core.checks.translation import check_language_settings_consistent\n\nsettings.configure(\n    DEBUG=True,\n    SECRET_KEY='test',\n    USE_I18N=True,\n    LANGUAGE_CODE='de-at',\n    LANGUAGES=[('de','German'),('en','English')],\n    INSTALLED_APPS=['django.contrib.contenttypes'],\n)\n\nerrors = check_language_settings_consistent(None)\nprint('E004 present' if any(e.id=='translation.E004' for e in errors) else 'No E004')\nEOF"
+        },
+        {
+          "reasoning": "Install required dependencies to run Django components in isolation.",
+          "action": "pip install asgiref pytz sqlparse"
+        },
+        {
+          "reasoning": "Execute the reproduction script to confirm current behavior.",
+          "action": "cd {repo_root}/django && python reproduce_issue.py"
+        },
+        {
+          "reasoning": "Run full system checks to verify whether E004 is raised end-to-end.",
+          "action": "cd {repo_root}/django && python -c \"import django; from django.conf import settings; from django.core.checks import run_checks; settings.configure(DEBUG=True,SECRET_KEY='test',USE_I18N=True,LANGUAGE_CODE='de-at',LANGUAGES=[('de','German'),('en','English')],INSTALLED_APPS=['django.contrib.contenttypes']); django.setup(); errors=run_checks(); print([e.id for e in errors if e.id=='translation.E004'])\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    },
+    {
+      "name": "Verifying Language Variant Resolution with get_supported_language_variant",
+      "description": "Confirm Django\u2019s resolution of language variants and use it to inform system check logic.",
+      "steps": [
+        {
+          "reasoning": "Test variant resolution to ensure fallback behavior aligns with expectations (e.g., zh-hans-cn -> zh-hans).",
+          "action": "cd {repo_root}/django && python -c \"from django.conf import settings; from django.utils.translation.trans_real import get_supported_language_variant; settings.configure(LANGUAGES=[('zh-hans','Chinese Simplified'),('en','English')]); print(get_supported_language_variant('zh-hans-cn'))\""
+        },
+        {
+          "reasoning": "Validate behavior for multiple cases including existing base, missing base, and default en-us.",
+          "action": "cd {repo_root}/django && python -c \"from django.conf import settings; from django.utils.translation.trans_real import get_supported_language_variant; settings.configure(LANGUAGES=[('de','German'),('en','English')]); import sys; cases=['de-at','fr-ca','en-us'];\nfor c in cases:\n    try:\n        print(c, '->', get_supported_language_variant(c, strict=False))\n    except LookupError:\n        print(c, '-> LookupError')\""
+        }
+      ],
+      "source_trajectories": [
+        "django__django-12286"
+      ]
+    }
+  ]
+}

@@ -422,6 +422,18 @@ class Evaluation(ABC, BaseModel):
                             f"(attempt {retry_count}/{max_retries}): "
                             f"{str(e)[:50]}"
                         )
+                        # Add exponential backoff delay for 429 errors
+                        if "429" in str(e) or "Too Many Requests" in str(e):
+                            import time
+
+                            delay = min(
+                                30 * (2 ** (retry_count - 1)), 120
+                            )  # 30s, 60s, 120s
+                            logger.info(
+                                f"[child] 429 error detected, waiting {delay}s "
+                                f"before retry {retry_count + 1}"
+                            )
+                            time.sleep(delay)
                     else:
                         logger.error(
                             f"[child] Instance {instance.id} failed after "
@@ -442,6 +454,20 @@ class Evaluation(ABC, BaseModel):
                             logger.debug(
                                 "[child] cleaned up workspace for id=%s", instance.id
                             )
+
+                            # Wait for runtime to actually stop before retrying
+                            # Cleanup is async - runtime may still be alive for 30-60s
+                            if retry_count <= max_retries and retry_count > 0:
+                                import time
+
+                                wait_time = (
+                                    45  # Wait 45s for runtime to fully terminate
+                                )
+                                logger.info(
+                                    f"[child] Waiting {wait_time}s for runtime cleanup "
+                                    f"to complete before retry {retry_count + 1}"
+                                )
+                                time.sleep(wait_time)
                         except Exception as cleanup_error:
                             logger.warning(
                                 f"[child] Failed to cleanup workspace for {instance.id}: "

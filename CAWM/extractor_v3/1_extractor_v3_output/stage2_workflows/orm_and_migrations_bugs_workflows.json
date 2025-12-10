@@ -1,0 +1,288 @@
+{
+  "type1_workflows": [
+    {
+      "name": "Localize and Validate a Framework Bug via Source and Tests",
+      "description": "From a high-level bug report, identify the responsible code paths, confirm with tests, and build a minimal reproduction to validate assumptions.",
+      "steps": [
+        {
+          "reasoning": "You need to know which module or subsystem is responsible before making changes.",
+          "action": "Translate the symptom into likely subsystems and search the codebase (e.g., migrations serializer, ORM compiler, field contribute_to_class) to pinpoint candidates."
+        },
+        {
+          "reasoning": "Existing tests reveal intended behavior and regression boundaries.",
+          "action": "Search for relevant tests to understand expectations and constraints; if none, plan to write or sketch targeted tests."
+        },
+        {
+          "reasoning": "A minimal reproduction isolates the problem from broader environment noise.",
+          "action": "Create a minimal script or model definitions that triggers the issue (e.g., nested class serialization, inherited choices, inherited ordering)."
+        },
+        {
+          "reasoning": "Confirm that your reproduction matches the reported behavior to avoid fixing the wrong thing.",
+          "action": "Run the reproduction and verify outputs (e.g., generated migration strings, get_FOO_display() labels, SQL ordering)."
+        }
+      ]
+    },
+    {
+      "name": "Design a Robust Serialization Fix for Nested Symbols",
+      "description": "Adjust serialization to correctly reference nested classes/enums while maintaining compatibility with local classes and importability.",
+      "steps": [
+        {
+          "reasoning": "Nested classes require qualified names to be unambiguous in migrations/serialization.",
+          "action": "Prefer __qualname__ over __name__ when serializing types so inner classes/enums are fully qualified."
+        },
+        {
+          "reasoning": "Locally defined classes (in function scope) produce <locals> in __qualname__ which aren\u2019t importable.",
+          "action": "Fallback to __name__ if __qualname__ contains '<locals>' to preserve previous behavior for non-importable symbols."
+        },
+        {
+          "reasoning": "Deconstructible objects and fields may return paths that don\u2019t clearly indicate module boundaries for nested classes.",
+          "action": "Resolve importable module boundaries progressively (left-to-right) to split module vs attribute path correctly."
+        },
+        {
+          "reasoning": "Ensure the fix works across real cases and doesn\u2019t regress existing behavior.",
+          "action": "Validate with migration writer tests and custom scripts that simulate makemigrations scenarios involving nested classes and enums."
+        }
+      ]
+    },
+    {
+      "name": "Safely Change Method Injection Under Inheritance",
+      "description": "Adjust dynamic method creation (e.g., get_FOO_display()) to respect inheritance and preserve explicit overrides.",
+      "steps": [
+        {
+          "reasoning": "Generated methods need to reflect the child class\u2019s field metadata, not the base class\u2019s, when fields are overridden.",
+          "action": "Identify where the method is injected (e.g., Field.contribute_to_class) and understand current override checks."
+        },
+        {
+          "reasoning": "hasattr detects inherited methods and blocks correct reinjection on child classes.",
+          "action": "Replace hasattr-based guards with a direct cls.__dict__ check to allow overriding inherited auto-generated methods while preserving explicit user-defined ones."
+        },
+        {
+          "reasoning": "Different inheritance patterns (abstract vs concrete) have distinct semantics for field overriding.",
+          "action": "Verify behavior across abstract base classes (where overriding is valid) and avoid scenarios that Django disallows (concrete same-name override)."
+        },
+        {
+          "reasoning": "Prevent regressions in behavior of existing features using choices and display methods.",
+          "action": "Run focused and broader test suites around model fields and forms that rely on choices and get_FOO_display()."
+        }
+      ]
+    },
+    {
+      "name": "Fix ORM Ordering Resolution Without Regressions",
+      "description": "Resolve ordering bugs (e.g., inherited '-pk' ordering) by tracing direction propagation and applying minimal changes to avoid unrelated regressions.",
+      "steps": [
+        {
+          "reasoning": "Understanding how direction (ASC/DESC) is propagated is key to fixing subtle ordering issues.",
+          "action": "Trace flow in the compiler (e.g., find_ordering_name, get_order_dir) and identify where default order direction interacts with field names like 'pk'."
+        },
+        {
+          "reasoning": "A direct change to direction propagation can break other query behaviors.",
+          "action": "Attempt a minimal fix and immediately validate against known ordering and query tests to catch regressions early."
+        },
+        {
+          "reasoning": "Upstream history often contains a minimal, safe resolution and rationale.",
+          "action": "Consult repository history/commits for similar fixes and align with the approach that resolved edge cases (e.g., skip recursion when name == 'pk')."
+        },
+        {
+          "reasoning": "Ensure both the reported bug and previously working behaviors remain correct.",
+          "action": "Re-run targeted reproductions and broader suites (ordering, model_inheritance, queries) to confirm the fix."
+        }
+      ]
+    },
+    {
+      "name": "Correct User-Facing Error Hints",
+      "description": "Update error hint messages to reference the correct API, reflect current framework versions, and maintain clarity.",
+      "steps": [
+        {
+          "reasoning": "Hints guide users; wrong API references mislead and cause confusion.",
+          "action": "Search for the error string and confirm the surrounding validation logic to ensure the hint applies to the right condition."
+        },
+        {
+          "reasoning": "API semantics evolve (e.g., symmetrical=False became unnecessary).",
+          "action": "Update hint wording to use the correct field type and current arguments; remove outdated flags."
+        },
+        {
+          "reasoning": "Tests often verify exact hint text; ensure alignment.",
+          "action": "Adjust or add tests verifying the updated hint text and run the invalid models tests to validate."
+        }
+      ]
+    }
+  ],
+  "type2_workflows": [
+    {
+      "name": "Search Codebase for Feature/Bug Location",
+      "description": "Quickly locate relevant Django source and tests related to a reported issue.",
+      "steps": [
+        {
+          "reasoning": "Find where the error message or function is defined to narrow down the fix location.",
+          "action": "grep -r \"If you want to create a recursive relationship\" django/"
+        },
+        {
+          "reasoning": "Open the file at the lines surrounding the match for context.",
+          "action": "sed -n '1250,1350p' django/db/models/fields/related.py"
+        },
+        {
+          "reasoning": "Find corresponding tests to understand expected behavior.",
+          "action": "grep -rn \"E334\\|E335\" tests/"
+        },
+        {
+          "reasoning": "Inspect test logic to confirm how the message is asserted.",
+          "action": "sed -n '130,165p' tests/invalid_models_tests/test_relative_fields.py"
+        }
+      ]
+    },
+    {
+      "name": "Set Up and Run a Standalone Django Reproduction Script",
+      "description": "Create a minimal script to reproduce a bug without full test harness.",
+      "steps": [
+        {
+          "reasoning": "Django needs settings configured before model import/use.",
+          "action": "In a Python script: import django, from django.conf import settings; settings.configure(INSTALLED_APPS=[...], DATABASES=..., SECRET_KEY='x'); django.setup()"
+        },
+        {
+          "reasoning": "Models defined outside apps must have an app_label to avoid registration issues.",
+          "action": "Define models with class Meta: app_label = 'test_app'"
+        },
+        {
+          "reasoning": "Ensure local Django source is used for reproduction.",
+          "action": "Set PYTHONPATH=/workspace/django when running: PYTHONPATH=/workspace/django python test_script.py"
+        },
+        {
+          "reasoning": "Confirm the issue by printing/inspecting behavior.",
+          "action": "Trigger behavior (e.g., instance.get_FOO_display(), migration serialization output, queryset.query) and print results"
+        }
+      ]
+    },
+    {
+      "name": "Run Django Tests (Focused and Broad) in Dev Environment",
+      "description": "Install Django in editable mode and run selective test modules/cases.",
+      "steps": [
+        {
+          "reasoning": "Editable install ensures the test runner imports your local changes.",
+          "action": "cd /workspace/django && pip install -e ."
+        },
+        {
+          "reasoning": "Use Django\u2019s test runner to run specific modules for fast iteration.",
+          "action": "PYTHONPATH=/workspace/django tests/runtests.py migrations.test_writer -v 2"
+        },
+        {
+          "reasoning": "Run broader suites to detect unintended regressions.",
+          "action": "tests/runtests.py ordering model_inheritance queries -v 1"
+        },
+        {
+          "reasoning": "Target individual failing tests to speed up debugging.",
+          "action": "tests/runtests.py queries.tests.Queries1Tests.test_tickets_2076_7256 -v 2"
+        }
+      ]
+    },
+    {
+      "name": "Implement Nested Type Serialization with __qualname__ Fallback",
+      "description": "Modify serializer to correctly handle nested classes and local classes and verify with tests.",
+      "steps": [
+        {
+          "reasoning": "Identify where class types are converted to strings.",
+          "action": "Open django/db/migrations/serializer.py and locate TypeSerializer.serialize()"
+        },
+        {
+          "reasoning": "Use fully qualified names for nested classes to serialize correctly.",
+          "action": "Change code to use obj.__qualname__ instead of obj.__name__"
+        },
+        {
+          "reasoning": "Avoid non-importable names for locally defined classes.",
+          "action": "Add a fallback: if '<locals>' in qualname, use obj.__name__"
+        },
+        {
+          "reasoning": "Verify new behavior against migration writer tests and custom scripts.",
+          "action": "Run: tests/runtests.py migrations.test_writer -v 2; execute custom script that serializes nested enums/classes"
+        }
+      ]
+    },
+    {
+      "name": "Resolve Module Boundaries in Deconstructible Path Serialization",
+      "description": "Make _serialize_path find importable module path for nested attributes.",
+      "steps": [
+        {
+          "reasoning": "Current split by last dot can misidentify module vs attribute for nested classes.",
+          "action": "Open django/db/migrations/serializer.py and find DeconstructableSerializer._serialize_path"
+        },
+        {
+          "reasoning": "Ensure the module part is importable by progressively testing prefixes.",
+          "action": "Implement progressive import: iterate components left-to-right and import '.'.join(parts[:i]) until success; remaining parts form the attribute path"
+        },
+        {
+          "reasoning": "Handle edge cases with no dots or invalid imports gracefully.",
+          "action": "Add guards for paths without dots and exceptions during import to avoid breaking serialization"
+        },
+        {
+          "reasoning": "Validate against realistic model/field deconstruct outputs.",
+          "action": "Run custom scripts that call Field.deconstruct() and confirm resulting import statements are correct; then run migrations.test_writer"
+        }
+      ]
+    },
+    {
+      "name": "Preserve Manual Overrides When Injecting get_FOO_display",
+      "description": "Adjust Field.contribute_to_class to allow child overwrite of generated methods while preserving user methods.",
+      "steps": [
+        {
+          "reasoning": "Find where get_%s_display is added to the class.",
+          "action": "Open django/db/models/fields/__init__.py and locate contribute_to_class"
+        },
+        {
+          "reasoning": "Avoid blocking reinjection due to inherited methods.",
+          "action": "Replace hasattr(cls, method_name) with method_name not in cls.__dict__ condition"
+        },
+        {
+          "reasoning": "Confirm the fix on a minimal example.",
+          "action": "Run a script that defines an abstract base with choices and a child adding new choices; assert child_instance.get_FOO_display() returns labels for new values"
+        },
+        {
+          "reasoning": "Verify regression safety.",
+          "action": "Run: tests/runtests.py model_fields model_forms -v 1"
+        }
+      ]
+    },
+    {
+      "name": "Fix Inherited '-pk' Ordering in ORM",
+      "description": "Modify compiler to prevent incorrect direction flipping for '-pk' while preserving other ordering behaviors.",
+      "steps": [
+        {
+          "reasoning": "Identify where Meta.ordering is resolved for related fields and primary key.",
+          "action": "Open django/db/models/sql/compiler.py and locate find_ordering_name"
+        },
+        {
+          "reasoning": "Avoid recursing into related ordering when ordering by 'pk' which maps to the primary key field.",
+          "action": "Update recursion condition to include: and name != 'pk'"
+        },
+        {
+          "reasoning": "Validate the specific bug fix.",
+          "action": "Run a reproduction script that defines Parent.Meta.ordering=['-pk'] and queries Child; inspect queryset.query to ensure DESC"
+        },
+        {
+          "reasoning": "Ensure no regressions in complex query ordering.",
+          "action": "Run: tests/runtests.py ordering model_inheritance queries -v 1; re-run any previously failing query tests"
+        }
+      ]
+    },
+    {
+      "name": "Update ManyToMany Recursive Relationship Error Hint",
+      "description": "Correct the hint to reference ManyToManyField and remove outdated arguments.",
+      "steps": [
+        {
+          "reasoning": "Find the offending hint string to edit.",
+          "action": "grep -r \"recursive relationship\" django/db/models/fields/related.py"
+        },
+        {
+          "reasoning": "Align hint with correct API and current version semantics.",
+          "action": "Replace 'ForeignKey(\"%s\", symmetrical=False, through=\"%s\")' with 'ManyToManyField(\"%s\", through=\"%s\")' in both E334 and E335 cases"
+        },
+        {
+          "reasoning": "Validate the message against tests that assert exact text.",
+          "action": "Run: tests/runtests.py invalid_models_tests.test_relative_fields.RelativeFieldTests.test_ambiguous_relationship_model -v 2"
+        },
+        {
+          "reasoning": "Ensure no other related validations are affected.",
+          "action": "Run: tests/runtests.py many_to_many m2m_through m2m_recursive -v 1"
+        }
+      ]
+    }
+  ]
+}

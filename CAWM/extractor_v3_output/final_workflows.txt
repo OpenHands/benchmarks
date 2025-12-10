@@ -1,0 +1,747 @@
+================================================================================
+TYPE 1 WORKFLOWS - General Strategies
+================================================================================
+
+## Hardening Django ORM SQL Compilation for Ordering, Combinators, Expressions, and Lookups
+Diagnose and fix issues in Django ORM SQL generation and resolution, including ORDER BY on complex paths, combinator queries with empty parents, operator commutativity between Q and conditional expressions, and iterable lookup reconstruction.
+
+Step 1: Reproduce representative cases across domains: create minimal models to exercise Meta.ordering and inheritance/foreign key paths; build union()/intersection()/difference() queries and apply .none(); combine Q(...) with Exists(...); and use iterable lookups like __range with named tuples
+Step 2: Inspect core compilation and resolution paths: review django/db/models/sql/compiler.py (get_order_by, find_ordering_name, get_combinator_sql), django/db/models/sql/query.py (names_to_path, setup_joins, resolve_lookup_value), and operator protocols in query_utils.py and expressions.py
+Step 3: Implement targeted fixes: add guards to prevent relation recursion and preserve explicit ASC/DESC when ordering by pk or resolved fields; compare attname against the final path component to avoid unnecessary joins; short-circuit combined execution when the parent query is empty; make & and | commutative by returning NotImplemented in Q for non-Q conditionals and by implementing __rand__/__ror__ in Combinable; adjust iterable lookup reconstruction to properly unpack named tuples while preserving behavior for lists and tuples
+Step 4: Add focused regression tests: ordering and multi-table inheritance cases; empty combined querysets with .none(); expressions and operator commutativity; iterable lookup resolution (including namedtuple ranges); verify form behavior (e.g., ModelMultipleChoiceField) when relevant
+Step 5: Run broader suites (ordering, queries, expressions, lookups) to verify correctness and avoid regressions
+
+--------------------------------------------------------------------------------
+
+## Correcting Model Metadata, Inheritance, Proxy Traversal, and Relationship Validation
+Address issues involving abstract/concrete inheritance, proxy model behavior, and relationship metadata by fixing method binding, metadata traversal, identity hashing, and validator guidance.
+
+Step 1: Build minimal reproductions demonstrating inheritance and proxy behaviors (e.g., overriding choices methods, select_related() + only() on a proxy-related FK) and relation identity hashing failures (e.g., ManyToManyRel.identity with through_fields=list)
+Step 2: Locate binding and traversal points: inspect Field.contribute_to_class for get_FOO_display binding and django/db/models/sql/query.py for deferred loading across proxies; review relation identity construction and checks
+Step 3: Implement fixes: bind display methods to the current class unless explicitly overridden by the user; traverse proxy models using concrete_model._meta to ensure correct metadata resolution; wrap unhashable identity components with make_hashable() to avoid TypeError; update validator hints and error messages to provide modern, accurate guidance (e.g., for recursive relationships)
+Step 4: Add targeted tests across model_fields, model_inheritance, defer_regress, proxy_models, m2m_through, and invalid_models to assert correct behavior and identity shapes
+Step 5: Run related ORM suites to ensure the changes do not introduce regressions across inheritance, proxies, and relationship validation
+
+--------------------------------------------------------------------------------
+
+## Standardizing Form/FormSet Error Messages and Rendering, and Managing Hidden-Only Form Deprecation Warnings
+Ensure validation error messages consistently include offending values and improve error rendering and deprecation warning behavior, distinguishing non-field/non-form errors and suppressing irrelevant warnings for hidden-only forms.
+
+Step 1: Audit error messages and rendering by reproducing invalid inputs and examining ErrorList class assignments for forms and formsets; reproduce deprecation warnings by rendering hidden-only forms (e.g., ManagementForm) and confirm the renderer/template path causing the warning
+Step 2: Inspect default_error_messages and ValidationError raising paths, and review how forms assign nonfield classes and how formsets construct non-form errors; identify where default template deprecation warnings are emitted
+Step 3: Update default_error_messages to include placeholders like %(value)s and pass params={'value': <input>} when raising ValidationError; ensure FormSet-level non-form errors use a consistent error_class (e.g., nonform) and preserve that class when recreating ErrorList; add a special-case check to skip deprecation warnings for forms with no visible_fields
+Step 4: Update documentation describing error classes and provide rendered HTML examples for nonfield and nonform errors; add tests asserting offending values appear in error messages, that nonfield/nonform CSS classes are present and stable, and that warnings are suppressed for hidden-only forms but still raised for regular forms
+Step 5: Run form, formsets, admin inlines, and deprecation-related test suites to verify behavior and prevent regressions
+
+--------------------------------------------------------------------------------
+
+## Refactoring Django Admin to Expose Extension Points
+Enable downstream customization by extracting and documenting public hooks in Django admin, avoiding the need to override entire views.
+
+Step 1: Identify rigid or private logic that downstream code frequently customizes (e.g., private helpers or hardcoded response formats)
+Step 2: Locate the implementation and callers in django/contrib/admin to understand data flow and usage
+Step 3: Refactor the logic into a public method or hook (e.g., rename a private method, add a serialize_result() method) with sensible defaults
+Step 4: Update internal callers to use the new extension point while keeping signatures backward compatible
+Step 5: Document the new extension point (docstrings) and include examples of common overrides
+Step 6: Add or update tests to verify default behavior and demonstrate that custom overrides work
+Step 7: Run focused admin test suites (e.g., admin_views, admin_widgets) to confirm no regressions
+
+--------------------------------------------------------------------------------
+
+## Ensuring RFC-Compliant HTTP Date Parsing and Resilient Header Handling in Views
+Fix protocol compliance in HTTP date parsing, especially RFC 7231/RFC 850 two-digit year handling, and restore resilient behavior in view helpers that should ignore empty or invalid headers.
+
+Step 1: Review the specifications and bug reports to understand expected behavior; identify target utilities (parse_http_date, parse_http_date_safe) and affected formats (RFC1123, RFC850, asctime), and confirm affected view helpers (e.g., was_modified_since in django/views/static.py)
+Step 2: Create minimal test harnesses to reproduce current behavior across formats and boundary conditions (including the 50-year cutoff for RFC850) and to trigger header handling errors in views; confirm exception sources
+Step 3: Implement fixes: dynamic two-digit year mapping based on the current year for RFC850 with correct boundary logic, preserving behavior for RFC1123 and asctime; adjust guards/exception handling in views/static to treat empty/invalid headers as ignored rather than raising
+Step 4: Add comprehensive boundary and cross-format tests, including exact 50-year boundary and four-digit year cases; validate parse_http_date_safe and ensure public helpers retain their contracts; add targeted view/staticfiles tests
+Step 5: Run Django’s relevant test suites (utils_tests.test_http, view_tests, staticfiles_tests) to verify correctness and guard against regressions
+
+--------------------------------------------------------------------------------
+
+## Improving Migration Serialization and Import Generation
+Fix serialization of nested classes/enums and ensure migrations include required imports (e.g., models) so generated files import and execute correctly.
+
+Step 1: Reproduce issues by generating migrations that serialize nested classes/enums and cases where migrations reference django.db.models symbols (e.g., models.Model) without imports.
+Step 2: Inspect the migration serializer implementations (TypeSerializer and DeconstructableSerializer) and the migration writer to understand how paths and imports are produced.
+Step 3: Use __qualname__ instead of __name__ to preserve nested class names; plan a fallback for local classes where __qualname__ includes '<locals>'.
+Step 4: Adjust path handling by progressively importing path components to detect the true module boundary and construct correct qualified names.
+Step 5: Ensure the serializer requests required imports for special cases (e.g., references to django.db.models) so migration writer emits 'from django.db import migrations, models' as needed.
+Step 6: Update the migration writer to generate and merge correct import statements without duplication and to target actual modules rather than class paths.
+Step 7: Validate by running focused migration writer tests and custom scripts that serialize nested classes/enums and base classes, confirming correct paths and imports.
+Step 8: Run broader migration-related test modules to ensure no regressions and document the change and rationale.
+
+--------------------------------------------------------------------------------
+
+## Fixing Argument Handling and Path Normalization in Management Commands
+Correct ordering and normalization issues in management commands to align with external tools and Python semantics.
+
+Step 1: Reproduce the problematic CLI behavior with minimal scripts or direct command invocation to observe the exact failure.
+Step 2: Consult external tool documentation (e.g., psql’s expected argument syntax) or standard library behavior (e.g., os.path.basename) to understand the root cause.
+Step 3: Locate the command implementation in django/core/management or backend client modules and inspect how arguments or paths are constructed.
+Step 4: Identify the minimal change needed (e.g., placing user parameters before dbname; stripping trailing path separators before basename).
+Step 5: Implement the fix with a small, localized change to reduce risk.
+Step 6: Add a regression test in the appropriate suite (e.g., tests/admin_scripts/ for startapp, tests/dbshell/ for dbshell) covering the exact failure scenario.
+Step 7: Run targeted tests and then broader suites to ensure the change doesn’t cause regressions elsewhere.
+
+--------------------------------------------------------------------------------
+
+## Designing and Running Targeted Regression Tests in Django’s Repo
+Create robust, minimal regression tests and execute Django’s in-repo test suites effectively, including transaction-related changes.
+
+Step 1: Install the Django repository in editable mode to ensure imports and entry points work as expected.
+Step 2: Use Django’s tests/runtests.py over external runners for consistent behavior; set DJANGO_SETTINGS_MODULE where required.
+Step 3: Identify minimal failing conditions and reproduce them; choose the appropriate existing test suite and pattern (e.g., admin_scripts, inspectdb, dbshell).
+Step 4: Author minimal, isolated regression tests using unique names and isolated directories to avoid PYTHONPATH conflicts; write assertions for expected outputs and absence of crashes.
+Step 5: Run targeted modules, classes, or methods with increased verbosity; iterate quickly using single-test invocations and disable parallelism for determinism when debugging.
+Step 6: For transaction-related changes, execute focused suites (e.g., transaction tests, migration and fixtures tests) to verify behavior and detect unintended side effects.
+Step 7: Scale up to broader suites and enable parallelization judiciously after establishing a passing baseline.
+Step 8: Document test rationale and link to the bug report or change for future maintainers.
+
+--------------------------------------------------------------------------------
+
+## Aligning System Checks and Configuration Validation with Runtime and Inheritance Semantics
+Identify, reproduce, and correct discrepancies in Django’s core system checks and configuration validation (e.g., DEFAULT_AUTO_FIELD), aligning them with runtime behavior and subclass relationships.
+
+Step 1: Review the reported error and Django documentation to understand expected behavior and identify the specific system check or validation involved.
+Step 2: Locate the check implementation in django/core/checks/ and related modules, as well as configuration validation code paths.
+Step 3: Create a minimal reproducible configuration using settings.configure and django.setup to trigger the system check/validation and observe failures.
+Step 4: Compare the check/validation logic with the corresponding runtime behavior in Django utilities and modules to identify mismatches (e.g., language fallback logic, template library discovery, or class/type handling).
+Step 5: Replace equality or membership-based checks with inheritance-aware logic (e.g., issubclass against known base classes) and ensure robust handling of non-type inputs.
+Step 6: Design and implement minimal, targeted patches that align checks/validation with runtime semantics while preserving invalid-case detection.
+Step 7: Add regression tests demonstrating previously failing scenarios, covering direct and multi-level subclassing and rejection of non-subclasses, and verifying corrected behavior.
+Step 8: Run targeted test suites (e.g., check_framework, i18n, templates, model_fields, model_options) to ensure correctness and avoid regressions.
+Step 9: Document the fix and rationale to aid future maintenance.
+
+--------------------------------------------------------------------------------
+
+
+================================================================================
+TYPE 2 WORKFLOWS - Specific Action Workflows
+================================================================================
+
+## Resolve ORDER BY name mapping to avoid pk flips and unnecessary FK joins
+Audit and adjust Django's ORDER BY resolution in the SQL compiler to preserve descending pk across multi-table inheritance and prevent extra JOINs/wrong directions when ordering on FK columns.
+(Sources: 2 trajectories)
+
+Reasoning: Identify where ORDER BY terms are resolved to fields and directions to locate logic that flips '-pk' or incorrectly injects related ordering.
+Action: grep -n "def find_ordering_name" django/db/models/sql/compiler.py && sed -n '690,750p' django/db/models/sql/compiler.py
+
+Reasoning: Confirm how default ordering and name resolution are applied when traversing relations, and find the pk shortcut and relation comparison.
+Action: sed -n '714,735p' django/db/models/sql/compiler.py
+
+Reasoning: Locate the condition that applies related model Meta.ordering when a relation is traversed and ensure we're comparing the final lookup piece.
+Action: grep -A 10 "field.is_relation and opts.ordering" {repo_path}/django/db/models/sql/compiler.py
+
+Reasoning: Skip relation-based Meta.ordering injection when the name is the 'pk' shortcut to preserve explicit pk direction through inheritance.
+Action: apply_patch {repo_path}/django/db/models/sql/compiler.py 's/\(getattr(field, \"attname\", None) != name\)/\1 and name != \"pk\"/g'
+
+Reasoning: Compare the FK attname against the last lookup piece to correctly detect order_by('..._id') and avoid extra joins and wrong direction.
+Action: apply_patch {repo_path}/django/db/models/sql/compiler.py "s/getattr(field, 'attname', None) != name/getattr(field, 'attname', None) != pieces[-1]/"
+
+Reasoning: Verify inheritance pk ordering remains stable and prints expected SQL.
+Action: python {workspace}/test_reproduce_issue.py
+
+Reasoning: Validate self-referential FK ordering on 'ref__parent_id' vs 'ref__parent__id' yields no extra join and correct ASC/DESC.
+Action: python {workspace}/test_self_ref_ordering.py
+
+Reasoning: Run suites covering ordering behavior and general queries to detect regressions.
+Action: cd {repo_path}/tests && python runtests.py ordering queries --verbosity=1
+
+--------------------------------------------------------------------------------
+
+## Improve choice filtering and ModelChoiceField validation feedback
+Eliminate duplicate choices produced by limit_choices_to joins by applying distinct(), and enhance ModelChoiceField's invalid choice message to include the offending value.
+
+Reasoning: Identify all code paths that apply limit_choices_to to querysets for forms and choice generation.
+Action: grep -r "limit_choices_to" django/ --include="*.py"
+
+Reasoning: Pinpoint form-side application of limit_choices_to for ModelChoiceField generation.
+Action: grep -n "apply_limit_choices_to_to_formfield" django/forms/models.py && sed -n '80,130p' django/forms/models.py
+
+Reasoning: Inspect get_choices implementations on model fields and reverse-related fields that may use complex_filter.
+Action: sed -n '850,920p' django/db/models/fields/__init__.py && sed -n '130,180p' django/db/models/fields/reverse_related.py
+
+Reasoning: Implement distinct() after complex_filter(limit_choices_to) to eliminate duplicates from joins on form fields.
+Action: Apply change in your editor: in django/forms/models.py apply_limit_choices_to_to_formfield(), set formfield.queryset = formfield.queryset.complex_filter(limit_choices_to).distinct()
+
+Reasoning: Ensure choices for admin/widgets also respect distinct() to avoid duplicate dropdown options.
+Action: Apply change in your editor: in django/db/models/fields/__init__.py Field.get_choices(), set qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+
+Reasoning: Propagate distinct() for reverse-related get_choices to cover all relation directions.
+Action: Apply change in your editor: in django/db/models/fields/reverse_related.py ForeignObjectRel.get_choices(), set qs = self.related_model._default_manager.complex_filter(limit_choices_to).distinct()
+
+Reasoning: Locate ModelChoiceField to inspect default_error_messages and ValidationError raising behavior.
+Action: grep -n "class ModelChoiceField" django/forms/models.py && sed -n '1180,1310p' django/forms/models.py
+
+Reasoning: Compare behavior with ModelMultipleChoiceField which already includes %(value)s and align messages.
+Action: grep -n "class ModelMultipleChoiceField" django/forms/models.py && sed -n '1310,1400p' django/forms/models.py
+
+Reasoning: Update the default error message to include the offending value placeholder.
+Action: Apply change in your editor: in ModelChoiceField.default_error_messages['invalid_choice'], use 'Select a valid choice. %(value)s is not one of the available choices.'
+
+Reasoning: Ensure the ValidationError includes params so the message interpolates the submitted value.
+Action: Apply change in your editor: in ModelChoiceField.to_python(), raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', params={'value': value})
+
+Reasoning: Run targeted tests to verify error message formatting and overall stability.
+Action: cd tests && python runtests.py model_forms.test_modelchoicefield --verbosity=2
+
+Reasoning: Validate behavior with a focused test run in model_fields where limit_choices_to is exercised.
+Action: cd tests && python runtests.py model_fields --verbosity=2
+
+--------------------------------------------------------------------------------
+
+## Enhance form/formset rendering and empty_form construction; suppress hidden-only deprecation warning
+Improve rendering by adding a 'nonform' class to FormSet non-form errors, fix empty_form kwargs to avoid TypeError, and suppress default template deprecation warnings for forms with only hidden fields.
+
+Reasoning: Find where FormSet constructs non-form errors to attach a CSS class and ensure consistent error list handling.
+Action: grep -n "non_form_errors" django/forms/formsets.py && sed -n '280,390p' django/forms/formsets.py
+
+Reasoning: Initialize non-form errors with ErrorList that carries a 'nonform' class to distinguish rendering.
+Action: Apply change in your editor: set self._non_form_errors = self.error_class(error_class='nonform') in FormSet.full_clean() before validation aggregation
+
+Reasoning: Preserve the 'nonform' class when recreating ErrorList from a ValidationError.
+Action: Apply change in your editor: when catching ValidationError e, set self._non_form_errors = self.error_class(e.error_list, error_class='nonform')
+
+Reasoning: Find empty_form construction to see how kwargs are combined and why duplicates occur.
+Action: grep -n "empty_form" django/forms/formsets.py && sed -n '250,280p' django/forms/formsets.py
+
+Reasoning: Remove conflicting entries like empty_permitted from form_kwargs before calling the form constructor.
+Action: Apply change in your editor: in FormSet.empty_form, assign form_kwargs = self.get_form_kwargs(None); form_kwargs.pop('empty_permitted', None); then pass empty_permitted=True explicitly
+
+Reasoning: Locate where form rendering emits the deprecation warning for default templates.
+Action: grep -n "DEFAULT_TEMPLATE_DEPRECATION" django/forms/utils.py && sed -n '1,220p' django/forms/utils.py
+
+Reasoning: Implement a condition to skip the warning for forms that have no visible fields.
+Action: Apply change in your editor: in RenderableMixin.render(), before warnings.warn(...), check hasattr(self, 'visible_fields') and not self.visible_fields()
+
+Reasoning: Verify suppression with a reproduction script that renders ManagementForm and inspects warnings.
+Action: python - << 'PY'
+import warnings, django
+from django.conf import settings
+settings.configure(DEBUG=True, SECRET_KEY='x', FORM_RENDERER='django.forms.renderers.DjangoTemplates')
+django.setup()
+from django.forms.formsets import ManagementForm
+with warnings.catch_warnings(record=True) as w:
+    warnings.simplefilter('always')
+    _ = ManagementForm().as_table()
+    print('Warnings count:', len(w))
+PY
+
+Reasoning: Run formset tests and admin inlines to confirm error rendering remains correct.
+Action: cd tests && python runtests.py forms_tests.tests.test_formsets admin_inlines --verbosity=1
+
+Reasoning: Run focused tests confirming empty_form construction works even when form_kwargs includes empty_permitted.
+Action: cd tests && python -m pytest tests/forms_tests/tests/test_formsets.py::FormsFormsetTestCase::test_form_kwargs_empty_form -q
+
+Reasoning: Validate across variants including model formsets and inline formsets.
+Action: cd tests && python runtests.py model_formsets inline_formsets --verbosity=1
+
+Reasoning: Run targeted deprecation tests to ensure regular forms still emit the appropriate warnings.
+Action: cd tests && python runtests.py forms_tests.tests.test_formsets.DeprecationTests.test_warning --verbosity=2
+
+--------------------------------------------------------------------------------
+
+## Auditing and Verifying Django Admin Changes Quickly
+Locate admin code surfaces with grep/find, verify refactorings via Python introspection, and bootstrap the Django tests settings for quick runtime checks without full test cases.
+
+Reasoning: Find where a target symbol is implemented and referenced to understand the scope of change.
+Action: grep -r "{symbol_name}" {project_root}/django/contrib/admin --include="*.py"
+
+Reasoning: Discover related admin files (e.g., views, options, sites) that may contain logic to modify.
+Action: find {project_root}/django/django -name "*{keyword}*.py" -path "*/admin/*"
+
+Reasoning: Confirm exact file and line numbers before editing.
+Action: grep -n "{symbol_name}" {project_root}/django/django/contrib/admin/{module}.py
+
+Reasoning: Check that a refactored method exists and old methods are removed.
+Action: python -c "from django.contrib.admin.sites import AdminSite; import inspect; print('build_app_dict exists:', hasattr(AdminSite, 'build_app_dict')); print('old _build_app_dict exists:', hasattr(AdminSite, '_build_app_dict'))"
+
+Reasoning: Verify internal callers use the new method name/signature.
+Action: python -c "from django.contrib.admin.sites import AdminSite; import inspect; src=inspect.getsource(AdminSite.get_app_list); print('Calls build_app_dict:', 'build_app_dict(' in src)"
+
+Reasoning: Confirm new extension hooks exist and inspect defaults.
+Action: python -c "from django.contrib.admin.views.autocomplete import AutocompleteJsonView; import inspect; print('serialize_result exists:', hasattr(AutocompleteJsonView,'serialize_result')); print(inspect.getsource(AutocompleteJsonView.serialize_result))"
+
+Reasoning: Initialize Django using the tests settings to import and quickly check admin components.
+Action: python -c "import os, sys, django; sys.path.insert(0, '{project_root}/django'); sys.path.insert(0, '{project_root}/django/tests'); os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_sqlite'); django.setup(); print('Django initialized')"
+
+Reasoning: Execute a quick runtime check against admin views or sites without writing tests.
+Action: python -c "import os, sys, django; sys.path.insert(0, '{project_root}/django'); sys.path.insert(0, '{project_root}/django/tests'); os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_sqlite'); django.setup(); from django.contrib.admin.views.autocomplete import AutocompleteJsonView; v=AutocompleteJsonView(); print('Has serialize_result:', hasattr(v,'serialize_result'))"
+
+Reasoning: Import and instantiate admin core classes to ensure no import/runtime errors after edits.
+Action: python -c "import os, sys, django; sys.path.insert(0, '{project_root}/django'); sys.path.insert(0, '{project_root}/django/tests'); os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_sqlite'); django.setup(); from django.contrib.admin.sites import AdminSite; site=AdminSite(); print('AdminSite ready')"
+
+--------------------------------------------------------------------------------
+
+## Targeted testing and minimal Django reproduction scripts
+Run Django’s test runner against local changes and create minimal, programmatically configured scripts to reproduce issues quickly.
+
+Reasoning: Install the repository in editable mode so tests run against local changes.
+Action: cd {repo_root} && pip install -e .
+
+Reasoning: Run a specific module suite to verify a related fix without running the entire test suite.
+Action: cd {repo_root} && python tests/runtests.py {module_name} --verbosity=2
+
+Reasoning: Execute a single test class or method to quickly validate a particular behavior.
+Action: cd {repo_root} && python tests/runtests.py {dotted_test_path} --verbosity=2
+
+Reasoning: Optionally run with pytest for ad-hoc targeting if preferred.
+Action: cd {repo_root} && python -m pytest {file_path}::{test_class_or_method} -xvs
+
+Reasoning: Configure Django settings programmatically for a minimal environment.
+Action: python - << 'PY'
+from django.conf import settings
+settings.configure(DEBUG=True, SECRET_KEY='test-key', INSTALLED_APPS=['django.contrib.contenttypes','django.contrib.auth'], DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}, FORM_RENDERER='django.forms.renderers.DjangoTemplates')
+import django; django.setup()
+PY
+
+Reasoning: Define minimal models/forms and create data to exercise the target behavior.
+Action: python - << 'PY'
+from django.db import models
+from django.forms import ModelForm
+# Define models and form here, create data and print problematic behavior
+PY
+
+Reasoning: Inspect warnings, errors, or querysets to confirm the issue and later validate the fix.
+Action: python - << 'PY'
+import warnings
+# render or clean fields under warnings.catch_warnings to capture deprecations
+PY
+
+--------------------------------------------------------------------------------
+
+## Targeted Test Execution and Minimal Reproductions for Django Changes
+Install Django in editable mode, create minimal repro scripts, and run focused tests (modules, classes, methods) with optional settings and PYTHONPATH adjustments for fast validation of changes.
+
+Reasoning: Ensure local changes are importable and used by scripts/tests by installing Django in editable mode.
+Action: cd {repo_root} && pip install -e . && python -c "import django; print(django.get_version())"
+
+Reasoning: Ensure the local repository code is used by the test runner.
+Action: cd {repo_root}/django && pip install -e .
+
+Reasoning: Confirm the issue in isolation to ensure you understand the failure and can verify the fix later.
+Action: cat > {repo_root}/{script_name}.py <<'PY'
+{script_contents}
+PY
+python {repo_root}/{script_name}.py
+
+Reasoning: Run a specific module’s tests to verify targeted functionality.
+Action: cd {repo_root}/django && python tests/runtests.py {module_name} --verbosity=2
+
+Reasoning: Run a specific test module to get fast feedback on the fix.
+Action: cd {repo_root} && python tests/runtests.py {module_name} --verbosity=2
+
+Reasoning: Execute a single test class or test method for rapid feedback.
+Action: cd {repo_root}/django && python tests/runtests.py {module}.{TestClass}[.{test_method}] --verbosity=2
+
+Reasoning: Run a single test class or method to zoom in on a scenario.
+Action: cd {repo_root} && python tests/runtests.py {module_name}::{class_name}::{method_name} --verbosity=2
+
+Reasoning: Summarize results quickly to spot failures or errors.
+Action: cd {repo_root}/django && python tests/runtests.py {module_name} --verbosity=1 2>&1 | grep -E "(Ran|OK|FAILED|ERROR)"
+
+Reasoning: If environment path issues arise, ensure the source path is on PYTHONPATH.
+Action: cd {repo_root}/django && PYTHONPATH={repo_root}/django:$PYTHONPATH python tests/runtests.py {suite_name} -v 2
+
+Reasoning: Some tests require a particular settings module; set it explicitly.
+Action: cd {repo_root} && DJANGO_SETTINGS_MODULE={settings_module} python tests/runtests.py {module_name} --verbosity=2
+
+Reasoning: Some schema or backend-specific tests need explicit settings; provide them when necessary.
+Action: cd {repo_root}/django && PYTHONPATH={repo_root}/django python tests/runtests.py schema.tests --settings=test_sqlite -v 2
+
+Reasoning: Run a specific Django test (file/class/method) with the correct settings to validate behavior quickly.
+Action: cd {repo_root}/tests && python -m django test {dotted_test_target} --settings={settings_module} -v 2
+
+Reasoning: Optionally run multiple related test packages to catch adjacent regressions.
+Action: cd {repo_root}/django && PYTHONPATH={repo_root}/django python tests/runtests.py migrations.test_writer migrations.test_operations migrations.test_autodetector --verbosity=0
+
+Reasoning: After applying a fix, re-run the reproduction to verify the specific behavior change.
+Action: python {repo_root}/{script_name}.py
+
+--------------------------------------------------------------------------------
+
+## HTTP Utilities and URL Resolver Fixes
+Audit and patch Django’s HTTP utilities and URL resolver: implement RFC7231 two-digit year parsing in parse_http_date, fix optional named group handling in URL resolving, and ensure empty If-Modified-Since headers are treated as modified.
+
+Reasoning: Locate the HTTP utilities implementation to audit parse_http_date.
+Action: find {repo_root}/django -path '*/utils/http.py'
+
+Reasoning: Open the file to inspect current logic and pinpoint the function to modify.
+Action: sed -n '1,220p' {repo_root}/django/django/utils/http.py | sed -n '/def parse_http_date/,/def/p'
+
+Reasoning: Identify existing tests referencing parse_http_date to understand expectations.
+Action: grep -R "parse_http_date" {repo_root}/django/tests -n --include='*.py'
+
+Reasoning: Open the relevant test module to see concrete cases and edge conditions.
+Action: sed -n '1,220p' {repo_root}/django/tests/utils_tests/test_http.py
+
+Reasoning: Create a boundary harness to compute expected years based on the current UTC year.
+Action: cat > {workspace}/test_rfc850_boundary.py << 'EOF'
+import sys, datetime
+sys.path.insert(0, '{repo_root}/django')
+from django.utils.http import parse_http_date
+cases = [
+    'Sunday, 06-Nov-70 08:49:37 GMT',
+    'Sunday, 06-Nov-85 08:49:37 GMT',
+    'Sunday, 06-Nov-00 08:49:37 GMT',
+]
+now_year = datetime.datetime.utcnow().year
+for s in cases:
+    ts = parse_http_date(s)
+    y = datetime.datetime.utcfromtimestamp(ts).year
+    print(s, '->', y, '(current:', now_year, ')')
+EOF
+
+Reasoning: Execute the harness to observe current behavior before implementing a fix.
+Action: python {workspace}/test_rfc850_boundary.py
+
+Reasoning: Modify two-digit year handling to be relative to the current year per RFC 7231.
+Action: applypatch << 'PATCH'
+*** Begin Patch
+*** Update File: {repo_root}/django/django/utils/http.py
+@@
+-    if year < 100:
+-        if year < 70:
+-            year += 2000
+-        else:
+-            year += 1900
++    # RFC 7231: interpret RFC850 two-digit years relative to the current year.
++    if year < 100:
++        current_year = datetime.datetime.utcnow().year
++        year = year + (1900 if 2000 + year > current_year + 50 else 2000)
+*** End Patch
+PATCH
+
+Reasoning: Re-run the boundary harness to confirm the corrected mapping at the 50-year boundary.
+Action: python {workspace}/test_rfc850_boundary.py
+
+Reasoning: Run Django’s utils HTTP tests to ensure no regressions.
+Action: cd {repo_root}/django && python tests/runtests.py utils_tests.test_http --verbosity=1
+
+Reasoning: Construct an in-memory URLConf to isolate and reproduce optional named groups behavior without a full project.
+Action: cat > {workspace}/test_optional_param.py << 'EOF'
+import sys, types
+sys.path.insert(0, '{repo_root}/django')
+from django.conf import settings
+settings.configure(DEBUG=True, ROOT_URLCONF='tmp_urls', ALLOWED_HOSTS=['*'], INSTALLED_APPS=['django.contrib.contenttypes'])
+import django; django.setup()
+from django.urls import re_path, resolve
+mod = types.ModuleType('tmp_urls')
+
+def modules(request, format='html'):
+    return f'format={format}'
+mod.modules = modules
+mod.urlpatterns = [re_path(r'^module/(?P<format>(html|json|xml))?/?$', modules)]
+sys.modules['tmp_urls'] = mod
+print('Resolving /module/ ...')
+print(resolve('/module/').args, resolve('/module/').kwargs)
+print('Resolving /module/html/ ...')
+print(resolve('/module/html/').args, resolve('/module/html/').kwargs)
+EOF
+python {workspace}/test_optional_param.py
+
+Reasoning: Audit resolver code to see how args and kwargs are derived from regex matches.
+Action: sed -n '140,180p' {repo_root}/django/django/urls/resolvers.py
+
+Reasoning: Exclude None from positional args derived from optional groups while keeping named-group precedence.
+Action: applypatch << 'PATCH'
+*** Begin Patch
+*** Update File: {repo_root}/django/django/urls/resolvers.py
+@@
+-            args = () if kwargs else match.groups()
++            args = () if kwargs else tuple(g for g in match.groups() if g is not None)
+*** End Patch
+PATCH
+
+Reasoning: Re-run the reproducer to confirm the error is resolved and arguments are correct.
+Action: python {workspace}/test_optional_param.py
+
+Reasoning: Execute URL-related test suites to ensure no regressions.
+Action: cd {repo_root}/django && python tests/runtests.py urlpatterns_reverse --parallel=1 -v 1
+
+Reasoning: Create a minimal script to invoke was_modified_since and a request with an empty If-Modified-Since header to reproduce the crash.
+Action: cat > {workspace}/test_empty_ims.py << 'EOF'
+import sys, os, datetime
+sys.path.insert(0, '{repo_root}/django')
+from django.views.static import was_modified_since
+from django.test.client import RequestFactory
+from django.http import HttpResponse
+
+# Direct call
+print('was_modified_since("") ->', was_modified_since(None, None, ''))
+
+# Serve-like check via RequestFactory
+rf = RequestFactory()
+req = rf.get('/static/file.txt', HTTP_IF_MODIFIED_SINCE='')
+print('Empty header request built OK')
+EOF
+python {workspace}/test_empty_ims.py
+
+Reasoning: Inspect exception handling around regex matches and date parsing to find missing cases.
+Action: sed -n '114,145p' {repo_root}/django/django/views/static.py
+
+Reasoning: Include TypeError in the exception clause to handle missing regex matches safely.
+Action: applypatch << 'PATCH'
+*** Begin Patch
+*** Update File: {repo_root}/django/django/views/static.py
+@@
+-    except (AttributeError, ValueError, OverflowError):
++    except (AttributeError, TypeError, ValueError, OverflowError):
+         return True
+*** End Patch
+PATCH
+
+Reasoning: Re-run the script to verify empty headers no longer crash and are treated as modified.
+Action: python {workspace}/test_empty_ims.py
+
+Reasoning: Run related static serving tests to confirm no regressions.
+Action: cd {repo_root}/django && python tests/runtests.py view_tests.tests.test_static staticfiles_tests --verbosity=1
+
+--------------------------------------------------------------------------------
+
+## Migration Serialization and Writer Audit (Nested Classes/Enums and models.Model Imports)
+Inspect and reproduce migration serialization issues for nested classes/enums, ensure proper handling of __qualname__, and fix serializer output so models.Model bases request the correct import. Validate with migration writer/operations/autodetector tests.
+
+Reasoning: Identify where Django serializes values and composes migration files to determine fix locations.
+Action: cd {repo_root} && find django/db/migrations -type f -name "*.py"
+
+Reasoning: Inspect serializer logic for class path and import handling.
+Action: sed -n '1,220p' django/db/migrations/serializer.py | sed -n '220,440p'
+
+Reasoning: Review how the writer merges imports and formats migration files.
+Action: sed -n '1,220p' django/db/migrations/writer.py
+
+Reasoning: Search for special-cased references that might omit required imports.
+Action: grep -n "models\.Model" django/db/migrations/serializer.py
+
+Reasoning: Check use of __qualname__ vs __name__ for nested class handling.
+Action: grep -n "__qualname__\|__name__" django/db/migrations/serializer.py
+
+Reasoning: Create a standalone reproducer to observe how nested classes and enums are serialized.
+Action: python - <<'PY'
+import sys
+sys.path.insert(0, '{repo_root}')
+from django.db.migrations.serializer import serializer_factory
+from django.db import models
+import enum
+class Outer:
+    class Inner(models.CharField):
+        pass
+class Thing(models.Model):
+    class State(enum.Enum):
+        ON = 'on'
+        OFF = 'off'
+field = Outer.Inner(max_length=10)
+print('TypeSerializer for Outer.Inner:', serializer_factory(Outer.Inner).serialize())
+print('Deconstructable serializer for field:', serializer_factory(field).serialize())
+print('TypeSerializer for Thing.State:', serializer_factory(Thing.State).serialize())
+PY
+
+Reasoning: Ensure serializer requests the 'models' import when emitting 'models.Model' in migration bases.
+Action: grep -n "(models\.Model, \"models\.Model\"" {repo_root}/django/db/migrations/serializer.py
+
+Reasoning: Update the tuple to include the required import so the writer merges it into the migration header.
+Action: echo "Edit {repo_root}/django/db/migrations/serializer.py to include ['from django.db import models'] for the models.Model special case."
+
+Reasoning: Quickly assert the serializer now returns the correct import set for models.Model.
+Action: python - <<'PY'
+import sys
+sys.path.insert(0, '{repo_root}')
+from django.db.migrations.serializer import serializer_factory
+from django.db import models
+s, imports = serializer_factory(models.Model).serialize()
+print('Serialized:', s)
+print('Imports:', imports)
+assert 'from django.db import models' in imports
+PY
+
+Reasoning: Run migration-related tests to validate changes and avoid regressions.
+Action: cd {repo_root} && PYTHONPATH={repo_root} python tests/runtests.py migrations.test_writer migrations.test_operations migrations.test_autodetector --verbosity=0
+
+--------------------------------------------------------------------------------
+
+## Diagnose Embedded Null Byte Signatures and Validate Autoreloader Resilience
+Locate suspect code paths, search for embedded null byte error signatures, inspect context, and mock Path.resolve to verify Django’s autoreloader handles errors without crashing.
+(Sources: 3 trajectories)
+
+Reasoning: Need to identify the exact file and function where the issue occurs to scope the fix.
+Action: find {repo_root}/django -type f -name "{filename}" | head -20
+
+Reasoning: Open the candidate file to read the implementation and find the failing function.
+Action: sed -n '{start_line},{end_line}p' {repo_root}/django/{relative_path_to_file}
+
+Reasoning: Locate all occurrences of a known problematic call to determine where to add defensive handling.
+Action: grep -n "{symbol_or_call}" {repo_root}/django/{relative_path_to_file}
+
+Reasoning: Inspect the code around the matched lines to assess existing exception handling and context.
+Action: sed -n '{context_start},{context_end}p' {repo_root}/django/{relative_path_to_file}
+
+Reasoning: Search the repository for the exact error message to find related code and tests.
+Action: grep -rn "ValueError.*embedded null byte" {repo_root} --include="*.py"
+
+Reasoning: Broaden to related keywords to discover other potential crash sites.
+Action: grep -rn "Path.resolve\|embedded null byte" {repo_root} --include="*.py"
+
+Reasoning: Inline Python with mocking avoids modifying files and validates autoreloader behavior quickly.
+Action: python - <<'PY'
+import sys
+sys.path.insert(0, '{repo_root}')
+from unittest import mock
+from django.utils import autoreload
+from pathlib import Path
+
+# Mock Path.resolve to raise ValueError
+with mock.patch('django.utils.autoreload.Path') as MockPath:
+    instance = MockPath.return_value
+    instance.resolve.side_effect = ValueError('embedded null byte')
+    try:
+        files = autoreload.iter_modules_and_files(tuple(), frozenset())
+        print('Success: no crash, files:', files)
+    except Exception as e:
+        print('Failure:', e)
+PY
+
+--------------------------------------------------------------------------------
+
+## Locate and Patch Django Security/Authentication Code
+Find and inspect target security/auth symbols, apply a minimal, reviewable patch, and verify changes before testing.
+
+Reasoning: Need to quickly find where a target symbol (class/function) is implemented to inspect and modify behavior.
+Action: cd {repo_root} && grep -R --line-number "{target_symbol}" django | head -20
+
+Reasoning: After locating a candidate file, inspect the surrounding lines to understand the implementation and potential patch points.
+Action: sed -n '{start_line},{end_line}p' {file_path}
+
+Reasoning: Identify existing tests referencing this symbol to understand coverage and where to add new tests if needed.
+Action: find {repo_root}/tests -name "*.py" -type f | xargs grep -l "{target_symbol}" | sort | head -20
+
+Reasoning: Apply a minimal, reviewable patch to adjust the implementation while keeping changes focused.
+Action: git -C {repo_root} apply - <<'PATCH'
+--- a/{file_path}
++++ b/{file_path}
+@@
+{patch_hunk}
+PATCH
+
+Reasoning: Verify that only the intended changes were made before running tests.
+Action: git -C {repo_root} diff -- {file_path}
+
+--------------------------------------------------------------------------------
+
+## Focused Test Authoring and Targeted Execution for Fast Feedback
+Identify or add focused tests, then run only the relevant subset using pytest or Django’s in-tree test runner with optional warnings-as-errors for rapid iteration.
+
+Reasoning: Find the most relevant test module to host or target specific tests following existing conventions.
+Action: cd /workspace/django && find tests -name "{module_glob}" -type f
+
+Reasoning: Add a new test case or method that captures the broken scenario and validates the corrected behavior.
+Action: Edit /workspace/django/tests/{relative_test_path}.py to insert test_{scenario_name}() or a new TestCase class with focused assertions
+
+Reasoning: Directly target a single test file for faster feedback using pytest.
+Action: cd {repo_root} && python -m pytest tests/test_utils/test_transactiontestcase.py -v
+
+Reasoning: Execute a specific Django test module via the in-tree runner to avoid the full suite.
+Action: cd /workspace/django && python tests/runtests.py {module_path} --verbosity=2
+
+Reasoning: Run a specific test class or method to focus on an exact failing scenario.
+Action: cd /workspace/django && python tests/runtests.py {module_path}.{TestClassName}[.{test_method_name}] --verbosity=2
+
+Reasoning: Enable warnings-as-errors when needed to surface deprecations or subtle issues.
+Action: cd {repo_root} && python -Wa tests/runtests.py test_utils.test_transactiontestcase.TestSerializedRollbackInhibitsPostMigrate --verbosity=2
+
+--------------------------------------------------------------------------------
+
+## Environment Setup and Minimal Reproduction (Editable install, PYTHONPATH, inline scripts)
+Make local Django sources importable, then validate behaviors using minimal reproducible snippets, one-liners, or standalone scripts.
+
+Reasoning: Ensure local changes are importable by Python and external scripts.
+Action: cd /workspace/django && python -m pip install -e .
+
+Reasoning: Confirm Python resolves Django to the local editable installation.
+Action: python -c "import django; print(django.__file__)"
+
+Reasoning: Use an inline script with PYTHONPATH to configure settings and bootstrap Django for quick repro.
+Action: cd /workspace/django && PYTHONPATH=/workspace/django python -c "from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test-key', USE_TZ=True, INSTALLED_APPS={installed_apps}); import django; django.setup(); {repro_code}"
+
+Reasoning: Create a small standalone script for clarity and repeated use.
+Action: Create /workspace/{script_name}.py with settings.configure, django.setup(), and minimal {repro_code}; then run: cd /workspace/django && PYTHONPATH=/workspace/django python /workspace/{script_name}.py
+
+Reasoning: Quickly validate messages encode/decode behavior with an empty extra_tags using a one-liner.
+Action: PYTHONPATH=/workspace/django python -c "from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test', INSTALLED_APPS=['django.contrib.messages']); import django; django.setup(); from django.contrib.messages.storage.base import Message; from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder; m=Message(10,'msg',extra_tags=''); print(MessageDecoder().decode(MessageEncoder().encode(m)).extra_tags=='')"
+
+Reasoning: Check None and non-empty values to ensure round-trip correctness across cases.
+Action: PYTHONPATH=/workspace/django python -c "from django.conf import settings; settings.configure(DEBUG=True, SECRET_KEY='test', INSTALLED_APPS=['django.contrib.messages']); import django; django.setup(); from django.contrib.messages.storage.base import Message; from django.contrib.messages.storage.cookie import MessageEncoder, MessageDecoder; print(MessageDecoder().decode(MessageEncoder().encode(Message(10,'msg',extra_tags=None))).extra_tags is None); print(MessageDecoder().decode(MessageEncoder().encode(Message(10,'msg',extra_tags='important'))).extra_tags=='important')"
+
+Reasoning: If environment issues arise, bootstrap Django inline to ensure the setup is correct.
+Action: cd /workspace/django/tests && python -c "import django; django.setup(); from django.contrib.syndication import views; class F(views.Feed): pass; print('Django setup OK')"
+
+--------------------------------------------------------------------------------
+
+## Locate and Implement Targeted Code Changes, Verify via Diff, Tests, and Reproducer
+Find the relevant Django source code, apply focused edits, inspect diffs, and validate via targeted tests and minimal reproductions (e.g., utility filters and syndication feeds).
+
+Reasoning: Quickly identify where a function, check, or symbol is implemented to begin diagnosis.
+Action: cd /workspace/django && find . -type f -name "*.py" -exec grep -n "{symbol_name}" {} + | head -20
+
+Reasoning: Open the target file to inspect surrounding logic and confirm the correct place for edits.
+Action: view /workspace/django/{relative_path_to_file}
+
+Reasoning: Apply a minimal, focused edit aligned with intended behavior.
+Action: Edit /workspace/django/{relative_path_to_file} to apply the patch (e.g., adjust conditions, add methods, or change parameters)
+
+Reasoning: Verify precisely what changed and ensure no unintended edits were introduced.
+Action: cd /workspace/django && git diff {relative_path_to_file}
+
+Reasoning: Enable custom JSON encoding while retaining default behavior.
+Action: Edit /workspace/django/django/utils/html.py: change def json_script(value, element_id=None) to def json_script(value, element_id=None, encoder=None); use encoder or DjangoJSONEncoder when calling json.dumps
+
+Reasoning: Propagate the new parameter through the template filter wrapper.
+Action: Edit /workspace/django/django/template/defaultfilters.py: change def json_script(value, element_id=None) to def json_script(value, element_id=None, encoder=None); return _json_script(value, element_id, encoder)
+
+Reasoning: Run targeted tests to confirm both default and custom encoder cases work.
+Action: cd /workspace/django && python tests/runtests.py utils_tests.test_html template_tests.filter_tests.test_json_script --verbosity=2
+
+Reasoning: Identify relevant modules and files for syndication and feed generation.
+Action: find /workspace/django -type f -name "*.py" | grep -E "(syndication|feed)"
+
+Reasoning: Confirm the syndication app layout.
+Action: ls -la /workspace/django/django/contrib/syndication
+
+Reasoning: Inspect the syndication views to see how items are constructed.
+Action: sed -n '1,240p' /workspace/django/django/contrib/syndication/views.py
+
+Reasoning: Verify feed generator support and parameter names.
+Action: sed -n '1,300p' /workspace/django/django/utils/feedgenerator.py
+
+Reasoning: Confirm the target field exists in the generator.
+Action: grep -n "comments" /workspace/django/django/utils/feedgenerator.py
+
+Reasoning: Find where items are added to the feed.
+Action: grep -n "add_item" /workspace/django/django/contrib/syndication/views.py
+
+Reasoning: Implement pass-through for the missing field following existing parameter patterns.
+Action: Open /workspace/django/django/contrib/syndication/views.py in your editor and add within feed.add_item(...): comments=self._get_dynamic_attr('item_comments', item)
+
+Reasoning: Ensure parameter style is consistent with adjacent fields.
+Action: Review nearby parameters (e.g., categories=self._get_dynamic_attr('item_categories', item)) in views.py and mirror the same structure
+
+Reasoning: Examine existing syndication tests for coverage and patterns.
+Action: sed -n '1,240p' /workspace/django/tests/syndication_tests/tests.py
+
+Reasoning: Check if the target field is already covered by tests.
+Action: grep -rn "comments" /workspace/django/tests/syndication_tests/
+
+Reasoning: Run tests against local code changes using editable install.
+Action: cd /workspace/django/tests && python -m pip install -e ..
+
+Reasoning: Validate changes quickly by running the syndication subset.
+Action: cd /workspace/django/tests && python runtests.py syndication_tests -v 2
+
+Reasoning: Focus on a specific RSS test for faster iteration and output inspection.
+Action: cd /workspace/django/tests && python runtests.py syndication_tests.tests.SyndicationFeedTest.test_rss2_feed -v 2
+
+Reasoning: Create an end-to-end reproducer to confirm field propagation outside the full test harness.
+Action: Create /workspace/test_item_comments.py that defines a Feed subclass with item_comments() returning a URL, then run: cd /workspace/django && python /workspace/test_item_comments.py
+
+--------------------------------------------------------------------------------
