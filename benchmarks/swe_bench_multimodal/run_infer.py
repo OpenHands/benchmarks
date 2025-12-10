@@ -434,6 +434,8 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    # Override the default dataset for multimodal
+    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Multimodal")
     args = parser.parse_args()
 
     # Validate max_attempts
