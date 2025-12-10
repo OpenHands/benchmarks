@@ -130,9 +130,9 @@ def ensure_docker_running() -> None:
 
     logger.info("Starting Docker daemon...")
     try:
-        # Start Docker daemon in the background
+        # Start Docker daemon in the background (no sudo - running as root in container)
         subprocess.Popen(
-            ["sudo", "dockerd"],
+            ["dockerd"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
