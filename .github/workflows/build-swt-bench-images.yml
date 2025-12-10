@@ -42,7 +42,7 @@ jobs:
        github.event.label.name == 'build-swt-bench')
 
     runs-on:
-      labels: ubuntu-latest
+      labels: blacksmith-32vcpu-ubuntu-2204
 
     permissions:
       contents: read
