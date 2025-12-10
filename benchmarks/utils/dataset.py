@@ -52,11 +52,25 @@ def prepare_dataset(
     dataset: pd.DataFrame,
     n_limit: int | None = None,
     selected_instances_file: str | None = None,
+    instance_ids: str | None = None,
 ) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
 
-    # Filter to selected instances first (if provided)
-    if selected_instances_file:
+    # Filter by instance_ids if provided (takes precedence over selected_instances_file)
+    if instance_ids:
+        instance_id_list = [
+            id.strip() for id in instance_ids.split(",") if id.strip()
+        ]
+        if instance_id_list:
+            original_size = len(dataset)
+            mask = dataset["instance_id"].isin(instance_id_list)
+            dataset = cast(pd.DataFrame, dataset[mask])
+            logger.info(
+                f"Filtered to {len(dataset)} instances from instance_ids parameter "
+                f"(original size: {original_size})"
+            )
+    # Filter to selected instances file (only if instance_ids not set)
+    elif selected_instances_file:
         selected_instances = _load_selected_instances(selected_instances_file)
         original_size = len(dataset)
         mask = dataset["instance_id"].isin(list(selected_instances))
@@ -77,6 +91,7 @@ def get_dataset(
     split: str,
     eval_limit: int | None = None,
     selected_instances_file: str | None = None,
+    instance_ids: str | None = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Load dataset
@@ -89,5 +104,5 @@ def get_dataset(
     logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")
 
     # Prepare dataset (apply n_limit if specified and filter selected)
-    instances = prepare_dataset(df, eval_limit, selected_instances_file)
+    instances = prepare_dataset(df, eval_limit, selected_instances_file, instance_ids)
     return instances
