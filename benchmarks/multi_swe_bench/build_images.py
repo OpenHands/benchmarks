@@ -47,8 +47,12 @@ def get_official_docker_image(
     else:
         # Use Multi-SWE-Bench style naming for other languages
         # Format: {prefix}/{org}_m_{repo}:base
-        org = instance.get("org", repo)  # fallback to repo if org is missing
-        official_image_name = f"{docker_image_prefix}/{org}_m_{repo}:base"
+        if "/" in repo:
+            org, repo_name = repo.split("/", 1)
+        else:
+            org = instance.get("org", repo)
+            repo_name = repo
+        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:base"
 
     logger.debug(f"Multi-SWE-Bench image: {official_image_name}")
     return official_image_name
