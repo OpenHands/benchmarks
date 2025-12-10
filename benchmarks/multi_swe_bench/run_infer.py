@@ -35,6 +35,16 @@ from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 logger = get_logger(__name__)
 
+# Environment variables for Multi-SWE-Bench configuration
+USE_HINT_TEXT = os.environ.get('USE_HINT_TEXT', 'false').lower() == 'true'
+USE_INSTANCE_IMAGE = os.environ.get('USE_INSTANCE_IMAGE', 'true').lower() == 'true'
+RUN_WITH_BROWSING = os.environ.get('RUN_WITH_BROWSING', 'false').lower() == 'true'
+DOCKER_IMAGE_PREFIX = os.environ.get('EVAL_DOCKER_IMAGE_PREFIX', 'mswebench')
+LANGUAGE = os.environ.get('LANGUAGE', 'java')
+
+logger.info(f'Using docker image prefix: {DOCKER_IMAGE_PREFIX}')
+logger.info(f'Using language: {LANGUAGE}')
+
 
 def get_instruction(
     instance: dict,
@@ -45,6 +55,9 @@ def get_instruction(
     workspace_dir_name = instance["repo"].split("/")[-1]
     assert metadata.details is not None
 
+    # Detect language from instance data or use environment variable
+    language = instance.get("language", LANGUAGE).lower()
+    
     # Set up Jinja2 environment
     assert metadata.prompt_path is not None
     prompts_dir = os.path.dirname(metadata.prompt_path)
@@ -57,12 +70,22 @@ def get_instruction(
         "instance": instance,
         "workspace_dir_name": workspace_dir_name,
         "actual_workspace_path": workspace_path,
+        "workspace_path": workspace_path,
         "metadata": metadata,
+        "language": language,
+        "use_hint_text": USE_HINT_TEXT,
     }
     context["test_instructions"] = ""
 
     # Render the instruction
     instruction = template.render(context)
+    
+    # Add browsing warning if needed
+    if RUN_WITH_BROWSING:
+        instruction += (
+            '<IMPORTANT!>\nYou SHOULD NEVER attempt to browse the web. </IMPORTANT!>\n'
+        )
+    
     return instruction
 
 
@@ -124,8 +147,9 @@ class MultiSWEBenchEvaluation(Evaluation):
         # For Multi-SWE-Bench, ensure we use the correct docker image prefix
         # Override any existing EVAL_DOCKER_IMAGE_PREFIX to use mswebench
         official_docker_image = get_official_docker_image(
-            instance.data, docker_image_prefix="mswebench"
+            instance.data, docker_image_prefix=DOCKER_IMAGE_PREFIX
         )
+        logger.info(f"Using official docker image: {official_docker_image}")
         build_target = "source-minimal"
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
@@ -135,8 +159,8 @@ class MultiSWEBenchEvaluation(Evaluation):
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+            SKIP_BUILD = os.getenv("MULTI_SWE_BENCH_SKIP_BUILD", "0").lower() in ("1", "true", "yes")
+            logger.info(f"MULTI_SWE_BENCH_SKIP_BUILD={SKIP_BUILD}")
             if not SKIP_BUILD:
                 logger.info(
                     f"Building workspace from {official_docker_image} "
