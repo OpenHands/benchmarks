@@ -24,7 +24,7 @@ SWE-Bench is a benchmark for evaluating AI agents on real-world software enginee
 Before running inference, you need to build Docker images for the SWE-Bench instances. Each instance requires a specific environment setup based on the repository and issue.
 
 ```bash
-uv run python -m benchmarks.swe_bench.build_images \
+uv run python -m benchmarks.swebench.build_images \
   --dataset princeton-nlp/SWE-bench_Verified \
   --split test \
   --image ghcr.io/openhands/agent-server \
@@ -84,7 +84,7 @@ Images must be pre-built and pushed to a **public** container registry before ru
 **Option B: Manual Build**
 
 ```bash
-uv run python -m benchmarks.swe_bench.build_images \
+uv run python -m benchmarks.swebench.build_images \
   --dataset princeton-nlp/SWE-bench_Verified \
   --split test \
   --image ghcr.io/openhands/eval-agent-server \

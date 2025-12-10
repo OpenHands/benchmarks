@@ -4,7 +4,12 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swebench.build_images import (
+    extract_custom_tag,
+    get_official_docker_image,
+)
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -20,40 +25,13 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.agent_server.docker.build import _base_slug
-from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
+from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
-
-
-def get_official_docker_image(
-    instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
-) -> str:
-    # Official SWE-Bench image
-    # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
-    repo, name = instance_id.split("__")
-    official_image_name = docker_image_prefix.rstrip("/")
-    official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-    logger.debug(f"Using official SWE-Bench image: {official_image_name}")
-    return official_image_name
-
-
-def get_agent_server_docker_image(
-    instance_id: str,
-    docker_image_prefix="docker.io/swtbench/",
-    target: str = "source-minimal",
-) -> str:
-    """Get the agent server Docker image for an instance."""
-    official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
-    return (
-        "ghcr.io/all-hands-ai/agent-server"
-        + f":v{__version__}_{_base_slug(official_image_name)}_{target}"
-    )
 
 
 def get_instruction(
@@ -62,14 +40,7 @@ def get_instruction(
     workspace_path: str,
 ) -> str:
     """Generate instruction for the agent."""
-    # For SWT-bench, workspace directory name might be different
-    if "repo" in instance:
-        workspace_dir_name = instance["repo"].split("/")[-1]
-    elif "instance_id" in instance:
-        workspace_dir_name = instance["instance_id"].replace("/", "_")
-    else:
-        workspace_dir_name = "workspace"
-
+    workspace_dir_name = instance["repo"].split("/")[-1]
     assert metadata.details is not None
 
     # Set up Jinja2 environment
@@ -86,28 +57,16 @@ def get_instruction(
         "actual_workspace_path": workspace_path,
         "metadata": metadata,
     }
-
-    # Add test instructions if available
-    test_instructions = ""
-    if "test_cmd" in instance and instance["test_cmd"]:
-        test_instructions = f"""
-The test command to verify your implementation is:
-```bash
-{instance["test_cmd"]}
-```
-
-Make sure your implementation passes this test.
-"""
-    context["test_instructions"] = test_instructions
+    context["test_instructions"] = ""
 
     # Render the instruction
     instruction = template.render(context)
     return instruction
 
 
-class SWTBenchEvaluation(Evaluation):
+class SWEBenchEvaluation(Evaluation):
     """
-    Process-based SWT-bench evaluation implemented as a child of the
+    Process-based SWE-bench evaluation implemented as a child of the
     abstract Evaluation orchestrator.
 
     Implements:
@@ -117,13 +76,14 @@ class SWTBenchEvaluation(Evaluation):
     """
 
     def prepare_instances(self) -> List[EvalInstance]:
-        logger.info("Setting up SWT-bench evaluation data")
+        logger.info("Setting up SWE-bench evaluation data")
 
         df = get_dataset(
             dataset_name=self.metadata.dataset,
             split=self.metadata.dataset_split,
             eval_limit=self.metadata.eval_limit,
             selected_instances_file=self.metadata.selected_instances_file,
+            instance_ids=self.metadata.instance_ids,
         )
 
         instances: List[EvalInstance] = []
@@ -137,14 +97,11 @@ class SWTBenchEvaluation(Evaluation):
     # ---- Hook: prepare a workspace per instance ----------------------------------
     def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
         """
-        Create workspace based on workspace_type (docker or remote).
+        Use DockerWorkspace by default.
         """
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
-
-        # Create a custom tag for the image
-        name_tag = official_docker_image.split("/")[-1]
-        custom_tag = name_tag.split(":")[0]
+        custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
 
@@ -159,21 +116,29 @@ class SWTBenchEvaluation(Evaluation):
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
                     "This may take a while...\n"
-                    "You can run benchmarks/swt_bench/build_images.py and set "
-                    "SKIP_BUILD=1 to skip building and use pre-built "
+                    "You can run benchmarks/swebench/build_images.py and set "
+                    "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
                     "agent-server image."
                 )
-                # For SWT-bench, we use DockerDevWorkspace with base_image
-                workspace = DockerDevWorkspace(
+                output = build_image(
                     base_image=official_docker_image,
-                    working_dir="/workspace",
+                    target_image=EVAL_AGENT_SERVER_IMAGE,
+                    custom_tag=custom_tag,
                     target=build_target,
+                    push=False,
                 )
-            else:
-                workspace = DockerWorkspace(
-                    server_image=agent_server_image,
-                    working_dir="/workspace",
-                )
+                logger.info(f"Image build output: {output}")
+                assert output.error is None, f"Image build failed: {output.error}"
+                if agent_server_image not in output.tags:
+                    raise RuntimeError(
+                        f"Built image tags {output.tags} do not include expected tag "
+                        f"{agent_server_image}"
+                    )
+
+            workspace = DockerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
@@ -217,9 +182,7 @@ class SWTBenchEvaluation(Evaluation):
 
     # ---- Hook: evaluate one instance ---------------------------------------------
     def evaluate_instance(
-        self,
-        instance: EvalInstance,
-        workspace: RemoteWorkspace,
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.
@@ -297,6 +260,7 @@ class SWTBenchEvaluation(Evaluation):
         )
         git_patch = git_patch_result.stdout
 
+        # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
             test_result={
@@ -311,7 +275,6 @@ class SWTBenchEvaluation(Evaluation):
 
 
 def main() -> None:
-    """Main entry point for SWT-bench evaluation."""
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
     choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
     default_prompt_path = prompt_dir / "default.j2"
@@ -350,10 +313,12 @@ def main() -> None:
         dataset_name=dataset_description,
         model_name=llm.model,
         max_iterations=args.max_iterations,
-        eval_note="SWT-" + args.note,
+        eval_note=args.note,
     )
 
+    # Create critic instance from parsed arguments
     critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
 
     metadata = EvalMetadata(
         llm=llm,
@@ -368,12 +333,16 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        instance_ids=args.instance_ids,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
     )
 
     # Run orchestrator with a simple JSONL writer
-    evaluator = SWTBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
+    evaluator = SWEBenchEvaluation(
+        metadata=metadata,
+        num_workers=args.num_workers,
+    )
 
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
