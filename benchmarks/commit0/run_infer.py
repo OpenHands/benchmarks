@@ -23,7 +23,7 @@ from benchmarks.utils.models import (
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
+from openhands.workspace import DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -161,7 +161,7 @@ class Commit0Evaluation(Evaluation):
         logger.info(f"Using base docker image: {base_docker_image}")
 
         # Build agent-server image from base commit0 image
-        workspace = DockerWorkspace(
+        workspace = DockerDevWorkspace(
             base_image=base_docker_image,
             working_dir="/workspace",
             target="source-minimal",

@@ -150,7 +150,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          CMD="uv run benchmarks/swe_bench/build_images.py \
+          CMD="uv run benchmarks/swebench/build_images.py \
             --dataset '${DATASET}' \
             --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \

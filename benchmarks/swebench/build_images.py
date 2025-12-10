@@ -3,7 +3,7 @@
 Build agent-server images for all unique SWE-Bench base images in a dataset split.
 
 Example:
-  uv run benchmarks/swe_bench/build_images.py \
+  uv run benchmarks/swebench/build_images.py \
     --dataset princeton-nlp/SWE-bench_Verified --split test \
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
