@@ -1,4 +1,4 @@
-I have access to a python code repository in the directory {{ instance.repo_path }} . You can explore and modify files using the available tools. Consider the following issue description:
+I have access to a code repository in the directory {{ instance.repo_path }} . You can explore and modify files using the available tools. Consider the following issue description:
 
 <issue_description>
 {{ instance.problem_statement }}
@@ -6,7 +6,7 @@ I have access to a python code repository in the directory {{ instance.repo_path
 
 Can you help me implement the necessary changes to the repository so that the requirements specified in the <issue_description> are met?
 I've already taken care of all changes to any of the test files described in the <issue_description>. This means you DON'T have to modify the testing logic or any of the tests in any way!
-Also the development Python environment is already set up for you (i.e., all dependencies already installed), so you don't need to install other packages.
+Also the development environment is already set up for you (i.e., all dependencies already installed), so you don't need to install other packages.
 Your task is to make the minimal changes to non-test files in the {{ instance.repo_path }} directory to ensure the <issue_description> is satisfied.
 
 Follow these phases to resolve the issue:
@@ -19,10 +19,9 @@ Phase 1. READING: read the problem and reword it in clearer terms
    1.5 Hightlight any best practices to take into account when testing and fixing the issue
 
 Phase 2. RUNNING: install and run the tests on the repository
-   2.1 Activate the environment by running  
-       ./opt/miniconda3/etc/profile.d/conda.sh ; conda activate testbed
-   2.2 Follow the readme
-   2.3 Install the environment and anything needed
+   2.1 Check the repository structure and identify the technology stack (JavaScript/TypeScript/React/Node.js/Python/etc.)
+   2.2 Follow the readme and setup instructions
+   2.3 Install the environment and anything needed (npm install, yarn install, pip install, etc.)
    2.4 Iterate and figure out how to run the tests
 
 Phase 3. EXPLORATION: find the files that are related to the problem and possible solutions
