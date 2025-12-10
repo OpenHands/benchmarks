@@ -183,7 +183,7 @@ def test_eval_output_with_no_metrics():
 
 def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
     """Create a test instance appropriate for the given benchmark."""
-    if benchmark_name == "swe_bench":
+    if benchmark_name == "swebench":
         return EvalInstance(
             id="test__instance-1",
             data={
@@ -201,7 +201,7 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "environment_setup_commit": "abc123",
             },
         )
-    elif benchmark_name == "swt_bench":
+    elif benchmark_name == "swtbench":
         return EvalInstance(
             id="test-instance-1",
             data={
@@ -248,7 +248,7 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
 
 def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadata:
     """Create metadata appropriate for the given benchmark."""
-    if benchmark_name == "swe_bench":
+    if benchmark_name == "swebench":
         return EvalMetadata(
             llm=llm,
             max_iterations=5,
@@ -257,11 +257,11 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             dataset_split="test",
             critic=PassCritic(),
         )
-    elif benchmark_name == "swt_bench":
+    elif benchmark_name == "swtbench":
         prompt_path = str(
             Path(__file__).parent.parent
             / "benchmarks"
-            / "swt_bench"
+            / "swtbench"
             / "prompts"
             / "default.j2"
         )
@@ -390,7 +390,7 @@ def test_benchmark_metrics_collection(
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
-        if benchmark_name == "swe_bench":
+        if benchmark_name == "swebench":
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
@@ -470,7 +470,7 @@ def test_metrics_with_zero_cost(mock_workspace):
         patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools"),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
-        if benchmark_name == "swe_bench":
+        if benchmark_name == "swebench":
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",

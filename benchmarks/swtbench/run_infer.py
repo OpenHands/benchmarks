@@ -159,7 +159,7 @@ class SWTBenchEvaluation(Evaluation):
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
                     "This may take a while...\n"
-                    "You can run benchmarks/swt_bench/build_images.py and set "
+                    "You can run benchmarks/swtbench/build_images.py and set "
                     "SKIP_BUILD=1 to skip building and use pre-built "
                     "agent-server image."
                 )

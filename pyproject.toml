@@ -34,10 +34,10 @@ dependencies = [
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
-swebench-infer = "benchmarks.swe_bench.run_infer:main"
-swtbench-infer = "benchmarks.swt_bench.run_infer:main"
-swebench-eval = "benchmarks.swe_bench.eval_infer:main"
-swtbench-eval = "benchmarks.swt_bench.eval_infer:main"
+swebench-infer = "benchmarks.swebench.run_infer:main"
+swtbench-infer = "benchmarks.swtbench.run_infer:main"
+swebench-eval = "benchmarks.swebench.eval_infer:main"
+swtbench-eval = "benchmarks.swtbench.eval_infer:main"
 gaia-infer = "benchmarks.gaia.run_infer:main"
 commit0-infer = "benchmarks.commit0.run_infer:main"
 commit0-eval = "benchmarks.commit0.eval_infer:main"
