@@ -341,11 +341,63 @@ class Evaluation(ABC, BaseModel):
             final_output_file="output.jsonl",
         )
 
+        # Check for incomplete runs
+        self._check_for_incomplete_run(all_instances, all_outputs)
+
         logger.info(
             f"Evaluation complete: {total_instances} total instances, "
             f"{self.metadata.max_attempts} max attempts"
         )
         return all_outputs
+
+    def _check_for_incomplete_run(
+        self,
+        all_instances: List[EvalInstance],
+        all_outputs: List[EvalOutput],
+    ) -> None:
+        """Check if the evaluation run is incomplete and log warnings.
+
+        Args:
+            all_instances: All instances that were supposed to be processed
+            all_outputs: All outputs that were actually produced
+        """
+        expected_ids = {inst.id for inst in all_instances}
+        completed_ids = {out.instance_id for out in all_outputs}
+
+        missing_ids = expected_ids - completed_ids
+        extra_ids = completed_ids - expected_ids
+
+        if missing_ids or extra_ids:
+            logger.error("=" * 80)
+            logger.error("INCOMPLETE EVALUATION RUN DETECTED")
+            logger.error("=" * 80)
+            logger.error(f"Expected instances: {len(expected_ids)}")
+            logger.error(f"Completed instances: {len(completed_ids)}")
+
+            if missing_ids:
+                logger.error(f"Missing instances: {len(missing_ids)}")
+                logger.error("Missing instance IDs:")
+                for inst_id in sorted(missing_ids):
+                    logger.error(f"  - {inst_id}")
+
+            if extra_ids:
+                logger.warning(f"Extra instances: {len(extra_ids)}")
+                logger.warning("Extra instance IDs (not in expected list):")
+                for inst_id in sorted(extra_ids):
+                    logger.warning(f"  - {inst_id}")
+
+            logger.error("=" * 80)
+            logger.error("POSSIBLE CAUSES:")
+            logger.error("- Infrastructure failures (Modal, Docker, network)")
+            logger.error("- Worker process crashes before returning results")
+            logger.error("- Resource exhaustion (OOM, disk space)")
+            logger.error("- Scheduler issues dropping tasks")
+            logger.error("=" * 80)
+        else:
+            logger.info(
+                f"✓ Evaluation run is complete: "
+                f"{len(completed_ids)}/{len(expected_ids)} instances processed"
+            )
 
     def _cleanup_pool(
         self,
