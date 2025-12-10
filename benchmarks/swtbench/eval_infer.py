@@ -112,6 +112,53 @@ def convert_to_swtbench_format(
         raise ValueError("No valid entries were converted")
 
 
+def ensure_docker_running() -> None:
+    """Ensure Docker daemon is running, start it if needed."""
+    try:
+        # Check if Docker is already running
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            logger.info("Docker is already running")
+            return
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    logger.info("Starting Docker daemon...")
+    try:
+        # Start Docker daemon in the background
+        subprocess.Popen(
+            ["sudo", "dockerd"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        
+        # Wait for Docker to initialize
+        import time
+        for i in range(30):  # Wait up to 30 seconds
+            time.sleep(1)
+            try:
+                result = subprocess.run(
+                    ["docker", "info"],
+                    capture_output=True,
+                    timeout=2,
+                )
+                if result.returncode == 0:
+                    logger.info("Docker daemon started successfully")
+                    return
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+        
+        raise RuntimeError("Docker daemon failed to start within 30 seconds")
+    except Exception as e:
+        logger.error(f"Failed to start Docker daemon: {e}")
+        raise
+
+
 def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
@@ -133,6 +180,9 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
+        # Ensure Docker is running (required for SWT-Bench evaluation)
+        ensure_docker_running()
+        
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
