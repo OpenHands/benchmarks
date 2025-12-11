@@ -12,7 +12,7 @@ def update_multi_swe_config(output_jsonl_path, config_path, dataset):
     subprocess.run(
         [
             "python3",
-            "./evaluation/benchmarks/multi_swe_bench/scripts/eval/convert.py",
+            "./evaluation/benchmarks/multiswebench/scripts/eval/convert.py",
             "--input",
             output_jsonl_path,
             "--output",

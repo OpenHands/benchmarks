@@ -38,6 +38,7 @@ dependencies = [
     "tenacity>=9.1.2",
     "websockets>=12",
     "lmnr>=0.7.20",
+    "multi-swe-bench>=1.1.1",
 ]
 
 [project.scripts]
@@ -46,8 +47,8 @@ swebench-infer = "benchmarks.swe_bench.run_infer:main"
 swtbench-infer = "benchmarks.swt_bench.run_infer:main"
 swebench-eval = "benchmarks.swe_bench.eval_infer:main"
 swtbench-eval = "benchmarks.swt_bench.eval_infer:main"
-multi-swebench-infer = "benchmarks.multi_swe_bench.run_infer:main"
-multi-swebench-eval = "benchmarks.multi_swe_bench.eval_infer:main"
+multiswebench-infer = "benchmarks.multiswebench.run_infer:main"
+multiswebench-eval = "benchmarks.multiswebench.eval_infer:main"
 gaia-infer = "benchmarks.gaia.run_infer:main"
 openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
 

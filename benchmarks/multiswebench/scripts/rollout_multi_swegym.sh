@@ -22,7 +22,7 @@ DATASET="${EVAL_DATASET%.jsonl}_with_runtime_.jsonl"  # path to converted datase
 
 # Create the converted dataset file
 echo "Creating converted dataset at: $DATASET"
-poetry run python ./benchmarks/multi_swe_bench/scripts/data/data_change.py --input "$EVAL_DATASET" --output "$DATASET"
+poetry run python ./benchmarks/multiswebench/scripts/data/data_change.py --input "$EVAL_DATASET" --output "$DATASET"
 
 SPLIT="train"
 export LANGUAGE=java
@@ -60,10 +60,10 @@ function run_eval() {
   export LANGUAGE=java
   echo "About to run command"
   
-  echo "Running command: EVAL_DOCKER_IMAGE_PREFIX=$EVAL_DOCKER_IMAGE_PREFIX; LANGUAGE=java; poetry run python benchmarks/multi_swe_bench/run_infer.py $MODEL --max-iterations $MAX_ITER --num-workers $N_WORKERS --note '$eval_note' --dataset $DATASET --split $SPLIT"
+  echo "Running command: EVAL_DOCKER_IMAGE_PREFIX=$EVAL_DOCKER_IMAGE_PREFIX; LANGUAGE=java; poetry run python benchmarks/multiswebench/run_infer.py $MODEL --max-iterations $MAX_ITER --num-workers $N_WORKERS --note '$eval_note' --dataset $DATASET --split $SPLIT"
   
   # Run the command directly to avoid quote issues with eval
-  EVAL_DOCKER_IMAGE_PREFIX=$EVAL_DOCKER_IMAGE_PREFIX LANGUAGE=java poetry run python benchmarks/multi_swe_bench/run_infer.py \
+  EVAL_DOCKER_IMAGE_PREFIX=$EVAL_DOCKER_IMAGE_PREFIX LANGUAGE=java poetry run python benchmarks/multiswebench/run_infer.py \
     $MODEL \
     --max-iterations $MAX_ITER \
     --num-workers $N_WORKERS \
@@ -106,7 +106,7 @@ for run_idx in $(seq 1 $N_RUNS); do
         OUTPUT_CONFIG_FILE="${OUTPUT_FILE%.jsonl}_config.json"
         export EVAL_SKIP_BUILD_ERRORS=true
         pip install multi-swe-bench --quiet --disable-pip-version-check > /dev/null 2>&1
-        COMMAND="poetry run python ./benchmarks/multi_swe_bench/scripts/eval/update_multi_swe_bench_config.py --input $OUTPUT_FILE --output $OUTPUT_CONFIG_FILE --dataset $EVAL_DATASET;
+        COMMAND="poetry run python ./benchmarks/multiswebench/scripts/eval/update_multi_swe_bench_config.py --input $OUTPUT_FILE --output $OUTPUT_CONFIG_FILE --dataset $EVAL_DATASET;
         python -m multi_swe_bench.harness.run_evaluation --config $OUTPUT_CONFIG_FILE
         "
 
@@ -130,10 +130,10 @@ for run_idx in $(seq 1 $N_RUNS); do
 
     # update the output with evaluation results
     echo "### Updating the output with evaluation results... ###"
-    poetry run python benchmarks/multi_swe_bench/scripts/eval/update_output_with_eval.py $OUTPUT_FILE
+    poetry run python benchmarks/multiswebench/scripts/eval/update_output_with_eval.py $OUTPUT_FILE
 
     echo "### Combining the final completions... ###"
-    poetry run python benchmarks/multi_swe_bench/scripts/eval/combine_final_completions.py $OUTPUT_FILE
+    poetry run python benchmarks/multiswebench/scripts/eval/combine_final_completions.py $OUTPUT_FILE
 
     echo "### DONE for run $run_idx! ###"
     echo "You can find the final output at $(dirname $OUTPUT_FILE)/$FINAL_OUTPUT_FILE"

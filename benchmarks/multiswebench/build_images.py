@@ -3,7 +3,7 @@
 Build agent-server images for all unique Multi-SWE-Bench base images in a dataset split.
 
 Example:
-  uv run benchmarks/multi_swe_bench/build_images.py \
+  uv run benchmarks/multiswebench/build_images.py \
     --dataset bytedance-research/Multi-SWE-Bench --split test \
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """

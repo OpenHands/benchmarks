@@ -43,7 +43,7 @@ The process of running SWE-Gym is very similar to how you'd run SWE-Bench evalua
 
 ```bash
 export ALLHANDS_API_KEY=ah-yourkey  # You don't need to set this when running these in local docker container
-./evaluation/benchmarks/multi_swe_bench/scripts/rollout_swegym.sh llm.mymodel-temp05 'train-t05' 16
+./evaluation/benchmarks/multiswebench/scripts/rollout_swegym.sh llm.mymodel-temp05 'train-t05' 16
 ```
 
 NOTE: SWE-Gym sampling with parallelism is currently only tested with AllHands RemoteRuntime (limited beta). Fill [this form](https://docs.google.com/forms/d/e/1FAIpQLSckVz_JFwg2_mOxNZjCtr7aoBFI2Mwdan3f75J_TrdMS1JV2g/viewform) to apply for access.

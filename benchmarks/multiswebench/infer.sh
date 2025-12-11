@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-BASE_SCRIPT="./benchmarks/multi_swe_bench/scripts/run_infer.sh"
+BASE_SCRIPT="./benchmarks/multiswebench/scripts/run_infer.sh"
 
 MODELS=("aaa" "bbb" "ccc" "ddd" "fff")
 GIT_VERSION="HEAD"

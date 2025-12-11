@@ -6,7 +6,7 @@ from typing import List
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.multi_swe_bench.build_images import (
+from benchmarks.multiswebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
@@ -176,7 +176,7 @@ class MultiSWEBenchEvaluation(Evaluation):
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
                     "This may take a while...\n"
-                    "You can run benchmarks/multi_swe_bench/build_images.py and set "
+                    "You can run benchmarks/multiswebench/build_images.py and set "
                     "MULTI_SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
                     "agent-server image."
                 )
