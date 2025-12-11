@@ -45,9 +45,11 @@ def compute_gaia_metrics(
         if test_result.get("score") is True:
             success += 1
 
-    # Total is successful + failed instances
+    # Total is successful + failed instances (including output_errors.jsonl)
     total = len(output_data) + len(error_data)
-    errors = len(error_data)
+
+    # Treat every non-successful instance as an error/failure for reporting
+    errors = total - success
 
     # Calculate success rate based on total launched instances
     success_rate = (success / total * 100) if total > 0 else 0.0
