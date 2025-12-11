@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
@@ -113,22 +114,38 @@ def convert_to_swtbench_format(
 
 
 def ensure_docker_running() -> None:
-    """Ensure Docker daemon is running, start it if needed."""
-    try:
-        # Check if Docker is already running
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            logger.info("Docker is already running")
-            return
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    """Ensure Docker daemon is reachable.
 
-    logger.info("Starting Docker daemon...")
+    If a DOCKER_HOST is provided (e.g., when using a sidecar dind), poll it and
+    fail fast instead of trying to spawn a local daemon. Otherwise, start a
+    local dockerd instance in the current container.
+    """
+
+    def _docker_info_ok() -> bool:
+        try:
+            result = subprocess.run(
+                ["docker", "info"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    docker_host = os.environ.get("DOCKER_HOST")
+    if docker_host:
+        logger.info(f"Checking Docker connectivity via DOCKER_HOST={docker_host}")
+        for _ in range(30):  # Wait up to 30 seconds
+            if _docker_info_ok():
+                logger.info("Connected to Docker daemon via DOCKER_HOST")
+                return
+            time.sleep(1)
+        raise RuntimeError(
+            f"Could not reach Docker daemon via DOCKER_HOST={docker_host}"
+        )
+
+    logger.info("Starting local Docker daemon...")
     try:
         # Start Docker daemon in the background (no sudo - running as root in container)
         subprocess.Popen(
@@ -136,23 +153,14 @@ def ensure_docker_running() -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        
+
         # Wait for Docker to initialize
-        import time
-        for i in range(30):  # Wait up to 30 seconds
+        for _ in range(30):  # Wait up to 30 seconds
             time.sleep(1)
-            try:
-                result = subprocess.run(
-                    ["docker", "info"],
-                    capture_output=True,
-                    timeout=2,
-                )
-                if result.returncode == 0:
-                    logger.info("Docker daemon started successfully")
-                    return
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-        
+            if _docker_info_ok():
+                logger.info("Local Docker daemon started successfully")
+                return
+
         raise RuntimeError("Docker daemon failed to start within 30 seconds")
     except Exception as e:
         logger.error(f"Failed to start Docker daemon: {e}")
