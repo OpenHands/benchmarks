@@ -65,7 +65,7 @@ def format_swtbench_notification(
     report_path: Path,
     env_vars: dict[str, str],
 ) -> str:
-    """Format SWT-Bench results as markdown notification."""
+    """Format SWT-Bench results as markdown notification (aligned with SWE-bench style)."""
     # Load data
     output_data = load_jsonl(str(output_path))
     error_path = output_path.parent / "output_errors.jsonl"
@@ -81,31 +81,52 @@ def format_swtbench_notification(
     model_name = env_vars.get("MODEL_NAME", "Unknown")
     eval_limit = env_vars.get("EVAL_LIMIT", "N/A")
     dataset = env_vars.get("DATASET", "princeton-nlp/SWE-bench_Verified")
+    dataset_split = env_vars.get("DATASET_SPLIT", "test")
+    eval_name = env_vars.get("UNIQUE_EVAL_NAME", "unknown-eval")
     sdk_commit = env_vars.get("COMMIT", "Unknown")[:7]
+    timestamp = env_vars.get("TIMESTAMP", "").strip() or env_vars.get(
+        "UPLOAD_TIMESTAMP", "unknown time"
+    )
+    trigger_reason = env_vars.get("TRIGGER_REASON", "").strip()
+    tar_url = env_vars.get("TAR_URL", "").strip()
 
     # Build markdown message
     lines = [
-        "## SWT-Bench Evaluation Results",
+        "## 🎉 SWT-Bench Evaluation Complete",
         "",
+        f"**Evaluation:** `{eval_name}`",
         f"**Model:** `{model_name}`",
-        f"**Dataset:** `{dataset}`",
-        f"**Instances:** {metrics['total']} (limit: {eval_limit})",
-        f"**SDK Commit:** `{sdk_commit}`",
-        "",
-        "### Metrics",
-        f"- **Success Rate:** {metrics['success_rate']:.1f}% ({metrics['success']}/{metrics['total']})",
-        f"- **Errors:** {metrics['errors']}",
+        f"**Dataset:** `{dataset}` (`{dataset_split}`)",
+        f"**Commit:** `{sdk_commit}`",
+        f"**Timestamp:** {timestamp}",
     ]
+
+    if trigger_reason:
+        lines.append(f"**Reason:** {trigger_reason}")
+
+    lines.extend(
+        [
+            "",
+            "### 📊 Results",
+            f"- **Instances:** {metrics['total']} (limit: {eval_limit})",
+            f"- **Success rate:** {metrics['success_rate']:.1f}% ({metrics['success']}/{metrics['total']})",
+            f"- **Errors:** {metrics['errors']}",
+        ]
+    )
 
     # Add report metrics if available
     if report_data:
-        lines.append("")
-        lines.append("### Detailed Results")
-        # SWT-Bench report typically contains resolved/unresolved counts
-        if "resolved" in report_data:
-            lines.append(f"- **Resolved:** {report_data.get('resolved', 0)}")
-        if "unresolved" in report_data:
-            lines.append(f"- **Unresolved:** {report_data.get('unresolved', 0)}")
+        lines.append(f"- **Resolved:** {report_data.get('resolved', 0)}")
+        lines.append(f"- **Unresolved:** {report_data.get('unresolved', 0)}")
+
+    if tar_url:
+        lines.extend(
+            [
+                "",
+                "### 🔗 Links",
+                f"[Full Archive]({tar_url})",
+            ]
+        )
 
     return "\n".join(lines)
 
