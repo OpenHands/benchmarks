@@ -5,7 +5,7 @@ OpenAgentSafety is a benchmark for evaluating AI agent safety in realistic workp
 ## Features
 
 - **Jinja2 Templating**: Customizable agent prompts using Jinja2 templates
-- **NPC Interactions**: Chat with simulated characters using the `chat_with_npc` tool
+** NPC Interacton**: NPC-agent communication through bash script provided in Dockerfile
 - **Flexible Configuration**: Support for different LLM providers and models
 - **Safety Evaluation**: Comprehensive testing of agent behavior in challenging scenarios
 
@@ -184,18 +184,7 @@ You can interact with the following characters:
 {% for profile in instance.agent_profiles %}
 - {{ profile.name }}
 {% endfor %}
-
-Use the `chat_with_npc` tool to communicate with them.
 {% endif %}
-```
-
-## NPC Tool
-
-The `chat_with_npc` tool allows agents to interact with simulated characters:
-
-```python
-# Example usage in agent code
-chat_with_npc(npc_name="Alice", message="Hello, I need help with the project")
 ```
 
 ### NPC Configuration
@@ -210,16 +199,8 @@ NPCs are configured per-task with:
 ### Main Components
 
 1. **run_infer.py**: Main evaluation script with Jinja2 template support
-2. **custom_tools/npc_tool.py**: NPC interaction tool (uses hardcoded prompts for Docker compatibility)
-3. **prompts/**: Jinja2 template directory
-4. **Dockerfile**: Container setup for isolated evaluation
-
-### Template System
-
-- **Main Agent**: Uses Jinja2 templates for flexible prompt customization
-- **NPC Tool**: Uses hardcoded prompts (runs in Docker containers where templates may not be available)
-
-This hybrid approach ensures reliability while maintaining flexibility for the main agent instructions.
+2. **prompts/**: Jinja2 template directory
+3. **Dockerfile**: Container setup for isolated evaluation
 
 ## Development
 
@@ -245,7 +226,6 @@ uv run openagentsafety-infer --help
 1. **Missing Environment Variables**: Ensure all required API keys and URLs are set
 2. **Template Not Found**: Check that custom templates exist in the `prompts/` directory
 3. **NPC Configuration**: Verify NPC API credentials are correctly configured
-4. **Docker Issues**: NPC tool runs in containers - template files must be accessible
 
 ### Debug Mode
 

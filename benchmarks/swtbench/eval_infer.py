@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
 
@@ -113,7 +114,7 @@ def convert_to_swtbench_format(
 
 def run_swtbench_evaluation(
     predictions_file: str,
-    dataset: str = "princeton-nlp/SWE-bench_Verified",
+    dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
     workers: str = "12",
 ) -> None:
     """
@@ -247,9 +248,9 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Verified",
+        default="eth-sri/SWT-bench_Verified_bm25_27k_zsp",
         help="SWT-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Verified)",
+        "(default: eth-sri/SWT-bench_Verified_bm25_27k_zsp)",
     )
 
     parser.add_argument(
@@ -305,6 +306,9 @@ Examples:
         if not args.skip_evaluation:
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
+
+        # Generate cost report as final step
+        generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
 

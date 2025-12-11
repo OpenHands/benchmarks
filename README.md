@@ -8,8 +8,9 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 
 | Benchmark | Description | Status |
 |-----------|-------------|--------|
-| [SWE-Bench](benchmarks/swe_bench/) | Software engineering tasks from GitHub issues | ✅ Active |
+| [SWE-Bench](benchmarks/swebench/) | Software engineering tasks from GitHub issues | ✅ Active |
 | [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
+| [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
 
 See the individual benchmark directories for detailed usage instructions.
@@ -112,7 +113,7 @@ uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 
 After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
 
-- **[SWE-Bench](benchmarks/swe_bench/)**: Software engineering tasks from GitHub issues
+- **[SWE-Bench](benchmarks/swebench/)**: Software engineering tasks from GitHub issues
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
@@ -165,6 +166,47 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
    - `SDK_SHORT_SHA`: Override the SDK SHA for image selection (default: auto-detected from submodule)
 
 See individual benchmark READMEs for specific usage examples.
+
+## SDK Compatibility and Version Management
+
+⚠️ **Important**: The benchmarks repository depends on the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk), and **not every version of the benchmarks is compatible with every version of the SDK**. As the SDK evolves and introduces new features, the benchmarks code may adopt these features, creating version dependencies.
+
+### Evaluating Different SDK Versions
+
+When evaluating a specific SDK version, you need to ensure the benchmarks code is compatible with that SDK version. You have two options:
+
+1. **Use the `benchmarks-commit` parameter in the workflow** (Recommended):
+   - When manually triggering the `build-swe-bench-images` workflow, specify both:
+     - `sdk-commit`: The SDK version you want to evaluate
+     - `benchmarks-commit`: A benchmarks commit that's compatible with that SDK version
+   
+2. **Manually check out compatible versions locally**:
+   ```bash
+   # Check out a benchmarks commit that's compatible with your target SDK version
+   git checkout <benchmarks-commit>
+   
+   # Update the SDK submodule to your target version
+   cd vendor/software-agent-sdk
+   git checkout <sdk-commit>
+   cd ../..
+   
+   # Rebuild the environment
+   make build
+   ```
+
+### Example: SDK Critic Module
+
+A notable example of version dependency is the SDK critic module. As of SDK commit [`79868ae5`](https://github.com/OpenHands/software-agent-sdk/commit/79868ae5) (November 17, 2025), the OpenHands Agent SDK introduced the `openhands.sdk.critic` module. Current benchmarks code imports `CriticBase` from this module, which means:
+
+- **SDK versions ≥ `79868ae5`**: Compatible with current benchmarks code
+- **SDK versions < `79868ae5`**: Require an older benchmarks commit (before the critic import was added)
+
+To check if a specific benchmarks commit requires the critic module:
+```bash
+git show <commit>:benchmarks/utils/models.py | grep "from openhands.sdk.critic"
+```
+
+If this command returns output, that benchmarks commit requires an SDK version with the critic module.
 
 ## Links
 
