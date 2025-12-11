@@ -14,7 +14,7 @@ This benchmark implements evaluation for SWE-Bench Multimodal datasets, which in
 ### Running Inference
 
 ```bash
-uv run swebench-multimodal-infer \
+uv run swebenchmultimodal-infer \
   --dataset princeton-nlp/SWE-bench_Multimodal \
   --split test \
   --llm-config .llm_config/your-config.json \
@@ -23,16 +23,14 @@ uv run swebench-multimodal-infer \
 
 ### Running Evaluation
 
-```bash
-uv run swebench-multimodal-eval ./output/princeton-nlp__SWE-bench_Multimodal-test/your-model/output.jsonl
-```
+To run evaluation, please see the official [SWE-bench Multimodal repository](https://github.com/SWE-bench/SWE-bench).
 
 ### Building Docker Images
 
 Pre-build all required docker images:
 
 ```bash
-uv run benchmarks/swe_bench_multimodal/build_images.py \
+uv run benchmarks/swebenchmultimodal/build_images.py \
   --dataset princeton-nlp/SWE-bench_Multimodal \
   --split test \
   --image ghcr.io/openhands/eval-agent-server
@@ -68,13 +66,13 @@ When working with multimodal instances:
 
 ```bash
 # Run inference on a small subset
-uv run swebench-multimodal-infer \
+uv run swebenchmultimodal-infer \
   --dataset princeton-nlp/SWE-bench_Multimodal \
   --split test \
   --llm-config .llm_config/claude-3-5-sonnet.json \
   --max-instances 5 \
   --output-dir ./multimodal_output
 
-# Evaluate the results
-uv run swebench-multimodal-eval ./multimodal_output/princeton-nlp__SWE-bench_Multimodal-test/claude-3-5-sonnet/output.jsonl
+# For evaluation, see the official SWE-bench multimodal repository
+# https://github.com/SWE-bench/SWE-bench
 ```

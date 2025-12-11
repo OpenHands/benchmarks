@@ -3,7 +3,7 @@
 Build agent-server images for all unique SWE-Bench Multimodal base images in a dataset split.
 
 Example:
-  uv run benchmarks/swe_bench_multimodal/build_images.py \
+  uv run benchmarks/swebenchmultimodal/build_images.py \
     --dataset princeton-nlp/SWE-bench_Multimodal --split test \
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
