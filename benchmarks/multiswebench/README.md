@@ -34,14 +34,14 @@ Before running inference, you need to build Docker images for the Multi-SWE-Benc
 
 ```bash
 # Build images for Java instances
-LANGUAGE=java uv run python -m benchmarks.multi_swe_bench.build_images \
+LANGUAGE=java uv run python -m benchmarks.multiswebench.build_images \
   --dataset bytedance-research/Multi-SWE-Bench \
   --split java_verified \
   --image ghcr.io/openhands/agent-server \
   --target source-minimal
 
 # Build images for Python instances
-LANGUAGE=python uv run python -m benchmarks.multi_swe_bench.build_images \
+LANGUAGE=python uv run python -m benchmarks.multiswebench.build_images \
   --dataset bytedance-research/Multi-SWE-Bench \
   --split python_verified \
   --image ghcr.io/openhands/agent-server \
@@ -93,7 +93,7 @@ Images must be pre-built and pushed to a **public** container registry before ru
 
 ```bash
 # Build and push Java images
-LANGUAGE=java uv run python -m benchmarks.multi_swe_bench.build_images \
+LANGUAGE=java uv run python -m benchmarks.multiswebench.build_images \
   --dataset bytedance-research/Multi-SWE-Bench \
   --split java_verified \
   --image ghcr.io/openhands/eval-agent-server \
@@ -102,7 +102,7 @@ LANGUAGE=java uv run python -m benchmarks.multi_swe_bench.build_images \
   --max-workers 32
 
 # Build and push Python images
-LANGUAGE=python uv run python -m benchmarks.multi_swe_bench.build_images \
+LANGUAGE=python uv run python -m benchmarks.multiswebench.build_images \
   --dataset bytedance-research/Multi-SWE-Bench \
   --split python_verified \
   --image ghcr.io/openhands/eval-agent-server \
