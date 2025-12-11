@@ -8,14 +8,9 @@ import contextlib
 import io
 import subprocess
 import time
-
-
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
+import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Callable
@@ -93,7 +88,7 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
 
 
 class BuildOutput(BaseModel):
-    time: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    time: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     base_image: str
     tags: list[str]
     error: str | None = None
@@ -109,7 +104,7 @@ def capture_output(base_name: str, out_dir: Path):
     Keeps redirect_* semantics; writes are realtime (line-buffered + flush).
     Yields the log_path.
     """
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     log_path = Path(out_dir) / base_name / f"build-{ts}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
