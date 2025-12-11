@@ -26,7 +26,7 @@ requests__requests-5555
 
 2. Run evaluation with the selection file:
 ```bash
-python -m benchmarks.swt_bench.run_infer \
+python -m benchmarks.swtbench.run_infer \
     --llm-config llm_config.toml \
     --max-iterations 30 \
     --select instances.txt \

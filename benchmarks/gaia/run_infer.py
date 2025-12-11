@@ -34,7 +34,7 @@ from openhands.sdk import (
 )
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
+from openhands.workspace import DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -117,7 +117,7 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         # Create Docker workspace with python-nodejs image
-        workspace = DockerWorkspace(
+        workspace = DockerDevWorkspace(
             base_image="nikolaik/python-nodejs:python3.12-nodejs22",
             working_dir="/workspace",
         )
