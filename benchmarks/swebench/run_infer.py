@@ -170,7 +170,20 @@ class SWEBenchEvaluation(Evaluation):
                 f"Unsupported workspace_type: {self.metadata.workspace_type}"
             )
 
-        for cmd in self.metadata.env_setup_commands or []:
+        # Run environment setup commands (base + optional per-instance)
+        setup_cmds = list(self.metadata.env_setup_commands or [])
+
+        # Ensure roman is present (needed by sphinx.builders.latex in multiple tasks).
+        setup_cmds.append(
+            "python - <<'PY'\n"
+            "import importlib.util, subprocess, sys\n"
+            "spec = importlib.util.find_spec('roman')\n"
+            "if spec is None:\n"
+            "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'roman'])\n"
+            "PY"
+        )
+
+        for cmd in setup_cmds:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
                 raise RuntimeError(
