@@ -334,7 +334,7 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
             dataset="princeton-nlp/SWE-bench_Multimodal",
-            dataset_split="test",
+            dataset_split="dev",
             details={"test": True},
             prompt_path=prompt_path,
             critic=PassCritic(),
