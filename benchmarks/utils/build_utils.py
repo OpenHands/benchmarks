@@ -195,11 +195,11 @@ def build_image(
         git_sha=git_sha,
         sdk_version=sdk_version,
     )
-    for t in opts.all_tags[0]:
-        # Check if image exists or not
-        if image_exists(t):
-            logger.info(f"Image {t} already exists. Skipping build.")
-            return BuildOutput(base_image=base_image, tags=[t], error=None)
+    # TEMPORARY: disable registry existence skip to force fresh builds
+    # for t in opts.all_tags[0]:
+    #     if image_exists(t):
+    #         logger.info(f"Image {t} already exists. Skipping build.")
+    #         return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
