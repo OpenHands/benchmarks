@@ -79,11 +79,21 @@ def get_dataset(
     selected_instances_file: str | None = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
-    # Load dataset
-    dataset = load_dataset(dataset_name, split=split)
-    assert isinstance(dataset, Dataset)
-    df = dataset.to_pandas()
-    assert isinstance(df, pd.DataFrame)
+    import os
+
+    # Check if dataset_name is a local file path
+    if os.path.isfile(dataset_name) and dataset_name.endswith(".jsonl"):
+        # Load local JSONL file
+        dataset = load_dataset("json", data_files=dataset_name, split="train")
+        assert isinstance(dataset, Dataset)
+        df = dataset.to_pandas()
+        assert isinstance(df, pd.DataFrame)
+    else:
+        # Load dataset from HuggingFace Hub
+        dataset = load_dataset(dataset_name, split=split)
+        assert isinstance(dataset, Dataset)
+        df = dataset.to_pandas()
+        assert isinstance(df, pd.DataFrame)
 
     # TODO: Add the ability to filter dataset
     logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")

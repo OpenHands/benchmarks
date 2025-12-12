@@ -1,0 +1,60 @@
+<uploaded_files>
+{{ workspace_path }}/{{ workspace_dir_name }}
+</uploaded_files>
+I've uploaded a {{ language|title }} code repository in the directory {{ workspace_dir_name }}. Consider the following issue description:
+
+<issue_description>
+{{ instance.problem_statement }}
+</issue_description>
+
+Can you help me implement the necessary changes to the repository so that the requirements specified in the <issue_description> are met?
+
+I've already taken care of all changes to any of the test files described in the <issue_description>. This means you DON'T have to modify the testing logic or any of the tests in any way!
+
+Also the development {{ language|title }} environment is already set up for you (i.e., all dependencies already installed), so you don't need to install other packages.
+
+Your task is to make the minimal changes to non-test files in the /workspace directory to ensure the <issue_description> is satisfied.
+
+Follow these steps to resolve the issue:
+1. As a first step, it might be a good idea to explore the repo to familiarize yourself with its structure.
+{% if language == 'python' %}
+2. Create a script to reproduce the error and execute it with `python <filename.py>` using the BashTool, to confirm the error.
+{% elif language == 'java' %}
+2. Create a Java class to reproduce the error and execute it by first compiling with `javac <classname>.java` and then running with `java <classname>` using the BashTool, to confirm the error
+{% elif language == 'go' %}
+2. Create a script or a function to reproduce the error and execute it with `go run <filename.go>` using the BashTool, to confirm the error.
+{% elif language == 'c' %}
+2. Create a script to reproduce the error by compiling your C code (for example, using `gcc <filename.c> -o <executable>`) and then running the executable using the BashTool, to confirm the error.
+{% elif language == 'cpp' %}
+2. Create or adapt a small executable (e.g., a main file or a test driver) to reproduce the issue. Build and run it (for example, by using `g++ -o reproduce reproduce.cpp && ./reproduce` via the BashTool) to confirm the error.
+{% elif language == 'javascript' %}
+2. Create a script to reproduce the error and execute it with `node <filename.js>` using the BashTool, to confirm the error.
+{% elif language == 'typescript' %}
+2. Create a script to reproduce the error and execute it with `ts-node <filename.ts>` using the BashTool, to confirm the error.
+{% elif language == 'rust' %}
+2. Create a reproduction script (or binary) that triggers the error and execute it with `cargo run --bin <filename>` using the BashTool, to confirm the error.
+{% else %}
+2. Create a script to reproduce the error and execute it using the appropriate command for {{ language }}, to confirm the error.
+{% endif %}
+3. Edit the sourcecode of the repo to resolve the issue.
+4. Rerun your reproduce script{% if language == 'java' %} or class{% endif %} and confirm that the error is fixed!
+5. Think about edgecases, add comprehensive tests for them in your reproduce {% if language == 'java' %}class or {% endif %}script, and run them to make sure your fix handles {% if language == 'java' %}these cases{% else %}them{% endif %} as well.
+{% if instance.base_commit %}
+6. Once you are done with the initial implementation, please carefully re-read the problem description and check the difference between the current code and the base commit {{ instance.base_commit }}. Do you think that the issue has been completely and comprehensively solved? Write tests to check the correctness of the solution, specifically focusing on tests that may point out any remaining problems that are not yet solved. Run all of the tests in the repo and check if any of them fail, and if they do fix the code. Repeat this process of carefully reading the problem description and current implementation, testing, and fixing any problems until you are confident that the current implementation is correct. Find and run any tests in the repo that are related to:
+   - The issue you are fixing
+   - The files you modified
+   {% if language == 'java' %}
+   - The functions or classes you changed
+   {% else %}
+   - The functions you changed
+   {% endif %}
+   Make sure all these tests pass with your changes.
+{% endif %}
+
+Your thinking should be thorough and so it's fine if it's very long.
+
+{% if use_hint_text and instance.hints_text %}
+<hints>
+{{ instance.hints_text }}
+</hints>
+{% endif %}
