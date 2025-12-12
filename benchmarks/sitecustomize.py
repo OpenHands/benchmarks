@@ -138,6 +138,15 @@ def _apply_modal_logging_patch() -> None:
 
     # Apply the monkey patch once per interpreter.
     mod.run_instances_modal = run_instances_modal_with_logging
+    try:
+        # run_evaluation imports run_instances_modal by value, so update it too.
+        import swebench.harness.run_evaluation as run_eval_mod
+
+        run_eval_mod.run_instances_modal = run_instances_modal_with_logging
+    except Exception:
+        # If run_evaluation isn't available yet, skip—sitecustomize will have
+        # already patched the modal module itself.
+        pass
 
 
 _apply_modal_logging_patch()
