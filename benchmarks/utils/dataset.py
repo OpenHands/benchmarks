@@ -55,6 +55,7 @@ def prepare_dataset(
     instance_ids: str | None = None,
 ) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
+    filtered = False
 
     # Filter by instance_ids if provided (takes precedence over selected_instances_file)
     if instance_ids:
@@ -65,6 +66,7 @@ def prepare_dataset(
             original_size = len(dataset)
             mask = dataset["instance_id"].isin(instance_id_list)
             dataset = cast(pd.DataFrame, dataset[mask])
+            filtered = True
             logger.info(
                 f"Filtered to {len(dataset)} instances from instance_ids parameter "
                 f"(original size: {original_size})"
@@ -75,13 +77,18 @@ def prepare_dataset(
         original_size = len(dataset)
         mask = dataset["instance_id"].isin(list(selected_instances))
         dataset = cast(pd.DataFrame, dataset[mask])
+        filtered = True
         logger.info(
             f"Selected {len(dataset)} instances from {original_size} total instances"
         )
 
     # Apply limit after filtering completed instances
-    if n_limit is not None and n_limit > 0:
+    if n_limit is not None and n_limit > 0 and not filtered:
         dataset = dataset.sample(n=min(n_limit, len(dataset)), random_state=42)
+    elif n_limit and filtered:
+        logger.info(
+            "n_limit provided but skipped because instance filtering was requested"
+        )
 
     return dataset
 
