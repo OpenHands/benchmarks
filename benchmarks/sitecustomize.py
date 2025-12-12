@@ -7,6 +7,10 @@ upstream harness only prints these exceptions, so the scoring step sees missing
 logs and marks the instance as a generic error. This module monkey-patches
 `run_instances_modal` to persist a minimal log/report for any exception result.
 
+We also patch the scikit-learn install command used inside Modal sandboxes to
+drop the deprecated `--no-use-pep517` flag (removed in pip>=25). That flag
+breaks the sandbox image build before any logs are produced.
+
 This file is imported automatically by Python when present on `sys.path`
 (`PYTHONPATH` already includes `/workspace/benchmarks` in the evaluation job),
 so no extra wiring is needed.
@@ -16,10 +20,41 @@ from __future__ import annotations
 
 import json
 import traceback
-from pathlib import Path
+
+
+def _patch_modal_sklearn_install_flag() -> None:
+    """
+    pip>=25 removed `--no-use-pep517`, but the scikit-learn specs still pass it.
+    When Modal builds the sandbox image, pip fails before tests ever run. Mutate
+    the specs in-place to drop that flag for all scikit-learn versions.
+    """
+    try:
+        # The constants module aliases SPECS_SKLEARN into MAP_REPO_VERSION_TO_SPECS,
+        # so mutating the dict is sufficient as long as imports share the object.
+        import swebench.harness.constants as consts
+        import swebench.harness.constants.python as py_consts
+    except Exception:
+        return
+
+    for version, spec in py_consts.SPECS_SKLEARN.items():
+        install_cmd = spec.get("install", "")
+        if "--no-use-pep517" not in install_cmd:
+            continue
+
+        cleaned = " ".join(install_cmd.replace("--no-use-pep517", "").split())
+        py_consts.SPECS_SKLEARN[version]["install"] = cleaned
+
+        repo_specs = consts.MAP_REPO_VERSION_TO_SPECS.get("scikit-learn/scikit-learn")
+        if isinstance(repo_specs, dict):
+            repo_specs[version] = py_consts.SPECS_SKLEARN[version]
+
+    # Best-effort patch; stay silent if nothing needed or imports fail.
+    return
 
 
 def _apply_modal_logging_patch() -> None:
+    _patch_modal_sklearn_install_flag()
+
     try:
         # Import inside the function so this file is harmless for non-SWE-Bench runs.
         from swebench.harness.modal_eval import run_evaluation_modal as mod
