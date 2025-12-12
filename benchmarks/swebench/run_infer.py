@@ -4,7 +4,7 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.swe_bench.build_images import (
+from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
@@ -115,7 +115,7 @@ class SWEBenchEvaluation(Evaluation):
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
                     "This may take a while...\n"
-                    "You can run benchmarks/swe_bench/build_images.py and set "
+                    "You can run benchmarks/swebench/build_images.py and set "
                     "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
                     "agent-server image."
                 )
