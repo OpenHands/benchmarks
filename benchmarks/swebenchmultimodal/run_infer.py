@@ -43,16 +43,6 @@ from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 logger = get_logger(__name__)
 
 
-def get_fallback_docker_image(instance_id: str) -> str:
-    """Get regular SWE-bench docker image as fallback."""
-    repo, name = instance_id.split("__")
-    fallback_image = (
-        f"docker.io/swebench/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
-    )
-    logger.debug(f"Fallback SWE-Bench image: {fallback_image}")
-    return fallback_image
-
-
 def get_instruction(
     instance: dict,
     metadata: EvalMetadata,
@@ -117,7 +107,7 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
         """
-        # Try multimodal image first, fall back to regular SWE-bench image
+        # Use multimodal image
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
         custom_tag = extract_custom_tag(official_docker_image)
@@ -140,82 +130,20 @@ class SWEBenchEvaluation(Evaluation):
                     "agent-server image."
                 )
 
-                # Check if multimodal image exists before trying to build with it
-                if image_exists(official_docker_image):
-                    logger.info(
-                        f"Multimodal image {official_docker_image} exists, building with it"
+                output = build_image(
+                    base_image=official_docker_image,
+                    target_image=EVAL_AGENT_SERVER_IMAGE,
+                    custom_tag=custom_tag,
+                    target=build_target,
+                    push=False,
+                )
+                logger.info(f"Image build output: {output}")
+                assert output.error is None, f"Image build failed: {output.error}"
+                if agent_server_image not in output.tags:
+                    raise RuntimeError(
+                        f"Built image tags {output.tags} do not include expected tag "
+                        f"{agent_server_image}"
                     )
-                    try:
-                        output = build_image(
-                            base_image=official_docker_image,
-                            target_image=EVAL_AGENT_SERVER_IMAGE,
-                            custom_tag=custom_tag,
-                            target=build_target,
-                            push=False,
-                        )
-                        logger.info(f"Image build output: {output}")
-                        assert output.error is None, (
-                            f"Image build failed: {output.error}"
-                        )
-                        if agent_server_image not in output.tags:
-                            raise RuntimeError(
-                                f"Built image tags {output.tags} do not include expected tag "
-                                f"{agent_server_image}"
-                            )
-                    except Exception as e:
-                        logger.warning(f"Multimodal image build failed: {e}")
-                        logger.info("Falling back to regular SWE-bench image...")
-
-                        # Fall back to regular SWE-bench image
-                        fallback_docker_image = get_fallback_docker_image(instance.id)
-                        fallback_custom_tag = extract_custom_tag(fallback_docker_image)
-                        fallback_agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{fallback_custom_tag}{suffix}"
-
-                        output = build_image(
-                            base_image=fallback_docker_image,
-                            target_image=EVAL_AGENT_SERVER_IMAGE,
-                            custom_tag=fallback_custom_tag,
-                            target=build_target,
-                            push=False,
-                        )
-                        logger.info(f"Fallback image build output: {output}")
-                        assert output.error is None, (
-                            f"Fallback image build failed: {output.error}"
-                        )
-                        if fallback_agent_server_image not in output.tags:
-                            raise RuntimeError(
-                                f"Built fallback image tags {output.tags} do not include expected tag "
-                                f"{fallback_agent_server_image}"
-                            )
-                        # Update the agent server image to use fallback
-                        agent_server_image = fallback_agent_server_image
-                else:
-                    logger.info(
-                        f"Multimodal image {official_docker_image} does not exist, using fallback"
-                    )
-                    # Fall back to regular SWE-bench image immediately
-                    fallback_docker_image = get_fallback_docker_image(instance.id)
-                    fallback_custom_tag = extract_custom_tag(fallback_docker_image)
-                    fallback_agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{fallback_custom_tag}{suffix}"
-
-                    output = build_image(
-                        base_image=fallback_docker_image,
-                        target_image=EVAL_AGENT_SERVER_IMAGE,
-                        custom_tag=fallback_custom_tag,
-                        target=build_target,
-                        push=False,
-                    )
-                    logger.info(f"Fallback image build output: {output}")
-                    assert output.error is None, (
-                        f"Fallback image build failed: {output.error}"
-                    )
-                    if fallback_agent_server_image not in output.tags:
-                        raise RuntimeError(
-                            f"Built fallback image tags {output.tags} do not include expected tag "
-                            f"{fallback_agent_server_image}"
-                        )
-                    # Update the agent server image to use fallback
-                    agent_server_image = fallback_agent_server_image
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
