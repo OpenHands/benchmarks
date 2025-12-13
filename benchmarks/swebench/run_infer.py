@@ -170,7 +170,57 @@ class SWEBenchEvaluation(Evaluation):
                 f"Unsupported workspace_type: {self.metadata.workspace_type}"
             )
 
-        for cmd in self.metadata.env_setup_commands or []:
+        # Run environment setup commands (base + optional per-instance)
+        setup_cmds = list(self.metadata.env_setup_commands or [])
+
+        # TEMPORARY: ensure docutils retains roman helpers and roman package is present
+        # while upstream images are rebuilt with the proper dependencies baked in.
+        setup_cmds.append(
+            "python - <<'PY'\n"
+            "import pathlib\n"
+            "import subprocess\n"
+            "import sys\n"
+            "\n"
+            "constraint_path = pathlib.Path('/etc/pip-docutils-constraints.txt')\n"
+            "constraint_path.write_text('docutils<0.21\\n', encoding='utf-8')\n"
+            "config_paths = [\n"
+            "    pathlib.Path('/etc/pip.conf'),\n"
+            "    pathlib.Path('/root/.config/pip/pip.conf'),\n"
+            "    pathlib.Path('/root/.pip/pip.conf'),\n"
+            "    pathlib.Path('/workspace/.config/pip/pip.conf'),\n"
+            "]\n"
+            "for cfg in config_paths:\n"
+            "    cfg.parent.mkdir(parents=True, exist_ok=True)\n"
+            "    cfg.write_text(\n"
+            "        f\"[global]\\nconstraint = {constraint_path}\\n\", encoding='utf-8'\n"
+            "    )\n"
+            "\n"
+            "python_exec = pathlib.Path('/opt/miniconda3/envs/testbed/bin/python')\n"
+            "if not python_exec.exists():\n"
+            "    python_exec = pathlib.Path(sys.executable)\n"
+            "\n"
+            "def pip_install(spec: str) -> None:\n"
+            "    subprocess.check_call(\n"
+            "        [\n"
+            "            str(python_exec),\n"
+            "            '-m',\n"
+            "            'pip',\n"
+            "            'install',\n"
+            "            '--no-deps',\n"
+            "            '--upgrade',\n"
+            "            '--force-reinstall',\n"
+            "            spec,\n"
+            "        ]\n"
+            "    )\n"
+            "\n"
+            "# docutils>=0.21 dropped docutils.utils.roman; lock version globally\n"
+            "pip_install('docutils<0.21')\n"
+            "# ensure roman package exists for latex builder\n"
+            "pip_install('roman')\n"
+            "PY"
+        )
+
+        for cmd in setup_cmds:
             res = workspace.execute_command(cmd)
             if res.exit_code != 0:
                 raise RuntimeError(
