@@ -1,25 +1,16 @@
 import argparse
 import json
 import os
-import subprocess
+
+from benchmarks.multiswebench.scripts.eval.convert import convert_to_eval_format
 
 
 def update_multi_swe_config(output_jsonl_path, config_path, dataset):
     path_to_parent = os.path.dirname(os.path.abspath(output_jsonl_path))
     converted_path = os.path.join(path_to_parent, "output_converted.jsonl")
 
-    # Run the conversion script
-    subprocess.run(
-        [
-            "python3",
-            "./evaluation/benchmarks/multiswebench/scripts/eval/convert.py",
-            "--input",
-            output_jsonl_path,
-            "--output",
-            converted_path,
-        ],
-        check=True,
-    )
+    # Run the conversion function
+    convert_to_eval_format(output_jsonl_path, converted_path)
 
     # Create required directories
     os.makedirs(os.path.join(path_to_parent, "eval_files", "dataset"), exist_ok=True)

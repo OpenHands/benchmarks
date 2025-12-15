@@ -23,7 +23,6 @@ from openhands.sdk.critic import PassCritic
 from openhands.sdk.event import MessageEvent
 from openhands.sdk.llm import Message, TextContent
 from openhands.sdk.llm.utils.metrics import Metrics, TokenUsage
-from openhands.sdk.workspace import RemoteWorkspace
 
 
 def discover_benchmarks() -> list[tuple[str, type[Evaluation]]]:

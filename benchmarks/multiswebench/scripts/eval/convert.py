@@ -3,7 +3,7 @@ import json
 import re
 
 
-def main(input_file, output_file):
+def convert_to_eval_format(input_file, output_file):
     with open(input_file, "r") as fin:
         with open(output_file, "w") as fout:
             for line in fin:
@@ -34,4 +34,4 @@ if __name__ == "__main__":
     parser.add_argument("--input", required=True, help="Input .jsonl file path")
     parser.add_argument("--output", required=True, help="Output .jsonl file path")
     args = parser.parse_args()
-    main(args.input, args.output)
+    convert_to_eval_format(args.input, args.output)
