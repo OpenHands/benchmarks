@@ -174,20 +174,13 @@ class SWEBenchEvaluation(Evaluation):
         # Run environment setup commands (base + optional per-instance)
         setup_cmds = list(self.metadata.env_setup_commands or [])
 
-        # TEMPORARY: ensure docutils retains roman helpers and roman package is present
-        # while upstream images are rebuilt with the proper dependencies baked in.
+        # Ensure roman is present (needed by sphinx.builders.latex in multiple tasks).
         setup_cmds.append(
             "python - <<'PY'\n"
-            "import subprocess\n"
-            "import sys\n"
-            "\n"
-            "def pip_install(spec: str) -> None:\n"
-            "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', spec])\n"
-            "\n"
-            "# docutils>=0.21 dropped docutils.utils.roman\n"
-            "pip_install('docutils<0.21')\n"
-            "# ensure roman package exists\n"
-            "pip_install('roman')\n"
+            "import importlib.util, subprocess, sys\n"
+            "spec = importlib.util.find_spec('roman')\n"
+            "if spec is None:\n"
+            "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'roman'])\n"
             "PY"
         )
 
