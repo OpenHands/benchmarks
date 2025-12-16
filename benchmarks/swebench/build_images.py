@@ -48,9 +48,19 @@ def extract_custom_tag(base_image: str) -> str:
     return name
 
 
-def collect_unique_base_images(dataset, split, n_limit):
+def collect_unique_base_images(
+    dataset,
+    split,
+    n_limit,
+    selected_instances_file: str | None = None,
+    instance_ids: str | None = None,
+):
     df = get_dataset(
-        dataset_name=dataset, split=split, eval_limit=n_limit if n_limit else None
+        dataset_name=dataset,
+        split=split,
+        eval_limit=n_limit if n_limit else None,
+        selected_instances_file=selected_instances_file,
+        instance_ids=instance_ids,
     )
     return sorted(
         {get_official_docker_image(str(row["instance_id"])) for _, row in df.iterrows()}
@@ -62,7 +72,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     base_images: list[str] = collect_unique_base_images(
-        args.dataset, args.split, args.n_limit
+        args.dataset, args.split, args.n_limit, args.select, args.instance_ids
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
     return build_all_images(
