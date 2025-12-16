@@ -41,8 +41,7 @@ on:
         default: ''
         type: string
 
-# Reasonable defaults for automatic (push) runs; workflow_dispatch can override these.
-# Keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+# Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
