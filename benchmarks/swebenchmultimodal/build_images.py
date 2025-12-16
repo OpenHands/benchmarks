@@ -26,19 +26,19 @@ def get_official_docker_image(
     instance_id: str,
     docker_image_prefix="docker.io/swebench/",
 ) -> str:
-    # Try SWE-Bench Multimodal image first, fall back to regular SWE-Bench image
-    # Multimodal: swebench/sweb.mm.eval.x86_64.openlayers_1776_openlayers-12172:latest
-    # Regular: swebench/sweb.eval.x86_64.django_1776_django-11333:latest
+    # For multimodal benchmark, we use regular SWE-bench images as base
+    # since multimodal-specific images (sweb.mm.eval.*) are not available
+    # The multimodal functionality is handled at the application level
     repo, name = instance_id.split("__")
 
-    # First try multimodal image
-    multimodal_image_name = docker_image_prefix.rstrip("/")
-    multimodal_image_name += f"/sweb.mm.eval.x86_64.{repo}_1776_{name}:latest".lower()
+    # Use regular SWE-bench image as base for multimodal instances
+    regular_image_name = docker_image_prefix.rstrip("/")
+    regular_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
 
-    # Check if multimodal image exists (we'll use this as primary)
-    # For now, return multimodal image name - the build process will handle fallback
-    logger.debug(f"Official SWE-Bench Multimodal image: {multimodal_image_name}")
-    return multimodal_image_name
+    logger.debug(
+        f"Using regular SWE-Bench image for multimodal instance: {regular_image_name}"
+    )
+    return regular_image_name
 
 
 def extract_custom_tag(base_image: str) -> str:

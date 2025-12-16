@@ -4,10 +4,10 @@ This benchmark implements evaluation for SWE-Bench Multimodal datasets, which in
 
 ## Key Differences from Regular SWE-Bench
 
-1. **Docker Images**: Attempts to use multimodal-specific docker images with `sweb.mm.eval` prefix, but falls back to regular `sweb.eval` images if multimodal images don't exist
+1. **Docker Images**: Uses regular SWE-bench docker images (`sweb.eval.*`) as base, with multimodal functionality handled at the application level
 2. **Environment Setup**: Skips testbed environment activation (similar to SWE-bench-Live)
 3. **Dataset Support**: Designed specifically for `princeton-nlp/SWE-bench_Multimodal` dataset
-4. **Fallback Mechanism**: Gracefully handles missing multimodal docker images by falling back to regular SWE-bench images
+4. **Multimodal Content**: Handles visual elements (images, diagrams, screenshots) through the agent's multimodal capabilities
 
 ## Usage
 
@@ -23,7 +23,28 @@ uv run swebenchmultimodal-infer \
 
 ### Running Evaluation
 
-To run evaluation, please see the official [SWE-bench Multimodal repository](https://github.com/SWE-bench/SWE-bench).
+After running inference, you can evaluate the results using:
+
+```bash
+uv run swebenchmultimodal-eval <path_to_output.jsonl>
+```
+
+This will:
+1. Convert the OpenHands output format to SWE-Bench prediction format
+2. Run the SWE-Bench Multimodal evaluation with the `--modal true` flag
+3. Generate a cost report
+
+Example:
+```bash
+uv run swebenchmultimodal-eval ./output/output.jsonl --workers 8
+```
+
+For more evaluation options:
+```bash
+uv run swebenchmultimodal-eval --help
+```
+
+You can also refer to the official [SWE-bench Multimodal repository](https://github.com/SWE-bench/SWE-bench) for additional evaluation details.
 
 ### Building Docker Images
 
@@ -57,10 +78,10 @@ The benchmark uses the same configuration options as regular SWE-Bench:
 
 When working with multimodal instances:
 
-1. **Visual Content**: The agent will have access to images and visual elements through the workspace
+1. **Visual Content**: The agent will have access to images and visual elements through the problem statement and workspace
 2. **No Testbed**: Unlike regular SWE-Bench, multimodal instances don't use the testbed environment
-3. **Docker Images**: The system will attempt to use multimodal-specific docker images (`sweb.mm.eval.*`) but will automatically fall back to regular SWE-bench images (`sweb.eval.*`) if multimodal images are not available
-4. **Fallback Behavior**: When multimodal images are missing, you'll see log messages like "Multimodal image build failed" followed by "Falling back to regular SWE-bench image..." - this is expected behavior
+3. **Docker Images**: Uses regular SWE-bench docker images (`sweb.eval.*`) as the base environment
+4. **Multimodal Processing**: Visual content is processed by the agent's multimodal capabilities, not at the container level
 
 ## Example
 
