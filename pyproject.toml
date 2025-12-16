@@ -52,10 +52,6 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["benchmarks"]
 
-[tool.setuptools]
-# Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
-py-modules = ["sitecustomize"]
-
 [dependency-groups]
 dev = [
     "pre-commit>=4.3.0",
@@ -101,3 +97,4 @@ members = [
   "vendor/software-agent-sdk/openhands-workspace",
   "vendor/software-agent-sdk/openhands-agent-server",
 ]
+
