@@ -15,7 +15,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
@@ -113,60 +112,6 @@ def convert_to_swtbench_format(
         raise ValueError("No valid entries were converted")
 
 
-def ensure_docker_running() -> None:
-    """Ensure Docker daemon is reachable.
-
-    If a DOCKER_HOST is provided (e.g., when using a sidecar dind), poll it and
-    fail fast instead of trying to spawn a local daemon. Otherwise, start a
-    local dockerd instance in the current container.
-    """
-
-    def _docker_info_ok() -> bool:
-        try:
-            result = subprocess.run(
-                ["docker", "info"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
-
-    docker_host = os.environ.get("DOCKER_HOST")
-    if docker_host:
-        logger.info(f"Checking Docker connectivity via DOCKER_HOST={docker_host}")
-        for _ in range(30):  # Wait up to 30 seconds
-            if _docker_info_ok():
-                logger.info("Connected to Docker daemon via DOCKER_HOST")
-                return
-            time.sleep(1)
-        raise RuntimeError(
-            f"Could not reach Docker daemon via DOCKER_HOST={docker_host}"
-        )
-
-    logger.info("Starting local Docker daemon...")
-    try:
-        # Start Docker daemon in the background (no sudo - running as root in container)
-        subprocess.Popen(
-            ["dockerd"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        # Wait for Docker to initialize
-        for _ in range(30):  # Wait up to 30 seconds
-            time.sleep(1)
-            if _docker_info_ok():
-                logger.info("Local Docker daemon started successfully")
-                return
-
-        raise RuntimeError("Docker daemon failed to start within 30 seconds")
-    except Exception as e:
-        logger.error(f"Failed to start Docker daemon: {e}")
-        raise
-
-
 def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
@@ -188,9 +133,6 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
-        # Ensure Docker is running (required for SWT-Bench evaluation)
-        ensure_docker_running()
-        
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
