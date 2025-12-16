@@ -101,33 +101,8 @@ class GAIAEvaluation(Evaluation):
             df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
             logger.info(f"Limited to {len(df)} instances due to eval_limit")
 
-        # Filter by instance_ids if provided (takes precedence over selected_instances_file)
-        if self.metadata.instance_ids:
-            # Parse comma-separated instance IDs
-            requested_ids = [
-                id.strip() for id in self.metadata.instance_ids.split(",") if id.strip()
-            ]
-            logger.info(f"Filtering to {len(requested_ids)} requested instance IDs")
-
-            # Get available instance IDs
-            available_ids = set(df["instance_id"].tolist())
-
-            # Validate that all requested IDs exist
-            invalid_ids = [id for id in requested_ids if id not in available_ids]
-            if invalid_ids:
-                error_msg = (
-                    f"The following instance IDs are not valid GAIA instances: {invalid_ids}\n"
-                    f"Please check the instance IDs and try again."
-                )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-
-            # Filter to requested instances
-            df = cast(pd.DataFrame, df[df["instance_id"].isin(requested_ids)])
-            logger.info(f"Filtered to {len(df)} instances from instance_ids parameter")
-
-        # Filter by selected_instances_file if provided (only if instance_ids not set)
-        elif self.metadata.selected_instances_file:
+        # Filter by selected_instances_file if provided
+        if self.metadata.selected_instances_file:
             with open(self.metadata.selected_instances_file, "r") as f:
                 selected_ids = set(line.strip() for line in f if line.strip())
             df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
@@ -532,7 +507,6 @@ def main() -> None:
         required=True,
         help="GAIA level to evaluate (e.g., 2023_level1, 2023_level2, 2023_level3)",
     )
-    # Note: --instance-ids is already defined in get_parser() (shared args)
     args = parser.parse_args()
 
     # Create critic instance from parsed arguments
@@ -576,7 +550,6 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
-        instance_ids=args.instance_ids,
         workspace_type=args.workspace,
     )
 
