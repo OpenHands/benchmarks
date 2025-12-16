@@ -124,7 +124,6 @@ class SWTBenchEvaluation(Evaluation):
             split=self.metadata.dataset_split,
             eval_limit=self.metadata.eval_limit,
             selected_instances_file=self.metadata.selected_instances_file,
-            instance_ids=self.metadata.instance_ids,
         )
 
         instances: List[EvalInstance] = []
@@ -369,7 +368,6 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
-        instance_ids=args.instance_ids,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
     )

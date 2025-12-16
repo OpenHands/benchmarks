@@ -97,25 +97,8 @@ class GAIAEvaluation(Evaluation):
             df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
             logger.info(f"Limited to {len(df)} instances due to eval_limit")
 
-        # Filter by instance_ids if provided (takes precedence over selected_instances_file)
-        if self.metadata.instance_ids:
-            requested_ids = [
-                id.strip() for id in self.metadata.instance_ids.split(",") if id.strip()
-            ]
-            available_ids = set(df["instance_id"].tolist())
-            invalid_ids = [id for id in requested_ids if id not in available_ids]
-            if invalid_ids:
-                raise ValueError(
-                    "The following instance IDs are not valid GAIA instances: "
-                    f"{invalid_ids}"
-                )
-            df = cast(pd.DataFrame, df[df["instance_id"].isin(requested_ids)])
-            logger.info(
-                f"Filtered to {len(df)} instances from instance_ids parameter"
-            )
-
-        # Filter by selected_instances_file if provided (only if instance_ids not set)
-        elif self.metadata.selected_instances_file:
+        # Filter by selected_instances_file if provided
+        if self.metadata.selected_instances_file:
             with open(self.metadata.selected_instances_file, "r") as f:
                 selected_ids = set(line.strip() for line in f if line.strip())
             df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
@@ -449,7 +432,6 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
-        instance_ids=args.instance_ids,
     )
 
     # Create evaluator
