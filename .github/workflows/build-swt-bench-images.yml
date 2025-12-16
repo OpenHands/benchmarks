@@ -25,6 +25,11 @@ on:
         required: false
         default: '0'
         type: string
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (required)'
+        required: true
+        default: ''
+        type: string
       sdk-commit:
         description: 'Software Agent SDK commit/ref to use'
         required: true
@@ -105,9 +110,25 @@ jobs:
           SPLIT="${{ inputs.split || 'test' }}"
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
+          INSTANCE_IDS="${{ inputs.instance-ids }}"
+
+          if [ -z "${INSTANCE_IDS}" ]; then
+            echo "instance-ids input is required for SWT-Bench builds."
+            exit 1
+          fi
 
           # SWT-Bench uses source-minimal target (same as SWE-bench)
           TARGET="source-minimal"
+
+          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
+          echo "Creating selected instances file at ${SELECT_FILE}"
+          echo "${INSTANCE_IDS}" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | sed '/^$/d' > "${SELECT_FILE}"
+
+          # When explicit instances are provided, ignore n-limit to avoid double filtering
+          N_LIMIT="0"
 
           CMD="uv run benchmarks/swtbench/build_images.py \
             --dataset ${DATASET} \
@@ -115,7 +136,8 @@ jobs:
             --image ghcr.io/openhands/eval-agent-server \
             --target ${TARGET} \
             --max-workers ${MAX_WORKERS} \
-            --push"
+            --push \
+            --select ${SELECT_FILE}"
 
           # Add n-limit if specified
           if [ "$N_LIMIT" != "0" ]; then
