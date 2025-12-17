@@ -31,6 +31,8 @@ from tqdm.auto import tqdm
 logger = get_logger(__name__)
 WRAPPER_SUFFIX = "-fixed"
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
+# Repos that require the docutils/roman wrapper layer
+WRAPPED_REPOS = {"sphinx-doc"}
 
 
 def get_official_docker_image(
@@ -57,6 +59,23 @@ def extract_custom_tag(base_image: str) -> str:
     name_tag = base_image.split("/")[-1]
     name = name_tag.split(":")[0]
     return name
+
+
+def _repo_from_custom_tag(custom_tag: str) -> str:
+    """Extract repo name (e.g., sphinx-doc) from a custom tag."""
+    prefix = "sweb.eval.x86_64."
+    if custom_tag.startswith(prefix):
+        custom_tag = custom_tag[len(prefix) :]
+    return custom_tag.split("_", 1)[0]
+
+
+def should_wrap_custom_tag(custom_tag: str) -> bool:
+    return _repo_from_custom_tag(custom_tag) in WRAPPED_REPOS
+
+
+def should_wrap_instance_id(instance_id: str) -> bool:
+    repo = instance_id.split("__")[0]
+    return repo in WRAPPED_REPOS
 
 
 def collect_unique_base_images(
@@ -322,9 +341,17 @@ def main(argv: list[str]) -> int:
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
 
-    base_agent_images = [
-        _agent_server_tag(args.image, extract_custom_tag(base), args.target, SDK_SHORT_SHA)
+    base_agent_entries = [
+        (
+            _agent_server_tag(args.image, extract_custom_tag(base), args.target, SDK_SHORT_SHA),
+            extract_custom_tag(base),
+        )
         for base in base_images
+    ]
+
+    base_agent_images = [img for img, _ in base_agent_entries]
+    wrapped_agent_images = [
+        img for img, custom_tag in base_agent_entries if should_wrap_custom_tag(custom_tag)
     ]
 
     rc = build_all_images(
@@ -340,16 +367,21 @@ def main(argv: list[str]) -> int:
     )
     if args.dry_run:
         # build_all_images already printed base images; also show wrapped tags
-        print("\n".join(_wrapped_tag(tag) for tag in base_agent_images))
+        if wrapped_agent_images:
+            print("\n".join(_wrapped_tag(tag) for tag in wrapped_agent_images))
         return rc
 
-    wrap_rc = wrap_all_images(
-        base_agent_images=base_agent_images,
-        build_dir=build_dir,
-        push=args.push,
-        max_workers=args.max_workers,
-        max_retries=args.max_retries,
-    )
+    wrap_rc = 0
+    if wrapped_agent_images:
+        wrap_rc = wrap_all_images(
+            base_agent_images=wrapped_agent_images,
+            build_dir=build_dir,
+            push=args.push,
+            max_workers=args.max_workers,
+            max_retries=args.max_retries,
+        )
+    else:
+        logger.info("No instances require wrapper layer; skipping wrap stage.")
 
     return 1 if rc or wrap_rc else 0
 
