@@ -18,7 +18,7 @@ dependencies = [
     "openhands-agent-server",
     "openhands-workspace",
     "modal>=1.1.4",
-    "swebench",
+    "swebench==4.1.0",
     "commit0",
     "pytest-json-report",
     # SWT-Bench dependencies (since the git package doesn't install them properly)
