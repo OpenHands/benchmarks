@@ -12,9 +12,12 @@ Usage:
 import argparse
 import json
 import os
+import subprocess
 from pathlib import Path
 
-from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.multiswebench.scripts.eval.update_multi_swe_bench_config import (
+    update_multi_swe_config,
+)
 from openhands.sdk import get_logger
 
 
@@ -24,71 +27,11 @@ logger = get_logger(__name__)
 LANGUAGE = os.environ.get("LANGUAGE", "java")
 
 
-def convert_to_multi_swebench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> None:
-    """
-    Convert OpenHands output.jsonl to Multi-SWE-Bench prediction format.
-
-    OpenHands format:
-    {
-        "instance_id": "repo__version",
-        "test_result": {
-            "git_patch": "diff --git a/file.py b/file.py\n..."
-        },
-        "instruction": "...",
-        "error": null,
-        "history": [...]
-    }
-
-    Multi-SWE-Bench format:
-    {
-        "instance_id": "repo__version",
-        "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
-    }
-    """
-    logger.info(f"Converting {input_file} to Multi-SWE-Bench format: {output_file}")
-
-    predictions = []
-
-    with open(input_file, "r") as f:
-        for line in f:
-            data = json.loads(line.strip())
-
-            instance_id = data.get("instance_id")
-            if not instance_id:
-                logger.warning(f"Missing instance_id in line: {line}")
-                continue
-
-            # Extract git patch
-            git_patch = ""
-            if "test_result" in data and data["test_result"]:
-                git_patch = data["test_result"].get("git_patch", "")
-            elif "git_patch" in data:
-                git_patch = data["git_patch"]
-
-            # Remove test files from patch if needed
-            if git_patch:
-                git_patch = remove_files_from_patch(git_patch, ["test_", "_test"])
-
-            prediction = {
-                "instance_id": instance_id,
-                "model_patch": git_patch,
-                "model_name_or_path": model_name,
-            }
-
-            predictions.append(prediction)
-
-    # Write predictions to output file
-    with open(output_file, "w") as f:
-        json.dump(predictions, f, indent=2)
-
-    logger.info(f"Converted {len(predictions)} predictions to {output_file}")
-
-
 def run_multi_swebench_evaluation(
-    predictions_file: str, dataset_name: str | None = None, split: str | None = None
+    predictions_file: str,
+    dataset_name: str | None = None,
+    split: str | None = None,
+    original_file: str | None = None,
 ) -> dict:
     """
     Run Multi-SWE-Bench evaluation using the predictions file.
@@ -97,6 +40,7 @@ def run_multi_swebench_evaluation(
         predictions_file: Path to the predictions JSON file
         dataset_name: Name of the dataset (e.g., "bytedance-research/Multi-SWE-Bench")
         split: Dataset split (e.g., "test", "train")
+        original_file: Path to the original OpenHands output.jsonl file
 
     Returns:
         Dictionary containing evaluation results
@@ -110,36 +54,139 @@ def run_multi_swebench_evaluation(
         split = "test"
 
     try:
-        # For now, we'll use a simplified evaluation approach
-        # In a full implementation, this would call the Multi-SWE-Bench evaluation toolkit
-
-        # Load predictions
+        # Load predictions for basic statistics
         with open(predictions_file, "r") as f:
             predictions = json.load(f)
 
-        # Basic statistics
         total_instances = len(predictions)
         instances_with_patches = sum(
             1 for p in predictions if p.get("model_patch", "").strip()
         )
 
-        results = {
-            "total_instances": total_instances,
-            "instances_with_patches": instances_with_patches,
-            "patch_rate": instances_with_patches / total_instances
-            if total_instances > 0
-            else 0,
-            "language": LANGUAGE,
-            "dataset": dataset_name,
-            "split": split,
-        }
+        logger.info(f"Total instances: {total_instances}")
+        logger.info(f"Instances with patches: {instances_with_patches}")
+
+        # Use the same directory as the predictions file for evaluation
+        predictions_path = Path(predictions_file)
+        work_dir = predictions_path.parent
+
+        # Copy predictions file to work directory with a specific name
+        temp_jsonl = work_dir / "predictions.json"
+        with open(temp_jsonl, "w") as f:
+            json.dump(predictions, f, indent=2)
+
+        # Create config file for Multi-SWE-Bench
+        config_file = work_dir / "config.json"
+
+        # Handle dataset path if provided
+        dataset_path = str(Path(dataset_name).resolve())
+
+        config_input_file = original_file if original_file else str(temp_jsonl)
+        update_multi_swe_config(config_input_file, str(config_file), dataset_path)
+
+        logger.info(f"Generated config file: {config_file}")
+
+        # Run the Multi-SWE-Bench evaluation
+        logger.info("Running Multi-SWE-Bench evaluation harness...")
+
+        cmd = [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "multi_swe_bench.harness.run_evaluation",
+            "--config",
+            str(config_file.resolve()),
+            "--mode",
+            "evaluation",
+        ]
+
+        logger.info(f"Evaluation command: {' '.join(cmd)}")
+
+        # Run with real-time output streaming
+        result = subprocess.run(cmd, cwd=work_dir)
+
+        logger.info(f"Return code: {result.returncode}")
+
+        if result.returncode != 0:
+            error_msg = f"Evaluation failed with return code {result.returncode}"
+            print(f"ERROR: {error_msg}")
+            logger.error(error_msg)
+            return {
+                "total_instances": total_instances,
+                "instances_with_patches": instances_with_patches,
+                "patch_rate": instances_with_patches / total_instances
+                if total_instances > 0
+                else 0,
+                "language": LANGUAGE,
+                "dataset": dataset_name,
+                "split": split,
+                "evaluation_status": "error",
+                "error": error_msg,
+            }
+
+        # Parse evaluation results
+        # Look for the report file in the evaluation output directory
+        eval_files_dir = work_dir / "eval_files"
+        report_files = list(eval_files_dir.glob("**/report.json"))
+
+        if report_files:
+            with open(report_files[0], "r") as f:
+                eval_results = json.load(f)
+
+            # Extract key metrics from the evaluation results
+            results = {
+                "total_instances": total_instances,
+                "instances_with_patches": instances_with_patches,
+                "patch_rate": instances_with_patches / total_instances
+                if total_instances > 0
+                else 0,
+                "language": LANGUAGE,
+                "dataset": dataset_name,
+                "split": split,
+                "evaluation_status": "success",
+                "eval_results": eval_results,
+            }
+
+            # Add summary metrics if available
+            if "summary" in eval_results:
+                results.update(eval_results["summary"])
+
+        else:
+            # If no report file found, this means no instances were processed
+            error_msg = "No evaluation report generated - likely all instances were rejected as 'not registered'"
+            print(f"ERROR: {error_msg}")
+            logger.error(error_msg)
+            return {
+                "total_instances": total_instances,
+                "instances_with_patches": instances_with_patches,
+                "patch_rate": instances_with_patches / total_instances
+                if total_instances > 0
+                else 0,
+                "language": LANGUAGE,
+                "dataset": dataset_name,
+                "split": split,
+                "evaluation_status": "error",
+                "error": error_msg,
+            }
 
         logger.info(f"Evaluation results: {results}")
         return results
 
     except Exception as e:
-        logger.error(f"Error running evaluation: {e}")
-        return {"error": str(e)}
+        error_msg = f"Error running evaluation: {e}"
+        print(f"ERROR: {error_msg}")
+        logger.error(error_msg)
+        return {
+            "total_instances": 0,
+            "instances_with_patches": 0,
+            "patch_rate": 0,
+            "language": LANGUAGE,
+            "dataset": dataset_name,
+            "split": split,
+            "evaluation_status": "error",
+            "error": str(e),
+        }
 
 
 def main():
@@ -172,12 +219,11 @@ def main():
         input_path = Path(args.input_file)
         output_file = str(input_path.with_suffix(".predictions.json"))
 
-    # Convert format
-    convert_to_multi_swebench_format(args.input_file, output_file, args.model_name)
-
     # Run evaluation if not skipped
     if not args.skip_evaluation:
-        results = run_multi_swebench_evaluation(output_file, args.dataset, args.split)
+        results = run_multi_swebench_evaluation(
+            output_file, args.dataset, args.split, args.input_file
+        )
 
         # Save results
         results_file = str(Path(output_file).with_suffix(".results.json"))
