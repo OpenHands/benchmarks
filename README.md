@@ -171,15 +171,6 @@ See individual benchmark READMEs for specific usage examples.
 
 ⚠️ **Important**: The benchmarks repository depends on the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk), and **not every version of the benchmarks is compatible with every version of the SDK**. As the SDK evolves and introduces new features, the benchmarks code may adopt these features, creating version dependencies.
 
-### SWE-Bench image layering (docutils/roman)
-
-Some SWE-Bench instances (notably `sphinx-doc`) require `docutils<0.21` and `roman`. The build pipeline now wraps only those images that need the extra layer:
-- `benchmarks/swebench/build_images.py` wraps images for repos in a small allowlist (currently `sphinx-doc`).
-- Other repos (e.g., scikit-learn) keep the base image unchanged.
-- `run_infer.py` automatically picks the wrapped tag for allowlisted repos and the base tag for the rest.
-
-When running or dispatching builds, no extra flags are needed—the selective wrapping is handled for you.
-
 ### Evaluating Different SDK Versions
 
 When evaluating a specific SDK version, you need to ensure the benchmarks code is compatible with that SDK version. You have two options:
