@@ -54,6 +54,7 @@ def prepare_dataset(
     selected_instances_file: str | None = None,
 ) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
+
     # Filter to selected instances first (if provided)
     if selected_instances_file:
         selected_instances = _load_selected_instances(selected_instances_file)
