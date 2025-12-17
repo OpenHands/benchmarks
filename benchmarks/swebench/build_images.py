@@ -110,13 +110,15 @@ def build_wrapped_image(base_agent_image: str, push: bool = False) -> BuildOutpu
 
 
 def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
-    if not image_available(base_agent_image):
+    # For remote pushes, ensure the base tag exists in the registry; for local
+    # loads, let Docker resolve locally.
+    if push and not image_available(base_agent_image):
         return BuildOutput(
             base_image=base_agent_image,
             tags=[],
             error=(
-                f"Base agent-server image {base_agent_image} not found. "
-                "Build it before wrapping."
+                f"Base agent-server image {base_agent_image} not found in registry. "
+                "Build and push it before wrapping."
             ),
         )
 
