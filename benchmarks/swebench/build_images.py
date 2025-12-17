@@ -87,14 +87,7 @@ def collect_unique_base_images(
     )
 
 
-def build_wrapped_image(base_agent_image: str, push: bool = False) -> BuildOutput:
-    """
-    Build a single wrapped image and return its BuildOutput. Used for local runs.
-    """
-    return _wrap_image(base_agent_image, push)
-
-
-def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
+def wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
     """
     Wrap an agent-server image with pinned docutils/roman.
 
@@ -173,7 +166,7 @@ def _wrap_with_logging(
                     attempt + 1,
                     max_retries,
                 )
-            result = _wrap_image(base_agent_image, push)
+            result = wrap_image(base_agent_image, push)
             result.log_path = str(log_path)
             if result.error is None:
                 return result

@@ -5,10 +5,10 @@ from typing import List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebench.build_images import (
-    build_wrapped_image,
     extract_custom_tag,
     get_official_docker_image,
     should_wrap_instance_id,
+    wrap_image,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
@@ -138,7 +138,7 @@ class SWEBenchEvaluation(Evaluation):
                         f"{base_agent_image}"
                     )
                 if wrap_needed:
-                    wrapped_result = build_wrapped_image(base_agent_image, push=False)
+                    wrapped_result = wrap_image(base_agent_image, push=False)
                     if wrapped_result.error:
                         raise RuntimeError(
                             "Wrapped image build failed: "
