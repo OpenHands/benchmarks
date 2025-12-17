@@ -1,0 +1,13 @@
+# Dockerfile for SWE-bench evaluation with docutils/roman dependency fix
+# Extends the base SDK image to ensure docutils<0.21 and roman package
+
+ARG SDK_IMAGE
+FROM ${SDK_IMAGE}
+
+USER root
+
+# Install docutils<0.21 (preserves roman helpers) and standalone roman package
+# This fixes Sphinx latex builder import errors in affected instances
+RUN pip install --no-deps --force-reinstall 'docutils<0.21' 'roman'
+
+USER openhands
