@@ -25,6 +25,7 @@ from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 
+
 logger = get_logger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
 # Repos that require the docutils/roman wrapper layer
@@ -229,7 +230,6 @@ def main(argv: list[str]) -> int:
         for base in base_images
     ]
 
-    base_agent_images = [img for img, _ in base_agent_entries]
     wrapped_agent_images = [
         img
         for img, custom_tag in base_agent_entries
