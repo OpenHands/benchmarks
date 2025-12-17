@@ -23,6 +23,7 @@ from openhands.sdk.critic import PassCritic
 from openhands.sdk.event import MessageEvent
 from openhands.sdk.llm import Message, TextContent
 from openhands.sdk.llm.utils.metrics import Metrics, TokenUsage
+from openhands.sdk.workspace import RemoteWorkspace
 
 
 def discover_benchmarks() -> list[tuple[str, type[Evaluation]]]:
@@ -95,7 +96,7 @@ def mock_llm_with_metrics():
 @pytest.fixture
 def mock_workspace():
     """Create a mock workspace."""
-    workspace = MagicMock()  # spec=RemoteWorkspace
+    workspace = MagicMock(spec=RemoteWorkspace)
     workspace.working_dir = "/workspace"
     workspace.execute_command = MagicMock(
         return_value=MagicMock(
@@ -314,6 +315,8 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             critic=PassCritic(),
         )
     elif benchmark_name == "multiswebench":
+        from benchmarks.multiswebench.run_infer import MultiSWEBenchEvalMetadata
+
         prompt_path = str(
             Path(__file__).parent.parent
             / "benchmarks"
@@ -321,7 +324,7 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             / "prompts"
             / "default.j2"
         )
-        return EvalMetadata(
+        return MultiSWEBenchEvalMetadata(
             llm=llm,
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
@@ -330,6 +333,7 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             details={"test": True},
             prompt_path=prompt_path,
             critic=PassCritic(),
+            lang="java",
         )
     else:
         # Generic metadata for unknown benchmarks
