@@ -1,0 +1,138 @@
+name: Build Commit0 Images
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'Dataset name (e.g., wentingzhao/commit0_combined)'
+        required: true
+        default: 'wentingzhao/commit0_combined'
+        type: string
+      split:
+        description: 'Dataset split (e.g., test)'
+        required: true
+        default: 'test'
+        type: string
+      repo-split:
+        description: 'Commit0 repo split (lite/all or repo name)'
+        required: true
+        default: 'lite'
+        type: string
+      max-workers:
+        description: 'Number of concurrent build workers (unused; logged for parity)'
+        required: false
+        default: '16'
+        type: string
+      n-limit:
+        description: 'Limit number of repos to build (unused; logged for parity)'
+        required: false
+        default: ''
+        type: string
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        default: ''
+        type: string
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use (logged only)'
+        required: false
+        default: ''
+        type: string
+      benchmarks-commit:
+        description: 'Benchmarks repo commit/ref to use (for manual override)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  DATASET: wentingzhao/commit0_combined
+  SPLIT: test
+  REPO_SPLIT: lite
+  MAX_WORKERS: '16'
+  N_LIMIT: ''
+  INSTANCE_IDS: ''
+
+concurrency:
+  group: build-commit0-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  noop-build:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' && github.event.label.name == 'build-commit0')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Determine checkout ref
+        id: checkout-ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
+            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            echo "Using triggering ref (default)"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.checkout-ref.outputs.ref }}
+
+      - name: Apply workflow_dispatch overrides (if any)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.repo-split }}" ]; then echo "REPO_SPLIT=${{ inputs.repo-split }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.sdk-commit }}" ]; then echo "SDK_COMMIT=${{ inputs.sdk-commit }}" >> "$GITHUB_ENV"; fi
+
+      - name: Build selected instances file
+        run: |
+          set -euo pipefail
+
+          if [ -z "${INSTANCE_IDS}" ]; then
+            echo "No instance IDs provided; skipping select file creation."
+            exit 0
+          fi
+
+          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
+          echo "Creating selected instances file at ${SELECT_FILE}"
+
+          echo "${INSTANCE_IDS}" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | sed '/^$/d' > "${SELECT_FILE}"
+
+          echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
+          echo "N_LIMIT=" >> "$GITHUB_ENV"
+
+          echo "Selected instance IDs:"
+          cat "${SELECT_FILE}"
+
+      - name: Log parameters (no-op build)
+        run: |
+          echo "Commit0 build is a no-op; images are provided by upstream dataset."
+          echo "Dataset: ${DATASET}"
+          echo "Split: ${SPLIT}"
+          echo "Repo split: ${REPO_SPLIT}"
+          echo "Max workers: ${MAX_WORKERS}"
+          echo "N limit: ${N_LIMIT}"
+          echo "Instance IDs: ${INSTANCE_IDS}"
+          echo "SDK commit: ${SDK_COMMIT:-unset}"
+          if [ -n "${SELECT_FILE:-}" ]; then
+            echo "Select file:"
+            cat "${SELECT_FILE}"
+          fi
+
+      - name: Complete
+        run: echo "Commit0 no-op build completed successfully."
