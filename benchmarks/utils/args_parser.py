@@ -70,15 +70,6 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Path to text file containing instance IDs to select (one per line)",
     )
     parser.add_argument(
-        "--instance-ids",
-        type=str,
-        default=None,
-        help=(
-            "Comma-separated list of instance IDs to evaluate "
-            "(e.g., 'id1,id2,id3'). Takes precedence over --select"
-        ),
-    )
-    parser.add_argument(
         "--max-retries",
         type=int,
         default=3,

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from openhands.sdk import LLM, Event, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.llm import Metrics
+from openhands.sdk.utils.models import OpenHandsModel
 
 
 logger = get_logger(__name__)
@@ -40,11 +41,6 @@ class EvalMetadata(BaseModel):
         description="Path to text file containing instance IDs to select "
         "(one per line)",
     )
-    instance_ids: str | None = Field(
-        default=None,
-        description="Comma-separated list of instance IDs to evaluate "
-        "(e.g., 'id1,id2,id3'). Takes precedence over selected_instances_file.",
-    )
     max_retries: int = Field(
         default=3,
         ge=0,
@@ -73,7 +69,16 @@ class EvalInstance(BaseModel):
     )
 
 
-class EvalOutput(BaseModel):
+class EvalOutput(OpenHandsModel):
+    """
+    Evaluation output model.
+
+    Uses OpenHandsModel to ensure pydantic schemas are properly rebuilt when
+    new discriminated union types (like Browser actions/observations) are registered.
+    This prevents deserialization errors when loading results that contain
+    dynamically registered event types.
+    """
+
     # NOTE: User-specified
     instance_id: str
     # output of the evaluation
