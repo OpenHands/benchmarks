@@ -5,7 +5,6 @@ from typing import List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebench.build_images import (
-    WRAPPER_SUFFIX,
     build_wrapped_image,
     extract_custom_tag,
     get_official_docker_image,
@@ -110,8 +109,7 @@ class SWEBenchEvaluation(Evaluation):
             f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
         )
         wrap_needed = should_wrap_instance_id(instance.id)
-        wrapped_agent_image = f"{base_agent_image}{WRAPPER_SUFFIX}"
-        agent_server_image = wrapped_agent_image if wrap_needed else base_agent_image
+        agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
             SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
@@ -161,7 +159,6 @@ class SWEBenchEvaluation(Evaluation):
 
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
-                f"{WRAPPER_SUFFIX if wrap_needed else ''}"
             )
             if not image_exists(agent_server_image):
                 raise RuntimeError(

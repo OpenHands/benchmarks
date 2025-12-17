@@ -25,12 +25,11 @@ from benchmarks.utils.build_utils import (
     get_build_parser,
 )
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import image_available
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
-WRAPPER_SUFFIX = "-fixed"
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
 # Repos that require the docutils/roman wrapper layer
 WRAPPED_REPOS = {"sphinx-doc"}
@@ -62,16 +61,11 @@ def extract_custom_tag(base_image: str) -> str:
     return name
 
 
-def _repo_from_custom_tag(custom_tag: str) -> str:
-    """Extract repo name (e.g., sphinx-doc) from a custom tag."""
+def should_wrap_custom_tag(custom_tag: str) -> bool:
     prefix = "sweb.eval.x86_64."
     if custom_tag.startswith(prefix):
         custom_tag = custom_tag[len(prefix) :]
-    return custom_tag.split("_", 1)[0]
-
-
-def should_wrap_custom_tag(custom_tag: str) -> bool:
-    return _repo_from_custom_tag(custom_tag) in WRAPPED_REPOS
+    return custom_tag.split("_", 1)[0] in WRAPPED_REPOS
 
 
 def should_wrap_instance_id(instance_id: str) -> bool:
@@ -108,30 +102,6 @@ def _agent_server_tag(
     return f"{image_repo}:{sdk_short_sha}-{custom_tag}{suffix}"
 
 
-def _wrapped_tag(base_agent_image: str) -> str:
-    return f"{base_agent_image}{WRAPPER_SUFFIX}"
-
-
-def _image_available(tag: str) -> bool:
-    """
-    Check if an image tag exists locally or in a registry.
-    """
-    try:
-        res = subprocess.run(
-            ["docker", "image", "inspect", tag],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if res.returncode == 0:
-            return True
-    except FileNotFoundError:
-        # Docker may not be available; fall back to registry probe
-        logger.warning("Docker not found while checking image %s", tag)
-
-    return image_exists(tag)
-
-
 def build_wrapped_image(base_agent_image: str, push: bool = False) -> BuildOutput:
     """
     Build a single wrapped image and return its BuildOutput. Used for local runs.
@@ -140,13 +110,7 @@ def build_wrapped_image(base_agent_image: str, push: bool = False) -> BuildOutpu
 
 
 def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
-    fixed_tag = _wrapped_tag(base_agent_image)
-
-    if _image_available(fixed_tag):
-        logger.info("Wrapped image already exists; skipping build: %s", fixed_tag)
-        return BuildOutput(base_image=base_agent_image, tags=[fixed_tag], error=None)
-
-    if not _image_available(base_agent_image):
+    if not image_available(base_agent_image):
         return BuildOutput(
             base_image=base_agent_image,
             tags=[],
@@ -172,7 +136,7 @@ def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
         "--build-arg",
         f"SDK_IMAGE={base_agent_image}",
         "--tag",
-        fixed_tag,
+        base_agent_image,
     ]
     if push:
         args += ["--platform", "linux/amd64", "--push"]
@@ -180,7 +144,7 @@ def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
         args += ["--load"]
     args.append(str(WRAPPER_DOCKERFILE.parent))
 
-    logger.info("Wrapping %s -> %s", base_agent_image, fixed_tag)
+    logger.info("Wrapping %s in-place", base_agent_image)
     proc = subprocess.run(args, text=True, capture_output=True)
 
     # Stream captured output so callers still see build logs
@@ -195,7 +159,7 @@ def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
         )
         return BuildOutput(base_image=base_agent_image, tags=[], error=error)
 
-    return BuildOutput(base_image=base_agent_image, tags=[fixed_tag], error=None)
+    return BuildOutput(base_image=base_agent_image, tags=[base_agent_image], error=None)
 
 
 def _wrap_with_logging(
@@ -371,7 +335,7 @@ def main(argv: list[str]) -> int:
     if args.dry_run:
         # build_all_images already printed base images; also show wrapped tags
         if wrapped_agent_images:
-            print("\n".join(_wrapped_tag(tag) for tag in wrapped_agent_images))
+            print("\n".join(wrapped_agent_images))
         return rc
 
     wrap_rc = 0

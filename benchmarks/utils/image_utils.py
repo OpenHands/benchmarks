@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import subprocess
 import sys
 
 import requests
@@ -88,6 +89,29 @@ def image_exists(
         return r.status_code == 200
     except requests.RequestException:
         return False
+
+
+def image_available(image_ref: str) -> bool:
+    """
+    Check if a Docker image is available locally or in a registry.
+
+    Tries a local `docker image inspect` first (if Docker is installed), then
+    falls back to the registry probe in `image_exists`.
+    """
+    try:
+        res = subprocess.run(
+            ["docker", "image", "inspect", image_ref],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if res.returncode == 0:
+            return True
+    except FileNotFoundError:
+        # Docker not available; rely on registry check
+        pass
+
+    return image_exists(image_ref)
 
 
 if __name__ == "__main__":

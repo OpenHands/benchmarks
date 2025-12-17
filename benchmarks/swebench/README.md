@@ -77,9 +77,9 @@ Images must be pre-built and pushed to a **public** container registry before ru
    - Build agent-server images for instances in `princeton-nlp/SWE-bench_Verified` (test split)
    - Push images to `ghcr.io/openhands/eval-agent-server` with tags like:
      ```
-     ghcr.io/openhands/eval-agent-server:{SDK_SHA}-{INSTANCE_TAG}-source-minimal-fixed
+     ghcr.io/openhands/eval-agent-server:{SDK_SHA}-{INSTANCE_TAG}-source-minimal
      ```
-   - The `-fixed` suffix wraps each base image with pinned `docutils<0.21` and the `roman` package for Sphinx latex builds
+   - The docutils/roman layer is applied in-place (no suffix) for allowlisted repos that need it (currently `sphinx-doc`)
    - Post a comment on [issue #81](https://github.com/OpenHands/benchmarks/issues/81) with the build results
 
 **Option B: Manual Build**
