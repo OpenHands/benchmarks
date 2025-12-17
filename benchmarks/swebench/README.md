@@ -27,7 +27,7 @@ Before running inference, you need to build Docker images for the SWE-Bench inst
 uv run python -m benchmarks.swebench.build_images \
   --dataset princeton-nlp/SWE-bench_Verified \
   --split test \
-  --image ghcr.io/openhands/agent-server \
+  --image ghcr.io/openhands/eval-agent-server \
   --target source-minimal
 ```
 
@@ -77,8 +77,9 @@ Images must be pre-built and pushed to a **public** container registry before ru
    - Build agent-server images for instances in `princeton-nlp/SWE-bench_Verified` (test split)
    - Push images to `ghcr.io/openhands/eval-agent-server` with tags like:
      ```
-     ghcr.io/openhands/eval-agent-server:{SDK_SHA}-{INSTANCE_TAG}-source-minimal
+     ghcr.io/openhands/eval-agent-server:{SDK_SHA}-{INSTANCE_TAG}-source-minimal-fixed
      ```
+   - The `-fixed` suffix wraps each base image with pinned `docutils<0.21` and the `roman` package for Sphinx latex builds
    - Post a comment on [issue #81](https://github.com/OpenHands/benchmarks/issues/81) with the build results
 
 **Option B: Manual Build**

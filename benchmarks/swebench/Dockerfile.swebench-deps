@@ -1,0 +1,9 @@
+ARG SDK_IMAGE
+FROM ${SDK_IMAGE}
+
+USER root
+
+# Ensure Sphinx latex builder can import roman helpers
+RUN pip install --no-deps --force-reinstall 'docutils<0.21' 'roman'
+
+USER openhands

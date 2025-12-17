@@ -1,0 +1,338 @@
+name: Build SWEbench Images
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
+        required: true
+        default: 'princeton-nlp/SWE-bench_Verified'
+        type: string
+      split:
+        description: 'Dataset split (e.g., test, dev)'
+        required: true
+        default: 'test'
+        type: string
+      max-workers:
+        description: 'Number of concurrent builds'
+        required: false
+        default: '32'
+        type: string
+      n-limit:
+        description: 'Limit number of images to build (for testing). Leave blank for no limit.'
+        required: false
+        default: ''
+        type: string
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        default: ''
+        type: string
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
+        required: false
+        default: ''
+        type: string
+      benchmarks-commit:
+        description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch.'
+        required: false
+        default: ''
+        type: string
+
+# Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+env:
+  DATASET: princeton-nlp/SWE-bench_Verified
+  SPLIT: test
+  MAX_WORKERS: '32'
+  N_LIMIT: '500'
+  INSTANCE_IDS: ''
+  SELECT_FILE: ''
+
+concurrency:
+  group: build-swebench-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' &&
+       (github.event.label.name == 'build-swebench' ||
+        github.event.label.name == 'build-swebench-50' ||
+        github.event.label.name == 'build-swebench-200'))
+
+    runs-on:
+      labels: blacksmith-32vcpu-ubuntu-2204
+
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+
+    steps:
+      - name: Determine checkout ref
+        id: checkout-ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
+            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            echo "Using default ref (the commit that triggered this workflow)"
+          fi
+      
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.checkout-ref.outputs.ref }}
+          submodules: recursive
+
+      # If this was a manual dispatch, override defaults with provided inputs.
+      - name: Apply workflow_dispatch overrides (if any)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          # Empty string means "no limit"
+          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+
+      # Set N_LIMIT based on the label that triggered the workflow
+      - name: Set N_LIMIT based on label
+        if: ${{ github.event_name == 'pull_request_target' }}
+        run: |
+          LABEL_NAME="${{ github.event.label.name }}"
+          if [ "$LABEL_NAME" = "build-swebench-50" ]; then
+            echo "N_LIMIT=50" >> "$GITHUB_ENV"
+            echo "Building 50 images based on label: build-swebench-50"
+          elif [ "$LABEL_NAME" = "build-swebench-200" ]; then
+            echo "N_LIMIT=200" >> "$GITHUB_ENV"
+            echo "Building 200 images based on label: build-swebench-200"
+          elif [ "$LABEL_NAME" = "build-swebench" ]; then
+            echo "N_LIMIT=" >> "$GITHUB_ENV"
+            echo "Building all images based on label: build-swebench"
+          fi
+
+      - name: Build selected instances file
+        run: |
+          set -euo pipefail
+
+          if [ -z "${INSTANCE_IDS}" ]; then
+            echo "No instance IDs provided; skipping select file creation."
+            exit 0
+          fi
+
+          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
+          echo "Creating selected instances file at ${SELECT_FILE}"
+
+          echo "${INSTANCE_IDS}" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | sed '/^$/d' > "${SELECT_FILE}"
+
+          echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
+          # Skip n-limit when explicit instance IDs are provided to avoid double filtering
+          echo "N_LIMIT=" >> "$GITHUB_ENV"
+
+          echo "Selected instance IDs:"
+          cat "${SELECT_FILE}"
+
+      # Update SDK submodule to specific commit if provided
+      - name: Update SDK submodule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        run: |
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          SDK_SHA=$(git rev-parse HEAD)
+          cd ../..
+          git add vendor/software-agent-sdk
+          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+
+      - name: Set up Docker Buildx with Blacksmith
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          make build
+
+      - name: Build and push SWEbench images (base + wrapped)
+        run: |
+          set -euo pipefail
+
+          CMD="uv run benchmarks/swebench/build_images.py \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
+            --image ghcr.io/openhands/eval-agent-server \
+            --push \
+            --max-workers '${MAX_WORKERS}'"
+
+          if [ -n "${N_LIMIT}" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
+          fi
+          if [ -n "${SELECT_FILE}" ]; then
+            CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+
+          echo "Running: $CMD"
+          eval "$CMD"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
+      - name: Archive build logs
+        if: always()
+        run: |
+          if [ -d builds ]; then
+            tar -czf build-logs.tar.gz builds/
+            echo "Build logs archived successfully"
+          else
+            echo "No builds directory found"
+          fi
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_id }}
+          path: build-logs.tar.gz
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Display build summary
+        if: always()
+        run: |
+          python - <<'PY'
+import json, glob, os, pathlib
+
+summary_path = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+
+def load_manifests(pattern: str) -> list[dict]:
+    results: list[dict] = []
+    for path in glob.glob(pattern, recursive=True):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    results.append(json.loads(line))
+        except FileNotFoundError:
+            continue
+    return results
+
+
+def write_section(title: str, entries: list[dict]) -> None:
+    summary_path.write_text(summary_path.read_text() if summary_path.exists() else "")
+    with summary_path.open("a", encoding="utf-8") as fh:
+        fh.write(f"### {title}\\n\\n")
+        if not entries:
+            fh.write("_No entries found_\\n\\n")
+            return
+        total = len(entries)
+        success = sum(
+            1 for item in entries if not item.get("error") and item.get("tags")
+        )
+        failures = total - success
+        fh.write(f"- Total: {total}\\n")
+        fh.write(f"- Successful: ✅ {success}\\n")
+        fh.write(f"- Failed: ❌ {failures}\\n\\n")
+        if failures:
+            fh.write("Failed builds:\\n")
+            for item in entries:
+                if item.get("error") or not item.get("tags"):
+                    base = item.get("base_image", "unknown")
+                    fh.write(f"- `{base}`: {item.get('error', 'No tags generated')}\\n")
+            fh.write("\\n")
+
+
+base_entries = load_manifests("builds/**/manifest.jsonl")
+wrapped_entries = load_manifests("builds/**/manifest-wrapped.jsonl")
+
+summary_path.touch()
+summary_path.write_text("## Build Summary\\n\\n", encoding="utf-8")
+write_section("Base images", base_entries)
+write_section("Wrapped images (-fixed)", wrapped_entries)
+PY
+
+      - name: Comment on tracker issue
+        if: success()
+        run: |
+          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
+          SDK_SHA_SHORT=${SDK_SHA:0:7}
+
+          MANIFEST_FILES=$(find builds -name "manifest-wrapped.jsonl" -type f 2>/dev/null)
+          if [ -z "$MANIFEST_FILES" ]; then
+            MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
+          fi
+
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest files found"
+            exit 0
+          fi
+
+          TAGS=$(cat $MANIFEST_FILES | python - <<'PY'
+import json, sys
+for line in sys.stdin:
+    data = json.loads(line.strip())
+    if data.get("tags"):
+        print(f"- `{data['tags'][0]}`")
+PY
+)
+
+          if [ -z "$TAGS" ]; then
+            echo "No tags found in manifests"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TRIGGER="Manual trigger (workflow_dispatch)"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
+          else
+            TRIGGER="${{ github.event_name }}"
+          fi
+
+          COMMENT_BODY=$(cat <<EOF
+## Build Complete ✅
+
+**Dataset:** \`${DATASET}\`
+**Split:** \`${SPLIT}\`
+**SDK Version:** [\`${SDK_SHA_SHORT}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
+**Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+**Triggered by:** ${TRIGGER}
+
+<details>
+<summary>Built Tags</summary>
+
+${TAGS}
+
+</details>
+EOF
+          )
+
+          curl -L -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments" \
+            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

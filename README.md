@@ -143,7 +143,7 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
    
 2. **Runtime API**: The remote workspace connects to a runtime API service (default: `https://runtime.eval.all-hands.dev`) that provisions containers on-demand
 
-3. **Image Resolution**: Before starting evaluation, the system verifies that the required image exists in the registry with the correct tag format: `{IMAGE}:{SDK_SHA}-{CUSTOM_TAG}{SUFFIX}`
+3. **Image Resolution**: Before starting evaluation, the system verifies that the required image exists in the registry with the correct tag format: `{IMAGE}:{SDK_SHA}-{CUSTOM_TAG}{SUFFIX}-fixed`
 
 4. **Parallel Execution**: Each evaluation instance runs in its own isolated container, allowing for massive parallelization (e.g., 32+ concurrent workers)
 
@@ -176,7 +176,7 @@ See individual benchmark READMEs for specific usage examples.
 When evaluating a specific SDK version, you need to ensure the benchmarks code is compatible with that SDK version. You have two options:
 
 1. **Use the `benchmarks-commit` parameter in the workflow** (Recommended):
-   - When manually triggering the `build-swe-bench-images` workflow, specify both:
+   - When manually triggering the `build-swebench-images` workflow (builds both base and `-fixed` tags), specify both:
      - `sdk-commit`: The SDK version you want to evaluate
      - `benchmarks-commit`: A benchmarks commit that's compatible with that SDK version
    
