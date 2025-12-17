@@ -53,14 +53,12 @@ def collect_unique_base_images(
     split,
     n_limit,
     selected_instances_file: str | None = None,
-    instance_ids: str | None = None,
 ):
     df = get_dataset(
         dataset_name=dataset,
         split=split,
         eval_limit=n_limit if n_limit else None,
         selected_instances_file=selected_instances_file,
-        instance_ids=instance_ids,
     )
     return sorted(
         {get_official_docker_image(str(row["instance_id"])) for _, row in df.iterrows()}
@@ -76,7 +74,6 @@ def main(argv: list[str]) -> int:
         args.split,
         args.n_limit,
         args.select,
-        args.instance_ids,
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
     return build_all_images(
