@@ -6,10 +6,10 @@ from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebench.build_images import (
     WRAPPER_SUFFIX,
-    should_wrap_instance_id,
     build_wrapped_image,
     extract_custom_tag,
     get_official_docker_image,
+    should_wrap_instance_id,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image

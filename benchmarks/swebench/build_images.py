@@ -14,6 +14,8 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
+from tqdm.auto import tqdm
+
 from benchmarks.utils.build_utils import (
     BuildOutput,
     _update_pbar,
@@ -26,7 +28,6 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
-from tqdm.auto import tqdm
 
 logger = get_logger(__name__)
 WRAPPER_SUFFIX = "-fixed"
@@ -260,9 +261,7 @@ def wrap_all_images(
             futures = {}
             for base in base_agent_images:
                 in_progress.add(base)
-                fut = ex.submit(
-                    _wrap_with_logging, log_dir, base, push, max_retries
-                )
+                fut = ex.submit(_wrap_with_logging, log_dir, base, push, max_retries)
                 futures[fut] = base
 
             _update_pbar(
@@ -343,7 +342,9 @@ def main(argv: list[str]) -> int:
 
     base_agent_entries = [
         (
-            _agent_server_tag(args.image, extract_custom_tag(base), args.target, SDK_SHORT_SHA),
+            _agent_server_tag(
+                args.image, extract_custom_tag(base), args.target, SDK_SHORT_SHA
+            ),
             extract_custom_tag(base),
         )
         for base in base_images
@@ -351,7 +352,9 @@ def main(argv: list[str]) -> int:
 
     base_agent_images = [img for img, _ in base_agent_entries]
     wrapped_agent_images = [
-        img for img, custom_tag in base_agent_entries if should_wrap_custom_tag(custom_tag)
+        img
+        for img, custom_tag in base_agent_entries
+        if should_wrap_custom_tag(custom_tag)
     ]
 
     rc = build_all_images(
