@@ -23,7 +23,6 @@ from openhands.sdk.critic import PassCritic
 from openhands.sdk.event import MessageEvent
 from openhands.sdk.llm import Message, TextContent
 from openhands.sdk.llm.utils.metrics import Metrics, TokenUsage
-from openhands.sdk.workspace import RemoteWorkspace
 
 
 def discover_benchmarks() -> list[tuple[str, type[Evaluation]]]:
@@ -96,7 +95,7 @@ def mock_llm_with_metrics():
 @pytest.fixture
 def mock_workspace():
     """Create a mock workspace."""
-    workspace = MagicMock(spec=RemoteWorkspace)
+    workspace = MagicMock()  # spec=RemoteWorkspace
     workspace.working_dir = "/workspace"
     workspace.execute_command = MagicMock(
         return_value=MagicMock(
@@ -235,6 +234,17 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 },
             },
         )
+    elif benchmark_name == "multiswebench":
+        return EvalInstance(
+            id="test-instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test-instance-1",
+                "base_commit": "abc123",
+                "number": 1,
+                "problem_statement": "Test problem",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -298,6 +308,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             max_iterations=5,
             eval_output_dir="/tmp/eval_output",
             dataset="commit0/commit0",
+            dataset_split="test",
+            details={"test": True},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "multiswebench":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "multiswebench"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="test/multiswebench",
             dataset_split="test",
             details={"test": True},
             prompt_path=prompt_path,
