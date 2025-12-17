@@ -10,6 +10,8 @@ from benchmarks.multiswebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
+from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -41,10 +43,8 @@ USE_INSTANCE_IMAGE = os.environ.get("USE_INSTANCE_IMAGE", "true").lower() == "tr
 RUN_WITH_BROWSING = os.environ.get("RUN_WITH_BROWSING", "false").lower() == "true"
 # For Multi-SWE-Bench, force mswebench prefix instead of the general SWE-Bench prefix
 DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
-LANGUAGE = os.environ.get("LANGUAGE", "java")
 
 logger.info(f"Using docker image prefix: {DOCKER_IMAGE_PREFIX}")
-logger.info(f"Using language: {LANGUAGE}")
 
 
 def get_instruction(
@@ -56,8 +56,8 @@ def get_instruction(
     workspace_dir_name = instance["repo"].split("/")[-1]
     assert metadata.details is not None
 
-    # Detect language from instance data or use environment variable
-    language = instance.get("language", LANGUAGE).lower()
+    # Detect language from instance data or use metadata language
+    language = instance.get("language", metadata.lang).lower()
 
     # Set up Jinja2 environment
     assert metadata.prompt_path is not None
@@ -104,10 +104,32 @@ class MultiSWEBenchEvaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up Multi-SWE-bench evaluation data")
 
+        # Check if this is a ByteDance-Seed/Multi-SWE-bench dataset that needs downloading
+        dataset_path = self.metadata.dataset
+        if dataset_path.startswith("ByteDance-Seed/Multi-SWE-bench"):
+            logger.info(
+                f"Downloading Multi-SWE-bench dataset for language: {self.metadata.lang}"
+            )
+            downloaded_path = download_and_concat_dataset(
+                dataset_path, self.metadata.lang
+            )
+
+            # Create a temporary formatted file
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".jsonl", delete=False
+            ) as temp_file:
+                formatted_path = temp_file.name
+
+            format_data_for_inference(downloaded_path, formatted_path)
+            dataset_path = formatted_path
+            logger.info(f"Using formatted dataset: {dataset_path}")
+
         # Load dataset using direct JSON loading to handle complex nested structures
-        logger.info(f"Loading dataset {self.metadata.dataset}")
+        logger.info(f"Loading dataset {dataset_path}")
         data = []
-        with open(self.metadata.dataset, "r") as f:
+        with open(dataset_path, "r") as f:
             for line in f:
                 data.append(json.loads(line))
 
@@ -402,6 +424,7 @@ def main() -> None:
         llm=llm,
         dataset=args.dataset,
         dataset_split=args.split,
+        lang=args.lang,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
         details={},

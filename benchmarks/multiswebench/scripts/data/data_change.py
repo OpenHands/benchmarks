@@ -1,8 +1,7 @@
-import argparse
 import json
 
 
-def main(input_file, output_file):
+def format_data_for_inference(input_file, output_file):
     with (
         open(input_file, "r", encoding="utf-8") as fin,
         open(output_file, "w", encoding="utf-8") as fout,
@@ -44,11 +43,3 @@ def main(input_file, output_file):
 
             output_data = new_item
             fout.write(json.dumps(output_data, ensure_ascii=False) + "\n")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True, help="Input .jsonl file path")
-    parser.add_argument("--output", required=True, help="Output .jsonl file path")
-    args = parser.parse_args()
-    main(args.input, args.output)
