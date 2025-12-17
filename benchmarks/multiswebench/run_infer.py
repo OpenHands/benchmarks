@@ -40,9 +40,7 @@ USE_HINT_TEXT = os.environ.get("USE_HINT_TEXT", "false").lower() == "true"
 USE_INSTANCE_IMAGE = os.environ.get("USE_INSTANCE_IMAGE", "true").lower() == "true"
 RUN_WITH_BROWSING = os.environ.get("RUN_WITH_BROWSING", "false").lower() == "true"
 # For Multi-SWE-Bench, force mswebench prefix instead of the general SWE-Bench prefix
-DOCKER_IMAGE_PREFIX = "mswebench"
-# Force override the environment variable to ensure Multi-SWE-Bench uses the correct prefix
-os.environ["EVAL_DOCKER_IMAGE_PREFIX"] = "mswebench"
+DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
 LANGUAGE = os.environ.get("LANGUAGE", "java")
 
 logger.info(f"Using docker image prefix: {DOCKER_IMAGE_PREFIX}")
@@ -151,7 +149,6 @@ class MultiSWEBenchEvaluation(Evaluation):
             instance.data["version"] = str(instance.data["number"])
 
         # For Multi-SWE-Bench, ensure we use the correct docker image prefix
-        # Override any existing EVAL_DOCKER_IMAGE_PREFIX to use mswebench
         official_docker_image = get_official_docker_image(
             instance.data, docker_image_prefix=DOCKER_IMAGE_PREFIX
         )
