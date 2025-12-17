@@ -8,7 +8,7 @@ this file at the repo root guarantees the patch runs before swebench is used.
 
 try:
     # Reuse the actual patch logic that lives alongside the benchmarks package.
-    from benchmarks.sitecustomize import _apply_modal_logging_patch
+    from benchmarks.utils.sitecustomize import _apply_modal_logging_patch
 
     _apply_modal_logging_patch()
 except Exception:
