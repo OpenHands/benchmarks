@@ -18,7 +18,7 @@ dependencies = [
     "openhands-agent-server",
     "openhands-workspace",
     "modal>=1.1.4",
-    "swebench",
+    "swebench==4.1.0",
     "commit0",
     "pytest-json-report",
     # SWT-Bench dependencies (since the git package doesn't install them properly)
@@ -51,6 +51,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["benchmarks"]
+
+[tool.setuptools]
+# Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
+py-modules = ["sitecustomize"]
 
 [dependency-groups]
 dev = [
@@ -97,4 +101,3 @@ members = [
   "vendor/software-agent-sdk/openhands-workspace",
   "vendor/software-agent-sdk/openhands-agent-server",
 ]
-

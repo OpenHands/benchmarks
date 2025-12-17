@@ -2258,7 +2258,7 @@ requires-dist = [
     { name = "pytest-json-report" },
     { name = "python-dotenv" },
     { name = "requests" },
-    { name = "swebench" },
+    { name = "swebench", specifier = "==4.1.0" },
     { name = "toml" },
     { name = "tqdm" },
     { name = "unidiff", specifier = ">=0.7.5,<0.8.0" },
