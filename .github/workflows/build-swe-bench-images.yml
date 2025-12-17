@@ -1,7 +1,5 @@
 name: Build SWE-Bench Images
 
-# Kept as the single entry point for SWE-Bench image builds
-# (was previously the compatibility workflow).
 on:
   pull_request_target:
     types: [labeled]
@@ -89,7 +87,7 @@ jobs:
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
           fi
-
+      
       - uses: actions/checkout@v4
         with:
           # When ref is empty, actions/checkout uses the commit that triggered the workflow
@@ -107,6 +105,7 @@ jobs:
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
 
+      # Set N_LIMIT based on the label that triggered the workflow
       - name: Set N_LIMIT based on label
         if: ${{ github.event_name == 'pull_request_target' }}
         run: |
@@ -179,7 +178,7 @@ jobs:
         run: |
           make build
 
-      - name: Build and push SWE-Bench images (base + wrapped)
+      - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
 
@@ -268,7 +267,7 @@ jobs:
           for line in sys.stdin:
               data = json.loads(line.strip())
               if data.get('error') is not None or len(data.get('tags', [])) == 0:
-                  print(f\"- \`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
+                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
           " >> "$GITHUB_STEP_SUMMARY"
           fi
 
