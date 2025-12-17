@@ -87,18 +87,6 @@ def collect_unique_base_images(
     )
 
 
-def _target_suffix(target: str) -> str:
-    """Mirror the tagging convention used by run_infer."""
-    return "" if target == "binary" else f"-{target}"
-
-
-def _agent_server_tag(
-    image_repo: str, custom_tag: str, target: str, sdk_short_sha: str
-) -> str:
-    suffix = _target_suffix(target)
-    return f"{image_repo}:{sdk_short_sha}-{custom_tag}{suffix}"
-
-
 def build_wrapped_image(base_agent_image: str, push: bool = False) -> BuildOutput:
     """
     Build a single wrapped image and return its BuildOutput. Used for local runs.
@@ -220,20 +208,15 @@ def main(argv: list[str]) -> int:
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
 
-    base_agent_entries = [
-        (
-            _agent_server_tag(
-                args.image, extract_custom_tag(base), args.target, SDK_SHORT_SHA
-            ),
-            extract_custom_tag(base),
-        )
-        for base in base_images
-    ]
+    base_agent_entries = []
+    for base in base_images:
+        custom_tag = extract_custom_tag(base)
+        target_suffix = "" if args.target == "binary" else f"-{args.target}"
+        tag = f"{args.image}:{SDK_SHORT_SHA}-{custom_tag}{target_suffix}"
+        base_agent_entries.append((tag, custom_tag))
 
     wrapped_agent_images = [
-        img
-        for img, custom_tag in base_agent_entries
-        if should_wrap_custom_tag(custom_tag)
+        img for img, custom_tag in base_agent_entries if should_wrap_custom_tag(custom_tag)
     ]
 
     rc = build_all_images(
