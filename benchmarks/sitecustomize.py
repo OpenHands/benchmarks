@@ -57,6 +57,7 @@ def _apply_modal_logging_patch() -> None:
 
     try:
         # Import inside the function so this file is harmless for non-SWE-Bench runs.
+        from swebench.harness.docker_build import setup_logger
         from swebench.harness.modal_eval import run_evaluation_modal as mod
         from swebench.harness.modal_eval.run_evaluation_modal import (
             TestOutput,
@@ -64,7 +65,6 @@ def _apply_modal_logging_patch() -> None:
         )
         from swebench.harness.reporting import make_run_report
         from swebench.harness.test_spec.test_spec import make_test_spec
-        from swebench.harness.docker_build import setup_logger
     except Exception:
         # If swebench isn't installed, bail out quietly.
         return
