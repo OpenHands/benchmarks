@@ -11,6 +11,9 @@ def convert_to_eval_format(input_file, output_file):
                 groups = re.match(r"(.*)__(.*)-(.*)", data["instance_id"])
                 if groups:
                     patch = {
+                        "instance_id": data[
+                            "instance_id"
+                        ],  # Preserve original instance_id
                         "org": groups.group(1),
                         "repo": groups.group(2),
                         "number": groups.group(3),
@@ -20,6 +23,9 @@ def convert_to_eval_format(input_file, output_file):
                 else:
                     # Handle case where regex doesn't match
                     patch = {
+                        "instance_id": data[
+                            "instance_id"
+                        ],  # Preserve original instance_id
                         "org": "",
                         "repo": "",
                         "number": "",
