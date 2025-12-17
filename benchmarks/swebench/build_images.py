@@ -25,7 +25,7 @@ from benchmarks.utils.build_utils import (
     get_build_parser,
 )
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.image_utils import image_available
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 
@@ -112,7 +112,7 @@ def build_wrapped_image(base_agent_image: str, push: bool = False) -> BuildOutpu
 def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
     # For remote pushes, ensure the base tag exists in the registry; for local
     # loads, let Docker resolve locally.
-    if push and not image_available(base_agent_image):
+    if push and not image_exists(base_agent_image):
         return BuildOutput(
             base_image=base_agent_image,
             tags=[],

@@ -90,16 +90,6 @@ def image_exists(
         return False
 
 
-def image_available(image_ref: str) -> bool:
-    """
-    Check if a Docker image is available in a registry (registry probe only).
-
-    This intentionally skips local `docker image inspect` to match the remote
-    image-resolution path used in production.
-    """
-    return image_exists(image_ref)
-
-
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(
