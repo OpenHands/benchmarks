@@ -113,8 +113,8 @@ def _wrap_image(base_agent_image: str, push: bool) -> BuildOutput:
     """
     Wrap an agent-server image with pinned docutils/roman.
 
-    For pushes, verify the base tag exists in the registry; for local loads,
-    let Docker resolve the base image locally.
+    For pushes, verify the base tag exists in the registry. For local builds,
+    assume the tag is available locally or resolvable by Docker during buildx.
     """
     if push and not image_exists(base_agent_image):
         return BuildOutput(
