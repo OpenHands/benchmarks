@@ -211,3 +211,124 @@ jobs:
           path: build-logs.tar.gz
           retention-days: 7
           if-no-files-found: warn
+
+      - name: Display build summary
+        if: always()
+        run: |
+          # Find all manifest.jsonl files
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            exit 0
+          fi
+          
+          # Generate summary from manifest files
+          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          # Count successes and failures
+          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
+          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
+          import sys
+          import json
+          count = 0
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is None and len(data.get('tags', [])) > 0:
+                  count += 1
+          print(count)
+          ")
+          FAILURES=$((TOTAL - SUCCESSES))
+          
+          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          # Show failed builds if any
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat $MANIFEST_FILES | python -c "
+          import sys
+          import json
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is not None or len(data.get('tags', [])) == 0:
+                  print(f\"- \`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
+          " >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comment on tracker issue
+        if: success()
+        run: |
+          # Get SDK version from submodule
+          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
+          
+          # Find all manifest.jsonl files
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found in builds directory"
+            echo "Build may have completed but produced no images"
+            exit 0
+          fi
+          
+          # Count total images built
+          TOTAL_IMAGES=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
+          
+          if [ "$TOTAL_IMAGES" -eq 0 ]; then
+            echo "No images found in manifest files"
+            echo "Skipping comment as there are no built images to report"
+            exit 0
+          fi
+          
+          # Extract all tags and format them as a markdown list (one tag per image)
+          TAGS=$(cat $MANIFEST_FILES | python -c "
+          import sys
+          import json
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('tags') and len(data['tags']) > 0:
+                  # Only show the first tag per image to reduce clutter
+                  print(f'- \`{data[\"tags\"][0]}\`')
+          ")
+          
+          # Determine how the workflow was triggered
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TRIGGER="Manual trigger (workflow_dispatch)"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
+          else
+            TRIGGER="${{ github.event_name }}"
+          fi
+          
+          # Create the comment body
+          COMMENT_BODY=$(cat <<EOF
+          ## Build Complete ✅
+
+          **Dataset:** \`${DATASET}\`
+          **Split:** \`${SPLIT}\`
+          **SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
+          **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          **Triggered by:** ${TRIGGER}
+
+          <details>
+          <summary>Built Tags (${TOTAL_IMAGES} images)</summary>
+
+          ${TAGS}
+
+          </details>
+          EOF
+          )
+          
+          # Post comment to issue #81
+          curl -L -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments" \
+            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
