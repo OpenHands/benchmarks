@@ -1,10 +1,11 @@
 import json
 import os
 from pathlib import Path
-from typing import List
+from typing import List, cast
 
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
+from pydantic import Field
 
 from benchmarks.multiswebench.build_images import (
     extract_custom_tag,
@@ -35,6 +36,14 @@ from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
+class MultiSWEBenchEvalMetadata(EvalMetadata):
+    """Extended metadata for Multi-SWE-bench evaluation with language support."""
+
+    lang: str = Field(
+        default="java", description="Language for Multi-SWE-bench dataset"
+    )
+
+
 logger = get_logger(__name__)
 
 # Environment variables for Multi-SWE-Bench configuration
@@ -49,7 +58,7 @@ logger.info(f"Using docker image prefix: {DOCKER_IMAGE_PREFIX}")
 
 def get_instruction(
     instance: dict,
-    metadata: EvalMetadata,
+    metadata: MultiSWEBenchEvalMetadata,
     workspace_path: str,
 ) -> str:
     """Generate instruction for the agent."""
@@ -101,18 +110,20 @@ class MultiSWEBenchEvaluation(Evaluation):
       - evaluate_instance(instance, workspace)
     """
 
+    def __init__(self, metadata: MultiSWEBenchEvalMetadata, **kwargs):
+        super().__init__(metadata=metadata, **kwargs)
+
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up Multi-SWE-bench evaluation data")
 
         # Check if this is a ByteDance-Seed/Multi-SWE-bench dataset that needs downloading
         dataset_path = self.metadata.dataset
         if dataset_path.startswith("ByteDance-Seed/Multi-SWE-bench"):
+            metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
             logger.info(
-                f"Downloading Multi-SWE-bench dataset for language: {self.metadata.lang}"
+                f"Downloading Multi-SWE-bench dataset for language: {metadata.lang}"
             )
-            downloaded_path = download_and_concat_dataset(
-                dataset_path, self.metadata.lang
-            )
+            downloaded_path = download_and_concat_dataset(dataset_path, metadata.lang)
 
             # Create a temporary formatted file
             import tempfile
@@ -322,9 +333,10 @@ class MultiSWEBenchEvaluation(Evaluation):
         git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
         assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
+        metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
         instruction = get_instruction(
             instance=instance.data,
-            metadata=self.metadata,
+            metadata=metadata,
             workspace_path=workspace.working_dir,
         )
         conversation.send_message(instruction)
@@ -390,6 +402,12 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    parser.add_argument(
+        "--lang",
+        type=str,
+        default="java",
+        help="Language for Multi-SWE-bench dataset",
+    )
     args = parser.parse_args()
 
     # Validate max_attempts
@@ -420,7 +438,7 @@ def main() -> None:
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
 
-    metadata = EvalMetadata(
+    metadata = MultiSWEBenchEvalMetadata(
         llm=llm,
         dataset=args.dataset,
         dataset_split=args.split,

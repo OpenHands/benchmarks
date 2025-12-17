@@ -49,6 +49,8 @@ def run_multi_swebench_evaluation(
         split = "test"
 
     try:
+        if input_file is None:
+            raise ValueError("input_file cannot be None")
         input_path = Path(input_file)
         work_dir = input_path.parent
 
