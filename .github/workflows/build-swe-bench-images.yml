@@ -1,8 +1,8 @@
-name: Build SWE-Bench Images (compat)
+name: Build SWE-Bench Images
 
-# Kept for compatibility with existing automation that references this file name.
-# New builds should use build-swebench-images.yml.
 on:
+  pull_request_target:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       dataset:
@@ -36,7 +36,7 @@ on:
         default: ''
         type: string
       benchmarks-commit:
-        description: 'Benchmarks repository commit/ref to use. Leave blank to use the branch head.'
+        description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch.'
         required: false
         default: ''
         type: string
@@ -45,7 +45,7 @@ env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
   MAX_WORKERS: '32'
-  N_LIMIT: ''
+  N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
 
@@ -55,6 +55,13 @@ concurrency:
 
 jobs:
   build-and-push:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' &&
+       (github.event.label.name == 'build-swebench' ||
+        github.event.label.name == 'build-swebench-50' ||
+        github.event.label.name == 'build-swebench-200'))
+
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
 
@@ -70,6 +77,9 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
             echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
             echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
@@ -81,12 +91,29 @@ jobs:
           submodules: recursive
 
       - name: Apply workflow_dispatch overrides (if any)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+
+      - name: Set N_LIMIT based on label
+        if: ${{ github.event_name == 'pull_request_target' }}
+        run: |
+          LABEL_NAME="${{ github.event.label.name }}"
+          if [ "$LABEL_NAME" = "build-swebench-50" ]; then
+            echo "N_LIMIT=50" >> "$GITHUB_ENV"
+            echo "Building 50 images based on label: build-swebench-50"
+          elif [ "$LABEL_NAME" = "build-swebench-200" ]; then
+            echo "N_LIMIT=200" >> "$GITHUB_ENV"
+            echo "Building 200 images based on label: build-swebench-200"
+          elif [ "$LABEL_NAME" = "build-swebench" ]; then
+            echo "N_LIMIT=" >> "$GITHUB_ENV"
+            echo "Building all images based on label: build-swebench"
+          fi
 
       - name: Build selected instances file
         run: |
@@ -106,13 +133,14 @@ jobs:
             | sed '/^$/d' > "${SELECT_FILE}"
 
           echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
+          # Skip n-limit when explicit instance IDs are provided to avoid double filtering
           echo "N_LIMIT=" >> "$GITHUB_ENV"
 
           echo "Selected instance IDs:"
           cat "${SELECT_FILE}"
 
       - name: Update SDK submodule
-        if: ${{ inputs.sdk-commit != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
         run: |
           cd vendor/software-agent-sdk
           git fetch origin ${{ inputs.sdk-commit }}
@@ -141,7 +169,7 @@ jobs:
         run: |
           make build
 
-      - name: Build and push SWE-Bench images (compat)
+      - name: Build and push SWE-Bench images (base + wrapped)
         run: |
           set -euo pipefail
 
