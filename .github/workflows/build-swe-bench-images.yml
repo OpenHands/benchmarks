@@ -1,5 +1,7 @@
 name: Build SWE-Bench Images
 
+# Kept as the single entry point for SWE-Bench image builds
+# (was previously the compatibility workflow).
 on:
   pull_request_target:
     types: [labeled]
@@ -36,11 +38,12 @@ on:
         default: ''
         type: string
       benchmarks-commit:
-        description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch.'
+        description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch. Useful for evaluating older SDK versions that are incompatible with current benchmarks code (e.g., SDK versions before the critic module was added in commit 79868ae5).'
         required: false
         default: ''
         type: string
 
+# Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
@@ -65,6 +68,7 @@ jobs:
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
 
+    # Allow pushing to GHCR and commenting on issues
     permissions:
       contents: read
       packages: write
@@ -81,15 +85,18 @@ jobs:
             echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
             echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
+            # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
           fi
 
       - uses: actions/checkout@v4
         with:
+          # When ref is empty, actions/checkout uses the commit that triggered the workflow
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
 
+      # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
@@ -139,6 +146,8 @@ jobs:
           echo "Selected instance IDs:"
           cat "${SELECT_FILE}"
 
+      # Update SDK submodule to specific commit if provided
+      # Must run BEFORE install dependencies so git submodule update works correctly
       - name: Update SDK submodule
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
         run: |
@@ -147,6 +156,7 @@ jobs:
           git checkout FETCH_HEAD
           SDK_SHA=$(git rev-parse HEAD)
           cd ../..
+          # Stage the submodule reference update so make build uses it
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
@@ -180,6 +190,7 @@ jobs:
             --push \
             --max-workers '${MAX_WORKERS}'"
 
+          # Only include --n-limit if provided (non-empty)
           if [ -n "${N_LIMIT}" ]; then
             CMD="$CMD --n-limit '${N_LIMIT}'"
           fi
@@ -197,6 +208,7 @@ jobs:
         if: always()
         run: |
           if [ -d builds ]; then
+            # Create tar archive to avoid filename restrictions (colons, etc.)
             tar -czf build-logs.tar.gz builds/
             echo "Build logs archived successfully"
           else
