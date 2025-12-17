@@ -279,6 +279,13 @@ def build_all_images(
     max_workers: int = 1,
     dry_run: bool = False,
     max_retries: int = 3,
+    *,
+    worker_fn: Callable[
+        [Path, str, str, TargetType, bool, Callable[[str], str] | None, int],
+        BuildOutput,
+    ] = _build_with_logging,
+    log_dir: Path | None = None,
+    manifest_path: Path | None = None,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
@@ -299,8 +306,8 @@ def build_all_images(
         Exit code: 0 if all builds succeeded, 1 if any failed.
     """
 
-    build_log_dir = build_dir / "logs"
-    manifest_path = build_dir / "manifest.jsonl"
+    build_log_dir = log_dir or (build_dir / "logs")
+    manifest_path = manifest_path or (build_dir / "manifest.jsonl")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     if dry_run:
@@ -328,7 +335,7 @@ def build_all_images(
             for base in base_images:
                 in_progress.add(base)
                 fut = ex.submit(
-                    _build_with_logging,
+                    worker_fn,
                     build_log_dir,
                     base,
                     image,

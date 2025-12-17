@@ -11,14 +11,10 @@ Example:
 
 import subprocess
 import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-
-from tqdm.auto import tqdm
 
 from benchmarks.utils.build_utils import (
     BuildOutput,
-    _update_pbar,
     build_all_images,
     capture_output,
     default_build_output_dir,
@@ -199,103 +195,16 @@ def _wrap_with_logging(
     raise RuntimeError("Unreachable: wrapper retries exhausted")
 
 
-def wrap_all_images(
-    base_agent_images: list[str],
-    build_dir: Path,
+def _wrap_worker(
+    log_dir: Path,
+    base_agent_image: str,
+    target_image: str,  # unused
+    target: str,  # unused
     push: bool,
-    max_workers: int,
+    base_image_to_custom_tag_fn,  # unused
     max_retries: int,
-) -> int:
-    """
-    Wrap all agent-server images with the docutils/roman dependency layer.
-    """
-    log_dir = build_dir / "logs-wrapped"
-    manifest_path = build_dir / "manifest-wrapped.jsonl"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-
-    successes = 0
-    failures = 0
-    in_progress: set[str] = set()
-
-    with (
-        manifest_path.open("w") as writer,
-        tqdm(
-            total=len(base_agent_images),
-            desc="Wrapping SWE-bench images",
-            leave=True,
-        ) as pbar,
-    ):
-        _update_pbar(pbar, successes, failures, 0, None, "Queueing")
-
-        with ProcessPoolExecutor(max_workers=max_workers) as ex:
-            futures = {}
-            for base in base_agent_images:
-                in_progress.add(base)
-                fut = ex.submit(_wrap_with_logging, log_dir, base, push, max_retries)
-                futures[fut] = base
-
-            _update_pbar(
-                pbar,
-                successes,
-                failures,
-                len(in_progress),
-                next(iter(in_progress), None),
-                "Running",
-            )
-
-            for fut in as_completed(futures):
-                base = futures[fut]
-                try:
-                    result: BuildOutput = fut.result()
-                    writer.write(result.model_dump_json() + "\n")
-                    writer.flush()
-                    if result.error:
-                        failures += 1
-                        _update_pbar(
-                            pbar,
-                            successes,
-                            failures,
-                            len(in_progress),
-                            base,
-                            "❌ Failed",
-                        )
-                    else:
-                        successes += 1
-                        _update_pbar(
-                            pbar, successes, failures, len(in_progress), base, "✅ Done"
-                        )
-                except Exception as e:
-                    failures += 1
-                    writer.write(
-                        BuildOutput(
-                            base_image=base, tags=[], error=repr(e)
-                        ).model_dump_json()
-                        + "\n"
-                    )
-                    writer.flush()
-                    logger.error("Wrapper build failed for %s: %r", base, e)
-                    _update_pbar(
-                        pbar, successes, failures, len(in_progress), base, "❌ Failed"
-                    )
-                finally:
-                    in_progress.discard(base)
-                    pbar.update(1)
-                    _update_pbar(
-                        pbar,
-                        successes,
-                        failures,
-                        len(in_progress),
-                        next(iter(in_progress), None),
-                        None,
-                    )
-
-    logger.info(
-        "Wrapper builds complete. Built=%d Failed=%d Manifest=%s",
-        successes,
-        failures,
-        str(manifest_path),
-    )
-    return 1 if failures else 0
+) -> BuildOutput:
+    return _wrap_with_logging(log_dir, base_agent_image, push, max_retries)
 
 
 def main(argv: list[str]) -> int:
@@ -346,12 +255,18 @@ def main(argv: list[str]) -> int:
 
     wrap_rc = 0
     if wrapped_agent_images:
-        wrap_rc = wrap_all_images(
-            base_agent_images=wrapped_agent_images,
-            build_dir=build_dir,
+        wrap_rc = build_all_images(
+            base_images=wrapped_agent_images,
+            target=args.target,
+            build_dir=build_dir / "wrapped",
+            image=args.image,
             push=args.push,
             max_workers=args.max_workers,
+            dry_run=args.dry_run,
             max_retries=args.max_retries,
+            worker_fn=_wrap_worker,
+            log_dir=(build_dir / "logs-wrapped"),
+            manifest_path=(build_dir / "manifest-wrapped.jsonl"),
         )
     else:
         logger.info("No instances require wrapper layer; skipping wrap stage.")
