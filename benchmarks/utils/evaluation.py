@@ -21,7 +21,7 @@ from tqdm import tqdm
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
-from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarService
+from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -243,10 +243,12 @@ class Evaluation(ABC, BaseModel):
 
         # Create Laminar evaluation
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.metadata.lmnr.eval_id = LaminarService.get().create_evaluation(
-            name=f"{self.metadata.dataset} {self.metadata.dataset_split} {now}",
-            group_name=f"{self.metadata.dataset} {self.metadata.dataset_split}",
-            metadata=self.metadata.model_dump(mode="json"),
+        self.metadata.lmnr = LaminarEvalMetadata(
+            eval_id=LaminarService.get().create_evaluation(
+                name=f"{self.metadata.dataset} {self.metadata.dataset_split} {now}",
+                group_name=f"{self.metadata.dataset} {self.metadata.dataset_split}",
+                metadata=self.metadata.model_dump(mode="json"),
+            )
         )
 
         total_instances = len(all_instances)
@@ -337,9 +339,9 @@ class Evaluation(ABC, BaseModel):
                         # Add Laminar metadata to EvalOutput so we can use it in the evaluation process
                         if out.metadata is None:
                             out.metadata = self.metadata.model_copy(deep=True)
-                        out.metadata.lmnr.eval_id = self.metadata.lmnr.eval_id
-                        out.metadata.lmnr.datapoint_id = lmnr_datapoints.get(
-                            instance.id, None
+                        out.metadata.lmnr = LaminarEvalMetadata(
+                            eval_id=self.metadata.lmnr.eval_id,
+                            datapoint_id=lmnr_datapoints.get(instance.id, None),
                         )
 
                         attempt_on_result(instance, out)

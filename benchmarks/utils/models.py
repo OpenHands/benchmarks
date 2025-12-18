@@ -51,8 +51,8 @@ class EvalMetadata(BaseModel):
         default="docker",
         description="Type of workspace to use, e.g., 'docker' or 'remote'",
     )
-    lmnr: LaminarEvalMetadata = Field(
-        default=LaminarEvalMetadata(),
+    lmnr: LaminarEvalMetadata | None = Field(
+        default=None,
         description="Laminar evaluation metadata",
     )
 

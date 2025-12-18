@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -147,7 +148,7 @@ class LaminarService:
         datapoint_id: UUID | None,
         eval_id: UUID | None,
         executor_output: Any,
-        scores: dict[str, Any] = {},
+        scores: dict[str, Any],
     ) -> None:
         """
         Update a Laminar datapoint.
@@ -172,7 +173,7 @@ class LaminarService:
                 exc,
             )
 
-    def update_evaluation_datapoints_from_output_file(
+    def _update_evaluation_datapoints_from_output_file(
         self,
         output_file: str,
         resolved_ids: set[str],
@@ -257,3 +258,50 @@ class LaminarService:
             return
 
         logger.debug("Laminar score updates complete")
+
+    def update_evaluation_scores_swebench(
+        self, input_file: str, swebench_predictions_file: str, model_name: str
+    ) -> None:
+        """
+        Update Laminar evaluation datapoints with SWE-bench evaluation scores.
+
+        Reads the SWE-bench harness output to determine which instances resolved,
+        then uses LaminarService to update datapoints with scores.
+
+        Args:
+            input_file: Path to the OpenHands output.jsonl file
+            swebench_predictions_file: Path to the SWE-bench predictions file (.swebench.jsonl)
+            model_name: Model name used in the evaluation
+        """
+
+        # Determine the SWE-bench harness output file path
+        # Format: {model_name}.eval_{predictions_stem}.json
+        predictions_path = Path(swebench_predictions_file)
+        harness_output_file = (
+            predictions_path.parent / f"{model_name}.eval_{predictions_path.stem}.json"
+        )
+
+        if not harness_output_file.exists():
+            logger.debug(
+                f"SWE-bench harness output file not found: {harness_output_file}. "
+                "Skipping Laminar score updates."
+            )
+            return
+
+        # Read resolved instance IDs from harness output
+        try:
+            with open(harness_output_file, "r") as f:
+                harness_data = json.load(f)
+            resolved_ids = set(harness_data.get("resolved_ids", []))
+            logger.debug(
+                f"Found {len(resolved_ids)} resolved instances in harness output"
+            )
+        except Exception as e:
+            logger.error(f"Failed to read harness output file: {e}")
+            return
+
+        # Use LaminarService to update scores
+        laminar_service = LaminarService.get()
+        laminar_service._update_evaluation_datapoints_from_output_file(
+            input_file, resolved_ids
+        )
