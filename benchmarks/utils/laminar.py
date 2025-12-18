@@ -113,11 +113,11 @@ class LaminarService:
         """
 
         if eval_id is None:
-            return None, ""
+            return None, None
 
         client = self._get_client()
         if client is None:
-            return None, ""
+            return None, None
 
         try:
             eval_span = Laminar.start_active_span(
