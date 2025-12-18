@@ -116,7 +116,9 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Total instances to process: {len(instances)}")
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance, forward_env: list[str] | None = None
+    ) -> RemoteWorkspace:
         """Create workspace and copy necessary files."""
         logger.info(f"Preparing workspace for instance {instance.id}")
 
@@ -125,6 +127,7 @@ class GAIAEvaluation(Evaluation):
             workspace = DockerDevWorkspace(
                 base_image="nikolaik/python-nodejs:python3.12-nodejs22",
                 working_dir="/workspace",
+                forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image

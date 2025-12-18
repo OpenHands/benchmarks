@@ -15,6 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -177,6 +178,52 @@ def run_swebench_evaluation(
         raise
 
 
+def update_evaluation_scores(
+    input_file: str, swebench_predictions_file: str, model_name: str
+) -> None:
+    """
+    Update Laminar datapoints with SWE-bench evaluation scores.
+
+    Reads the SWE-bench harness output to determine which instances resolved,
+    then uses LaminarService to update datapoints with scores.
+
+    Args:
+        input_file: Path to the OpenHands output.jsonl file
+        swebench_predictions_file: Path to the SWE-bench predictions file (.swebench.jsonl)
+        model_name: Model name used in the evaluation
+    """
+
+    # Determine the SWE-bench harness output file path
+    # Format: {model_name}.eval_{predictions_stem}.json
+    predictions_path = Path(swebench_predictions_file)
+    harness_output_file = (
+        predictions_path.parent / f"{model_name}.eval_{predictions_path.stem}.json"
+    )
+
+    if not harness_output_file.exists():
+        logger.debug(
+            f"SWE-bench harness output file not found: {harness_output_file}. "
+            "Skipping Laminar score updates."
+        )
+        return
+
+    # Read resolved instance IDs from harness output
+    try:
+        with open(harness_output_file, "r") as f:
+            harness_data = json.load(f)
+        resolved_ids = set(harness_data.get("resolved_ids", []))
+        logger.debug(f"Found {len(resolved_ids)} resolved instances in harness output")
+    except Exception as e:
+        logger.error(f"Failed to read harness output file: {e}")
+        return
+
+    # Use LaminarService to update scores
+    laminar_service = LaminarService.get()
+    laminar_service.update_evaluation_datapoints_from_output_file(
+        input_file, resolved_ids
+    )
+
+
 def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
@@ -255,6 +302,9 @@ Examples:
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
+
+        # Update Laminar datapoints with SWE-bench scores
+        update_evaluation_scores(str(input_file), str(output_file), args.model_name)
 
         logger.info("Script completed successfully!")
 

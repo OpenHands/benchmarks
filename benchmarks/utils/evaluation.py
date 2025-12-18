@@ -9,15 +9,19 @@ import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
+from uuid import UUID
 
+from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
+from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarService
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -75,7 +79,9 @@ class Evaluation(ABC, BaseModel):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance, forward_env: list[str] | None = None
+    ) -> RemoteWorkspace:
         """Create and return a context-managed Workspace for the given instance."""
         raise NotImplementedError
 
@@ -232,6 +238,17 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation with support for single or multiple attempts."""
         all_instances = self.prepare_instances()
 
+        # Initialize Laminar
+        LaminarService.get().initialize()
+
+        # Create Laminar evaluation
+        now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.metadata.lmnr.eval_id = LaminarService.get().create_evaluation(
+            name=f"{self.metadata.dataset} {self.metadata.dataset_split} {now}",
+            group_name=f"{self.metadata.dataset} {self.metadata.dataset_split}",
+            metadata=self.metadata.model_dump(mode="json"),
+        )
+
         total_instances = len(all_instances)
         logger.info("prepared %d instances for evaluation", total_instances)
 
@@ -290,10 +307,23 @@ class Evaluation(ABC, BaseModel):
             pool = ProcessPoolExecutor(max_workers=self.num_workers)
             futures = []
             try:
-                futures = [
-                    pool.submit(self._process_one_mp, inst)
-                    for inst in instances_to_process
-                ]
+                futures = []
+                lmnr_datapoints: dict[str, UUID] = dict()
+                for index, inst in enumerate(instances_to_process):
+                    datapoint_id, lmnr_span_ctx = (
+                        LaminarService.get().create_evaluation_datapoint(
+                            self.metadata.lmnr.eval_id,
+                            inst.id,
+                            self.metadata.model_dump(mode="json"),
+                            index,
+                        )
+                    )
+                    if datapoint_id is not None:
+                        lmnr_datapoints[inst.id] = datapoint_id
+
+                    futures.append(
+                        pool.submit(self._process_one_mp, inst, lmnr_span_ctx)
+                    )
 
                 for fut in tqdm(
                     as_completed(futures),
@@ -303,6 +333,15 @@ class Evaluation(ABC, BaseModel):
                 ):
                     try:
                         instance, out = fut.result()
+
+                        # Add Laminar metadata to EvalOutput so we can use it in the evaluation process
+                        if out.metadata is None:
+                            out.metadata = self.metadata.model_copy(deep=True)
+                        out.metadata.lmnr.eval_id = self.metadata.lmnr.eval_id
+                        out.metadata.lmnr.datapoint_id = lmnr_datapoints.get(
+                            instance.id, None
+                        )
+
                         attempt_on_result(instance, out)
                     except Exception as e:
                         logger.error(
@@ -377,7 +416,7 @@ class Evaluation(ABC, BaseModel):
 
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance
+        self, instance: EvalInstance, eval_span_ctx: str | None
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
@@ -403,8 +442,23 @@ class Evaluation(ABC, BaseModel):
 
             while retry_count <= max_retries:
                 workspace = None
+
+                # Start Laminar execution span and inject context into os.environ so workspace can pick it up
+                # Escape the serialized context to safely pass as a cli argument
+                lmnr_span = Laminar.start_active_span(
+                    "Execution",
+                    span_type="EXECUTOR",  # type: ignore
+                    parent_span_context=Laminar.deserialize_span_context(eval_span_ctx)
+                    if eval_span_ctx
+                    else None,
+                )
+                exec_span_ctx = json.dumps(Laminar.serialize_span_context(lmnr_span))
+                os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
+
                 try:
-                    workspace = self.prepare_workspace(instance)
+                    workspace = self.prepare_workspace(
+                        instance, forward_env=LMNR_ENV_VARS
+                    )
                     out = self.evaluate_instance(instance, workspace)
 
                     # Capture conversation archive after successful evaluation
@@ -415,6 +469,7 @@ class Evaluation(ABC, BaseModel):
                 except Exception as e:
                     last_error = e
                     retry_count += 1
+                    lmnr_span.record_exception(e)
 
                     if retry_count <= max_retries:
                         logger.warning(
@@ -447,6 +502,7 @@ class Evaluation(ABC, BaseModel):
                                 f"[child] Failed to cleanup workspace for {instance.id}: "
                                 f"{str(cleanup_error)[:50]}"
                             )
+                    lmnr_span.end()
 
             # This should never be reached, but added for type safety
             error_output = self._create_error_output(

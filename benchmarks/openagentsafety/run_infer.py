@@ -359,7 +359,9 @@ class OpenAgentSafetyEvaluation(Evaluation):
         logger.info("Total instances to process: %d", len(instances))
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance, forward_env: list[str] | None = None
+    ) -> RemoteWorkspace:
         """Create a fresh Docker workspace for this instance."""
         server_image = build_workspace_image()
 
@@ -367,6 +369,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             server_image=server_image,
             platform="linux/amd64",
             extra_ports=True,
+            forward_env=forward_env or [],
         )
 
         # Setup host mapping for The Agent Company services
