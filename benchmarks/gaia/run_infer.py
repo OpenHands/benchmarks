@@ -14,13 +14,17 @@ from PIL import Image
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
+    generate_error_logs_summary,
     get_default_on_result_writer,
 )
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import (
     LLM,
     Agent,
@@ -34,7 +38,7 @@ from openhands.sdk import (
 )
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -102,7 +106,7 @@ class GAIAEvaluation(Evaluation):
             with open(self.metadata.selected_instances_file, "r") as f:
                 selected_ids = set(line.strip() for line in f if line.strip())
             df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
-            logger.info(f"Filtered to {len(df)} selected instances")
+            logger.info(f"Filtered to {len(df)} selected instances from file")
 
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
@@ -116,11 +120,50 @@ class GAIAEvaluation(Evaluation):
         """Create workspace and copy necessary files."""
         logger.info(f"Preparing workspace for instance {instance.id}")
 
-        # Create Docker workspace with python-nodejs image
-        workspace = DockerDevWorkspace(
-            base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-            working_dir="/workspace",
-        )
+        if self.metadata.workspace_type == "docker":
+            # Use DockerDevWorkspace with base image (same as main branch)
+            workspace = DockerDevWorkspace(
+                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                working_dir="/workspace",
+            )
+        elif self.metadata.workspace_type == "remote":
+            # For workflow, use APIRemoteWorkspace with pre-built GAIA image
+            # GAIA uses a universal agent server image (one image for all instances)
+            # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
+            # Using binary target (not binary-minimal) to include Chromium for browser operations
+            # Note: binary target doesn't add target suffix to tag, so it's just gaia-with-mcp
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                )
+
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-with-mcp"
+            )
+
+            if not image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry. "
+                    f"Run 'benchmarks/gaia/build_images.py --push' to build and push it first."
+                )
+
+            logger.info(
+                f"Using remote workspace with GAIA image {agent_server_image} (sdk sha: {sdk_short_sha})"
+            )
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=os.getenv(
+                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                ),
+                runtime_api_key=runtime_api_key,
+                server_image=agent_server_image,
+                target_type="binary",  # GAIA images use binary target
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
 
         # Create workspace directory
         workspace.execute_command("mkdir -p /workspace")
@@ -166,11 +209,28 @@ class GAIAEvaluation(Evaluation):
 
         # Install ffmpeg (some GAIA tasks need it)
         logger.info("Installing ffmpeg...")
+        # Note: ffprobe is part of the ffmpeg package, not a separate package
         result = workspace.execute_command(
-            "sudo apt-get update && sudo apt-get install -y ffmpeg ffprobe"
+            "sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg"
         )
         if result.exit_code != 0:
             logger.warning(f"Failed to install ffmpeg: {result.stderr}")
+            # Try alternative installation method
+            logger.info("Trying alternative ffmpeg installation...")
+            result = workspace.execute_command(
+                "sudo apt-get install -y -qq --no-install-recommends ffmpeg"
+            )
+            if result.exit_code == 0:
+                logger.info("✓ FFmpeg installed via alternative method")
+            else:
+                logger.error(f"FFmpeg installation failed completely: {result.stderr}")
+                # Continue anyway - only some tasks need it
+        else:
+            logger.info("✓ FFmpeg installed successfully")
+            # Verify installation
+            verify_result = workspace.execute_command("ffmpeg -version | head -1")
+            if verify_result.exit_code == 0:
+                logger.info(f"FFmpeg version: {verify_result.stdout.strip()}")
 
         return workspace
 
@@ -331,8 +391,23 @@ For example: if you want to search for a research paper on Arxiv, either use the
           This method implements a retry mechanism to handle that case.
         """
         # FIXME: Implement a more robust event synchronization mechanism in the SDK
-        max_retries = 10
-        retry_delay = 0.5  # seconds
+        max_retries = 30  # Increased from 10 for better reliability
+        retry_delay = 1.0  # Increased from 0.5s for slower networks
+        retry_backoff = 1.2  # Exponential backoff factor
+
+        # Log event type distribution for debugging
+        if events:
+            event_types = {}
+            agent_events_count = 0
+            for event in events:
+                event_type = type(event).__name__
+                event_types[event_type] = event_types.get(event_type, 0) + 1
+                if hasattr(event, "source") and event.source == "agent":
+                    agent_events_count += 1
+            logger.info(
+                f"Event type distribution: {event_types}, "
+                f"agent-sourced events: {agent_events_count}"
+            )
 
         for attempt in range(max_retries):
             # Search backwards through events for agent output
@@ -340,33 +415,76 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 logger.info(f"Extracting answer from {len(events)} events")
             else:
                 logger.warning(
-                    f"Retry {attempt}/{max_retries}: searching for agent "
-                    "message in {len(events)} events"
+                    f"Retry {attempt + 1}/{max_retries}: searching for agent "
+                    f"message in {len(events)} events"
                 )
 
             for event in reversed(events):
                 if isinstance(event, MessageEvent) and event.source == "agent":
-                    logger.info(f"Found agent message event: {event}")
+                    logger.info(
+                        f"Found agent MessageEvent on attempt {attempt + 1}: "
+                        f"{type(event).__name__}"
+                    )
                     # Try different event types
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
                         return content.text
 
+            # Check for alternative output sources before retrying
+            if attempt == 0:
+                # Check for finish events that might contain output
+                finish_events = [
+                    e for e in events if "finish" in type(e).__name__.lower()
+                ]
+                if finish_events:
+                    logger.info(f"Found {len(finish_events)} finish events")
+                    for event in reversed(finish_events):
+                        output = getattr(event, "output", None)
+                        if output:
+                            logger.info(
+                                f"Found output in {type(event).__name__}: "
+                                f"{str(output)[:100]}"
+                            )
+                            return str(output)
+
+                # Check for error events
+                error_events = [
+                    e for e in events if "error" in type(e).__name__.lower()
+                ]
+                if error_events:
+                    logger.warning(
+                        f"Found {len(error_events)} error events: "
+                        f"{[type(e).__name__ for e in error_events]}"
+                    )
+
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
+                current_delay = retry_delay * (retry_backoff**attempt)
+                current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
                     "Agent MessageEvent not found yet, "
-                    f"waiting {retry_delay}s before retry..."
+                    f"waiting {current_delay:.1f}s before retry..."
                 )
-                time.sleep(retry_delay)
+                time.sleep(current_delay)
                 # Note: events is a reference to the conversation's events list,
                 # which gets updated by the WebSocket callback in the background
             else:
                 logger.error(
-                    f"Could not find agent output after {max_retries} attempts"
+                    f"Could not find agent output after {max_retries} attempts "
+                    f"and {sum(retry_delay * (retry_backoff**i) for i in range(max_retries)):.1f}s total wait time"
                 )
-                logger.debug(f"All events: {[type(e).__name__ for e in events]}")
+                logger.error(
+                    f"Final event types (last 10): "
+                    f"{[type(e).__name__ for e in events[-10:]]}"
+                )
+                # Log more details about the last few events
+                for event in events[-5:]:
+                    logger.debug(
+                        f"Event: {type(event).__name__}, "
+                        f"source: {getattr(event, 'source', 'N/A')}, "
+                        f"has content: {hasattr(event, 'llm_message')}"
+                    )
 
         return ""
 
@@ -432,6 +550,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        workspace_type=args.workspace,
     )
 
     # Create evaluator
@@ -439,6 +558,9 @@ def main() -> None:
 
     # Run evaluation
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+
+    # Generate error logs summary for easy navigation
+    generate_error_logs_summary(structured_output_dir)
 
     logger.info("Evaluation completed!")
     logger.info(f"Results written to: {evaluator.output_path}")
