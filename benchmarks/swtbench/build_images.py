@@ -10,11 +10,9 @@ while keeping the SWT entrypoint stable for workflows.
 import sys
 
 from benchmarks.swebench.build_images import (
-    collect_unique_base_images,
-    extract_custom_tag,
-    get_official_docker_image,
     main as swebench_main,
 )
+
 
 # Re-export the SWE-Bench logic under the SWT entrypoint
 def main(argv: list[str]) -> int:  # pragma: no cover - thin wrapper

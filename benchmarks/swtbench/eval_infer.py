@@ -190,7 +190,7 @@ def run_swtbench_evaluation(
     try:
         # Ensure Docker is running (required for SWT-Bench evaluation)
         ensure_docker_running()
-        
+
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
