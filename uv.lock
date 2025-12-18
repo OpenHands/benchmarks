@@ -2164,7 +2164,7 @@ wheels = [
 
 [[package]]
 name = "openhands-agent-server"
-version = "1.6.0"
+version = "1.4.1"
 source = { editable = "vendor/software-agent-sdk/openhands-agent-server" }
 dependencies = [
     { name = "aiosqlite" },
