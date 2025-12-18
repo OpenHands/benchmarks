@@ -212,11 +212,17 @@ def _build_with_logging(
     push: bool = False,
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_retries: int = 3,
+    post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
     Must be at module level to be picklable for ProcessPoolExecutor.
     Automatically retries failed builds up to max_retries times.
+
+    Args:
+        post_build_fn: Optional callback called after successful build.
+            Receives (build_result, push) and returns modified BuildOutput.
+            If it returns an error, the build is retried.
     """
     custom_tag = ""
     if base_image_to_custom_tag_fn:
@@ -232,12 +238,30 @@ def _build_with_logging(
                 time.sleep(2 + attempt * 2)
             result = build_image(base_image, target_image, custom_tag, target, push)
             result.log_path = str(log_path)
-            if not result.error:
-                return result
-        logger.error("Build error for %s: %s", base_image, result.error)
-        if attempt == max_retries - 1:
-            logger.error("Max retries reached for %s. Giving up.", base_image)
+            if result.error:
+                logger.error("Build error for %s: %s", base_image, result.error)
+                if attempt == max_retries - 1:
+                    logger.error("Max retries reached for %s. Giving up.", base_image)
+                    return result
+                continue
+
+            # Apply post-build step if provided
+            if post_build_fn:
+                result = post_build_fn(result, push)
+                result.log_path = str(log_path)
+                if result.error:
+                    logger.error(
+                        "Post-build error for %s: %s", base_image, result.error
+                    )
+                    if attempt == max_retries - 1:
+                        logger.error(
+                            "Max retries reached for %s. Giving up.", base_image
+                        )
+                        return result
+                    continue
+
             return result
+
     raise RuntimeError("Unreachable code reached in _build_with_logging")
 
 
@@ -279,6 +303,7 @@ def build_all_images(
     max_workers: int = 1,
     dry_run: bool = False,
     max_retries: int = 3,
+    post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
@@ -293,15 +318,18 @@ def build_all_images(
         base_image_to_custom_tag_fn: Function to extract custom tag from base image.
         max_workers: Number of concurrent builds.
         dry_run: If True, only list base images without building.
-        max_retries: Number of times to retry each failed build (default: 2).
+        max_retries: Number of times to retry each failed build (default: 3).
+        post_build_fn: Optional callback called after each successful build.
+            Receives (build_result, push) and returns modified BuildOutput.
+            If it returns an error, the build is retried.
 
     Returns:
         Exit code: 0 if all builds succeeded, 1 if any failed.
     """
 
     build_log_dir = build_dir / "logs"
-    manifest_path = build_dir / "manifest.jsonl"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_file = build_dir / "manifest.jsonl"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
 
     if dry_run:
         print("\n".join(base_images))
@@ -313,7 +341,7 @@ def build_all_images(
     mu = Lock()
 
     with (
-        manifest_path.open("w") as writer,
+        manifest_file.open("w") as writer,
         tqdm(
             total=len(base_images), desc="Building agent-server images", leave=True
         ) as pbar,
@@ -336,6 +364,7 @@ def build_all_images(
                     push,
                     base_image_to_custom_tag_fn,
                     max_retries,
+                    post_build_fn,
                 )
                 futures[fut] = base
 
@@ -390,6 +419,6 @@ def build_all_images(
         "Done. Built=%d  Failed=%d  Manifest=%s",
         successes,
         failures,
-        str(manifest_path),
+        str(manifest_file),
     )
     return 1 if failures else 0

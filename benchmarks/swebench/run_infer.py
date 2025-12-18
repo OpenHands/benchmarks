@@ -7,6 +7,8 @@ from jinja2 import Environment, FileSystemLoader
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
+    should_wrap_instance_id,
+    wrap_image,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
@@ -103,11 +105,13 @@ class SWEBenchEvaluation(Evaluation):
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
+        base_agent_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+        )
+        wrap_needed = should_wrap_instance_id(instance.id)
+        agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
-            )
             SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
             logger.info(f"SKIP_BUILD={SKIP_BUILD}")
             if not SKIP_BUILD:
@@ -128,11 +132,18 @@ class SWEBenchEvaluation(Evaluation):
                 )
                 logger.info(f"Image build output: {output}")
                 assert output.error is None, f"Image build failed: {output.error}"
-                if agent_server_image not in output.tags:
+                if base_agent_image not in output.tags:
                     raise RuntimeError(
                         f"Built image tags {output.tags} do not include expected tag "
-                        f"{agent_server_image}"
+                        f"{base_agent_image}"
                     )
+                if wrap_needed:
+                    wrapped_result = wrap_image(base_agent_image, push=False)
+                    if wrapped_result.error:
+                        raise RuntimeError(
+                            "Wrapped image build failed: "
+                            f"{wrapped_result.error}; log={wrapped_result.log_path}"
+                        )
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,

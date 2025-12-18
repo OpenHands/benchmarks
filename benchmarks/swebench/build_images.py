@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Build agent-server images for all unique SWE-Bench base images in a dataset split.
+Build agent-server images for all unique SWE-Bench base images in a dataset split,
+optionally wrapping them with a lightweight layer that pins docutils<0.21 and installs roman.
 
 Example:
   uv run benchmarks/swebench/build_images.py \
@@ -8,18 +9,25 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+import subprocess
 import sys
+from pathlib import Path
 
 from benchmarks.utils.build_utils import (
+    BuildOutput,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
 )
 from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.image_utils import image_exists
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
+# Repos that require the docutils/roman wrapper layer
+WRAPPED_REPOS = {"sphinx-doc"}
 
 
 def get_official_docker_image(
@@ -48,6 +56,18 @@ def extract_custom_tag(base_image: str) -> str:
     return name
 
 
+def should_wrap_custom_tag(custom_tag: str) -> bool:
+    prefix = "sweb.eval.x86_64."
+    if custom_tag.startswith(prefix):
+        custom_tag = custom_tag[len(prefix) :]
+    return custom_tag.split("_", 1)[0] in WRAPPED_REPOS
+
+
+def should_wrap_instance_id(instance_id: str) -> bool:
+    repo = instance_id.split("__")[0]
+    return repo in WRAPPED_REPOS
+
+
 def collect_unique_base_images(
     dataset,
     split,
@@ -65,6 +85,98 @@ def collect_unique_base_images(
     )
 
 
+def wrap_image(agent_image: str, push: bool = False) -> BuildOutput:
+    """
+    Wrap an agent-server image with pinned docutils/roman.
+
+    For pushes, verify the base tag exists in the registry. For local builds,
+    assume the tag is available locally or resolvable by Docker during buildx.
+    """
+    if push and not image_exists(agent_image):
+        return BuildOutput(
+            base_image=agent_image,
+            tags=[],
+            error=(
+                f"Agent-server image {agent_image} not found in registry. "
+                "Build and push it before wrapping."
+            ),
+        )
+
+    if not WRAPPER_DOCKERFILE.exists():
+        return BuildOutput(
+            base_image=agent_image,
+            tags=[],
+            error=f"Wrapper Dockerfile not found at {WRAPPER_DOCKERFILE}",
+        )
+
+    args = [
+        "docker",
+        "buildx",
+        "build",
+        "--file",
+        str(WRAPPER_DOCKERFILE),
+        "--build-arg",
+        f"SDK_IMAGE={agent_image}",
+        "--tag",
+        agent_image,
+    ]
+    if push:
+        args += ["--platform", "linux/amd64", "--push"]
+    else:
+        args += ["--load"]
+    args.append(str(WRAPPER_DOCKERFILE.parent))
+
+    logger.info("Wrapping %s in-place", agent_image)
+    proc = subprocess.run(args, text=True, capture_output=True)
+
+    # Stream captured output so callers still see build logs
+    sys.stdout.write(proc.stdout or "")
+    sys.stderr.write(proc.stderr or "")
+
+    if proc.returncode != 0:
+        error = (
+            proc.stderr.strip()
+            or proc.stdout.strip()
+            or f"Wrapper build failed with exit code {proc.returncode}"
+        )
+        return BuildOutput(base_image=agent_image, tags=[], error=error)
+
+    return BuildOutput(base_image=agent_image, tags=[agent_image], error=None)
+
+
+def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:
+    """
+    Post-build callback that wraps images for repos that need docutils/roman.
+
+    This is passed to build_all_images as post_build_fn, integrating wrapping
+    into the main build pass with automatic retry support.
+    """
+    if not result.tags:
+        return result
+
+    agent_image = result.tags[0]
+    # Extract custom tag from the built image tag to check if wrapping is needed
+    # Format: ghcr.io/openhands/eval-agent-server:SHA-sweb.eval.x86_64.REPO_...-target
+    tag_part = agent_image.split(":")[-1] if ":" in agent_image else ""
+    # Remove SDK SHA prefix and target suffix to get the custom tag
+    parts = tag_part.split("-", 1)
+    custom_tag = parts[1].rsplit("-", 1)[0] if len(parts) > 1 else tag_part
+
+    if not should_wrap_custom_tag(custom_tag):
+        return result
+
+    logger.info("Image %s needs wrapping, applying docutils/roman layer", agent_image)
+    wrap_result = wrap_image(agent_image, push)
+    if wrap_result.error:
+        return BuildOutput(
+            base_image=result.base_image,
+            tags=result.tags,
+            error=f"Wrapping failed: {wrap_result.error}",
+        )
+
+    return result
+
+
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
     args = parser.parse_args(argv)
@@ -76,6 +188,7 @@ def main(argv: list[str]) -> int:
         args.select,
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
+
     return build_all_images(
         base_images=base_images,
         target=args.target,
@@ -86,6 +199,7 @@ def main(argv: list[str]) -> int:
         dry_run=args.dry_run,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
+        post_build_fn=_wrap_if_needed,
     )
 
 
