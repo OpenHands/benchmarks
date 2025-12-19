@@ -32,9 +32,9 @@ GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
 MCP_DOCKERFILE = Path(__file__).with_name("Dockerfile.gaia")
 
 
-def gaia_tag_fn(_: str) -> str:
-    """Return custom tag for GAIA images (all use 'gaia' tag)."""
-    return "gaia"
+def gaia_tag_fn(target: str) -> str:
+    """Return custom tag for GAIA images including target suffix."""
+    return f"gaia-{target}"
 
 
 def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutput:
