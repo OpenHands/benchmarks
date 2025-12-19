@@ -48,7 +48,9 @@ def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutpu
     Returns:
         BuildOutput with the same image tag or error.
     """
-    logger.info("Building MCP-enhanced GAIA image (overriding base): %s", base_gaia_image)
+    logger.info(
+        "Building MCP-enhanced GAIA image (overriding base): %s", base_gaia_image
+    )
 
     return run_docker_build_layer(
         dockerfile=MCP_DOCKERFILE,
@@ -102,7 +104,10 @@ def main(argv: list[str]) -> int:
         logger.error("MCP layer build failed: %s", mcp_result.error)
         return 1
 
-    logger.info("Successfully built MCP-enhanced GAIA image: %s", mcp_result.tags[0] if mcp_result.tags else "unknown")
+    logger.info(
+        "Successfully built MCP-enhanced GAIA image: %s",
+        mcp_result.tags[0] if mcp_result.tags else "unknown",
+    )
     return 0
 
 

@@ -110,7 +110,7 @@ def wrap_image(agent_image: str, push: bool = False) -> BuildOutput:
         )
 
     logger.info("Wrapping %s in-place", agent_image)
-    
+
     return run_docker_build_layer(
         dockerfile=WRAPPER_DOCKERFILE,
         context=WRAPPER_DOCKERFILE.parent,

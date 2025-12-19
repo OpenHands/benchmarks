@@ -57,7 +57,7 @@ def run_docker_build_layer(
         dockerfile: Path to the Dockerfile to build.
         context: Path to the build context directory.
         tags: List of tags to apply to the built image.
-        build_args: Optional dict of build arguments (e.g., {"SDK_IMAGE": "..."}). 
+        build_args: Optional dict of build arguments (e.g., {"SDK_IMAGE": "..."}).
         push: If True, push to registry via buildx. If False and load is True, load locally.
         platform: Target platform (default: linux/amd64).
         load: If True and push is False, load the image into local docker.
@@ -112,7 +112,7 @@ def run_docker_build_layer(
     cmd.append(str(context_path))
 
     logger.info("Running docker build: %s", " ".join(cmd))
-    
+
     # Run build with output capture
     proc = subprocess.run(cmd, text=True, capture_output=True)
 
