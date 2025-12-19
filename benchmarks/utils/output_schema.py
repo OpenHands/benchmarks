@@ -33,7 +33,7 @@ class StandardizedOutput(BaseModel):
     instance_id: str
     attempt: int = Field(ge=1)
     max_attempts: int = Field(ge=1)
-    status: Literal["success", "error", "skipped"]
+    status: Literal["success", "error"]
     resolved: bool | None = None
     error: str | None = None
     test_result: dict[str, Any] = Field(default_factory=dict)
@@ -138,7 +138,6 @@ def derive_report(outputs: Iterable[StandardizedOutput]) -> dict[str, Any]:
     best = select_best_attempts(outputs)
     resolved_ids = [k for k, v in best.items() if v.resolved]
     unresolved_ids = [k for k, v in best.items() if v.resolved is False]
-    skipped_ids = [k for k, v in best.items() if v.status == "skipped"]
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -148,11 +147,9 @@ def derive_report(outputs: Iterable[StandardizedOutput]) -> dict[str, Any]:
             "instances": len(best),
             "resolved": len(resolved_ids),
             "unresolved": len(unresolved_ids),
-            "skipped": len(skipped_ids),
         },
         "resolved_ids": resolved_ids,
         "unresolved_ids": unresolved_ids,
-        "skipped_ids": skipped_ids,
     }
 
 

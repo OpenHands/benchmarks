@@ -121,7 +121,7 @@ After setting up the environment and configuring your LLM, see the individual be
 
 All benchmarks emit a common layout under each evaluation directory:
 
-- `metadata.json` (run-level config) and `output.jsonl` (canonical results). Each line is a `StandardizedOutput` (see `benchmarks/utils/output_schema.py`) with fields: `instance_id`, `attempt`, `max_attempts`, `status` (`success|error|skipped`), `resolved` (`bool|null`), `error`, `test_result` (benchmark-specific payload), `cost` (token/cost totals), and `artifacts_url` (path to the per-attempt bundle).
+- `metadata.json` (run-level config) and `output.jsonl` (canonical results). Each line is a `StandardizedOutput` (see `benchmarks/utils/output_schema.py`) with fields: `instance_id`, `attempt`, `max_attempts`, `status` (`success|error`), `resolved` (`bool|null`), `error`, `test_result` (benchmark-specific payload), `cost` (token/cost totals), and `artifacts_url` (path to the per-attempt bundle).
 - `output.report.json` is a derived cache regenerated from `output.jsonl` via `write_derived_report`; it is not a separate source of truth.
 - Per-attempt artifacts live under `artifacts/{instance_id}/attempt_{n}/` with `logs/instance.log`, `logs/instance.output.log`, optional `conversation.tar.gz`, patches, harness outputs, etc.
 - Run-wide harness outputs (e.g., SWE-Bench or GAIA reports) are copied to `harness/` next to `output.jsonl` (no more cache-only reports).

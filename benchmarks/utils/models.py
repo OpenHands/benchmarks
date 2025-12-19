@@ -93,7 +93,7 @@ class EvalOutput(OpenHandsModel):
     metrics: Metrics | None = None
     error: str | None = None
     # Outcome details
-    status: Literal["success", "error", "skipped"] | None = None
+    status: Literal["success", "error"] | None = None
     resolved: bool | None = None
 
     # Optionally save the input test instance

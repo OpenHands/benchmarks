@@ -70,9 +70,7 @@ def generate_error_logs_summary(eval_output_dir: str) -> None:
         return
 
     error_instances = [
-        out
-        for out in outputs
-        if out.status == "error" or (out.resolved is False and out.status != "skipped")
+        out for out in outputs if out.status == "error" or out.resolved is False
     ]
 
     if not error_instances:
