@@ -305,9 +305,9 @@ def _build_with_logging(
     log_dir: Path,
     base_image: str,
     target_image: str,
+    custom_tag: str = "",
     target: TargetType = "source-minimal",
     push: bool = False,
-    base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
 ) -> BuildOutput:
@@ -317,14 +317,11 @@ def _build_with_logging(
     Automatically retries failed builds up to max_retries times.
 
     Args:
+        custom_tag: Custom tag (already resolved) to pass to build_image.
         post_build_fn: Optional callback called after successful build.
             Receives (build_result, push) and returns modified BuildOutput.
             If it returns an error, the build is retried.
     """
-    custom_tag = ""
-    if base_image_to_custom_tag_fn:
-        custom_tag = base_image_to_custom_tag_fn(base_image)
-
     assert max_retries >= 1, "max_retries must be at least 1"
     for attempt in range(max_retries):
         with capture_output(base_image, log_dir) as log_path:
@@ -412,7 +409,8 @@ def build_all_images(
         build_dir: Directory to store build logs and manifest.
         image: Target image name for built images.
         push: Whether to push images via buildx.
-        base_image_to_custom_tag_fn: Function to extract custom tag from base image.
+        base_image_to_custom_tag_fn: Function to extract a custom tag from a base image.
+            Evaluated before scheduling builds so it can safely be a closure.
         max_workers: Number of concurrent builds.
         dry_run: If True, only list base images without building.
         max_retries: Number of times to retry each failed build (default: 3).
@@ -452,16 +450,22 @@ def build_all_images(
             futures = {}
             for base in base_images:
                 in_progress.add(base)
+                # Resolve custom tags before scheduling to avoid pickling issues with closures.
+                custom_tag = (
+                    base_image_to_custom_tag_fn(base)
+                    if base_image_to_custom_tag_fn
+                    else ""
+                )
                 fut = ex.submit(
                     _build_with_logging,
-                    build_log_dir,
-                    base,
-                    image,
-                    target,
-                    push,
-                    base_image_to_custom_tag_fn,
-                    max_retries,
-                    post_build_fn,
+                    log_dir=build_log_dir,
+                    base_image=base,
+                    target_image=image,
+                    custom_tag=custom_tag,
+                    target=target,
+                    push=push,
+                    max_retries=max_retries,
+                    post_build_fn=post_build_fn,
                 )
                 futures[fut] = base
 

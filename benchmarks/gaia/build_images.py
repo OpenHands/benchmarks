@@ -10,6 +10,7 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target binary-minimal --push
 """
 
+from functools import partial
 import sys
 from pathlib import Path
 
@@ -31,24 +32,9 @@ GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
 # MCP layer Dockerfile
 MCP_DOCKERFILE = Path(__file__).with_name("Dockerfile.gaia")
 
-# Global variable to store target for use by gaia_tag_fn
-_GAIA_TARGET = "binary"
-
-
-def gaia_tag_fn(base_image: str) -> str:
-    """Return custom tag for GAIA images.
-    
-    Module-level function (picklable) that creates tags like 'gaia-binary'
-    based on the _GAIA_TARGET global variable. The base_image parameter
-    is ignored since we want all GAIA images to share the same tag.
-    
-    Args:
-        base_image: Ignored (required by base_image_to_custom_tag_fn signature)
-        
-    Returns:
-        Tag in format "gaia-{target}" (e.g., "gaia-binary")
-    """
-    return f"gaia-{_GAIA_TARGET}"
+def gaia_tag_fn(_: str, target: str) -> str:
+    """Return custom tag for GAIA images (base image is ignored)."""
+    return f"gaia-{target}"
 
 
 def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutput:
@@ -78,8 +64,6 @@ def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutpu
 
 
 def main(argv: list[str]) -> int:
-    global _GAIA_TARGET
-    
     parser = get_build_parser()
     args = parser.parse_args(argv)
 
@@ -91,8 +75,7 @@ def main(argv: list[str]) -> int:
     logger.info(f"Image: {args.image}")
     logger.info(f"Push: {args.push}")
 
-    # Set global target for gaia_tag_fn to use
-    _GAIA_TARGET = args.target
+    tag_fn = partial(gaia_tag_fn, target=args.target)
 
     # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
@@ -105,7 +88,7 @@ def main(argv: list[str]) -> int:
         max_workers=1,  # Only building one image
         dry_run=args.dry_run,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=gaia_tag_fn,  # Module-level function (picklable)
+        base_image_to_custom_tag_fn=tag_fn,
     )
 
     if exit_code != 0:
