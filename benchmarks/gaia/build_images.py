@@ -121,31 +121,32 @@ def main(argv: list[str]) -> int:
         sdk_version=sdk_version,
     )
     expected_tags = opts.all_tags[0]
-    if expected_tags and all(image_exists(tag) for tag in expected_tags):
+    skip_base_build = expected_tags and all(image_exists(tag) for tag in expected_tags)
+    
+    if skip_base_build:
         logger.info(
-            "All GAIA images already exist: %s. Skipping build.",
+            "Base GAIA images already exist: %s. Skipping base build.",
             ", ".join(expected_tags),
         )
-        return 0
+    else:
+        build_dir = default_build_output_dir("gaia", "validation")
+        exit_code = build_all_images(
+            base_images=base_images,
+            target=args.target,
+            build_dir=build_dir,
+            image=args.image,
+            push=args.push,
+            max_workers=1,  # Only building one image
+            dry_run=args.dry_run,
+            max_retries=args.max_retries,
+            base_image_to_custom_tag_fn=gaia_tag_fn,  # Tag all with "gaia"
+        )
 
-    build_dir = default_build_output_dir("gaia", "validation")
-    exit_code = build_all_images(
-        base_images=base_images,
-        target=args.target,
-        build_dir=build_dir,
-        image=args.image,
-        push=args.push,
-        max_workers=1,  # Only building one image
-        dry_run=args.dry_run,
-        max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=gaia_tag_fn,  # Tag all with "gaia"
-    )
+        if exit_code != 0:
+            logger.error("Base GAIA image build failed")
+            return exit_code
 
-    if exit_code != 0:
-        logger.error("Base GAIA image build failed")
-        return exit_code
-
-    # Build MCP-enhanced layer after base image succeeds
+    # Build MCP-enhanced layer after base image succeeds (or if it already existed)
     # Determine the base GAIA image tag (from the expected tags computed above)
     if expected_tags:
         base_gaia_image = expected_tags[0]  # Use the first tag
