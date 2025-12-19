@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import fcntl
+import json
 import os
-from pathlib import Path
+from typing import Callable
 
-from benchmarks.utils.constants import ARTIFACTS_DIRNAME
-from benchmarks.utils.output_schema import load_output_file
+from benchmarks.utils.models import EvalInstance, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 
@@ -28,25 +29,42 @@ def construct_eval_output_dir(
     if eval_note:
         folder += f"_N_{eval_note}"
 
-    eval_output_dir = Path(base_dir) / dataset_name / folder
-    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    # Construct full path
+    eval_output_dir = os.path.join(base_dir, dataset_name, folder)
+    os.makedirs(eval_output_dir, exist_ok=True)
 
-    return str(eval_output_dir)
+    return eval_output_dir
 
 
-def get_attempt_artifact_dir(
-    eval_output_dir: str, instance_id: str, attempt: int
-) -> Path:
-    """Return the standardized artifact directory for an attempt."""
-    artifacts_dir = (
-        Path(eval_output_dir)
-        / ARTIFACTS_DIRNAME
-        / instance_id
-        / f"attempt_{attempt}"
-    )
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    (artifacts_dir / "logs").mkdir(exist_ok=True)
-    return artifacts_dir
+def get_default_on_result_writer(
+    output_path: str,
+) -> Callable[[EvalInstance, EvalOutput], None]:
+    """
+    Create a default callback that writes evaluation results to JSONL files.
+
+    Successful results are written to output.jsonl.
+    Failed results (with error field) are written to output_errors.jsonl.
+
+    Args:
+        output_path: Path to the main output JSONL file
+
+    Returns:
+        A callback function that can be passed to evaluator.run(on_result=...)
+    """
+    # Derive error output path from main output path
+    error_output_path = output_path.replace(".jsonl", "_errors.jsonl")
+
+    def _cb(instance: EvalInstance, out: EvalOutput) -> None:
+        # Choose the appropriate file based on whether there's an error
+        target_path = error_output_path if out.error else output_path
+
+        with open(target_path, "a") as f:
+            # Use exclusive lock to prevent race conditions in parallel execution
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.write(out.model_dump_json() + "\n")
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+    return _cb
 
 
 def generate_error_logs_summary(eval_output_dir: str) -> None:
@@ -58,47 +76,45 @@ def generate_error_logs_summary(eval_output_dir: str) -> None:
     Args:
         eval_output_dir: Path to the evaluation output directory
     """
-    output_file = Path(eval_output_dir) / "output.jsonl"
-    if not output_file.exists():
-        logger.info("No output.jsonl found, skipping ERROR_LOGS.txt generation")
+    error_output_path = os.path.join(eval_output_dir, "output_errors.jsonl")
+
+    # Check if there are any errors
+    if not os.path.exists(error_output_path):
+        logger.info("No error instances found, skipping ERROR_LOGS.txt generation")
         return
 
+    # Load error instances
+    error_instances = []
     try:
-        outputs = load_output_file(output_file)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Failed to read %s: %s", output_file, exc)
+        with open(error_output_path, "r") as f:
+            for line in f:
+                if line.strip():
+                    error_instances.append(json.loads(line))
+    except Exception as e:
+        logger.warning(f"Failed to read error instances: {e}")
         return
-
-    error_instances = [
-        out for out in outputs if out.status == "error" or out.resolved is False
-    ]
 
     if not error_instances:
         logger.info("No error instances found, skipping ERROR_LOGS.txt generation")
         return
 
-    summary_path = Path(eval_output_dir) / "ERROR_LOGS.txt"
+    # Generate summary file
+    summary_path = os.path.join(eval_output_dir, "ERROR_LOGS.txt")
     try:
-        with open(summary_path, "w", encoding="utf-8") as f:
+        with open(summary_path, "w") as f:
             f.write("=" * 80 + "\n")
             f.write("FAILED INSTANCES - QUICK REFERENCE\n")
             f.write("=" * 80 + "\n\n")
             f.write(f"Total failed instances: {len(error_instances)}\n\n")
 
             for i, error in enumerate(error_instances, 1):
-                instance_id = error.instance_id
-                error_msg = error.error or "No error message"
-                attempt = error.attempt
+                instance_id = error.get("instance_id", "unknown")
+                error_msg = error.get("error", "No error message")
 
-                artifact_path = Path(error.artifacts_url)
-                if not artifact_path.is_absolute():
-                    artifact_path = Path(eval_output_dir) / artifact_path
-                logs_dir = artifact_path / "logs"
-
-                f.write(f"[{i}] Instance ID: {instance_id} (attempt {attempt})\n")
+                f.write(f"[{i}] Instance ID: {instance_id}\n")
                 f.write(f"    Error: {error_msg}\n")
-                f.write(f"    Main log: {logs_dir / 'instance.log'}\n")
-                f.write(f"    Output log: {logs_dir / 'instance.output.log'}\n")
+                f.write(f"    Main log: logs/instance_{instance_id}.log\n")
+                f.write(f"    Output log: logs/instance_{instance_id}.output.log\n")
                 f.write("\n")
 
             f.write("=" * 80 + "\n")
@@ -106,16 +122,16 @@ def generate_error_logs_summary(eval_output_dir: str) -> None:
             f.write("=" * 80 + "\n")
             f.write("1. Download the full results archive from GCS\n")
             f.write("2. Extract the tar.gz file\n")
-            f.write("3. Navigate to logs/ directory under artifacts/\n")
-            f.write("4. Open the log files listed above for detailed error information\n")
+            f.write("3. Navigate to logs/ directory\n")
+            f.write(
+                "4. Open the log files listed above for detailed error information\n"
+            )
             f.write("\n")
             f.write("Main logs contain evaluation framework messages.\n")
             f.write("Output logs contain agent conversation output.\n")
 
         logger.info(
-            "Generated ERROR_LOGS.txt with %d failed instances at %s",
-            len(error_instances),
-            summary_path,
+            f"Generated ERROR_LOGS.txt with {len(error_instances)} failed instances at {summary_path}"
         )
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:
         logger.warning(f"Failed to generate ERROR_LOGS.txt: {e}")

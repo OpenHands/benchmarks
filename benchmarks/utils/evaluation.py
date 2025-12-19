@@ -3,6 +3,7 @@ Evaluation orchestrator.
 """
 
 import base64
+import json
 import os
 import sys
 from abc import ABC, abstractmethod
@@ -14,23 +15,14 @@ from typing import Callable, List, Optional, Tuple
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from benchmarks.utils.constants import METADATA_FILENAME, OUTPUT_FILENAME
-from benchmarks.utils.evaluation_utils import get_attempt_artifact_dir
+from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
-from benchmarks.utils.iterative import get_failed_instances
+from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
     EvalMetadata,
     EvalOutput,
-)
-from benchmarks.utils.output_schema import (
-    StandardizedOutput,
-    cost_from_metrics,
-    load_output_file,
-    select_best_attempts,
-    write_derived_report,
-    write_output_line,
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
@@ -39,7 +31,7 @@ from openhands.sdk.workspace import RemoteWorkspace
 
 logger = get_logger(__name__)
 
-OnResult = Callable[[EvalInstance, EvalOutput, int, Path], None]
+OnResult = Callable[[EvalInstance, EvalOutput], None]
 
 
 class Evaluation(ABC, BaseModel):
@@ -54,7 +46,7 @@ class Evaluation(ABC, BaseModel):
         os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
 
         # Save metadata to JSON file
-        metadata_file = os.path.join(self.metadata.eval_output_dir, METADATA_FILENAME)
+        metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
@@ -64,28 +56,18 @@ class Evaluation(ABC, BaseModel):
         return os.path.join(self.metadata.eval_output_dir, OUTPUT_FILENAME)
 
     def _get_completed_instances(self) -> set[EvalInstanceID]:
-        """Return the set of resolved instance IDs from prior runs."""
+        """Return the set of completed instance IDs."""
         completed_instances: set[EvalInstanceID] = set()
-        output_file = Path(self.output_path)
-        if output_file.exists():
-            outputs = load_output_file(output_file)
-            best = select_best_attempts(outputs)
-            completed_instances = {
-                instance_id for instance_id, out in best.items() if out.resolved
-            }
+        if os.path.exists(self.output_path):
+            with open(self.output_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    out = json.loads(line)
+                    completed_instances.add(out["instance_id"])
             logger.info(
-                "Found %d resolved instances in %s",
-                len(completed_instances),
-                self.output_path,
+                f"Found {len(completed_instances)} completed instances "
+                f"in {self.output_path}"
             )
         return completed_instances
-
-    def _attempt_file_path(self, attempt: int) -> Path:
-        """Path to the per-attempt JSONL file."""
-        return (
-            Path(self.metadata.eval_output_dir)
-            / f"output.critic_attempt_{attempt}.jsonl"
-        )
 
     @abstractmethod
     def prepare_instances(self) -> List[EvalInstance]:
@@ -99,7 +81,7 @@ class Evaluation(ABC, BaseModel):
 
     @abstractmethod
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
@@ -123,7 +105,6 @@ class Evaluation(ABC, BaseModel):
         self,
         workspace: RemoteWorkspace,
         instance: EvalInstance,
-        attempt: int,
     ) -> None:
         """Capture conversation trajectory from the remote runtime.
 
@@ -149,10 +130,11 @@ class Evaluation(ABC, BaseModel):
 
             if tar_cmd.exit_code == 0 and tar_cmd.stdout.strip():
                 # Save to instance-specific file to support parallel execution
-                artifacts_dir = get_attempt_artifact_dir(
-                    self.metadata.eval_output_dir, instance.id, attempt
+                conversations_dir = (
+                    Path(self.metadata.eval_output_dir) / "conversations"
                 )
-                conv_tar_path = artifacts_dir / "conversation.tar.gz"
+                conversations_dir.mkdir(parents=True, exist_ok=True)
+                conv_tar_path = conversations_dir / f"{instance.id}.tar.gz"
 
                 # Decode and write the tar.gz file
                 conv_tar_path.write_bytes(base64.b64decode(tar_cmd.stdout))
@@ -215,8 +197,11 @@ class Evaluation(ABC, BaseModel):
         Returns:
             List of instances that need processing for this attempt
         """
-        attempt_file = self._attempt_file_path(attempt)
-        completed_in_attempt = get_completed_instances(str(attempt_file))
+        attempt_file = os.path.join(
+            self.metadata.eval_output_dir,
+            f"output.critic_attempt_{attempt}.jsonl",
+        )
+        completed_in_attempt = get_completed_instances(attempt_file)
 
         if attempt == 1:
             # Attempt 1: Process everything not yet completed in attempt 1
@@ -225,11 +210,14 @@ class Evaluation(ABC, BaseModel):
             ]
         else:
             # Attempt N: Process what failed in N-1 and isn't completed in N
-            prev_file = self._attempt_file_path(attempt - 1)
+            prev_file = os.path.join(
+                self.metadata.eval_output_dir,
+                f"output.critic_attempt_{attempt - 1}.jsonl",
+            )
             if not os.path.exists(prev_file):
                 return []
 
-            failed_in_prev = get_failed_instances(str(prev_file), critic)
+            failed_in_prev = get_failed_instances(prev_file, critic)
             return [
                 inst
                 for inst in all_instances
@@ -251,17 +239,17 @@ class Evaluation(ABC, BaseModel):
             logger.warning("No instances to process.")
             return []
 
+        critic = self.metadata.critic
         all_outputs: List[EvalOutput] = []
 
         for attempt in range(1, self.metadata.max_attempts + 1):
-            logger.info("Starting attempt %s/%s", attempt, self.metadata.max_attempts)
+            logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
-            attempt_file = self._attempt_file_path(attempt)
             instances_to_process = self._get_instances_for_attempt(
-                attempt, all_instances, self.metadata.critic
+                attempt, all_instances, critic
             )
 
-            logger.info("Processing %d instances", len(instances_to_process))
+            logger.info(f"Processing {len(instances_to_process)} instances")
 
             if not instances_to_process:
                 logger.info("No instances to process, skipping to next attempt")
@@ -273,77 +261,37 @@ class Evaluation(ABC, BaseModel):
                 logger.info("Adjusting temperature from 0.0 to 0.1 for retry attempt")
                 self.metadata.llm.temperature = 0.1
 
+            # Create attempt-specific output callback
             attempt_outputs: List[EvalOutput] = []
 
-            def attempt_on_result(
-                instance: EvalInstance, out: EvalOutput
-            ) -> None:
+            def attempt_on_result(instance: EvalInstance, out: EvalOutput) -> None:
                 attempt_outputs.append(out)
-                artifacts_dir = get_attempt_artifact_dir(
-                    self.metadata.eval_output_dir, instance.id, attempt
+                # Write to attempt-specific file
+                attempt_file = os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{attempt}.jsonl",
                 )
-                artifacts_url = os.path.relpath(
-                    artifacts_dir, start=self.metadata.eval_output_dir
-                )
-
-                # Derive resolved/status; fall back to critic when unset
-                resolved = out.resolved
-                if resolved is None:
-                    if out.error:
-                        # Always treat errored attempts as unresolved
-                        resolved = False
-                    else:
-                        try:
-                            from benchmarks.utils.critics import evaluate_output
-
-                            resolved = evaluate_output(self.metadata.critic, out)
-                        except Exception as e:
-                            logger.debug(
-                                "Failed to evaluate output with critic for %s: %s",
-                                instance.id,
-                                e,
-                            )
-                            resolved = False if out.error else None
-
-                status = out.status
-                if status is None:
-                    if out.error:
-                        status = "error"
-                    elif resolved is False:
-                        status = "error"
-                    else:
-                        status = "success"
-
-                standardized = StandardizedOutput(
-                    instance_id=instance.id,
-                    attempt=attempt,
-                    max_attempts=self.metadata.max_attempts,
-                    status=status,
-                    resolved=resolved,
-                    error=out.error,
-                    test_result=out.test_result or {},
-                    cost=cost_from_metrics(out.metrics),
-                    artifacts_url=str(Path(artifacts_url)),
-                )
-
                 try:
-                    write_output_line(attempt_file, standardized)
-                except Exception as e:  # pragma: no cover - defensive
+                    with open(attempt_file, "a") as f:
+                        f.write(out.model_dump_json() + "\n")
+                except Exception as e:
                     logger.warning(
-                        "Failed to write attempt output for %s: %s", instance.id, e
+                        f"Failed to write to attempt file {attempt_file}: {e}"
                     )
 
+                # Call original callback if provided
                 if on_result:
                     try:
-                        on_result(instance, out, attempt, artifacts_dir)
-                    except Exception as cb_err:  # pragma: no cover - defensive
+                        on_result(instance, out)
+                    except Exception as cb_err:
                         logger.warning("on_result callback failed: %s", cb_err)
 
+            # Run evaluation for this attempt
             pool = ProcessPoolExecutor(max_workers=self.num_workers)
             futures = []
             try:
                 futures = [
-                    pool.submit(self._process_one_mp, inst, attempt)
+                    pool.submit(self._process_one_mp, inst)
                     for inst in instances_to_process
                 ]
 
@@ -356,14 +304,14 @@ class Evaluation(ABC, BaseModel):
                     try:
                         instance, out = fut.result()
                         attempt_on_result(instance, out)
-                    except Exception as e:  # pragma: no cover - defensive
+                    except Exception as e:
                         logger.error(
-                            "Unexpected error from worker process: %s",
-                            str(e)[:50],
+                            f"Unexpected error from worker process: {str(e)[:50]}",
                             exc_info=True,
                             stack_info=True,
                         )
 
+                # Normal completion - shutdown gracefully
                 pool.shutdown(wait=True)
             except KeyboardInterrupt:
                 logger.warning("KeyboardInterrupt received, shutting down workers...")
@@ -374,40 +322,28 @@ class Evaluation(ABC, BaseModel):
                 self._cleanup_pool(pool, futures, wait=False)
                 raise
 
+            # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
                 self.metadata.llm.temperature = original_temperature
 
             logger.info(
-                "Attempt %s complete: %s instances processed",
-                attempt,
-                len(attempt_outputs),
+                f"Attempt {attempt} complete: "
+                f"{len(attempt_outputs)} instances processed"
             )
             all_outputs.extend(attempt_outputs)
 
-        # Consolidate attempt files into canonical output.jsonl
-        final_output = Path(self.output_path)
-        final_output.parent.mkdir(parents=True, exist_ok=True)
-        final_output.unlink(missing_ok=True)
-        with open(final_output, "w", encoding="utf-8") as fout:
-            for attempt in range(1, self.metadata.max_attempts + 1):
-                attempt_file = self._attempt_file_path(attempt)
-                if not attempt_file.exists():
-                    continue
-                with open(attempt_file, "r", encoding="utf-8") as fin:
-                    for line in fin:
-                        fout.write(line)
-
-        # Derived report (cached; regenerable from output.jsonl)
-        try:
-            report_path = write_derived_report(self.metadata.eval_output_dir)
-            logger.info("Wrote derived report to %s", report_path)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to generate derived report: %s", exc)
+        # Aggregate results from all attempts
+        logger.info("Aggregating results from all attempts")
+        aggregate_results(
+            output_dir=self.metadata.eval_output_dir,
+            max_attempts=self.metadata.max_attempts,
+            critic=self.metadata.critic,
+            final_output_file="output.jsonl",
+        )
 
         logger.info(
-            "Evaluation complete: %d total instances, %d max attempts",
-            total_instances,
-            self.metadata.max_attempts,
+            f"Evaluation complete: {total_instances} total instances, "
+            f"{self.metadata.max_attempts} max attempts"
         )
         return all_outputs
 
@@ -441,7 +377,7 @@ class Evaluation(ABC, BaseModel):
 
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance, attempt: int
+        self, instance: EvalInstance
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
@@ -451,17 +387,14 @@ class Evaluation(ABC, BaseModel):
         - Returns (instance, output) so the parent can stream results
         """
         # Set up instance-specific logging
-        artifact_dir = get_attempt_artifact_dir(
-            self.metadata.eval_output_dir, instance.id, attempt
-        )
-        log_dir = artifact_dir / "logs"
-        reset_logger_for_multiprocessing(str(log_dir), instance.id)
+        log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
+        reset_logger_for_multiprocessing(log_dir, instance.id)
 
         # Get log file path for stdout/stderr redirection
-        log_file = log_dir / "instance.output.log"
+        log_file = os.path.join(log_dir, f"instance_{instance.id}.output.log")
 
         # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
-        with redirect_stdout_stderr(str(log_file)):
+        with redirect_stdout_stderr(log_file):
             logger.info("[child] start id=%s", instance.id)
 
             retry_count = 0
@@ -472,10 +405,10 @@ class Evaluation(ABC, BaseModel):
                 workspace = None
                 try:
                     workspace = self.prepare_workspace(instance)
-                    out = self.evaluate_instance(instance, workspace, attempt)
+                    out = self.evaluate_instance(instance, workspace)
 
                     # Capture conversation archive after successful evaluation
-                    self._capture_conversation_archive(workspace, instance, attempt)
+                    self._capture_conversation_archive(workspace, instance)
 
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
@@ -541,8 +474,8 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     import logging
 
     # Set up logger
-    log_file = os.path.join(log_dir, "instance.log")
-    output_log_file = os.path.join(log_dir, "instance.output.log")
+    log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
+    output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
 
     # Get root logger and remove all existing handlers
     root_logger = logging.getLogger()
