@@ -9,7 +9,6 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -18,6 +17,7 @@ from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
     get_build_parser,
+    run_docker_build_layer,
 )
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import image_exists
@@ -109,39 +109,17 @@ def wrap_image(agent_image: str, push: bool = False) -> BuildOutput:
             error=f"Wrapper Dockerfile not found at {WRAPPER_DOCKERFILE}",
         )
 
-    args = [
-        "docker",
-        "buildx",
-        "build",
-        "--file",
-        str(WRAPPER_DOCKERFILE),
-        "--build-arg",
-        f"SDK_IMAGE={agent_image}",
-        "--tag",
-        agent_image,
-    ]
-    if push:
-        args += ["--platform", "linux/amd64", "--push"]
-    else:
-        args += ["--load"]
-    args.append(str(WRAPPER_DOCKERFILE.parent))
-
     logger.info("Wrapping %s in-place", agent_image)
-    proc = subprocess.run(args, text=True, capture_output=True)
 
-    # Stream captured output so callers still see build logs
-    sys.stdout.write(proc.stdout or "")
-    sys.stderr.write(proc.stderr or "")
-
-    if proc.returncode != 0:
-        error = (
-            proc.stderr.strip()
-            or proc.stdout.strip()
-            or f"Wrapper build failed with exit code {proc.returncode}"
-        )
-        return BuildOutput(base_image=agent_image, tags=[], error=error)
-
-    return BuildOutput(base_image=agent_image, tags=[agent_image], error=None)
+    return run_docker_build_layer(
+        dockerfile=WRAPPER_DOCKERFILE,
+        context=WRAPPER_DOCKERFILE.parent,
+        tags=[agent_image],
+        build_args={"SDK_IMAGE": agent_image},
+        push=push,
+        platform="linux/amd64",
+        load=not push,
+    )
 
 
 def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:

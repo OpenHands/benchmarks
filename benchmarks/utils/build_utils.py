@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import io
 import subprocess
+import sys
 import time
 import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -26,6 +27,110 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+class BuildOutput(BaseModel):
+    time: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    base_image: str
+    tags: list[str]
+    error: str | None = None
+    log_path: str | None = None
+
+
+def run_docker_build_layer(
+    dockerfile: Path | str,
+    context: Path | str,
+    tags: list[str],
+    build_args: dict[str, str] | None = None,
+    push: bool = False,
+    platform: str = "linux/amd64",
+    load: bool = True,
+    no_cache: bool = False,
+) -> BuildOutput:
+    """
+    Run docker buildx build to apply a custom layer on top of an existing image.
+
+    This is a shared helper for building thin wrapper images (e.g., SWE-bench docutils/roman,
+    GAIA MCP-precache, OpenAgentSafety local image).
+
+    Args:
+        dockerfile: Path to the Dockerfile to build.
+        context: Path to the build context directory.
+        tags: List of tags to apply to the built image.
+        build_args: Optional dict of build arguments (e.g., {"SDK_IMAGE": "..."}).
+        push: If True, push to registry via buildx. If False and load is True, load locally.
+        platform: Target platform (default: linux/amd64).
+        load: If True and push is False, load the image into local docker.
+        no_cache: If True, pass --no-cache to disable layer cache.
+
+    Returns:
+        BuildOutput with tags on success, or error message on failure.
+    """
+    dockerfile_path = Path(dockerfile)
+    context_path = Path(context)
+
+    if not dockerfile_path.exists():
+        return BuildOutput(
+            base_image=str(dockerfile),
+            tags=[],
+            error=f"Dockerfile not found at {dockerfile_path}",
+        )
+
+    if not context_path.exists():
+        return BuildOutput(
+            base_image=str(context),
+            tags=[],
+            error=f"Build context not found at {context_path}",
+        )
+
+    # Build command
+    cmd = ["docker", "buildx", "build", "--file", str(dockerfile_path)]
+
+    # Add build arguments
+    if build_args:
+        for key, value in build_args.items():
+            cmd.extend(["--build-arg", f"{key}={value}"])
+
+    # Add tags
+    for tag in tags:
+        cmd.extend(["--tag", tag])
+
+    # Add platform
+    cmd.extend(["--platform", platform])
+
+    # Push or load
+    if push:
+        cmd.append("--push")
+    elif load:
+        cmd.append("--load")
+
+    # Add no-cache if requested
+    if no_cache:
+        cmd.append("--no-cache")
+
+    # Add context path
+    cmd.append(str(context_path))
+
+    logger.info("Running docker build: %s", " ".join(cmd))
+
+    # Run build with output capture
+    proc = subprocess.run(cmd, text=True, capture_output=True)
+
+    # Log output so it appears in capture_output logs when called from _build_with_logging
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+    if proc.returncode != 0:
+        error = (
+            proc.stderr.strip()
+            or proc.stdout.strip()
+            or f"Docker build failed with exit code {proc.returncode}"
+        )
+        return BuildOutput(base_image=str(dockerfile), tags=[], error=error)
+
+    return BuildOutput(base_image=str(dockerfile), tags=tags, error=None)
 
 
 def _get_sdk_submodule_info() -> tuple[str, str, str]:
@@ -85,14 +190,6 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
         f"SDK submodule info: ref={git_ref}, sha={git_sha[:7]}, version={sdk_version}"
     )
     return git_ref, git_sha, sdk_version
-
-
-class BuildOutput(BaseModel):
-    time: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    base_image: str
-    tags: list[str]
-    error: str | None = None
-    log_path: str | None = None
 
 
 @contextlib.contextmanager
@@ -195,7 +292,7 @@ def build_image(
         git_sha=git_sha,
         sdk_version=sdk_version,
     )
-    for t in opts.all_tags[0]:
+    for t in opts.all_tags:
         # Check if image exists or not
         if image_exists(t):
             logger.info(f"Image {t} already exists. Skipping build.")
@@ -208,9 +305,9 @@ def _build_with_logging(
     log_dir: Path,
     base_image: str,
     target_image: str,
+    custom_tag: str = "",
     target: TargetType = "source-minimal",
     push: bool = False,
-    base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
 ) -> BuildOutput:
@@ -220,14 +317,11 @@ def _build_with_logging(
     Automatically retries failed builds up to max_retries times.
 
     Args:
+        custom_tag: Custom tag (already resolved) to pass to build_image.
         post_build_fn: Optional callback called after successful build.
             Receives (build_result, push) and returns modified BuildOutput.
             If it returns an error, the build is retried.
     """
-    custom_tag = ""
-    if base_image_to_custom_tag_fn:
-        custom_tag = base_image_to_custom_tag_fn(base_image)
-
     assert max_retries >= 1, "max_retries must be at least 1"
     for attempt in range(max_retries):
         with capture_output(base_image, log_dir) as log_path:
@@ -315,7 +409,8 @@ def build_all_images(
         build_dir: Directory to store build logs and manifest.
         image: Target image name for built images.
         push: Whether to push images via buildx.
-        base_image_to_custom_tag_fn: Function to extract custom tag from base image.
+        base_image_to_custom_tag_fn: Function to extract a custom tag from a base image.
+            Evaluated before scheduling builds so it can safely be a closure.
         max_workers: Number of concurrent builds.
         dry_run: If True, only list base images without building.
         max_retries: Number of times to retry each failed build (default: 3).
@@ -355,16 +450,22 @@ def build_all_images(
             futures = {}
             for base in base_images:
                 in_progress.add(base)
+                # Resolve custom tags before scheduling to avoid pickling issues with closures.
+                resolved_tag = (
+                    base_image_to_custom_tag_fn(base)
+                    if base_image_to_custom_tag_fn
+                    else ""
+                )
                 fut = ex.submit(
                     _build_with_logging,
-                    build_log_dir,
-                    base,
-                    image,
-                    target,
-                    push,
-                    base_image_to_custom_tag_fn,
-                    max_retries,
-                    post_build_fn,
+                    log_dir=build_log_dir,
+                    base_image=base,
+                    target_image=image,
+                    custom_tag=resolved_tag,
+                    target=target,
+                    push=push,
+                    max_retries=max_retries,
+                    post_build_fn=post_build_fn,
                 )
                 futures[fut] = base
 

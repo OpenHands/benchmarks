@@ -76,7 +76,7 @@ jobs:
         run: |
           make build
 
-      - name: Build and push GAIA image
+      - name: Build and push GAIA image with MCP layer
         run: |
           set -euo pipefail
 
@@ -90,39 +90,8 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
 
-      - name: Build and push GAIA image with MCP pre-installed
-        run: |
-          set -euo pipefail
-
-          # Get the SDK commit SHA for tagging
-          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//' | cut -c1-7)
-          
-          # GAIA requires 'binary' target to include Chromium for browser operations
-          TARGET="binary"
-          
-          # Compute base and MCP image tags
-          BASE_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia"
-          MCP_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-with-mcp"
-
-          echo "Building MCP-enhanced image..."
-          echo "  Base image: ${BASE_IMAGE}"
-          echo "  MCP image:  ${MCP_IMAGE}"
-
-          # Build the derived image with MCP pre-cached
-          docker build \
-            -f benchmarks/gaia/Dockerfile.gaia \
-            --build-arg SDK_IMAGE="${BASE_IMAGE}" \
-            -t "${MCP_IMAGE}" \
-            .
-
-          # Push the image
-          docker push "${MCP_IMAGE}"
-
-          echo "✅ MCP-enhanced image built and pushed: ${MCP_IMAGE}"
+          echo "✅ GAIA image with MCP layer built and pushed successfully"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
@@ -201,9 +170,6 @@ jobs:
             exit 0
           fi
 
-          # Construct MCP image tag (always binary for GAIA)
-          MCP_IMAGE_TAG="ghcr.io/openhands/eval-agent-server:${SDK_SHA_SHORT}-gaia-with-mcp"
-
           # Determine trigger source
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
@@ -218,12 +184,11 @@ jobs:
             --arg sdk_short "${SDK_SHA_SHORT}" \
             --arg sdk_full "${SDK_SHA}" \
             --arg image "${IMAGE_TAG}" \
-            --arg mcp_image "${MCP_IMAGE_TAG}" \
             --arg run_id "${{ github.run_id }}" \
             --arg server_url "${{ github.server_url }}" \
             --arg repo "${{ github.repository }}" \
             --arg trigger "${TRIGGER}" \
-            '{body: "## GAIA Image Build Complete ✅\n\n**SDK Version:** [`\($sdk_short)`](https://github.com/OpenHands/software-agent-sdk/commit/\($sdk_full))\n**Base Image:** `\($image)`\n**MCP Image:** `\($mcp_image)` ⚡ _(MCP server pre-cached)_\n**Workflow Run:** [#\($run_id)](\($server_url)/\($repo)/actions/runs/\($run_id))\n**Triggered by:** \($trigger)\n\nThe MCP-enhanced image includes pre-cached `mcp-server-fetch` to eliminate 1-18 minute startup delays."}' | \
+            '{body: "## GAIA Image Build Complete ✅\n\n**SDK Version:** [`\($sdk_short)`](https://github.com/OpenHands/software-agent-sdk/commit/\($sdk_full))\n**Image:** `\($image)` ⚡ _(includes pre-cached MCP server)_\n**Workflow Run:** [#\($run_id)](\($server_url)/\($repo)/actions/runs/\($run_id))\n**Triggered by:** \($trigger)\n\nThe image includes pre-cached `mcp-server-fetch` to eliminate 1-18 minute startup delays."}' | \
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
