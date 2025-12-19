@@ -11,10 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import (
-    construct_eval_output_dir,
-    get_default_on_result_writer,
-)
+from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -222,7 +219,7 @@ class Commit0Evaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """
         Run agent, collect history, git patch, and test results.
@@ -434,61 +431,29 @@ class Commit0Evaluation(Evaluation):
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
 
-        # Save workspace as zip (if supported by workspace implementation)
-        zip_dest = os.path.join(
-            self.metadata.eval_output_dir, "repos", repo_name, f"{repo_name}.zip"
-        )
-        os.makedirs(os.path.dirname(zip_dest), exist_ok=True)
-
-        # Try to copy workspace directory if the method is available
-        try:
-            download_directory = getattr(workspace, "download_directory", None)
-            if download_directory is not None:
-                temp_zip = download_directory(repo_path)
-                if temp_zip and os.path.exists(temp_zip):
-                    import shutil
-
-                    shutil.move(temp_zip, zip_dest)
-            else:
-                logger.warning(
-                    "Workspace does not support downloading directory, skipping zip creation"
-                )
-        except Exception as e:
-            logger.warning(f"Failed to save workspace as zip: {e}")
-
-        # Save patch, test output, and exit code
-        patch_file = os.path.join(
-            self.metadata.eval_output_dir, "repos", repo_name, f"{repo_name}_patch.diff"
-        )
-        test_output_file = os.path.join(
-            self.metadata.eval_output_dir,
-            "repos",
-            repo_name,
-            f"{repo_name}_test_output.txt",
-        )
-        pytest_exit_code_file = os.path.join(
-            self.metadata.eval_output_dir,
-            "repos",
-            repo_name,
-            f"{repo_name}_pytest_exit_code.txt",
-        )
-
-        write_targets = [
-            (patch_file, git_patch),
-            (test_output_file, test_output),
-            (pytest_exit_code_file, pytest_exit_code),
-        ]
-
-        for write_target in write_targets:
-            with open(write_target[0], "w") as f:
-                f.write(write_target[1])
-
         logger.info(
             f"Got evaluation result for repo {instance.id}:\n--------\n{eval_result}\n--------"
         )
 
+        resolved = bool(eval_result.get("passed") == 1.0)
+        if not resolved and eval_result.get("num_tests"):
+            resolved = eval_result.get("num_passed") == eval_result.get("num_tests")
+
         test_result = {
             "eval_result": eval_result,
+            "git_patch": git_patch,
+            "pytest_exit_code": pytest_exit_code,
+        }
+
+        artifacts_payload = {
+            "git_patch": git_patch,
+            "test_output": test_output,
+            "pytest_exit_code": pytest_exit_code,
+            "report_json": report_result.stdout.strip()
+            if report_result.exit_code == 0
+            else None,
+            "repo_name": repo_name,
+            "workspace_dir": repo_path,
         }
 
         out = EvalOutput(
@@ -498,6 +463,9 @@ class Commit0Evaluation(Evaluation):
             error=None,
             history=history,
             metrics=conversation.conversation_stats.get_combined_metrics(),
+            status="success",
+            resolved=resolved,
+            artifacts=artifacts_payload,
         )
         return out
 
@@ -576,7 +544,29 @@ def main() -> None:
         dataset_split=args.split,
     )
 
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    def save_commit0_artifacts(
+        instance: EvalInstance, out: EvalOutput, attempt: int, artifacts_dir: Path
+    ) -> None:
+        payload = out.artifacts or {}
+        harness_dir = artifacts_dir / "harness"
+        harness_dir.mkdir(parents=True, exist_ok=True)
+
+        if payload.get("git_patch"):
+            (artifacts_dir / "patch.diff").write_text(payload["git_patch"])
+        if payload.get("test_output") is not None:
+            (harness_dir / "test_output.txt").write_text(payload["test_output"])
+        if payload.get("pytest_exit_code") is not None:
+            (harness_dir / "pytest_exit_code.txt").write_text(
+                str(payload["pytest_exit_code"])
+            )
+        if payload.get("report_json"):
+            (harness_dir / "report.json").write_text(payload["report_json"])
+        if out.test_result:
+            (harness_dir / "eval_result.json").write_text(
+                json.dumps(out.test_result["eval_result"], indent=2)
+            )
+
+    evaluator.run(on_result=save_commit0_artifacts)
 
     logger.info("Evaluation completed!")
 

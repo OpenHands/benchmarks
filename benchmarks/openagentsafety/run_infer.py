@@ -1,10 +1,10 @@
 """OpenAgentSafety evaluation using OpenHands SDK and shared evaluation framework."""
 
-import fcntl
 import json
 import os
 import subprocess
 import time
+from pathlib import Path
 from typing import Any, List
 
 import numpy as np
@@ -393,7 +393,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """Run the agent on one instance and return evaluation results."""
         import warnings
@@ -454,6 +454,8 @@ class OpenAgentSafetyEvaluation(Evaluation):
                 error=str(e),
                 history=[],
                 metrics=metrics,
+                status="error",
+                resolved=False,
             )
 
         # Build history safely
@@ -490,15 +492,34 @@ class OpenAgentSafetyEvaluation(Evaluation):
         metrics = None
         if hasattr(self.metadata.llm, "metrics"):
             metrics = self.metadata.llm.metrics
+
+        error_msg = eval_result.get("error") if isinstance(eval_result, dict) else None
+        success_flag = None
+        if isinstance(eval_result, dict):
+            for key in ("success", "score", "passed"):
+                if key in eval_result:
+                    success_flag = eval_result.get(key)
+                    break
+        resolved = bool(success_flag) if success_flag is not None else None
+        if error_msg:
+            resolved = False
+
         return EvalOutput(
             instance_id=instance.id,
             test_result=eval_result,
             instruction=instruction,
-            error=None if not eval_result.get("error") else eval_result["error"],
+            error=error_msg,
             history=history,
             metadata=self.metadata,
             instance=instance.data,
             metrics=metrics,
+            status="error" if error_msg else "success",
+            resolved=resolved,
+            artifacts={
+                "history": history,
+                "trajectory": trajectory,
+                "eval_result": eval_result,
+            },
         )
 
 
@@ -563,50 +584,29 @@ def main() -> None:
         metadata=metadata, num_workers=args.num_workers
     )
 
-    # Define result writer with file locking
-    def _default_on_result_writer(eval_output_dir: str):
-        def _cb(instance: EvalInstance, out: EvalOutput) -> None:
-            try:
-                # Write to JSONL with exclusive lock
-                with open(evaluator.output_path, "a") as f:
-                    fcntl.flock(f, fcntl.LOCK_EX)
-                    output_dict = out.model_dump()
-                    # Clean up any remaining numpy types
-                    output_dict = convert_numpy_types(output_dict)
-                    json_str = json.dumps(output_dict)
-                    f.write(json_str + "\n")
-                    fcntl.flock(f, fcntl.LOCK_UN)
-            except Exception as e:
-                logger.warning(f"Failed to write to attempt file: {e}")
+    def save_openagentsafety_artifacts(
+        instance: EvalInstance, out: EvalOutput, attempt: int, artifacts_dir: Path
+    ) -> None:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        harness_dir = artifacts_dir / "harness"
+        harness_dir.mkdir(exist_ok=True)
 
-            # Save individual files
-            output_dir = eval_output_dir
-            os.makedirs(output_dir, exist_ok=True)
-
-            # Save trajectory
-            traj_file = os.path.join(output_dir, f"traj_{instance.id}.json")
-            with open(traj_file, "w") as f:
-                json.dump(out.history, f, indent=2, cls=NumpyEncoder)
-
-            # Save eval result
-            eval_file = os.path.join(output_dir, f"eval_{instance.id}.json")
-            with open(eval_file, "w") as f:
-                json.dump(out.test_result, f, indent=2, cls=NumpyEncoder)
-
-            # Save state
-            state_file = os.path.join(output_dir, f"state_{instance.id}.json")
-            state_data = {
-                "instance_id": instance.id,
-                "history": out.history,
-                "num_events": len(out.history) if out.history else 0,
-            }
-            with open(state_file, "w") as f:
-                json.dump(state_data, f, indent=2, cls=NumpyEncoder)
-
-        return _cb
+        payload = convert_numpy_types(out.artifacts or {})
+        if payload.get("trajectory"):
+            (artifacts_dir / "trajectory.json").write_text(
+                json.dumps(payload["trajectory"], indent=2)
+            )
+        if payload.get("history"):
+            (artifacts_dir / "history.json").write_text(
+                json.dumps(payload["history"], indent=2, cls=NumpyEncoder)
+            )
+        if payload.get("eval_result"):
+            (harness_dir / "eval_result.json").write_text(
+                json.dumps(payload["eval_result"], indent=2, cls=NumpyEncoder)
+            )
 
     # Run evaluation
-    evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
+    evaluator.run(on_result=save_openagentsafety_artifacts)
 
     # Final cleanup
     cleanup_docker_containers()

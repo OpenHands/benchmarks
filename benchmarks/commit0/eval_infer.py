@@ -15,6 +15,7 @@ import logging
 import sys
 from pathlib import Path
 
+from benchmarks.utils.output_schema import load_output_file, select_best_attempts
 from benchmarks.utils.report_costs import generate_cost_report
 
 
@@ -68,67 +69,40 @@ def process_commit0_results(
     completed_ids = []
     resolved_ids = []
     unresolved_ids = []
+    error_ids = []
     total_tests = 0
     total_passed_tests = 0
 
-    with open(input_file, "r") as infile:
-        for line_num, line in enumerate(infile, 1):
-            try:
-                line = line.strip()
-                if not line:
-                    continue
+    outputs = load_output_file(input_file)
+    best_attempts = select_best_attempts(outputs)
 
-                data = json.loads(line)
+    for instance_id, out in best_attempts.items():
+        eval_result = out.test_result.get("eval_result", {})
+        passed = eval_result.get("passed", 0)
+        num_tests = eval_result.get("num_tests", 0)
+        num_passed = eval_result.get("num_passed", 0)
 
-                # Extract required fields
-                instance_id = data.get("instance_id")
-                if not instance_id:
-                    logger.warning(f"Line {line_num}: Missing instance_id")
-                    continue
+        completed_ids.append(instance_id)
+        total_tests += num_tests
+        total_passed_tests += num_passed
 
-                # Extract eval_result from test_result
-                test_result = data.get("test_result", {})
-                eval_result = test_result.get("eval_result", {})
-
-                if not eval_result:
-                    logger.warning(
-                        f"Line {line_num}: Missing eval_result for {instance_id}"
-                    )
-                    continue
-
-                # Extract metrics
-                passed = eval_result.get("passed", 0)
-                num_tests = eval_result.get("num_tests", 0)
-                num_passed = eval_result.get("num_passed", 0)
-
-                # Add to completed instances
-                completed_ids.append(instance_id)
-
-                # Count total tests and passed tests
-                total_tests += num_tests
-                total_passed_tests += num_passed
-
-                # Determine if resolved (passed == 1.0 means all tests passed)
-                if passed == 1.0:
-                    resolved_ids.append(instance_id)
-                else:
-                    unresolved_ids.append(instance_id)
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Line {line_num}: Invalid JSON - {e}")
-            except Exception as e:
-                logger.error(f"Line {line_num}: Unexpected error - {e}")
+        if out.resolved:
+            resolved_ids.append(instance_id)
+        else:
+            unresolved_ids.append(instance_id)
+            if out.status == "error":
+                error_ids.append(instance_id)
 
     # Generate report
     report = {
         "model_name_or_path": model_name,
-        "total_instances": 16,  # Fixed as per requirement
+        "total_instances": len(best_attempts),
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
         "resolved_instances": len(resolved_ids),
         "unresolved_instances": len(unresolved_ids),
         "empty_patch_instances": 0,  # Always 0 as per requirement
-        "error_instances": 0,  # Always 0 as per requirement
+        "error_instances": len(error_ids),
         "total_tests": total_tests,
         "total_passed_tests": total_passed_tests,
         "completed_ids": completed_ids,
@@ -137,6 +111,7 @@ def process_commit0_results(
     }
 
     # Write report
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w") as outfile:
         json.dump(report, outfile, indent=4)
 
@@ -184,7 +159,8 @@ Examples:
         logger.warning(f"Input file does not have .jsonl extension: {input_file}")
 
     # Determine output file (always use default name)
-    output_file = input_file.parent / "commit0_report.json"
+    harness_dir = input_file.parent / "harness"
+    output_file = harness_dir / "commit0_report.json"
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")

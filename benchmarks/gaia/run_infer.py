@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import tempfile
@@ -20,7 +21,6 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     generate_error_logs_summary,
-    get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
@@ -235,7 +235,7 @@ class GAIAEvaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """
         Run agent on a single GAIA instance and evaluate the result.
@@ -334,6 +334,13 @@ class GAIAEvaluation(Evaluation):
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
             instance=instance.data,
+            status="success",
+            resolved=bool(score),
+            artifacts={
+                "model_answer": model_answer,
+                "model_answer_raw": model_answer_raw,
+                "ground_truth": ground_truth,
+            },
         )
 
     def _build_instruction(self, instance: EvalInstance) -> str:
@@ -557,7 +564,15 @@ def main() -> None:
     evaluator = GAIAEvaluation(metadata=metadata, num_workers=args.num_workers)
 
     # Run evaluation
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    def save_gaia_artifacts(
+        instance: EvalInstance, out: EvalOutput, attempt: int, artifacts_dir: Path
+    ) -> None:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        (artifacts_dir / "test_result.json").write_text(
+            json.dumps(out.test_result, indent=2)
+        )
+
+    evaluator.run(on_result=save_gaia_artifacts)
 
     # Generate error logs summary for easy navigation
     generate_error_logs_summary(structured_output_dir)

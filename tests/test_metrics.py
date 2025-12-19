@@ -390,14 +390,18 @@ def test_benchmark_metrics_collection(
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
-        if benchmark_name == "swebench":
-            with patch(
-                f"benchmarks.{benchmark_name}.run_infer.get_instruction",
-                return_value="Test instruction",
-            ):
-                result = evaluation.evaluate_instance(instance, mock_workspace)
-        else:
-            result = evaluation.evaluate_instance(instance, mock_workspace)
+            if benchmark_name == "swebench":
+                with patch(
+                    f"benchmarks.{benchmark_name}.run_infer.get_instruction",
+                    return_value="Test instruction",
+                ):
+                    result = evaluation.evaluate_instance(
+                        instance, mock_workspace, attempt=1
+                    )
+            else:
+                result = evaluation.evaluate_instance(
+                    instance, mock_workspace, attempt=1
+                )
 
     # Verify result is EvalOutput
     assert isinstance(result, EvalOutput), (
@@ -470,14 +474,18 @@ def test_metrics_with_zero_cost(mock_workspace):
         patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools"),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
-        if benchmark_name == "swebench":
-            with patch(
-                f"benchmarks.{benchmark_name}.run_infer.get_instruction",
-                return_value="Test instruction",
-            ):
-                result = evaluation.evaluate_instance(instance, mock_workspace)
-        else:
-            result = evaluation.evaluate_instance(instance, mock_workspace)
+            if benchmark_name == "swebench":
+                with patch(
+                    f"benchmarks.{benchmark_name}.run_infer.get_instruction",
+                    return_value="Test instruction",
+                ):
+                    result = evaluation.evaluate_instance(
+                        instance, mock_workspace, attempt=1
+                    )
+            else:
+                result = evaluation.evaluate_instance(
+                    instance, mock_workspace, attempt=1
+                )
 
     # Verify metrics are collected even with zero cost
     assert result.metrics is not None

@@ -117,6 +117,16 @@ After setting up the environment and configuring your LLM, see the individual be
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
+## Standardized Outputs
+
+All benchmarks emit a common layout under each evaluation directory:
+
+- `metadata.json` (run-level config) and `output.jsonl` (canonical results). Each line is a `StandardizedOutput` (see `benchmarks/utils/output_schema.py`) with fields: `instance_id`, `attempt`, `max_attempts`, `status` (`success|error|skipped`), `resolved` (`bool|null`), `error`, `test_result` (benchmark-specific payload), `cost` (token/cost totals), and `artifacts_url` (path to the per-attempt bundle).
+- `output.report.json` is a derived cache regenerated from `output.jsonl` via `write_derived_report`; it is not a separate source of truth.
+- Per-attempt artifacts live under `artifacts/{instance_id}/attempt_{n}/` with `logs/instance.log`, `logs/instance.output.log`, optional `conversation.tar.gz`, patches, harness outputs, etc.
+- Run-wide harness outputs (e.g., SWE-Bench or GAIA reports) are copied to `harness/` next to `output.jsonl` (no more cache-only reports).
+- No `_errors.jsonl` is produced; all attempts are logged in `output.jsonl`. Use `benchmarks/utils/output_schema.validate_output_file` to enforce the schema or `benchmarks/utils/report_costs.py` to summarize spend from the canonical file.
+
 ## Workspace Types
 
 Benchmarks support two workspace types for running evaluations:

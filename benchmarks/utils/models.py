@@ -92,6 +92,10 @@ class EvalOutput(OpenHandsModel):
     history: list[Event] = Field(default_factory=list)
     metrics: Metrics | None = None
     error: str | None = None
+    # Outcome details
+    status: Literal["success", "error", "skipped"] | None = None
+    resolved: bool | None = None
 
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
+    artifacts: dict[str, Any] | None = None

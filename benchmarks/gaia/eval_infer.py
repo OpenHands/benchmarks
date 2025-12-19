@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 
+from benchmarks.utils.output_schema import load_output_file, select_best_attempts
 from openhands.sdk import get_logger
 
 
@@ -44,38 +45,18 @@ def evaluate_gaia_results(input_file: str) -> dict[str, int | float]:
     success = 0
     errors = 0
 
-    with open(input_file, "r") as f:
-        for line_num, line in enumerate(f, 1):
-            try:
-                line = line.strip()
-                if not line:
-                    continue
+    outputs = load_output_file(input_file)
+    best_attempts = select_best_attempts(outputs)
 
-                data = json.loads(line)
-
-                # Extract required fields
-                instance_id = data.get("instance_id")
-                if not instance_id:
-                    logger.warning(f"Line {line_num}: Missing instance_id")
-                    errors += 1
-                    continue
-
-                # Extract score from test_result
-                test_result = data.get("test_result", {})
-                score = test_result.get("score", False)
-
-                total += 1
-                if score:
-                    success += 1
-                else:
-                    errors += 1
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Line {line_num}: Invalid JSON - {e}")
-                errors += 1
-            except Exception as e:
-                logger.error(f"Line {line_num}: Unexpected error - {e}")
-                errors += 1
+    for out in best_attempts.values():
+        total += 1
+        resolved = out.resolved
+        if resolved is None:
+            resolved = bool(out.test_result.get("score"))
+        if resolved:
+            success += 1
+        else:
+            errors += 1
 
     if total == 0:
         logger.error("No valid entries found in the file")
@@ -110,13 +91,14 @@ def write_evaluation_report(
     """
     if output_file is None:
         input_path = Path(input_file)
-        output_file = str(input_path.with_suffix(".report.json"))
+        output_file = str((input_path.parent / "harness" / "gaia_report.json"))
 
     report = {
         "input_file": input_file,
         "metrics": metrics,
     }
 
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w") as f:
         json.dump(report, f, indent=2)
 

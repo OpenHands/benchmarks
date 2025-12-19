@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import List
@@ -9,10 +10,7 @@ from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import (
-    construct_eval_output_dir,
-    get_default_on_result_writer,
-)
+from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
@@ -220,6 +218,7 @@ class SWTBenchEvaluation(Evaluation):
         self,
         instance: EvalInstance,
         workspace: RemoteWorkspace,
+        attempt: int,
     ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.
@@ -306,6 +305,8 @@ class SWTBenchEvaluation(Evaluation):
             error=None,
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
+            status="success",
+            resolved=bool(git_patch.strip()),
         )
         return out
 
@@ -372,10 +373,20 @@ def main() -> None:
         workspace_type=args.workspace,
     )
 
-    # Run orchestrator with a simple JSONL writer
+    # Run orchestrator with artifact capture
     evaluator = SWTBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
 
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    def save_swtbench_artifacts(
+        instance: EvalInstance, out: EvalOutput, attempt: int, artifacts_dir: Path
+    ) -> None:
+        patch = out.test_result.get("git_patch", "")
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        (artifacts_dir / "patch.diff").write_text(patch)
+        (artifacts_dir / "test_result.json").write_text(
+            json.dumps(out.test_result, indent=2)
+        )
+
+    evaluator.run(on_result=save_swtbench_artifacts)
 
     logger.info("Evaluation completed!")
 

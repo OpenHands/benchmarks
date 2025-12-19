@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Set
 
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
+from benchmarks.utils.output_schema import StandardizedOutput, load_output_file
 from openhands.sdk import get_logger
 from openhands.sdk.critic import (
     AgentFinishedCritic,
@@ -149,8 +150,7 @@ def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
 
 def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     """
-    Get all instance IDs present in output file
-    (completed, regardless of success/failure).
+    Get all instance IDs present in an attempt file.
 
     Args:
         output_file: Path to the JSONL output file
@@ -164,23 +164,9 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
         return completed_instances
 
     try:
-        with open(output_file, "r", encoding="utf-8") as f:
-            for line_num, line in enumerate(f, 1):
-                try:
-                    data = json.loads(line.strip())
-                    output = EvalOutput.model_validate(data)
-                    completed_instances.add(output.instance_id)
-
-                except json.JSONDecodeError as e:
-                    logger.warning(
-                        f"Invalid JSON on line {line_num} in {output_file}: {e}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Error processing line {line_num} in {output_file}: {e}"
-                    )
-
-    except Exception as e:
+        outputs = load_output_file(output_file)
+        completed_instances = {out.instance_id for out in outputs}
+    except Exception as e:  # pragma: no cover - defensive
         logger.warning(f"Error reading output file {output_file}: {e}")
 
     return completed_instances
@@ -198,36 +184,24 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
         Set of instance IDs that failed
     """
     failed_instances: Set[EvalInstanceID] = set()
+    _ = critic  # retained for signature compatibility
 
     if not os.path.exists(output_file):
         logger.warning(f"Output file {output_file} does not exist")
         return failed_instances
 
     try:
-        with open(output_file, "r", encoding="utf-8") as f:
-            for line_num, line in enumerate(f, 1):
-                try:
-                    data = json.loads(line.strip())
-                    output = EvalOutput.model_validate(data)
-
-                    # Evaluate using the critic
-                    if not evaluate_output(critic, output):
-                        failed_instances.add(output.instance_id)
-
-                except json.JSONDecodeError as e:
-                    logger.warning(
-                        f"Invalid JSON on line {line_num} in {output_file}: {e}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Error processing line {line_num} in {output_file}: {e}"
-                    )
-
-    except Exception as e:
+        outputs = load_output_file(output_file)
+        for output in outputs:
+            if output.resolved:
+                continue
+            failed_instances.add(output.instance_id)
+    except Exception as e:  # pragma: no cover - defensive
         logger.error(f"Error reading output file {output_file}: {e}")
 
     logger.info(
-        f"Found {len(failed_instances)} failed instances judged by critic in "
-        f"{output_file}"
+        "Found %d failed instances judged by attempt output in %s",
+        len(failed_instances),
+        output_file,
     )
     return failed_instances

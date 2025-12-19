@@ -11,10 +11,12 @@ Usage:
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.utils.output_schema import load_output_file, select_best_attempts
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -52,53 +54,37 @@ def convert_to_swebench_format(
     converted_count = 0
     error_count = 0
 
-    with open(input_file, "r") as infile, open(output_file, "w") as outfile:
-        for line_num, line in enumerate(infile, 1):
+    outputs = load_output_file(input_file)
+    best_attempts = select_best_attempts(outputs)
+
+    with open(output_file, "w") as outfile:
+        for instance_id, out in best_attempts.items():
             try:
-                line = line.strip()
-                if not line:
-                    continue
-
-                data = json.loads(line)
-
-                # Extract required fields
-                instance_id = data.get("instance_id")
-                if not instance_id:
-                    logger.warning(f"Line {line_num}: Missing instance_id")
-                    error_count += 1
-                    continue
-
                 # Extract git_patch from test_result
-                test_result = data.get("test_result", {})
+                test_result = out.test_result or {}
                 git_patch = test_result.get("git_patch", "")
 
                 if not git_patch:
                     logger.warning(
-                        f"Line {line_num}: Missing or empty git_patch for {instance_id}"
+                        "Missing or empty git_patch for %s (attempt %s)",
+                        instance_id,
+                        out.attempt,
                     )
-                    # Still create entry with empty patch
                     git_patch = ""
 
-                # postprocess git_patch
                 setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
                 git_patch = remove_files_from_patch(git_patch, setup_files)
 
-                # Create SWE-Bench format entry
                 swebench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
                     "model_name_or_path": model_name,
                 }
 
-                # Write to output file
                 outfile.write(json.dumps(swebench_entry) + "\n")
                 converted_count += 1
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Line {line_num}: Invalid JSON - {e}")
-                error_count += 1
-            except Exception as e:
-                logger.error(f"Line {line_num}: Unexpected error - {e}")
+            except Exception as e:  # pragma: no cover - defensive
+                logger.error("Unexpected error for %s: %s", instance_id, e)
                 error_count += 1
 
     logger.info(
@@ -114,6 +100,7 @@ def run_swebench_evaluation(
     predictions_file: str,
     dataset: str = "princeton-nlp/SWE-bench_Verified",
     workers: str = "12",
+    harness_dir: Path | None = None,
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -131,8 +118,8 @@ def run_swebench_evaluation(
         predictions_dir = predictions_path.parent
         predictions_filename = predictions_path.name
 
-        # Run SWE-Bench evaluation using global python (not UV environment)
-        # since swebench is installed globally
+        before_files = {p.name for p in predictions_dir.glob("*")}
+
         cmd = [
             "uv",
             "run",
@@ -165,6 +152,13 @@ def run_swebench_evaluation(
                 f"SWE-Bench evaluation failed with return code {result.returncode}"
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
+
+        if harness_dir:
+            harness_dir.mkdir(parents=True, exist_ok=True)
+            after_files = {p for p in predictions_dir.glob("*") if p.name not in before_files}
+            for path in after_files:
+                if path.is_file() and path.suffix in {".json", ".txt"}:
+                    shutil.copy2(path, harness_dir / path.name)
 
     except FileNotFoundError:
         logger.error(
@@ -246,14 +240,16 @@ Examples:
     logger.info(f"Model name: {args.model_name}")
 
     try:
-        # Convert format
+        harness_dir = input_file.parent / "harness"
+        harness_dir.mkdir(parents=True, exist_ok=True)
+
         convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
 
         if not args.skip_evaluation:
-            # Run evaluation
-            run_swebench_evaluation(str(output_file), args.dataset, args.workers)
+            run_swebench_evaluation(
+                str(output_file), args.dataset, args.workers, harness_dir
+            )
 
-        # Generate cost report as final step
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")

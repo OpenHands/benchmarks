@@ -1,2 +1,6 @@
 OUTPUT_FILENAME = "output.jsonl"
+REPORT_FILENAME = "output.report.json"
+METADATA_FILENAME = "metadata.json"
+ARTIFACTS_DIRNAME = "artifacts"
+HARNESS_DIRNAME = "harness"
 EVAL_AGENT_SERVER_IMAGE = "ghcr.io/openhands/eval-agent-server"
