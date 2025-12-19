@@ -109,7 +109,7 @@ jobs:
           # SWT-Bench uses source-minimal target (same as SWE-bench)
           TARGET="source-minimal"
 
-          CMD="uv run benchmarks/swt_bench/build_images.py \
+          CMD="uv run benchmarks/swtbench/build_images.py \
             --dataset ${DATASET} \
             --split ${SPLIT} \
             --image ghcr.io/openhands/eval-agent-server \
