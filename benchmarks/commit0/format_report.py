@@ -111,7 +111,9 @@ def main() -> None:
         description="Format Commit0 evaluation results for notifications"
     )
     parser.add_argument("output_jsonl", help="Path to output.jsonl from evaluation")
-    parser.add_argument("report_json", help="Path to report.json with aggregated metrics")
+    parser.add_argument(
+        "report_json", help="Path to report.json with aggregated metrics"
+    )
     parser.add_argument(
         "--env-file",
         help="Optional env file containing metadata (UNIQUE_EVAL_NAME, MODEL_NAME, etc.)",
