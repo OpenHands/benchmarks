@@ -76,7 +76,7 @@ jobs:
         run: |
           make build
 
-      - name: Build and push GAIA images (base + MCP layer)
+      - name: Build and push GAIA image with MCP layer
         run: |
           set -euo pipefail
 
@@ -91,7 +91,7 @@ jobs:
           echo "Running: $CMD"
           eval "$CMD"
 
-          echo "✅ GAIA images (base + MCP-enhanced) built and pushed successfully"
+          echo "✅ GAIA image with MCP layer built and pushed successfully"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
@@ -170,9 +170,6 @@ jobs:
             exit 0
           fi
 
-          # Construct MCP image tag (always binary for GAIA)
-          MCP_IMAGE_TAG="ghcr.io/openhands/eval-agent-server:${SDK_SHA_SHORT}-gaia-with-mcp"
-
           # Determine trigger source
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
@@ -187,12 +184,11 @@ jobs:
             --arg sdk_short "${SDK_SHA_SHORT}" \
             --arg sdk_full "${SDK_SHA}" \
             --arg image "${IMAGE_TAG}" \
-            --arg mcp_image "${MCP_IMAGE_TAG}" \
             --arg run_id "${{ github.run_id }}" \
             --arg server_url "${{ github.server_url }}" \
             --arg repo "${{ github.repository }}" \
             --arg trigger "${TRIGGER}" \
-            '{body: "## GAIA Image Build Complete ✅\n\n**SDK Version:** [`\($sdk_short)`](https://github.com/OpenHands/software-agent-sdk/commit/\($sdk_full))\n**Base Image:** `\($image)`\n**MCP Image:** `\($mcp_image)` ⚡ _(MCP server pre-cached)_\n**Workflow Run:** [#\($run_id)](\($server_url)/\($repo)/actions/runs/\($run_id))\n**Triggered by:** \($trigger)\n\nThe MCP-enhanced image includes pre-cached `mcp-server-fetch` to eliminate 1-18 minute startup delays."}' | \
+            '{body: "## GAIA Image Build Complete ✅\n\n**SDK Version:** [`\($sdk_short)`](https://github.com/OpenHands/software-agent-sdk/commit/\($sdk_full))\n**Image:** `\($image)` ⚡ _(includes pre-cached MCP server)_\n**Workflow Run:** [#\($run_id)](\($server_url)/\($repo)/actions/runs/\($run_id))\n**Triggered by:** \($trigger)\n\nThe image includes pre-cached `mcp-server-fetch` to eliminate 1-18 minute startup delays."}' | \
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
