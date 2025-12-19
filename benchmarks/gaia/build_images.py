@@ -70,7 +70,8 @@ def main(argv: list[str]) -> int:
     logger.info(f"Image: {args.image}")
     logger.info(f"Push: {args.push}")
 
-    tag_fn = lambda _base: f"gaia-{args.target}"
+    def tag_fn(_base: str) -> str:
+        return f"gaia-{args.target}"
 
     # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
