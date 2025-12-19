@@ -11,7 +11,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from benchmarks.utils.output_schema import load_output_file
 
@@ -61,11 +61,12 @@ def calculate_costs(directory_path: str) -> None:
     print(f"Cost Report for: {directory_path}")
     print("=" * 80)
 
-    report_data: Dict[str, object] = {
+    critic_files_report: List[Dict[str, Any]] = []
+    report_data: Dict[str, Any] = {
         "directory": str(directory_path),
         "timestamp": datetime.now().isoformat(),
         "main_output": None,
-        "critic_files": [],
+        "critic_files": critic_files_report,
         "summary": {},
     }
 
@@ -97,15 +98,13 @@ def calculate_costs(directory_path: str) -> None:
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
 
-        report_data["critic_files"].append(
+        critic_files_report.append(
             {"file": str(critic_file), "lines": len(jsonl_data), "cost": cost}
         )
 
     report_data["summary"] = {
         "total_cost_all_files": total_individual_costs,
-        "only_main_output_cost": extract_accumulated_cost(
-            load_output_file(output_file)
-        )
+        "only_main_output_cost": extract_accumulated_cost(load_output_file(output_file))
         if output_file
         else 0.0,
         "critic_only_cost": total_individual_costs
@@ -122,9 +121,7 @@ def calculate_costs(directory_path: str) -> None:
 
     print("\nSummary:")
     print(f"  Total cost (all files): ${total_individual_costs:.6f}")
-    print(
-        f"  Main output cost: ${report_data['summary']['only_main_output_cost']:.6f}"
-    )
+    print(f"  Main output cost: ${report_data['summary']['only_main_output_cost']:.6f}")
     print(f"  Critic-only cost: ${report_data['summary']['critic_only_cost']:.6f}")
     print(f"\nDetailed cost report saved to: {report_file}")
 

@@ -1,4 +1,3 @@
-import json
 import os
 from pathlib import Path
 from typing import List
@@ -17,7 +16,10 @@ from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.evaluation_utils import (
+    construct_eval_output_dir,
+    get_default_on_result_writer,
+)
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
@@ -190,7 +192,7 @@ class SWEBenchEvaluation(Evaluation):
 
     # ---- Hook: evaluate one instance ---------------------------------------------
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.
@@ -353,17 +355,7 @@ def main() -> None:
         num_workers=args.num_workers,
     )
 
-    def save_swebench_artifacts(
-        instance: EvalInstance, out: EvalOutput, attempt: int, artifacts_dir: Path
-    ) -> None:
-        patch = out.test_result.get("git_patch", "")
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        (artifacts_dir / "patch.diff").write_text(patch)
-        (artifacts_dir / "test_result.json").write_text(
-            json.dumps(out.test_result, indent=2)
-        )
-
-    evaluator.run(on_result=save_swebench_artifacts)
+    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
 

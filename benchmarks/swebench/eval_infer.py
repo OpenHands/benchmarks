@@ -155,7 +155,9 @@ def run_swebench_evaluation(
 
         if harness_dir:
             harness_dir.mkdir(parents=True, exist_ok=True)
-            after_files = {p for p in predictions_dir.glob("*") if p.name not in before_files}
+            after_files = {
+                p for p in predictions_dir.glob("*") if p.name not in before_files
+            }
             for path in after_files:
                 if path.is_file() and path.suffix in {".json", ".txt"}:
                     shutil.copy2(path, harness_dir / path.name)

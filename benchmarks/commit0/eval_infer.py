@@ -78,7 +78,6 @@ def process_commit0_results(
 
     for instance_id, out in best_attempts.items():
         eval_result = out.test_result.get("eval_result", {})
-        passed = eval_result.get("passed", 0)
         num_tests = eval_result.get("num_tests", 0)
         num_passed = eval_result.get("num_passed", 0)
 

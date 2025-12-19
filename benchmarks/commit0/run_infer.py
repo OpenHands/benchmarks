@@ -11,7 +11,10 @@ from jinja2 import Environment, FileSystemLoader
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.evaluation_utils import (
+    construct_eval_output_dir,
+    get_default_on_result_writer,
+)
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -219,7 +222,7 @@ class Commit0Evaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """
         Run agent, collect history, git patch, and test results.
@@ -544,29 +547,7 @@ def main() -> None:
         dataset_split=args.split,
     )
 
-    def save_commit0_artifacts(
-        instance: EvalInstance, out: EvalOutput, attempt: int, artifacts_dir: Path
-    ) -> None:
-        payload = out.artifacts or {}
-        harness_dir = artifacts_dir / "harness"
-        harness_dir.mkdir(parents=True, exist_ok=True)
-
-        if payload.get("git_patch"):
-            (artifacts_dir / "patch.diff").write_text(payload["git_patch"])
-        if payload.get("test_output") is not None:
-            (harness_dir / "test_output.txt").write_text(payload["test_output"])
-        if payload.get("pytest_exit_code") is not None:
-            (harness_dir / "pytest_exit_code.txt").write_text(
-                str(payload["pytest_exit_code"])
-            )
-        if payload.get("report_json"):
-            (harness_dir / "report.json").write_text(payload["report_json"])
-        if out.test_result:
-            (harness_dir / "eval_result.json").write_text(
-                json.dumps(out.test_result["eval_result"], indent=2)
-            )
-
-    evaluator.run(on_result=save_commit0_artifacts)
+    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
 

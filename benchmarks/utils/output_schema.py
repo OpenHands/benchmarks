@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import fcntl
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Literal, Sequence
@@ -138,6 +137,8 @@ def derive_report(outputs: Iterable[StandardizedOutput]) -> dict[str, Any]:
     best = select_best_attempts(outputs)
     resolved_ids = [k for k, v in best.items() if v.resolved]
     unresolved_ids = [k for k, v in best.items() if v.resolved is False]
+    error_ids = [k for k, v in best.items() if v.status == "error"]
+    agent_failures = [k for k in unresolved_ids if k not in error_ids]
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -146,9 +147,13 @@ def derive_report(outputs: Iterable[StandardizedOutput]) -> dict[str, Any]:
             "attempt_lines": len(outputs),
             "instances": len(best),
             "resolved": len(resolved_ids),
+            "agent_failures": len(agent_failures),
+            "errors": len(error_ids),
             "unresolved": len(unresolved_ids),
         },
         "resolved_ids": resolved_ids,
+        "agent_failure_ids": agent_failures,
+        "error_ids": error_ids,
         "unresolved_ids": unresolved_ids,
     }
 

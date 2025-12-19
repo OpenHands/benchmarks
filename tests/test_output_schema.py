@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-from benchmarks.utils.evaluation_utils import get_attempt_artifact_dir
 from benchmarks.utils.output_schema import (
     CostBreakdown,
     StandardizedOutput,
@@ -89,9 +88,3 @@ def test_write_derived_report(tmp_path: Path) -> None:
     assert data["totals"]["instances"] == 2
     assert data["totals"]["resolved"] == 1
     assert "resolved_ids" in data
-
-
-def test_get_attempt_artifact_dir_creates_logs(tmp_path: Path) -> None:
-    artifact_dir = get_attempt_artifact_dir(str(tmp_path), "inst", 1)
-    assert artifact_dir.exists()
-    assert (artifact_dir / "logs").exists()

@@ -1,14 +1,13 @@
 """Tests for iterative evaluation resume functionality."""
 
+import json
 import os
 import tempfile
-from pathlib import Path
 from typing import List
 from unittest.mock import Mock
 
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from benchmarks.utils.output_schema import CostBreakdown, StandardizedOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
 from openhands.sdk.workspace import RemoteWorkspace
@@ -34,7 +33,7 @@ class MockEvaluation(Evaluation):
         return mock_workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """Return a mock output."""
         return EvalOutput(
@@ -44,8 +43,6 @@ class MockEvaluation(Evaluation):
             error=None,
             history=[],  # Empty history for testing
             instance=instance.data,
-            status="success",
-            resolved=True,
         )
 
 
@@ -80,15 +77,13 @@ def test_iterative_resume_with_expanded_n_limit():
             )
             with open(attempt_file, "w") as f:
                 for inst in first_50_instances:
-                    output = StandardizedOutput(
+                    output = EvalOutput(
                         instance_id=inst.id,
-                        attempt=attempt,
-                        max_attempts=3,
-                        status="success",
-                        resolved=True,
                         test_result={"git_patch": "mock patch"},
-                        cost=CostBreakdown(),
-                        artifacts_url=f"artifacts/{inst.id}/attempt_{attempt}",
+                        instruction="mock instruction",
+                        error=None,
+                        history=[],  # Empty history for testing
+                        instance=inst.data,
                     )
                     f.write(output.model_dump_json() + "\n")
 
@@ -122,12 +117,7 @@ def test_iterative_resume_with_expanded_n_limit():
         # Track what instances are actually processed
         processed_instances = set()
 
-        def track_on_result(
-            instance: EvalInstance,
-            output: EvalOutput,
-            attempt: int,
-            artifacts_dir: Path,
-        ):
+        def track_on_result(instance: EvalInstance, output: EvalOutput):
             processed_instances.add(instance.id)
 
         # Run evaluation (this will test the actual resume logic)
@@ -157,12 +147,12 @@ def test_iterative_resume_with_expanded_n_limit():
         )
 
         # Check that attempt 1 file now includes the new instances
-        attempt_1_file = Path(tmpdir) / "output.critic_attempt_1.jsonl"
-        attempt_1_instances = {
-            StandardizedOutput.model_validate_json(line).instance_id
-            for line in attempt_1_file.read_text().splitlines()
-            if line.strip()
-        }
+        attempt_1_file = os.path.join(tmpdir, "output.critic_attempt_1.jsonl")
+        with open(attempt_1_file, "r") as f:
+            attempt_1_instances = set()
+            for line in f:
+                output = EvalOutput(**json.loads(line))
+                attempt_1_instances.add(output.instance_id)
 
         # Attempt 1 should have all 200 instances now
         # (50 from first run + 150 new from second run)
@@ -206,15 +196,13 @@ def test_iterative_resume_with_same_n_limit():
             )
             with open(attempt_file, "w") as f:
                 for inst in instances:
-                    output = StandardizedOutput(
+                    output = EvalOutput(
                         instance_id=inst.id,
-                        attempt=attempt,
-                        max_attempts=3,
-                        status="success",
-                        resolved=True,
                         test_result={"git_patch": "mock patch"},
-                        cost=CostBreakdown(),
-                        artifacts_url=f"artifacts/{inst.id}/attempt_{attempt}",
+                        instruction="mock instruction",
+                        error=None,
+                        history=[],  # Empty history for testing
+                        instance=inst.data,
                     )
                     f.write(output.model_dump_json() + "\n")
 
@@ -228,12 +216,7 @@ def test_iterative_resume_with_same_n_limit():
         # Track what instances are processed
         processed_instances = set()
 
-        def track_on_result(
-            instance: EvalInstance,
-            output: EvalOutput,
-            attempt: int,
-            artifacts_dir: Path,
-        ):
+        def track_on_result(instance: EvalInstance, output: EvalOutput):
             processed_instances.add(instance.id)
 
         # Run evaluation - should only process attempt 3 since 1 and 2 are complete

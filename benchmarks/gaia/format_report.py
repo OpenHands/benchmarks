@@ -18,7 +18,6 @@ from typing import Any
 
 from benchmarks.utils.output_schema import load_output_file, select_best_attempts
 
-from benchmarks.utils.output_schema import load_output_file, select_best_attempts
 
 def load_json(path: str) -> dict[str, Any]:
     """Load JSON file."""
