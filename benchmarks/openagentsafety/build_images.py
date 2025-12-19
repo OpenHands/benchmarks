@@ -1,9 +1,10 @@
 """Build OpenAgentSafety Docker image from vendor/software-agent-sdk"""
 
 import logging
-import os
 import subprocess
 from pathlib import Path
+
+from benchmarks.utils.build_utils import run_docker_build_layer
 
 
 logger = logging.getLogger(__name__)
@@ -64,49 +65,21 @@ def build_workspace_image(force_rebuild: bool = False, no_cache: bool = False) -
     logger.info(f"Build context: {build_context}")
     logger.info(f"Dockerfile: {dockerfile_dir / 'Dockerfile'}")
 
-    # Build command using BuildKit and --load so teh resulting image is present in local docker images
-    build_cmd = [
-        "docker",
-        "build",
-        "-f",
-        str(dockerfile_dir / "Dockerfile"),
-        "-t",
-        image_name,
-        "--platform",
-        "linux/amd64",
-    ]
-
-    if no_cache:
-        build_cmd.append("--no-cache")
-
-    build_cmd.append("--load")
-    build_cmd.append(str(build_context))
-
-    logger.info(f"#### Running: {' '.join(build_cmd)}")
-
-    # Ensure BuildKit is enabled
-    env = os.environ.copy()
-    env["DOCKER_BUILDKIT"] = env.get("DOCKER_BUILDKIT", "1")
-
-    # Run build and capture output for debugging
-    build_result = subprocess.run(
-        build_cmd,
-        capture_output=True,
-        text=True,
-        env=env,
+    # Use shared build helper for consistent error handling and logging
+    result = run_docker_build_layer(
+        dockerfile=dockerfile_dir / "Dockerfile",
+        context=build_context,
+        tags=[image_name],
+        build_args=None,
+        push=False,
+        platform="linux/amd64",
+        load=True,
+        no_cache=no_cache,
     )
 
-    # Log build output
-    if build_result.stdout:
-        logger.info(f"Build STDOUT:\n{build_result.stdout}")
-    if build_result.stderr:
-        logger.info(f"Build STDERR:\n{build_result.stderr}")
-
-    if build_result.returncode != 0:
-        logger.error(f"Build failed (return code {build_result.returncode})")
-        logger.error(f"STDOUT:\n{build_result.stdout}")
-        logger.error(f"STDERR:\n{build_result.stderr}")
-        raise RuntimeError(f"Failed to build Docker image: {build_result.stderr}")
+    if result.error:
+        logger.error(f"Build failed: {result.error}")
+        raise RuntimeError(f"Failed to build Docker image: {result.error}")
 
     # Verify image exists in local docker after --load
     if not check_image_exists(image_name):

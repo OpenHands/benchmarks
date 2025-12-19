@@ -76,7 +76,7 @@ jobs:
         run: |
           make build
 
-      - name: Build and push GAIA image
+      - name: Build and push GAIA images (base + MCP layer)
         run: |
           set -euo pipefail
 
@@ -90,39 +90,8 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
 
-      - name: Build and push GAIA image with MCP pre-installed
-        run: |
-          set -euo pipefail
-
-          # Get the SDK commit SHA for tagging
-          SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//' | cut -c1-7)
-          
-          # GAIA requires 'binary' target to include Chromium for browser operations
-          TARGET="binary"
-          
-          # Compute base and MCP image tags
-          BASE_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia"
-          MCP_IMAGE="ghcr.io/openhands/eval-agent-server:${SDK_SHA}-gaia-with-mcp"
-
-          echo "Building MCP-enhanced image..."
-          echo "  Base image: ${BASE_IMAGE}"
-          echo "  MCP image:  ${MCP_IMAGE}"
-
-          # Build the derived image with MCP pre-cached
-          docker build \
-            -f benchmarks/gaia/Dockerfile.gaia \
-            --build-arg SDK_IMAGE="${BASE_IMAGE}" \
-            -t "${MCP_IMAGE}" \
-            .
-
-          # Push the image
-          docker push "${MCP_IMAGE}"
-
-          echo "✅ MCP-enhanced image built and pushed: ${MCP_IMAGE}"
+          echo "✅ GAIA images (base + MCP-enhanced) built and pushed successfully"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain

@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import io
 import subprocess
+import sys
 import time
 import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -26,6 +27,110 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+class BuildOutput(BaseModel):
+    time: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    base_image: str
+    tags: list[str]
+    error: str | None = None
+    log_path: str | None = None
+
+
+def run_docker_build_layer(
+    dockerfile: Path | str,
+    context: Path | str,
+    tags: list[str],
+    build_args: dict[str, str] | None = None,
+    push: bool = False,
+    platform: str = "linux/amd64",
+    load: bool = True,
+    no_cache: bool = False,
+) -> BuildOutput:
+    """
+    Run docker buildx build to apply a custom layer on top of an existing image.
+
+    This is a shared helper for building thin wrapper images (e.g., SWE-bench docutils/roman,
+    GAIA MCP-precache, OpenAgentSafety local image).
+
+    Args:
+        dockerfile: Path to the Dockerfile to build.
+        context: Path to the build context directory.
+        tags: List of tags to apply to the built image.
+        build_args: Optional dict of build arguments (e.g., {"SDK_IMAGE": "..."}). 
+        push: If True, push to registry via buildx. If False and load is True, load locally.
+        platform: Target platform (default: linux/amd64).
+        load: If True and push is False, load the image into local docker.
+        no_cache: If True, pass --no-cache to disable layer cache.
+
+    Returns:
+        BuildOutput with tags on success, or error message on failure.
+    """
+    dockerfile_path = Path(dockerfile)
+    context_path = Path(context)
+
+    if not dockerfile_path.exists():
+        return BuildOutput(
+            base_image=str(dockerfile),
+            tags=[],
+            error=f"Dockerfile not found at {dockerfile_path}",
+        )
+
+    if not context_path.exists():
+        return BuildOutput(
+            base_image=str(context),
+            tags=[],
+            error=f"Build context not found at {context_path}",
+        )
+
+    # Build command
+    cmd = ["docker", "buildx", "build", "--file", str(dockerfile_path)]
+
+    # Add build arguments
+    if build_args:
+        for key, value in build_args.items():
+            cmd.extend(["--build-arg", f"{key}={value}"])
+
+    # Add tags
+    for tag in tags:
+        cmd.extend(["--tag", tag])
+
+    # Add platform
+    cmd.extend(["--platform", platform])
+
+    # Push or load
+    if push:
+        cmd.append("--push")
+    elif load:
+        cmd.append("--load")
+
+    # Add no-cache if requested
+    if no_cache:
+        cmd.append("--no-cache")
+
+    # Add context path
+    cmd.append(str(context_path))
+
+    logger.info("Running docker build: %s", " ".join(cmd))
+    
+    # Run build with output capture
+    proc = subprocess.run(cmd, text=True, capture_output=True)
+
+    # Log output so it appears in capture_output logs when called from _build_with_logging
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+    if proc.returncode != 0:
+        error = (
+            proc.stderr.strip()
+            or proc.stdout.strip()
+            or f"Docker build failed with exit code {proc.returncode}"
+        )
+        return BuildOutput(base_image=str(dockerfile), tags=[], error=error)
+
+    return BuildOutput(base_image=str(dockerfile), tags=tags, error=None)
 
 
 def _get_sdk_submodule_info() -> tuple[str, str, str]:
@@ -85,14 +190,6 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
         f"SDK submodule info: ref={git_ref}, sha={git_sha[:7]}, version={sdk_version}"
     )
     return git_ref, git_sha, sdk_version
-
-
-class BuildOutput(BaseModel):
-    time: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    base_image: str
-    tags: list[str]
-    error: str | None = None
-    log_path: str | None = None
 
 
 @contextlib.contextmanager
