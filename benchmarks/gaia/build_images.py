@@ -10,7 +10,6 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target binary-minimal --push
 """
 
-from functools import partial
 import sys
 from pathlib import Path
 
@@ -31,10 +30,6 @@ logger = get_logger(__name__)
 GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
 # MCP layer Dockerfile
 MCP_DOCKERFILE = Path(__file__).with_name("Dockerfile.gaia")
-
-def gaia_tag_fn(_: str, target: str) -> str:
-    """Return custom tag for GAIA images (base image is ignored)."""
-    return f"gaia-{target}"
 
 
 def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutput:
@@ -75,7 +70,7 @@ def main(argv: list[str]) -> int:
     logger.info(f"Image: {args.image}")
     logger.info(f"Push: {args.push}")
 
-    tag_fn = partial(gaia_tag_fn, target=args.target)
+    custom_tag = f"gaia-{args.target}"
 
     # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
@@ -88,7 +83,7 @@ def main(argv: list[str]) -> int:
         max_workers=1,  # Only building one image
         dry_run=args.dry_run,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=tag_fn,
+        custom_tag=custom_tag,
     )
 
     if exit_code != 0:

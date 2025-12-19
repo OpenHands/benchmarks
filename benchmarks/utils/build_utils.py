@@ -393,6 +393,7 @@ def build_all_images(
     build_dir: Path,
     image: str = EVAL_AGENT_SERVER_IMAGE,
     push: bool = False,
+    custom_tag: str | None = None,
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_workers: int = 1,
     dry_run: bool = False,
@@ -409,6 +410,9 @@ def build_all_images(
         build_dir: Directory to store build logs and manifest.
         image: Target image name for built images.
         push: Whether to push images via buildx.
+        custom_tag: Optional fixed tag to apply to all built images
+            (e.g., "gaia-binary"). If provided, overrides
+            base_image_to_custom_tag_fn.
         base_image_to_custom_tag_fn: Function to extract a custom tag from a base image.
             Evaluated before scheduling builds so it can safely be a closure.
         max_workers: Number of concurrent builds.
@@ -451,7 +455,7 @@ def build_all_images(
             for base in base_images:
                 in_progress.add(base)
                 # Resolve custom tags before scheduling to avoid pickling issues with closures.
-                custom_tag = (
+                resolved_tag = custom_tag or (
                     base_image_to_custom_tag_fn(base)
                     if base_image_to_custom_tag_fn
                     else ""
@@ -461,7 +465,7 @@ def build_all_images(
                     log_dir=build_log_dir,
                     base_image=base,
                     target_image=image,
-                    custom_tag=custom_tag,
+                    custom_tag=resolved_tag,
                     target=target,
                     push=push,
                     max_retries=max_retries,
