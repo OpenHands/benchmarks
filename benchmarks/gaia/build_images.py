@@ -11,6 +11,7 @@ Example:
 """
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from benchmarks.utils.build_utils import (
@@ -32,9 +33,19 @@ GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
 MCP_DOCKERFILE = Path(__file__).with_name("Dockerfile.gaia")
 
 
-def gaia_tag_fn(target: str) -> str:
-    """Return custom tag for GAIA images including target suffix."""
-    return f"gaia-{target}"
+def make_gaia_tag_fn(target: str) -> Callable[[str], str]:
+    """Return a function that produces GAIA tags for any base image.
+    
+    Args:
+        target: Build target (e.g., 'binary', 'source-minimal')
+        
+    Returns:
+        A function that ignores its argument and returns f"gaia-{target}"
+    """
+    def gaia_tag_fn(base_image: str) -> str:
+        # Ignore base_image parameter, return fixed tag based on target
+        return f"gaia-{target}"
+    return gaia_tag_fn
 
 
 def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutput:
@@ -86,7 +97,7 @@ def main(argv: list[str]) -> int:
         max_workers=1,  # Only building one image
         dry_run=args.dry_run,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=gaia_tag_fn,  # Tag all with "gaia"
+        base_image_to_custom_tag_fn=make_gaia_tag_fn(args.target),  # Tag based on target
     )
 
     if exit_code != 0:
