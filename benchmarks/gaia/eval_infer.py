@@ -51,7 +51,7 @@ def evaluate_gaia_results(input_file: str) -> dict[str, int | float]:
     try:
         outputs = load_output_file(input_file)
         best_attempts = select_best_attempts(outputs)
-    except ValidationError:
+    except (ValidationError, ValueError):
         with open(input_file, "r", encoding="utf-8") as f:
             outputs = [
                 EvalOutput.model_validate_json(line) for line in f if line.strip()

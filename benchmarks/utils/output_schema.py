@@ -94,9 +94,7 @@ def load_output_file(path: str | Path) -> list[StandardizedOutput]:
             try:
                 outputs.append(StandardizedOutput.model_validate_json(line))
             except ValidationError as exc:
-                raise ValidationError(
-                    f"Invalid line {line_num} in {path}: {exc}"
-                ) from exc
+                raise ValueError(f"Invalid line {line_num} in {path}: {exc}") from exc
     return outputs
 
 
