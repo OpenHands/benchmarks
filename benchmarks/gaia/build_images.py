@@ -70,7 +70,7 @@ def main(argv: list[str]) -> int:
     logger.info(f"Image: {args.image}")
     logger.info(f"Push: {args.push}")
 
-    custom_tag = f"gaia-{args.target}"
+    tag_fn = lambda _base: f"gaia-{args.target}"
 
     # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
@@ -83,7 +83,7 @@ def main(argv: list[str]) -> int:
         max_workers=1,  # Only building one image
         dry_run=args.dry_run,
         max_retries=args.max_retries,
-        custom_tag=custom_tag,
+        base_image_to_custom_tag_fn=tag_fn,
     )
 
     if exit_code != 0:
