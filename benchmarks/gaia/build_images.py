@@ -48,13 +48,6 @@ def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutpu
     Returns:
         BuildOutput with the same image tag or error.
     """
-    if not MCP_DOCKERFILE.exists():
-        return BuildOutput(
-            base_image=base_gaia_image,
-            tags=[],
-            error=f"MCP Dockerfile not found at {MCP_DOCKERFILE}",
-        )
-
     logger.info("Building MCP-enhanced GAIA image (overriding base): %s", base_gaia_image)
 
     return run_docker_build_layer(
