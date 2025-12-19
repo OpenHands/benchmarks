@@ -120,7 +120,7 @@ def main(argv: list[str]) -> int:
         git_sha=git_sha,
         sdk_version=sdk_version,
     )
-    expected_tags = opts.all_tags[0]
+    expected_tags = opts.all_tags  # Get full list of tags (not just first element!)
     skip_base_build = expected_tags and all(image_exists(tag) for tag in expected_tags)
     
     if skip_base_build:
@@ -149,7 +149,7 @@ def main(argv: list[str]) -> int:
     # Build MCP-enhanced layer after base image succeeds (or if it already existed)
     # Determine the base GAIA image tag (from the expected tags computed above)
     if expected_tags:
-        base_gaia_image = expected_tags[0]  # Use the first tag
+        base_gaia_image = expected_tags[0]  # Use the first tag from the list
     else:
         # Fallback: construct tag manually if image check was skipped
         git_ref, git_sha, sdk_version = _get_sdk_submodule_info()

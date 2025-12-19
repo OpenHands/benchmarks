@@ -292,7 +292,7 @@ def build_image(
         git_sha=git_sha,
         sdk_version=sdk_version,
     )
-    for t in opts.all_tags[0]:
+    for t in opts.all_tags:
         # Check if image exists or not
         if image_exists(t):
             logger.info(f"Image {t} already exists. Skipping build.")
