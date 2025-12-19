@@ -307,6 +307,23 @@ Examples:
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
 
+            # Move SWT-Bench evaluation report to same folder as output.jsonl
+            cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
+            swt_bench_dir = cache_dir / "swt-bench"
+            report_file = (
+                swt_bench_dir
+                / "evaluation_results"
+                / f"{args.model_name}.eval_output.swtbench.json"
+            )
+
+            if report_file.exists():
+                target_dir = input_file.parent
+                target_file = target_dir / "output.report.json"
+                shutil.move(str(report_file), str(target_file))
+                logger.info(f"Moved evaluation report to: {target_file}")
+            else:
+                logger.warning(f"Evaluation report not found at: {report_file}")
+
         # Generate cost report as final step
         generate_cost_report(str(input_file))
 
