@@ -11,7 +11,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from benchmarks.utils.output_schema import load_output_file
 
@@ -25,19 +25,10 @@ def extract_accumulated_cost(outputs) -> float:
     return total_cost
 
 
-def find_output_files(directory: Path) -> Tuple[Optional[Path], List[Path]]:
-    """Find output.jsonl and critic attempt files in the directory."""
-    output_file = None
-    critic_files: List[Path] = []
-
-    for file_path in directory.glob("*.jsonl"):
-        if file_path.name == "output.jsonl":
-            output_file = file_path
-        elif file_path.name.startswith("output.critic_attempt_"):
-            critic_files.append(file_path)
-
-    critic_files.sort(key=lambda x: x.name)
-    return output_file, critic_files
+def find_output_file(directory: Path) -> Optional[Path]:
+    """Find the canonical output.jsonl file in the directory."""
+    output_file = directory / "output.jsonl"
+    return output_file if output_file.exists() else None
 
 
 def calculate_costs(directory_path: str) -> None:
@@ -52,25 +43,21 @@ def calculate_costs(directory_path: str) -> None:
         print(f"Error: {directory_path} is not a directory")
         sys.exit(1)
 
-    output_file, critic_files = find_output_files(directory)
+    output_file = find_output_file(directory)
 
-    if not output_file and not critic_files:
-        print(f"No output.jsonl or critic attempt files found in {directory_path}")
+    if not output_file:
+        print(f"No output.jsonl found in {directory_path}")
         sys.exit(1)
 
     print(f"Cost Report for: {directory_path}")
     print("=" * 80)
 
-    critic_files_report: List[Dict[str, Any]] = []
     report_data: Dict[str, Any] = {
         "directory": str(directory_path),
         "timestamp": datetime.now().isoformat(),
         "main_output": None,
-        "critic_files": critic_files_report,
         "summary": {},
     }
-
-    total_individual_costs = 0.0
 
     if output_file:
         print("\nSelected instance in Main output.jsonl only:")
@@ -78,7 +65,6 @@ def calculate_costs(directory_path: str) -> None:
 
         jsonl_data = load_output_file(output_file)
         cost = extract_accumulated_cost(jsonl_data)
-        total_individual_costs += cost
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
@@ -89,30 +75,10 @@ def calculate_costs(directory_path: str) -> None:
             "cost": cost,
         }
 
-    for critic_file in critic_files:
-        print(f"\nIncluding critic file: {critic_file.name}")
-        jsonl_data = load_output_file(critic_file)
-        cost = extract_accumulated_cost(jsonl_data)
-        total_individual_costs += cost
-
-        print(f"    Lines: {len(jsonl_data)}")
-        print(f"    Cost: ${cost:.6f}")
-
-        critic_files_report.append(
-            {"file": str(critic_file), "lines": len(jsonl_data), "cost": cost}
-        )
-
     report_data["summary"] = {
-        "total_cost_all_files": total_individual_costs,
-        "only_main_output_cost": extract_accumulated_cost(load_output_file(output_file))
-        if output_file
-        else 0.0,
-        "critic_only_cost": total_individual_costs
-        - (
-            extract_accumulated_cost(load_output_file(output_file))
-            if output_file
-            else 0.0
-        ),
+        "total_cost_all_files": cost,
+        "only_main_output_cost": cost,
+        "critic_only_cost": 0.0,
     }
 
     report_file = directory / "cost_report.jsonl"
@@ -120,9 +86,9 @@ def calculate_costs(directory_path: str) -> None:
         json.dump(report_data, f, indent=2)
 
     print("\nSummary:")
-    print(f"  Total cost (all files): ${total_individual_costs:.6f}")
-    print(f"  Main output cost: ${report_data['summary']['only_main_output_cost']:.6f}")
-    print(f"  Critic-only cost: ${report_data['summary']['critic_only_cost']:.6f}")
+    print(f"  Total cost (all files): ${cost:.6f}")
+    print(f"  Main output cost: ${cost:.6f}")
+    print("  Critic-only cost: $0.000000")
     print(f"\nDetailed cost report saved to: {report_file}")
 
 

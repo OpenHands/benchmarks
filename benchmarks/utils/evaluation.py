@@ -162,7 +162,9 @@ class Evaluation(ABC, BaseModel):
                 e,
             )
 
-    def _stage_instance_artifacts(self, instance_id: str, attempt: int) -> str:
+    def _stage_instance_artifacts(
+        self, instance_id: str, attempt: int, out: EvalOutput
+    ) -> str:
         """Bundle per-instance artifacts under artifacts/ for standardized output."""
         base_dir = Path(self.metadata.eval_output_dir)
         attempt_dir = base_dir / "artifacts" / instance_id / f"attempt_{attempt}"
@@ -182,15 +184,31 @@ class Evaluation(ABC, BaseModel):
         if conv_source.exists():
             shutil.copy2(conv_source, attempt_dir / "conversation.tar.gz")
 
+        if out.test_result:
+            with open(attempt_dir / "test_result.json", "w", encoding="utf-8") as f:
+                json.dump(out.test_result, f, indent=2)
+
+        if out.artifacts:
+            with open(attempt_dir / "artifacts.json", "w", encoding="utf-8") as f:
+                json.dump(out.artifacts, f, indent=2)
+
+        if out.error:
+            (attempt_dir / "error.txt").write_text(out.error, encoding="utf-8")
+
         return str(attempt_dir.relative_to(base_dir))
 
     def _build_standardized_output(
         self, instance: EvalInstance, out: EvalOutput, attempt: int
     ) -> StandardizedOutput:
         """Convert EvalOutput into the canonical standardized output schema."""
-        status = "error" if out.error else "success"
-        resolved = None if status == "error" else evaluate_output(self.metadata.critic, out)
-        artifacts_url = self._stage_instance_artifacts(instance.id, attempt)
+        status = "error" if out.error else (out.status or "success")
+        if out.resolved is not None:
+            resolved = out.resolved
+        elif status == "error":
+            resolved = None
+        else:
+            resolved = evaluate_output(self.metadata.critic, out)
+        artifacts_url = self._stage_instance_artifacts(instance.id, attempt, out)
 
         return StandardizedOutput(
             instance_id=instance.id,
@@ -321,7 +339,8 @@ class Evaluation(ABC, BaseModel):
                     f"output.critic_attempt_{attempt}.jsonl",
                 )
                 try:
-                    write_output_line(attempt_file, standardized)
+                    with open(attempt_file, "a", encoding="utf-8") as f:
+                        f.write(out.model_dump_json() + "\n")
                     write_output_line(Path(self.output_path), standardized)
                 except Exception as e:
                     logger.warning("Failed to write output for %s: %s", instance.id, e)
