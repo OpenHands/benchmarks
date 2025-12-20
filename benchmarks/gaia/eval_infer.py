@@ -12,9 +12,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
-
-from pydantic import ValidationError
 
 from benchmarks.utils.output_schema import load_output_file, select_best_attempts
 from openhands.sdk import get_logger
@@ -48,15 +45,8 @@ def evaluate_gaia_results(input_file: str) -> dict[str, int | float]:
     success = 0
     errors = 0
 
-    try:
-        outputs = load_output_file(input_file)
-        best_attempts = select_best_attempts(outputs)
-    except (ValidationError, ValueError):
-        with open(input_file, "r", encoding="utf-8") as f:
-            outputs = [
-                SimpleNamespace(**json.loads(line)) for line in f if line.strip()
-            ]
-        best_attempts = {out.instance_id: out for out in outputs}
+    outputs = load_output_file(input_file)
+    best_attempts = select_best_attempts(outputs)
 
     for out in best_attempts.values():
         total += 1
