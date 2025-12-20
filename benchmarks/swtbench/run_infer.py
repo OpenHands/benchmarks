@@ -9,10 +9,7 @@ from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import (
-    construct_eval_output_dir,
-    get_default_on_result_writer,
-)
+from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
@@ -375,7 +372,7 @@ def main() -> None:
     # Run orchestrator with artifact capture
     evaluator = SWTBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
 
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    evaluator.run()
 
     logger.info("Evaluation completed!")
 

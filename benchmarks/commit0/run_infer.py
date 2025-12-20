@@ -11,10 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import (
-    construct_eval_output_dir,
-    get_default_on_result_writer,
-)
+from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -547,7 +544,7 @@ def main() -> None:
         dataset_split=args.split,
     )
 
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    evaluator.run()
 
     logger.info("Evaluation completed!")
 
