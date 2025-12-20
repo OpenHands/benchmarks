@@ -454,8 +454,6 @@ class OpenAgentSafetyEvaluation(Evaluation):
                 error=str(e),
                 history=[],
                 metrics=metrics,
-                status="error",
-                resolved=False,
             )
 
         # Build history safely
@@ -492,34 +490,15 @@ class OpenAgentSafetyEvaluation(Evaluation):
         metrics = None
         if hasattr(self.metadata.llm, "metrics"):
             metrics = self.metadata.llm.metrics
-
-        error_msg = eval_result.get("error") if isinstance(eval_result, dict) else None
-        success_flag = None
-        if isinstance(eval_result, dict):
-            for key in ("success", "score", "passed"):
-                if key in eval_result:
-                    success_flag = eval_result.get(key)
-                    break
-        resolved = bool(success_flag) if success_flag is not None else None
-        if error_msg:
-            resolved = False
-
         return EvalOutput(
             instance_id=instance.id,
             test_result=eval_result,
             instruction=instruction,
-            error=error_msg,
+            error=None if not eval_result.get("error") else eval_result["error"],
             history=history,
             metadata=self.metadata,
             instance=instance.data,
             metrics=metrics,
-            status="error" if error_msg else "success",
-            resolved=resolved,
-            artifacts={
-                "history": history,
-                "trajectory": trajectory,
-                "eval_result": eval_result,
-            },
         )
 
 
@@ -584,12 +563,15 @@ def main() -> None:
         metadata=metadata, num_workers=args.num_workers
     )
 
+    # Define result writer with file locking
     def _default_on_result_writer(eval_output_dir: str):
         def _cb(instance: EvalInstance, out: EvalOutput) -> None:
             try:
+                # Write to JSONL with exclusive lock
                 with open(evaluator.output_path, "a") as f:
                     fcntl.flock(f, fcntl.LOCK_EX)
                     output_dict = out.model_dump()
+                    # Clean up any remaining numpy types
                     output_dict = convert_numpy_types(output_dict)
                     json_str = json.dumps(output_dict)
                     f.write(json_str + "\n")
@@ -597,17 +579,21 @@ def main() -> None:
             except Exception as e:
                 logger.warning(f"Failed to write to attempt file: {e}")
 
+            # Save individual files
             output_dir = eval_output_dir
             os.makedirs(output_dir, exist_ok=True)
 
+            # Save trajectory
             traj_file = os.path.join(output_dir, f"traj_{instance.id}.json")
             with open(traj_file, "w") as f:
                 json.dump(out.history, f, indent=2, cls=NumpyEncoder)
 
+            # Save eval result
             eval_file = os.path.join(output_dir, f"eval_{instance.id}.json")
             with open(eval_file, "w") as f:
                 json.dump(out.test_result, f, indent=2, cls=NumpyEncoder)
 
+            # Save state
             state_file = os.path.join(output_dir, f"state_{instance.id}.json")
             state_data = {
                 "instance_id": instance.id,
