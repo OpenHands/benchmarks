@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import fcntl
-import json
 import os
 from typing import Callable
 
 from benchmarks.utils.models import EvalInstance, EvalOutput
+from benchmarks.utils.output_schema import load_output_file
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 
@@ -40,10 +39,10 @@ def get_default_on_result_writer(
     output_path: str,
 ) -> Callable[[EvalInstance, EvalOutput], None]:
     """
-    Create a default callback that writes evaluation results to JSONL files.
+    Create a default callback for evaluation results.
 
-    Successful results are written to output.jsonl.
-    Failed results (with error field) are written to output_errors.jsonl.
+    Canonical output.jsonl is now written by the evaluation orchestrator.
+    This callback is kept for compatibility but does not write files.
 
     Args:
         output_path: Path to the main output JSONL file
@@ -51,48 +50,35 @@ def get_default_on_result_writer(
     Returns:
         A callback function that can be passed to evaluator.run(on_result=...)
     """
-    # Derive error output path from main output path
-    error_output_path = output_path.replace(".jsonl", "_errors.jsonl")
-
     def _cb(instance: EvalInstance, out: EvalOutput) -> None:
-        # Choose the appropriate file based on whether there's an error
-        target_path = error_output_path if out.error else output_path
-
-        with open(target_path, "a") as f:
-            # Use exclusive lock to prevent race conditions in parallel execution
-            fcntl.flock(f, fcntl.LOCK_EX)
-            f.write(out.model_dump_json() + "\n")
-            fcntl.flock(f, fcntl.LOCK_UN)
+        _ = (instance, out, output_path)
 
     return _cb
 
 
 def generate_error_logs_summary(eval_output_dir: str) -> None:
     """
-    Generate an ERROR_LOGS.txt file that lists all failed instances and their log locations.
-
-    This makes it easy to quickly find and navigate to error logs in the GCS artifact folder.
+    Generate an ERROR_LOGS.txt file that lists failed instances and their log locations.
 
     Args:
         eval_output_dir: Path to the evaluation output directory
     """
-    error_output_path = os.path.join(eval_output_dir, "output_errors.jsonl")
-
-    # Check if there are any errors
-    if not os.path.exists(error_output_path):
-        logger.info("No error instances found, skipping ERROR_LOGS.txt generation")
+    output_path = os.path.join(eval_output_dir, "output.jsonl")
+    if not os.path.exists(output_path):
+        logger.info("No output.jsonl found, skipping ERROR_LOGS.txt generation")
         return
 
-    # Load error instances
-    error_instances = []
     try:
-        with open(error_output_path, "r") as f:
-            for line in f:
-                if line.strip():
-                    error_instances.append(json.loads(line))
+        outputs = load_output_file(output_path)
     except Exception as e:
-        logger.warning(f"Failed to read error instances: {e}")
+        logger.warning("Failed to read standardized outputs: %s", e)
         return
+
+    error_instances = [
+        {"instance_id": out.instance_id, "error": out.error}
+        for out in outputs
+        if out.status == "error"
+    ]
 
     if not error_instances:
         logger.info("No error instances found, skipping ERROR_LOGS.txt generation")

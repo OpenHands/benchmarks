@@ -5,6 +5,7 @@ Evaluation orchestrator.
 import base64
 import json
 import os
+import shutil
 import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -16,13 +17,19 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
-from benchmarks.utils.critics import get_completed_instances
-from benchmarks.utils.iterative import aggregate_results, get_failed_instances
+from benchmarks.utils.critics import evaluate_output, get_completed_instances
+from benchmarks.utils.iterative import get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
     EvalMetadata,
     EvalOutput,
+)
+from benchmarks.utils.output_schema import (
+    StandardizedOutput,
+    cost_from_metrics,
+    write_derived_report,
+    write_output_line,
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
@@ -155,6 +162,48 @@ class Evaluation(ABC, BaseModel):
                 e,
             )
 
+    def _stage_instance_artifacts(self, instance_id: str, attempt: int) -> str:
+        """Bundle per-instance artifacts under artifacts/ for standardized output."""
+        base_dir = Path(self.metadata.eval_output_dir)
+        attempt_dir = base_dir / "artifacts" / instance_id / f"attempt_{attempt}"
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+
+        logs_dir = attempt_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        log_source = base_dir / "logs" / f"instance_{instance_id}.log"
+        output_log_source = base_dir / "logs" / f"instance_{instance_id}.output.log"
+        if log_source.exists():
+            shutil.copy2(log_source, logs_dir / "instance.log")
+        if output_log_source.exists():
+            shutil.copy2(output_log_source, logs_dir / "instance.output.log")
+
+        conv_source = base_dir / "conversations" / f"{instance_id}.tar.gz"
+        if conv_source.exists():
+            shutil.copy2(conv_source, attempt_dir / "conversation.tar.gz")
+
+        return str(attempt_dir.relative_to(base_dir))
+
+    def _build_standardized_output(
+        self, instance: EvalInstance, out: EvalOutput, attempt: int
+    ) -> StandardizedOutput:
+        """Convert EvalOutput into the canonical standardized output schema."""
+        status = "error" if out.error else "success"
+        resolved = None if status == "error" else evaluate_output(self.metadata.critic, out)
+        artifacts_url = self._stage_instance_artifacts(instance.id, attempt)
+
+        return StandardizedOutput(
+            instance_id=instance.id,
+            attempt=attempt,
+            max_attempts=self.metadata.max_attempts,
+            status=status,
+            resolved=resolved,
+            error=out.error,
+            test_result=out.test_result or {},
+            cost=cost_from_metrics(out.metrics),
+            artifacts_url=artifacts_url,
+        )
+
     # --- Runner ---
     def run(
         self,
@@ -266,18 +315,16 @@ class Evaluation(ABC, BaseModel):
 
             def attempt_on_result(instance: EvalInstance, out: EvalOutput) -> None:
                 attempt_outputs.append(out)
-                # Write to attempt-specific file
-                attempt_file = os.path.join(
+                standardized = self._build_standardized_output(instance, out, attempt)
+                attempt_file = Path(
                     self.metadata.eval_output_dir,
                     f"output.critic_attempt_{attempt}.jsonl",
                 )
                 try:
-                    with open(attempt_file, "a") as f:
-                        f.write(out.model_dump_json() + "\n")
+                    write_output_line(attempt_file, standardized)
+                    write_output_line(Path(self.output_path), standardized)
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to write to attempt file {attempt_file}: {e}"
-                    )
+                    logger.warning("Failed to write output for %s: %s", instance.id, e)
 
                 # Call original callback if provided
                 if on_result:
@@ -332,14 +379,11 @@ class Evaluation(ABC, BaseModel):
             )
             all_outputs.extend(attempt_outputs)
 
-        # Aggregate results from all attempts
-        logger.info("Aggregating results from all attempts")
-        aggregate_results(
-            output_dir=self.metadata.eval_output_dir,
-            max_attempts=self.metadata.max_attempts,
-            critic=self.metadata.critic,
-            final_output_file="output.jsonl",
-        )
+        logger.info("Writing derived report from standardized outputs")
+        try:
+            write_derived_report(self.metadata.eval_output_dir)
+        except Exception as e:
+            logger.warning("Failed to write derived report: %s", e)
 
         logger.info(
             f"Evaluation complete: {total_instances} total instances, "

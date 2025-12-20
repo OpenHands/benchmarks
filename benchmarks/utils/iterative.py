@@ -9,8 +9,11 @@ import json
 import os
 from typing import Set
 
+from pydantic import ValidationError
+
 from benchmarks.utils.critics import CriticBase, evaluate_output
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
+from benchmarks.utils.output_schema import StandardizedOutput, write_derived_report
 from openhands.sdk import get_logger
 
 
@@ -40,7 +43,13 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
             for line_num, line in enumerate(f, 1):
                 try:
                     data = json.loads(line.strip())
-                    output = EvalOutput.model_validate(data)
+                    try:
+                        output = StandardizedOutput.model_validate(data)
+                        if output.status == "error" or output.resolved is not True:
+                            failed_instances.add(output.instance_id)
+                        continue
+                    except ValidationError:
+                        output = EvalOutput.model_validate(data)
 
                     # Evaluate using the critic
                     if not evaluate_output(critic, output):
@@ -69,10 +78,7 @@ def aggregate_results(
     final_output_file: str = "output.jsonl",
 ) -> None:
     """
-    Aggregate results from multiple attempts into a final output file.
-
-    Works backwards from the last attempt to the first, using the most recent
-    successful attempt for each instance.
+    Derive the summary report from standardized output.jsonl.
 
     Args:
         output_dir: Directory containing attempt files
@@ -82,78 +88,14 @@ def aggregate_results(
     """
     logger.info(f"Aggregating results from {max_attempts} attempts")
 
-    # Dictionary to store the best result for each instance
-    best_results: dict[EvalInstanceID, EvalOutput] = {}
-
-    # Work backwards from the last attempt to the first
-    for attempt in range(max_attempts, 0, -1):
-        attempt_file = os.path.join(
-            output_dir, f"output.critic_attempt_{attempt}.jsonl"
-        )
-
-        if not os.path.exists(attempt_file):
-            logger.debug(f"Attempt file {attempt_file} does not exist, skipping")
-            continue
-
-        logger.info(f"Processing attempt {attempt}: {attempt_file}")
-
-        try:
-            with open(attempt_file, "r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    try:
-                        data = json.loads(line.strip())
-                        output = EvalOutput.model_validate(data)
-
-                        # Use this result if:
-                        # 1. We haven't seen this instance yet, OR
-                        # 2. This attempt is the first one to succeed
-                        instance_id = output.instance_id
-
-                        is_successful = evaluate_output(critic, output)
-
-                        if instance_id not in best_results:
-                            # First time seeing this instance
-                            best_results[instance_id] = output
-                        elif is_successful:
-                            # This attempt succeeded, check if we should replace
-                            current_best = best_results[instance_id]
-                            current_is_successful = evaluate_output(
-                                critic, current_best
-                            )
-                            if not current_is_successful:
-                                # Replace failed result with successful one
-                                best_results[instance_id] = output
-
-                    except json.JSONDecodeError as e:
-                        logger.warning(
-                            f"Invalid JSON on line {line_num} in {attempt_file}: {e}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"Error processing line {line_num} in {attempt_file}: {e}"
-                        )
-
-        except Exception as e:
-            logger.error(f"Error reading attempt file {attempt_file}: {e}")
-
-    # Write the aggregated results
-    final_path = os.path.join(output_dir, final_output_file)
-    if not best_results:
-        logger.warning("No results found to aggregate - creating empty output file")
-    logger.info(f"Writing {len(best_results)} aggregated results to {final_path}")
+    output_path = os.path.join(output_dir, final_output_file)
+    if not os.path.exists(output_path):
+        logger.warning("Canonical output file missing: %s", output_path)
+        return
 
     try:
-        successful_count = 0
-        with open(final_path, "w", encoding="utf-8") as f:
-            for output in best_results.values():
-                if not output.error:  # Skip outputs with errors
-                    f.write(output.model_dump_json() + "\n")
-                    successful_count += 1
-
-        logger.info(
-            f"Successfully wrote {successful_count} successful results to {final_path}"
-        )
-
+        report_path = write_derived_report(output_dir)
+        logger.info("Wrote derived report to %s", report_path)
     except Exception as e:
-        logger.error(f"Error writing aggregated results to {final_path}: {e}")
+        logger.error("Error writing derived report: %s", e)
         raise
