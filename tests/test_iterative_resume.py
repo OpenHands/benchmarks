@@ -7,7 +7,7 @@ from typing import List
 from unittest.mock import Mock
 
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
 from openhands.sdk.workspace import RemoteWorkspace
@@ -33,7 +33,7 @@ class MockEvaluation(Evaluation):
         return mock_workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """Return a mock output."""
         return EvalOutput(
@@ -43,6 +43,12 @@ class MockEvaluation(Evaluation):
             error=None,
             history=[],  # Empty history for testing
             instance=instance.data,
+            status="success",
+            resolved=True,
+            attempt=attempt,
+            max_attempts=self.metadata.max_attempts,
+            cost=CostBreakdown(),
+            artifacts_url="",
         )
 
 
@@ -68,10 +74,11 @@ def test_iterative_resume_with_expanded_n_limit():
 
         # Create LLM config
         llm = LLM(model="test-model", temperature=0.0)
+        max_attempts = 3
 
         # Simulate first run by creating output files
         # Create outputs for all 3 attempts with all 50 instances
-        for attempt in range(1, 4):
+        for attempt in range(1, max_attempts + 1):
             attempt_file = os.path.join(
                 tmpdir, f"output.critic_attempt_{attempt}.jsonl"
             )
@@ -84,6 +91,12 @@ def test_iterative_resume_with_expanded_n_limit():
                         error=None,
                         history=[],  # Empty history for testing
                         instance=inst.data,
+                        status="success",
+                        resolved=True,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                        cost=CostBreakdown(),
+                        artifacts_url="",
                     )
                     f.write(output.model_dump_json() + "\n")
 
@@ -102,7 +115,7 @@ def test_iterative_resume_with_expanded_n_limit():
             eval_output_dir=tmpdir,
             details={},
             eval_limit=200,
-            max_attempts=3,
+            max_attempts=max_attempts,
             max_retries=0,
             critic=PassCritic(),
         )
@@ -203,6 +216,12 @@ def test_iterative_resume_with_same_n_limit():
                         error=None,
                         history=[],  # Empty history for testing
                         instance=inst.data,
+                        status="success",
+                        resolved=True,
+                        attempt=attempt,
+                        max_attempts=metadata.max_attempts,
+                        cost=CostBreakdown(),
+                        artifacts_url="",
                     )
                     f.write(output.model_dump_json() + "\n")
 

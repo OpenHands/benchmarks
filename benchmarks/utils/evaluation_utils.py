@@ -3,8 +3,7 @@ from __future__ import annotations
 import os
 from typing import Callable
 
-from benchmarks.utils.models import EvalInstance, EvalOutput
-from benchmarks.utils.output_schema import load_output_file
+from benchmarks.utils.models import EvalInstance, EvalOutput, load_output_file
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 

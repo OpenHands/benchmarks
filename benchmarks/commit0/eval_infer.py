@@ -15,7 +15,7 @@ import logging
 import sys
 from pathlib import Path
 
-from benchmarks.utils.output_schema import load_output_file, select_best_attempts
+from benchmarks.utils.models import load_output_file, select_best_attempts
 from benchmarks.utils.report_costs import generate_cost_report
 
 

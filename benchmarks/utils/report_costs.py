@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from benchmarks.utils.output_schema import load_output_file
+from benchmarks.utils.models import load_output_file
 
 
 def extract_accumulated_cost(outputs) -> float:

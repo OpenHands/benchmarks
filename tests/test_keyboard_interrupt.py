@@ -23,7 +23,7 @@ from unittest.mock import Mock
 sys.path.insert(0, "{project_root}")
 
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
 from openhands.sdk.workspace import RemoteWorkspace
@@ -43,7 +43,7 @@ class TestEvaluation(Evaluation):
         return mock_workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         # Simulate long-running task
         time.sleep(60)  # Long sleep
@@ -54,6 +54,12 @@ class TestEvaluation(Evaluation):
             error=None,
             history=[],
             instance=instance.data,
+            status="success",
+            resolved=True,
+            attempt=attempt,
+            max_attempts=self.metadata.max_attempts,
+            cost=CostBreakdown(),
+            artifacts_url="",
         )
 
 

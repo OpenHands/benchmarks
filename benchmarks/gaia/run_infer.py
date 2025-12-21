@@ -22,7 +22,7 @@ from benchmarks.utils.evaluation_utils import (
     generate_error_logs_summary,
 )
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import (
     LLM,
@@ -234,7 +234,7 @@ class GAIAEvaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """
         Run agent on a single GAIA instance and evaluate the result.
@@ -335,6 +335,10 @@ class GAIAEvaluation(Evaluation):
             instance=instance.data,
             status="success",
             resolved=bool(score),
+            attempt=attempt,
+            max_attempts=self.metadata.max_attempts,
+            cost=CostBreakdown(),
+            artifacts_url="",
             artifacts={
                 "model_answer": model_answer,
                 "model_answer_raw": model_answer_raw,

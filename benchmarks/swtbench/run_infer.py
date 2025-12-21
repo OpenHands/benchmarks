@@ -12,6 +12,7 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
+    CostBreakdown,
     EvalInstance,
     EvalMetadata,
     EvalOutput,
@@ -214,7 +215,7 @@ class SWTBenchEvaluation(Evaluation):
 
     # ---- Hook: evaluate one instance ---------------------------------------------
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.
@@ -303,6 +304,10 @@ class SWTBenchEvaluation(Evaluation):
             metrics=conversation.conversation_stats.get_combined_metrics(),
             status="success",
             resolved=bool(git_patch.strip()),
+            attempt=attempt,
+            max_attempts=self.metadata.max_attempts,
+            cost=CostBreakdown(),
+            artifacts_url="",
         )
         return out
 

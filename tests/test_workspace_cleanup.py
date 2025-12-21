@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
 
@@ -30,6 +30,12 @@ def test_workspace_cleanup_called_on_success():
         error=None,
         history=[],
         instance={"test": "data"},
+        status="success",
+        resolved=True,
+        attempt=1,
+        max_attempts=1,
+        cost=CostBreakdown(),
+        artifacts_url="",
     )
 
     # Create evaluation metadata
@@ -55,13 +61,13 @@ def test_workspace_cleanup_called_on_success():
         def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
-        def evaluate_instance(self, instance, workspace):
+        def evaluate_instance(self, instance, workspace, attempt):
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify the workspace cleanup was called
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -105,13 +111,13 @@ def test_workspace_cleanup_called_on_failure():
         def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
-        def evaluate_instance(self, instance, workspace):
+        def evaluate_instance(self, instance, workspace, attempt):
             raise RuntimeError("Test evaluation failure")
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify the workspace cleanup was called even on failure
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -141,6 +147,12 @@ def test_workspace_cleanup_handles_cleanup_exception():
         error=None,
         history=[],
         instance={"test": "data"},
+        status="success",
+        resolved=True,
+        attempt=1,
+        max_attempts=1,
+        cost=CostBreakdown(),
+        artifacts_url="",
     )
 
     # Create evaluation metadata
@@ -166,13 +178,13 @@ def test_workspace_cleanup_handles_cleanup_exception():
         def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
-        def evaluate_instance(self, instance, workspace):
+        def evaluate_instance(self, instance, workspace, attempt):
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly - should not raise an exception
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify the workspace cleanup was attempted
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -224,7 +236,7 @@ def test_workspace_cleanup_with_retries():
         def prepare_workspace(self, instance: EvalInstance):
             return create_mock_workspace()
 
-        def evaluate_instance(self, instance, workspace):
+        def evaluate_instance(self, instance, workspace, attempt):
             nonlocal attempt_count
             attempt_count += 1
             if attempt_count <= 2:
@@ -236,12 +248,18 @@ def test_workspace_cleanup_with_retries():
                 error=None,
                 history=[],
                 instance=instance.data,
+                status="success",
+                resolved=True,
+                attempt=attempt,
+                max_attempts=self.metadata.max_attempts,
+                cost=CostBreakdown(),
+                artifacts_url="",
             )
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify cleanup was called for all attempts (3 total: initial + 2 retries)
     assert len(workspaces_created) == 3, "Should create workspace for each attempt"

@@ -24,9 +24,6 @@ from benchmarks.utils.models import (
     EvalInstanceID,
     EvalMetadata,
     EvalOutput,
-)
-from benchmarks.utils.output_schema import (
-    StandardizedOutput,
     cost_from_metrics,
     write_derived_report,
     write_output_line,
@@ -88,13 +85,17 @@ class Evaluation(ABC, BaseModel):
 
     @abstractmethod
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
     def _create_error_output(
-        self, instance: EvalInstance, error: Exception, retry_count: int
+        self,
+        instance: EvalInstance,
+        error: Exception,
+        retry_count: int,
+        attempt: int,
     ) -> EvalOutput:
         """Create an EvalOutput object for a failed instance."""
         return EvalOutput(
@@ -106,6 +107,12 @@ class Evaluation(ABC, BaseModel):
             )[:200],
             history=[],
             instance=instance.data,
+            status="error",
+            resolved=None,
+            attempt=attempt,
+            max_attempts=self.metadata.max_attempts,
+            cost=cost_from_metrics(None),
+            artifacts_url="",
         )
 
     def _capture_conversation_archive(
@@ -165,42 +172,51 @@ class Evaluation(ABC, BaseModel):
     def _stage_instance_artifacts(
         self, instance_id: str, attempt: int, out: EvalOutput
     ) -> str:
-        """Bundle per-instance artifacts under artifacts/ for standardized output."""
+        """Bundle per-instance artifacts under artifacts/ for canonical output."""
         base_dir = Path(self.metadata.eval_output_dir)
         attempt_dir = base_dir / "artifacts" / instance_id / f"attempt_{attempt}"
-        attempt_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            attempt_dir.mkdir(parents=True, exist_ok=True)
 
-        logs_dir = attempt_dir / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
+            logs_dir = attempt_dir / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
 
-        log_source = base_dir / "logs" / f"instance_{instance_id}.log"
-        output_log_source = base_dir / "logs" / f"instance_{instance_id}.output.log"
-        if log_source.exists():
-            shutil.copy2(log_source, logs_dir / "instance.log")
-        if output_log_source.exists():
-            shutil.copy2(output_log_source, logs_dir / "instance.output.log")
+            log_source = base_dir / "logs" / f"instance_{instance_id}.log"
+            output_log_source = base_dir / "logs" / f"instance_{instance_id}.output.log"
+            if log_source.exists():
+                shutil.copy2(log_source, logs_dir / "instance.log")
+            if output_log_source.exists():
+                shutil.copy2(output_log_source, logs_dir / "instance.output.log")
 
-        conv_source = base_dir / "conversations" / f"{instance_id}.tar.gz"
-        if conv_source.exists():
-            shutil.copy2(conv_source, attempt_dir / "conversation.tar.gz")
+            conv_source = base_dir / "conversations" / f"{instance_id}.tar.gz"
+            if conv_source.exists():
+                shutil.copy2(conv_source, attempt_dir / "conversation.tar.gz")
 
-        if out.test_result:
-            with open(attempt_dir / "test_result.json", "w", encoding="utf-8") as f:
-                json.dump(out.test_result, f, indent=2)
+            if out.test_result:
+                with open(attempt_dir / "test_result.json", "w", encoding="utf-8") as f:
+                    json.dump(out.test_result, f, indent=2)
 
-        if out.artifacts:
-            with open(attempt_dir / "artifacts.json", "w", encoding="utf-8") as f:
-                json.dump(out.artifacts, f, indent=2)
+            if out.artifacts:
+                with open(attempt_dir / "artifacts.json", "w", encoding="utf-8") as f:
+                    json.dump(out.artifacts, f, indent=2)
 
-        if out.error:
-            (attempt_dir / "error.txt").write_text(out.error, encoding="utf-8")
+            if out.error:
+                (attempt_dir / "error.txt").write_text(out.error, encoding="utf-8")
+        except Exception as e:
+            logger.warning(
+                "Failed to stage artifacts for %s attempt %s: %s",
+                instance_id,
+                attempt,
+                e,
+            )
+            return ""
 
         return str(attempt_dir.relative_to(base_dir))
 
-    def _build_standardized_output(
+    def _prepare_output_for_jsonl(
         self, instance: EvalInstance, out: EvalOutput, attempt: int
-    ) -> StandardizedOutput:
-        """Convert EvalOutput into the canonical standardized output schema."""
+    ) -> None:
+        """Populate canonical fields before writing output.jsonl."""
         status = "error" if out.error else (out.status or "success")
         if out.resolved is not None:
             resolved = out.resolved
@@ -208,19 +224,15 @@ class Evaluation(ABC, BaseModel):
             resolved = None
         else:
             resolved = evaluate_output(self.metadata.critic, out)
+
         artifacts_url = self._stage_instance_artifacts(instance.id, attempt, out)
 
-        return StandardizedOutput(
-            instance_id=instance.id,
-            attempt=attempt,
-            max_attempts=self.metadata.max_attempts,
-            status=status,
-            resolved=resolved,
-            error=out.error,
-            test_result=out.test_result or {},
-            cost=cost_from_metrics(out.metrics),
-            artifacts_url=artifacts_url,
-        )
+        out.attempt = attempt
+        out.max_attempts = self.metadata.max_attempts
+        out.status = status
+        out.resolved = resolved
+        out.cost = cost_from_metrics(out.metrics)
+        out.artifacts_url = artifacts_url
 
     # --- Runner ---
     def run(
@@ -333,15 +345,15 @@ class Evaluation(ABC, BaseModel):
 
             def attempt_on_result(instance: EvalInstance, out: EvalOutput) -> None:
                 attempt_outputs.append(out)
-                standardized = self._build_standardized_output(instance, out, attempt)
                 attempt_file = Path(
                     self.metadata.eval_output_dir,
                     f"output.critic_attempt_{attempt}.jsonl",
                 )
                 try:
+                    self._prepare_output_for_jsonl(instance, out, attempt)
                     with open(attempt_file, "a", encoding="utf-8") as f:
                         f.write(out.model_dump_json() + "\n")
-                    write_output_line(Path(self.output_path), standardized)
+                    write_output_line(Path(self.output_path), out)
                 except Exception as e:
                     logger.warning("Failed to write output for %s: %s", instance.id, e)
 
@@ -357,7 +369,7 @@ class Evaluation(ABC, BaseModel):
             futures = []
             try:
                 futures = [
-                    pool.submit(self._process_one_mp, inst)
+                    pool.submit(self._process_one_mp, inst, attempt)
                     for inst in instances_to_process
                 ]
 
@@ -398,7 +410,7 @@ class Evaluation(ABC, BaseModel):
             )
             all_outputs.extend(attempt_outputs)
 
-        logger.info("Writing derived report from standardized outputs")
+        logger.info("Writing derived report from output.jsonl")
         try:
             write_derived_report(self.metadata.eval_output_dir)
         except Exception as e:
@@ -440,7 +452,7 @@ class Evaluation(ABC, BaseModel):
 
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance
+        self, instance: EvalInstance, attempt: int
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
@@ -468,7 +480,7 @@ class Evaluation(ABC, BaseModel):
                 workspace = None
                 try:
                     workspace = self.prepare_workspace(instance)
-                    out = self.evaluate_instance(instance, workspace)
+                    out = self.evaluate_instance(instance, workspace, attempt)
 
                     # Capture conversation archive after successful evaluation
                     self._capture_conversation_archive(workspace, instance)
@@ -493,7 +505,7 @@ class Evaluation(ABC, BaseModel):
                         )
                         # Create error output for final failure
                         error_output = self._create_error_output(
-                            instance, last_error, max_retries
+                            instance, last_error, max_retries, attempt
                         )
                         return instance, error_output
                 finally:
@@ -513,7 +525,10 @@ class Evaluation(ABC, BaseModel):
 
             # This should never be reached, but added for type safety
             error_output = self._create_error_output(
-                instance, Exception("Unexpected error: no attempts made"), max_retries
+                instance,
+                Exception("Unexpected error: no attempts made"),
+                max_retries,
+                attempt,
             )
             return instance, error_output
 

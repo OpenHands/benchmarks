@@ -9,11 +9,8 @@ import json
 import os
 from typing import Set
 
-from pydantic import ValidationError
-
 from benchmarks.utils.critics import CriticBase, evaluate_output
-from benchmarks.utils.models import EvalInstanceID, EvalOutput
-from benchmarks.utils.output_schema import StandardizedOutput, write_derived_report
+from benchmarks.utils.models import EvalInstanceID, EvalOutput, write_derived_report
 from openhands.sdk import get_logger
 
 
@@ -43,13 +40,7 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
             for line_num, line in enumerate(f, 1):
                 try:
                     data = json.loads(line.strip())
-                    try:
-                        output = StandardizedOutput.model_validate(data)
-                        if output.status == "error" or output.resolved is not True:
-                            failed_instances.add(output.instance_id)
-                        continue
-                    except ValidationError:
-                        output = EvalOutput.model_validate(data)
+                    output = EvalOutput.model_validate(data)
 
                     # Evaluate using the critic
                     if not evaluate_output(critic, output):

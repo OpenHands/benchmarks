@@ -13,6 +13,7 @@ from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import (
+    CostBreakdown,
     EvalInstance,
     EvalMetadata,
     EvalOutput,
@@ -219,7 +220,7 @@ class Commit0Evaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
     ) -> EvalOutput:
         """
         Run agent, collect history, git patch, and test results.
@@ -465,6 +466,10 @@ class Commit0Evaluation(Evaluation):
             metrics=conversation.conversation_stats.get_combined_metrics(),
             status="success",
             resolved=resolved,
+            attempt=attempt,
+            max_attempts=self.metadata.max_attempts,
+            cost=CostBreakdown(),
+            artifacts_url="",
             artifacts=artifacts_payload,
         )
         return out
