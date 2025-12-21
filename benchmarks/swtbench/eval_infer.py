@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from benchmarks.utils.output_schema import load_output_file, select_best_attempts
+from benchmarks.utils.models import load_output_file, select_best_attempts
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -170,6 +170,7 @@ def run_swtbench_evaluation(
         env = os.environ.copy()
         env["PYTHONPATH"] = str(swt_bench_dir)
 
+        run_id = f"eval_{predictions_path.stem}"
         cmd = [
             python_executable,
             "src/main.py",  # Run as script instead of module
@@ -181,7 +182,7 @@ def run_swtbench_evaluation(
             "--max_workers",
             str(workers),
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            run_id,
         ]
 
         logger.info(f"Using Python executable: {python_executable}")
@@ -211,6 +212,20 @@ def run_swtbench_evaluation(
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
                 shutil.copytree(results_dir, target_dir)
+            logs_root = swt_bench_dir / "run_instance_swt_logs"
+            if logs_root.exists():
+                run_logs_dir = logs_root / run_id
+                if run_logs_dir.exists():
+                    target_logs_dir = harness_dir / "run_instance_swt_logs" / run_id
+                    if target_logs_dir.exists():
+                        shutil.rmtree(target_logs_dir)
+                    target_logs_dir.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(run_logs_dir, target_logs_dir)
+                else:
+                    target_logs_dir = harness_dir / "run_instance_swt_logs"
+                    if target_logs_dir.exists():
+                        shutil.rmtree(target_logs_dir)
+                    shutil.copytree(logs_root, target_logs_dir)
 
     except FileNotFoundError:
         logger.error(
