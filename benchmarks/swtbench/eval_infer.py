@@ -118,6 +118,16 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
+        def _copytree(src: Path, dest: Path) -> None:
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(
+                src,
+                dest,
+                symlinks=True,
+                ignore_dangling_symlinks=True,
+            )
+
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
@@ -209,9 +219,7 @@ def run_swtbench_evaluation(
             results_dir = swt_bench_dir / "evaluation_results"
             if results_dir.exists():
                 target_dir = harness_dir / "evaluation_results"
-                if target_dir.exists():
-                    shutil.rmtree(target_dir)
-                shutil.copytree(results_dir, target_dir)
+                _copytree(results_dir, target_dir)
             logs_root = swt_bench_dir / "run_instance_swt_logs"
             if logs_root.exists():
                 target_base = harness_dir / "run_instance_swt_logs"
@@ -221,24 +229,18 @@ def run_swtbench_evaluation(
                 run_logs_dir = logs_root / run_id
                 if run_logs_dir.exists():
                     target_logs_dir = target_base / run_id
-                    if target_logs_dir.exists():
-                        shutil.rmtree(target_logs_dir)
-                    shutil.copytree(run_logs_dir, target_logs_dir)
+                    _copytree(run_logs_dir, target_logs_dir)
                     copied_any = True
 
                 for extra_dir in ("gold_pre", "gold_post", "base_pre", "base_post"):
                     src_dir = logs_root / extra_dir
                     if src_dir.exists():
                         dest_dir = target_base / extra_dir
-                        if dest_dir.exists():
-                            shutil.rmtree(dest_dir)
-                        shutil.copytree(src_dir, dest_dir)
+                        _copytree(src_dir, dest_dir)
                         copied_any = True
 
                 if not copied_any:
-                    if target_base.exists():
-                        shutil.rmtree(target_base)
-                    shutil.copytree(logs_root, target_base)
+                    _copytree(logs_root, target_base)
 
     except FileNotFoundError:
         logger.error(
