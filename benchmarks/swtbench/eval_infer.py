@@ -214,18 +214,31 @@ def run_swtbench_evaluation(
                 shutil.copytree(results_dir, target_dir)
             logs_root = swt_bench_dir / "run_instance_swt_logs"
             if logs_root.exists():
+                target_base = harness_dir / "run_instance_swt_logs"
+                target_base.mkdir(parents=True, exist_ok=True)
+                copied_any = False
+
                 run_logs_dir = logs_root / run_id
                 if run_logs_dir.exists():
-                    target_logs_dir = harness_dir / "run_instance_swt_logs" / run_id
+                    target_logs_dir = target_base / run_id
                     if target_logs_dir.exists():
                         shutil.rmtree(target_logs_dir)
-                    target_logs_dir.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copytree(run_logs_dir, target_logs_dir)
-                else:
-                    target_logs_dir = harness_dir / "run_instance_swt_logs"
-                    if target_logs_dir.exists():
-                        shutil.rmtree(target_logs_dir)
-                    shutil.copytree(logs_root, target_logs_dir)
+                    copied_any = True
+
+                for extra_dir in ("gold_pre", "gold_post", "base_pre", "base_post"):
+                    src_dir = logs_root / extra_dir
+                    if src_dir.exists():
+                        dest_dir = target_base / extra_dir
+                        if dest_dir.exists():
+                            shutil.rmtree(dest_dir)
+                        shutil.copytree(src_dir, dest_dir)
+                        copied_any = True
+
+                if not copied_any:
+                    if target_base.exists():
+                        shutil.rmtree(target_base)
+                    shutil.copytree(logs_root, target_base)
 
     except FileNotFoundError:
         logger.error(
