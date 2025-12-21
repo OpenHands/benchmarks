@@ -107,12 +107,6 @@ class Evaluation(ABC, BaseModel):
             )[:200],
             history=[],
             instance=instance.data,
-            status="error",
-            resolved=None,
-            attempt=attempt,
-            max_attempts=self.metadata.max_attempts,
-            cost=cost_from_metrics(None),
-            artifacts_url="",
         )
 
     def _capture_conversation_archive(

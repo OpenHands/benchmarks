@@ -12,12 +12,7 @@ from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
-from benchmarks.utils.models import (
-    CostBreakdown,
-    EvalInstance,
-    EvalMetadata,
-    EvalOutput,
-)
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -464,12 +459,7 @@ class Commit0Evaluation(Evaluation):
             error=None,
             history=history,
             metrics=conversation.conversation_stats.get_combined_metrics(),
-            status="success",
             resolved=resolved,
-            attempt=attempt,
-            max_attempts=self.metadata.max_attempts,
-            cost=CostBreakdown(),
-            artifacts_url="",
             artifacts=artifacts_payload,
         )
         return out

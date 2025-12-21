@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
 
@@ -30,12 +30,6 @@ def test_workspace_cleanup_called_on_success():
         error=None,
         history=[],
         instance={"test": "data"},
-        status="success",
-        resolved=True,
-        attempt=1,
-        max_attempts=1,
-        cost=CostBreakdown(),
-        artifacts_url="",
     )
 
     # Create evaluation metadata
@@ -147,12 +141,6 @@ def test_workspace_cleanup_handles_cleanup_exception():
         error=None,
         history=[],
         instance={"test": "data"},
-        status="success",
-        resolved=True,
-        attempt=1,
-        max_attempts=1,
-        cost=CostBreakdown(),
-        artifacts_url="",
     )
 
     # Create evaluation metadata
@@ -248,12 +236,6 @@ def test_workspace_cleanup_with_retries():
                 error=None,
                 history=[],
                 instance=instance.data,
-                status="success",
-                resolved=True,
-                attempt=attempt,
-                max_attempts=self.metadata.max_attempts,
-                cost=CostBreakdown(),
-                artifacts_url="",
             )
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)

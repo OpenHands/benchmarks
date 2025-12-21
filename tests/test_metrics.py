@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
 from openhands.sdk.event import MessageEvent
@@ -146,10 +146,6 @@ def test_metrics_collection_pattern():
         metrics=metrics,
         status="success",
         resolved=True,
-        attempt=1,
-        max_attempts=1,
-        cost=CostBreakdown(),
-        artifacts_url="",
     )
 
     # Verify the output can be serialized properly
@@ -174,10 +170,6 @@ def test_eval_output_with_no_metrics():
         metrics=None,
         status="success",
         resolved=True,
-        attempt=1,
-        max_attempts=1,
-        cost=CostBreakdown(),
-        artifacts_url="",
     )
 
     # Verify the output can be serialized properly
@@ -407,9 +399,9 @@ def test_benchmark_metrics_collection(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
             ):
-                result = evaluation.evaluate_instance(instance, mock_workspace)
+                result = evaluation.evaluate_instance(instance, mock_workspace, 1)
         else:
-            result = evaluation.evaluate_instance(instance, mock_workspace)
+            result = evaluation.evaluate_instance(instance, mock_workspace, 1)
 
     # Verify result is EvalOutput
     assert isinstance(result, EvalOutput), (
@@ -487,9 +479,9 @@ def test_metrics_with_zero_cost(mock_workspace):
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
             ):
-                result = evaluation.evaluate_instance(instance, mock_workspace)
+                result = evaluation.evaluate_instance(instance, mock_workspace, 1)
         else:
-            result = evaluation.evaluate_instance(instance, mock_workspace)
+            result = evaluation.evaluate_instance(instance, mock_workspace, 1)
 
     # Verify metrics are collected even with zero cost
     assert result.metrics is not None

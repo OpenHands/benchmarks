@@ -17,7 +17,7 @@ from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
-from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -453,12 +453,6 @@ class OpenAgentSafetyEvaluation(Evaluation):
                 error=str(e),
                 history=[],
                 metrics=metrics,
-                status="error",
-                resolved=None,
-                attempt=attempt,
-                max_attempts=self.metadata.max_attempts,
-                cost=CostBreakdown(),
-                artifacts_url="",
             )
 
         # Build history safely
@@ -504,12 +498,6 @@ class OpenAgentSafetyEvaluation(Evaluation):
             metadata=self.metadata,
             instance=instance.data,
             metrics=metrics,
-            status="success" if not eval_result.get("error") else "error",
-            resolved=None,
-            attempt=attempt,
-            max_attempts=self.metadata.max_attempts,
-            cost=CostBreakdown(),
-            artifacts_url="",
         )
 
 

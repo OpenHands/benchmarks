@@ -18,12 +18,7 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.models import (
-    CostBreakdown,
-    EvalInstance,
-    EvalMetadata,
-    EvalOutput,
-)
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -278,12 +273,7 @@ class SWEBenchEvaluation(Evaluation):
             error=None,
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
-            status="success",
             resolved=bool(git_patch.strip()),
-            attempt=attempt,
-            max_attempts=self.metadata.max_attempts,
-            cost=CostBreakdown(),
-            artifacts_url="",
         )
         return out
 

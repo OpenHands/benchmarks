@@ -113,17 +113,36 @@ class EvalOutput(OpenHandsModel):
     # Outcome details
     status: Literal["success", "error"] | None = None
     resolved: bool | None = None
-    attempt: int
-    max_attempts: int
-    cost: CostBreakdown
-    artifacts_url: str
+    attempt: int | None = None
+    max_attempts: int | None = None
+    cost: CostBreakdown | None = None
+    artifacts_url: str | None = None
 
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
     artifacts: dict[str, Any] | None = None
 
+    def _require_output_fields(self) -> None:
+        missing = []
+        if self.attempt is None:
+            missing.append("attempt")
+        if self.max_attempts is None:
+            missing.append("max_attempts")
+        if self.status is None:
+            missing.append("status")
+        if self.cost is None:
+            missing.append("cost")
+        if self.artifacts_url is None:
+            missing.append("artifacts_url")
+        if missing:
+            raise ValueError(
+                "EvalOutput missing required fields for output.jsonl: "
+                + ", ".join(missing)
+            )
+
     def to_output_dict(self) -> dict[str, Any]:
         """Return the canonical output.jsonl representation."""
+        self._require_output_fields()
         return {
             "instance_id": self.instance_id,
             "attempt": self.attempt,

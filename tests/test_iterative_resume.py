@@ -7,7 +7,7 @@ from typing import List
 from unittest.mock import Mock
 
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.models import CostBreakdown, EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
 from openhands.sdk.workspace import RemoteWorkspace
@@ -47,8 +47,6 @@ class MockEvaluation(Evaluation):
             resolved=True,
             attempt=attempt,
             max_attempts=self.metadata.max_attempts,
-            cost=CostBreakdown(),
-            artifacts_url="",
         )
 
 
@@ -95,8 +93,6 @@ def test_iterative_resume_with_expanded_n_limit():
                         resolved=True,
                         attempt=attempt,
                         max_attempts=max_attempts,
-                        cost=CostBreakdown(),
-                        artifacts_url="",
                     )
                     f.write(output.model_dump_json() + "\n")
 
@@ -220,8 +216,6 @@ def test_iterative_resume_with_same_n_limit():
                         resolved=True,
                         attempt=attempt,
                         max_attempts=metadata.max_attempts,
-                        cost=CostBreakdown(),
-                        artifacts_url="",
                     )
                     f.write(output.model_dump_json() + "\n")
 
