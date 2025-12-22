@@ -283,7 +283,12 @@ class Commit0Evaluation(Evaluation):
         # Use python -m pytest instead of pytest command to avoid permission issues
         if test_cmd.strip() == "pytest":
             test_cmd = "python -m pytest"
-        full_test_cmd = f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
+        report_filename = "pytest_report.json"
+        full_test_cmd = (
+            f"cd {repo_path} && {test_cmd} --json-report "
+            f"--json-report-file={report_filename} "
+            f"--continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
+        )
         logger.info(f"Running test command: {full_test_cmd}")
         test_result = workspace.execute_command(full_test_cmd, timeout=600)
         logger.info(f"Test command exit code: {test_result.exit_code}")
@@ -326,7 +331,7 @@ class Commit0Evaluation(Evaluation):
 
         # Read test report
         report_result = workspace.execute_command(
-            f"cd {repo_path} && cat report.json",
+            f"cd {repo_path} && cat {report_filename}",
             timeout=600,
         )
 
@@ -338,10 +343,10 @@ class Commit0Evaluation(Evaluation):
                 f"Report preview: {report_result.stdout[:200]}..."
             )  # First 200 chars
         else:
-            logger.info(f"Failed to read report.json: {report_result.stderr}")
+            logger.info(f"Failed to read {report_filename}: {report_result.stderr}")
             # Check if file exists
             check_file = workspace.execute_command(
-                f"cd {repo_path} && ls -la report.json", timeout=60
+                f"cd {repo_path} && ls -la {report_filename}", timeout=60
             )
             logger.info(
                 f"File check: {check_file.stdout if check_file.exit_code == 0 else check_file.stderr}"
