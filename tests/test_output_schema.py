@@ -17,7 +17,6 @@ def test_standardized_output_roundtrip(tmp_path: Path) -> None:
         instance_id="abc",
         test_result={"git_patch": "diff --git"},
         attempt=1,
-        max_attempts=3,
         status="success",
         resolved=True,
         duration_seconds=12.5,
@@ -38,7 +37,6 @@ def test_select_best_attempts_prefers_success(tmp_path: Path) -> None:
     out1 = EvalOutput(
         instance_id="item",
         attempt=1,
-        max_attempts=2,
         status="error",
         resolved=False,
         test_result={},
@@ -48,7 +46,6 @@ def test_select_best_attempts_prefers_success(tmp_path: Path) -> None:
     out2 = EvalOutput(
         instance_id="item",
         attempt=2,
-        max_attempts=2,
         status="success",
         resolved=True,
         test_result={},
@@ -67,7 +64,6 @@ def test_write_derived_report(tmp_path: Path) -> None:
         EvalOutput(
             instance_id="one",
             attempt=1,
-            max_attempts=1,
             status="success",
             resolved=True,
             test_result={},
@@ -80,7 +76,6 @@ def test_write_derived_report(tmp_path: Path) -> None:
         EvalOutput(
             instance_id="two",
             attempt=1,
-            max_attempts=1,
             status="error",
             resolved=False,
             test_result={},

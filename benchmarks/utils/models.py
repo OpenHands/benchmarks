@@ -114,7 +114,6 @@ class EvalOutput(OpenHandsModel):
     status: Literal["success", "error"] | None = None
     resolved: bool | None = None
     attempt: int | None = None
-    max_attempts: int | None = None
     duration_seconds: float | None = None
     cost: CostBreakdown | None = None
     artifacts_url: str | None = None
@@ -127,8 +126,6 @@ class EvalOutput(OpenHandsModel):
         missing = []
         if self.attempt is None:
             missing.append("attempt")
-        if self.max_attempts is None:
-            missing.append("max_attempts")
         if self.status is None:
             missing.append("status")
         if self.cost is None:
@@ -147,7 +144,6 @@ class EvalOutput(OpenHandsModel):
         payload = {
             "instance_id": self.instance_id,
             "attempt": self.attempt,
-            "max_attempts": self.max_attempts,
             "status": self.status,
             "resolved": self.resolved,
             "error": self.error,
@@ -163,7 +159,6 @@ class EvalOutput(OpenHandsModel):
 _CANONICAL_FIELDS = {
     "instance_id",
     "attempt",
-    "max_attempts",
     "status",
     "resolved",
     "error",
@@ -175,7 +170,6 @@ _CANONICAL_FIELDS = {
 _CANONICAL_REQUIRED_FIELDS = {
     "instance_id",
     "attempt",
-    "max_attempts",
     "status",
     "resolved",
     "error",
@@ -236,8 +230,6 @@ def _validate_canonical_output_dict(data: dict[str, Any]) -> None:
         raise ValueError("instance_id must be a string")
     if not isinstance(data["attempt"], int) or data["attempt"] < 1:
         raise ValueError("attempt must be an int >= 1")
-    if not isinstance(data["max_attempts"], int) or data["max_attempts"] < 1:
-        raise ValueError("max_attempts must be an int >= 1")
     if data["status"] not in ("success", "error"):
         raise ValueError("status must be 'success' or 'error'")
     if data["resolved"] is not None and not isinstance(data["resolved"], bool):
