@@ -46,12 +46,7 @@ def extract_accumulated_cost(jsonl_data: List[Dict]) -> float:
 
     # Sum accumulated costs from each line
     for entry in jsonl_data:
-        cost_block = entry.get("cost", {})
-        accumulated_cost = None
-        if isinstance(cost_block, dict):
-            accumulated_cost = cost_block.get("total_cost")
-        if accumulated_cost is not None:
-            total_cost += float(accumulated_cost)
+        total_cost += float(entry["cost"]["total_cost"])
 
     return total_cost
 
@@ -63,12 +58,9 @@ def format_duration(seconds: float) -> str:
     return f"{minutes:02d}:{seconds_remainder:02d}"
 
 
-def calculate_line_duration(entry: Dict) -> Optional[float]:
+def calculate_line_duration(entry: Dict) -> float:
     """Calculate the duration for a single line (entry) in seconds."""
-    duration = entry.get("duration_seconds")
-    if isinstance(duration, (int, float)) and not isinstance(duration, bool):
-        return float(duration)
-    return None
+    return float(entry["duration_seconds"])
 
 
 def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
@@ -83,11 +75,7 @@ def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
             "lines_with_duration": 0,
         }
 
-    durations = []
-    for entry in jsonl_data:
-        duration = calculate_line_duration(entry)
-        if duration is not None:
-            durations.append(duration)
+    durations = [calculate_line_duration(entry) for entry in jsonl_data]
 
     if not durations:
         return {
