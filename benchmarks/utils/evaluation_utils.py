@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import Callable
 
-from benchmarks.utils.models import EvalInstance, EvalOutput, load_output_file
+from benchmarks.utils.models import load_output_file
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import get_logger
 
@@ -32,27 +31,6 @@ def construct_eval_output_dir(
     os.makedirs(eval_output_dir, exist_ok=True)
 
     return eval_output_dir
-
-
-def get_default_on_result_writer(
-    output_path: str,
-) -> Callable[[EvalInstance, EvalOutput], None]:
-    """
-    Create a default callback for evaluation results.
-
-    Canonical output.jsonl is now written by the evaluation orchestrator.
-    This callback is kept for compatibility but does not write files.
-
-    Args:
-        output_path: Path to the main output JSONL file
-
-    Returns:
-        A callback function that can be passed to evaluator.run(on_result=...)
-    """
-    def _cb(instance: EvalInstance, out: EvalOutput) -> None:
-        _ = (instance, out, output_path)
-
-    return _cb
 
 
 def generate_error_logs_summary(eval_output_dir: str) -> None:

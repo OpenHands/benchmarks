@@ -22,7 +22,6 @@ from benchmarks.utils.critics import evaluate_output, get_completed_instances
 from benchmarks.utils.iterative import get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
-    EvalInstanceID,
     EvalMetadata,
     EvalOutput,
     cost_from_metrics,
@@ -59,20 +58,6 @@ class Evaluation(ABC, BaseModel):
     @property
     def output_path(self) -> str:
         return os.path.join(self.metadata.eval_output_dir, OUTPUT_FILENAME)
-
-    def _get_completed_instances(self) -> set[EvalInstanceID]:
-        """Return the set of completed instance IDs."""
-        completed_instances: set[EvalInstanceID] = set()
-        if os.path.exists(self.output_path):
-            with open(self.output_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    out = json.loads(line)
-                    completed_instances.add(out["instance_id"])
-            logger.info(
-                f"Found {len(completed_instances)} completed instances "
-                f"in {self.output_path}"
-            )
-        return completed_instances
 
     @abstractmethod
     def prepare_instances(self) -> List[EvalInstance]:

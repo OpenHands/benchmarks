@@ -87,14 +87,6 @@ class GAIAEvaluation(Evaluation):
         df = cast(pd.DataFrame, dataset[self.metadata.dataset_split].to_pandas())
         df.rename(columns={"task_id": "instance_id"}, inplace=True)
 
-        # Filter completed instances
-        completed_instances = self._get_completed_instances()
-        if completed_instances:
-            df = cast(
-                pd.DataFrame, df[~df["instance_id"].isin(list(completed_instances))]
-            )
-            logger.info(f"Filtered out {len(completed_instances)} completed instances")
-
         # Apply eval_limit if specified
         if self.metadata.eval_limit and self.metadata.eval_limit > 0:
             df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
