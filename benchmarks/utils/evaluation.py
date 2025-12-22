@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -469,6 +470,7 @@ class Evaluation(ABC, BaseModel):
             retry_count = 0
             last_error = None
             max_retries = self.metadata.max_retries
+            start_time = time.monotonic()
 
             while retry_count <= max_retries:
                 workspace = None
@@ -478,6 +480,9 @@ class Evaluation(ABC, BaseModel):
 
                     # Capture conversation archive after successful evaluation
                     self._capture_conversation_archive(workspace, instance)
+
+                    if out.duration_seconds is None:
+                        out.duration_seconds = time.monotonic() - start_time
 
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
@@ -501,6 +506,8 @@ class Evaluation(ABC, BaseModel):
                         error_output = self._create_error_output(
                             instance, last_error, max_retries, attempt
                         )
+                        if error_output.duration_seconds is None:
+                            error_output.duration_seconds = time.monotonic() - start_time
                         return instance, error_output
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure
@@ -524,6 +531,8 @@ class Evaluation(ABC, BaseModel):
                 max_retries,
                 attempt,
             )
+            if error_output.duration_seconds is None:
+                error_output.duration_seconds = time.monotonic() - start_time
             return instance, error_output
 
 

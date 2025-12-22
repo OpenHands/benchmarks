@@ -20,6 +20,7 @@ def test_standardized_output_roundtrip(tmp_path: Path) -> None:
         max_attempts=3,
         status="success",
         resolved=True,
+        duration_seconds=12.5,
         cost=CostBreakdown(total_cost=1.5, input_tokens=10, output_tokens=5),
         artifacts_url="artifacts/abc/attempt_1",
     )
@@ -30,6 +31,7 @@ def test_standardized_output_roundtrip(tmp_path: Path) -> None:
     assert len(loaded) == 1
     assert loaded[0].instance_id == original.instance_id
     assert loaded[0].cost.total_cost == 1.5
+    assert loaded[0].duration_seconds == 12.5
 
 
 def test_select_best_attempts_prefers_success(tmp_path: Path) -> None:

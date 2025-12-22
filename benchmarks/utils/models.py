@@ -115,6 +115,7 @@ class EvalOutput(OpenHandsModel):
     resolved: bool | None = None
     attempt: int | None = None
     max_attempts: int | None = None
+    duration_seconds: float | None = None
     cost: CostBreakdown | None = None
     artifacts_url: str | None = None
 
@@ -143,7 +144,7 @@ class EvalOutput(OpenHandsModel):
     def to_output_dict(self) -> dict[str, Any]:
         """Return the canonical output.jsonl representation."""
         self._require_output_fields()
-        return {
+        payload = {
             "instance_id": self.instance_id,
             "attempt": self.attempt,
             "max_attempts": self.max_attempts,
@@ -154,6 +155,9 @@ class EvalOutput(OpenHandsModel):
             "cost": self.cost.model_dump(),
             "artifacts_url": self.artifacts_url,
         }
+        if self.duration_seconds is not None:
+            payload["duration_seconds"] = self.duration_seconds
+        return payload
 
 
 _CANONICAL_FIELDS = {
@@ -164,6 +168,7 @@ _CANONICAL_FIELDS = {
     "resolved",
     "error",
     "test_result",
+    "duration_seconds",
     "cost",
     "artifacts_url",
 }
@@ -237,6 +242,14 @@ def _validate_canonical_output_dict(data: dict[str, Any]) -> None:
         raise ValueError("status must be 'success' or 'error'")
     if data["resolved"] is not None and not isinstance(data["resolved"], bool):
         raise ValueError("resolved must be a bool or null")
+    if "duration_seconds" in data and data["duration_seconds"] is not None:
+        duration = data["duration_seconds"]
+        if (
+            not isinstance(duration, (int, float))
+            or isinstance(duration, bool)
+            or duration < 0
+        ):
+            raise ValueError("duration_seconds must be a non-negative number or null")
     if not isinstance(data["test_result"], dict):
         raise ValueError("test_result must be an object")
     if not isinstance(data["cost"], dict):
