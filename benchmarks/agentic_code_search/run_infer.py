@@ -108,8 +108,8 @@ def get_parser():
 
 
 def get_instruction(instance: EvalInstance, metadata: EvalMetadata) -> str:
-    working_dir = instance.data["repo_dir"]
-    problem_statement = instance.data["problem_statement"]
+    working_dir = instance.data.get("repo_dir", "./")
+    problem_statement = instance.data.get("problem_statement", "")
     if metadata.prompt_path is not None:
         prompts_dir = os.path.dirname(metadata.prompt_path)
         template_name = os.path.basename(metadata.prompt_path)
