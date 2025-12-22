@@ -8,8 +8,9 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 
 | Benchmark | Description | Status |
 |-----------|-------------|--------|
-| [SWE-Bench](benchmarks/swe_bench/) | Software engineering tasks from GitHub issues | ✅ Active |
+| [SWE-Bench](benchmarks/swebench/) | Software engineering tasks from GitHub issues | ✅ Active |
 | [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
+| [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
 
 See the individual benchmark directories for detailed usage instructions.
@@ -112,7 +113,7 @@ uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 
 After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
 
-- **[SWE-Bench](benchmarks/swe_bench/)**: Software engineering tasks from GitHub issues
+- **[SWE-Bench](benchmarks/swebench/)**: Software engineering tasks from GitHub issues
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
@@ -170,12 +171,21 @@ See individual benchmark READMEs for specific usage examples.
 
 ⚠️ **Important**: The benchmarks repository depends on the [OpenHands Agent SDK](https://github.com/OpenHands/software-agent-sdk), and **not every version of the benchmarks is compatible with every version of the SDK**. As the SDK evolves and introduces new features, the benchmarks code may adopt these features, creating version dependencies.
 
+### SWE-Bench image layering (docutils/roman)
+
+Some SWE-Bench instances (notably `sphinx-doc`) require `docutils<0.21` and `roman`. The build pipeline now wraps only those images that need the extra layer:
+- `benchmarks/swebench/build_images.py` wraps images for repos in a small allowlist (currently `sphinx-doc`).
+- Other repos (e.g., scikit-learn) keep the base image unchanged.
+- Wrapped images reuse the same tag (no suffix) since they're evaluation-only.
+
+When running or dispatching builds, no extra flags are needed—the selective wrapping is handled for you.
+
 ### Evaluating Different SDK Versions
 
 When evaluating a specific SDK version, you need to ensure the benchmarks code is compatible with that SDK version. You have two options:
 
 1. **Use the `benchmarks-commit` parameter in the workflow** (Recommended):
-   - When manually triggering the `build-swe-bench-images` workflow, specify both:
+   - When manually triggering the `build-swe-bench-images` workflow (builds + wraps images in-place), specify both:
      - `sdk-commit`: The SDK version you want to evaluate
      - `benchmarks-commit`: A benchmarks commit that's compatible with that SDK version
    

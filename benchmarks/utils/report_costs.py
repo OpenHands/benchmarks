@@ -54,6 +54,79 @@ def extract_accumulated_cost(jsonl_data: List[Dict]) -> float:
     return total_cost
 
 
+def format_duration(seconds: float) -> str:
+    """Format duration in seconds to mm:ss format."""
+    minutes = int(seconds // 60)
+    seconds_remainder = int(seconds % 60)
+    return f"{minutes:02d}:{seconds_remainder:02d}"
+
+
+def calculate_line_duration(entry: Dict) -> Optional[float]:
+    """Calculate the duration for a single line (entry) in seconds."""
+    history = entry.get("history", [])
+    if not history:
+        return None
+
+    timestamps = []
+    for event in history:
+        timestamp_str = event.get("timestamp")
+        if timestamp_str:
+            try:
+                # Parse ISO format timestamp
+                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                timestamps.append(timestamp)
+            except ValueError:
+                continue
+
+    if len(timestamps) < 2:
+        return None
+
+    # Calculate duration from oldest to newest timestamp
+    oldest = min(timestamps)
+    newest = max(timestamps)
+    duration = (newest - oldest).total_seconds()
+
+    return duration
+
+
+def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
+    """Calculate time statistics for all lines in JSONL data."""
+    if not jsonl_data:
+        return {
+            "average_duration": 0.0,
+            "max_duration": 0.0,
+            "min_duration": 0.0,
+            "mean_duration": 0.0,
+            "total_lines": 0,
+            "lines_with_duration": 0,
+        }
+
+    durations = []
+    for entry in jsonl_data:
+        duration = calculate_line_duration(entry)
+        if duration is not None:
+            durations.append(duration)
+
+    if not durations:
+        return {
+            "average_duration": 0.0,
+            "max_duration": 0.0,
+            "min_duration": 0.0,
+            "mean_duration": 0.0,
+            "total_lines": len(jsonl_data),
+            "lines_with_duration": 0,
+        }
+
+    return {
+        "average_duration": sum(durations) / len(durations),
+        "max_duration": max(durations),
+        "min_duration": min(durations),
+        "mean_duration": sum(durations) / len(durations),  # Same as average
+        "total_lines": len(jsonl_data),
+        "lines_with_duration": len(durations),
+    }
+
+
 def find_output_files(directory: Path) -> Tuple[Optional[Path], List[Path]]:
     """Find output.jsonl and critic attempt files in the directory."""
     output_file = None
@@ -111,16 +184,27 @@ def calculate_costs(directory_path: str) -> None:
 
         jsonl_data = read_jsonl_file(output_file)
         cost = extract_accumulated_cost(jsonl_data)
+        time_stats = calculate_time_statistics(jsonl_data)
         total_individual_costs += cost
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
+        print("    Time Stats:")
+        print(
+            f"      Average Duration: {format_duration(time_stats['average_duration'])}"
+        )
+        print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
+        print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
+        print(
+            f"      Lines with Duration: {time_stats['lines_with_duration']}/{time_stats['total_lines']}"
+        )
 
         # Add to report data
         report_data["main_output"] = {
             "filename": output_file.name,
             "lines": len(jsonl_data),
             "cost": cost,
+            "time_statistics": time_stats,
         }
 
     # Process critic files individually
@@ -133,15 +217,30 @@ def calculate_costs(directory_path: str) -> None:
 
             jsonl_data = read_jsonl_file(critic_file)
             cost = extract_accumulated_cost(jsonl_data)
+            time_stats = calculate_time_statistics(jsonl_data)
             total_individual_costs += cost
             critic_total += cost
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
+            print("    Time Stats:")
+            print(
+                f"      Average Duration: {format_duration(time_stats['average_duration'])}"
+            )
+            print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
+            print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
+            print(
+                f"      Lines with Duration: {time_stats['lines_with_duration']}/{time_stats['total_lines']}"
+            )
 
             # Add to report data
             report_data["critic_files"].append(
-                {"filename": critic_file.name, "lines": len(jsonl_data), "cost": cost}
+                {
+                    "filename": critic_file.name,
+                    "lines": len(jsonl_data),
+                    "cost": cost,
+                    "time_statistics": time_stats,
+                }
             )
 
         print(f"\n  Total Critic Files Cost: ${critic_total:.6f}")

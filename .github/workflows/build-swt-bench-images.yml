@@ -1,17 +1,37 @@
-name: Build GAIA Images
+name: Build SWT-Bench Images
 
 on:
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      dataset:
+        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
+        required: true
+        default: 'princeton-nlp/SWE-bench_Verified'
+        type: string
+      split:
+        description: 'Dataset split'
+        required: true
+        default: 'test'
+        type: string
+      max-workers:
+        description: 'Maximum number of parallel workers'
+        required: false
+        default: '4'
+        type: string
+      n-limit:
+        description: 'Limit number of images to build (0 for all)'
+        required: false
+        default: '0'
+        type: string
       sdk-commit:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
 
 concurrency:
-  group: build-gaia-${{ github.ref }}
+  group: build-swt-bench-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -19,10 +39,10 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' &&
-       github.event.label.name == 'build-gaia')
+       github.event.label.name == 'build-swt-bench')
 
     runs-on:
-      labels: blacksmith-32vcpu-ubuntu-2204
+      labels: ubuntu-latest
 
     permissions:
       contents: read
@@ -58,7 +78,7 @@ jobs:
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
       - name: Set up Docker Buildx
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -76,22 +96,34 @@ jobs:
         run: |
           make build
 
-      - name: Build and push GAIA image with MCP layer
+      - name: Build and push SWT-Bench images
         run: |
           set -euo pipefail
 
-          # GAIA requires 'binary' target to include Chromium for browser operations
-          TARGET="binary"
+          # Get inputs with defaults
+          DATASET="${{ inputs.dataset || 'princeton-nlp/SWE-bench_Verified' }}"
+          SPLIT="${{ inputs.split || 'test' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          N_LIMIT="${{ inputs.n-limit || '0' }}"
 
-          CMD="uv run benchmarks/gaia/build_images.py \
+          # SWT-Bench uses source-minimal target (same as SWE-bench)
+          TARGET="source-minimal"
+
+          CMD="uv run benchmarks/swt_bench/build_images.py \
+            --dataset ${DATASET} \
+            --split ${SPLIT} \
             --image ghcr.io/openhands/eval-agent-server \
             --target ${TARGET} \
+            --max-workers ${MAX_WORKERS} \
             --push"
+
+          # Add n-limit if specified
+          if [ "$N_LIMIT" != "0" ]; then
+            CMD="$CMD --n-limit ${N_LIMIT}"
+          fi
 
           echo "Running: $CMD"
           eval "$CMD"
-
-          echo "✅ GAIA image with MCP layer built and pushed successfully"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
@@ -118,7 +150,6 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          # GAIA builds a single universal image, so we just show success/failure
           MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
 
           if [ -z "$MANIFEST_FILE" ]; then
@@ -127,25 +158,16 @@ jobs:
             exit 0
           fi
 
-          # Read the single line from the manifest
-          BUILD_DATA=$(cat "$MANIFEST_FILE")
+          # Count total images built
+          TOTAL_IMAGES=$(wc -l < "$MANIFEST_FILE")
+          SUCCESS_COUNT=$(grep -c '"error":null' "$MANIFEST_FILE" || echo 0)
+          FAIL_COUNT=$((TOTAL_IMAGES - SUCCESS_COUNT))
 
-          echo "## GAIA Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "## SWT-Bench Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          # Check if build succeeded
-          if echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); sys.exit(0 if data.get('error') is None and len(data.get('tags', [])) > 0 else 1)"; then
-            TAGS=$(echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); print('\n'.join([f'- \`{tag}\`' for tag in data.get('tags', [])]))")
-            echo "✅ **Build Successful**" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Built Image:**" >> "$GITHUB_STEP_SUMMARY"
-            echo "$TAGS" >> "$GITHUB_STEP_SUMMARY"
-          else
-            ERROR=$(echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); print(data.get('error', 'Unknown error'))")
-            echo "❌ **Build Failed**" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Error:** $ERROR" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "**Total Images:** $TOTAL_IMAGES" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Successful:** $SUCCESS_COUNT ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed:** $FAIL_COUNT ❌" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on tracker issue
         if: success()
@@ -154,7 +176,7 @@ jobs:
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
           SDK_SHA_SHORT=${SDK_SHA:0:7}
 
-          # Read the single manifest file
+          # Read build summary
           MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
 
           if [ -z "$MANIFEST_FILE" ]; then
@@ -162,13 +184,8 @@ jobs:
             exit 0
           fi
 
-          # Extract the image tag from the manifest
-          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); tags = data.get('tags', []); print(tags[0] if tags else 'unknown')")
-
-          if [ "$IMAGE_TAG" = "unknown" ]; then
-            echo "No valid image tag found in manifest"
-            exit 0
-          fi
+          TOTAL_IMAGES=$(wc -l < "$MANIFEST_FILE")
+          SUCCESS_COUNT=$(grep -c '"error":null' "$MANIFEST_FILE" || echo 0)
 
           # Determine trigger source
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -183,12 +200,13 @@ jobs:
           jq -n \
             --arg sdk_short "${SDK_SHA_SHORT}" \
             --arg sdk_full "${SDK_SHA}" \
-            --arg image "${IMAGE_TAG}" \
+            --arg total "$TOTAL_IMAGES" \
+            --arg success "$SUCCESS_COUNT" \
             --arg run_id "${{ github.run_id }}" \
             --arg server_url "${{ github.server_url }}" \
             --arg repo "${{ github.repository }}" \
             --arg trigger "${TRIGGER}" \
-            '{body: "## GAIA Image Build Complete ✅\n\n**SDK Version:** [`\($sdk_short)`](https://github.com/OpenHands/software-agent-sdk/commit/\($sdk_full))\n**Image:** `\($image)` ⚡ _(includes pre-cached MCP server)_\n**Workflow Run:** [#\($run_id)](\($server_url)/\($repo)/actions/runs/\($run_id))\n**Triggered by:** \($trigger)\n\nThe image includes pre-cached `mcp-server-fetch` to eliminate 1-18 minute startup delays."}' | \
+            '{body: "## SWT-Bench Image Build Complete ✅\n\n**SDK Version:** [`\($sdk_short)`](https://github.com/OpenHands/software-agent-sdk/commit/\($sdk_full))\n**Images Built:** \($success)/\($total)\n**Workflow Run:** [#\($run_id)](\($server_url)/\($repo)/actions/runs/\($run_id))\n**Triggered by:** \($trigger)\n\nSWT-Bench images have been built and pushed to ghcr.io/openhands/eval-agent-server."}' | \
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
