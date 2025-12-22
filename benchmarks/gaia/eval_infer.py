@@ -114,7 +114,7 @@ def main() -> None:
 Examples:
     uv run gaia-eval output.jsonl
     uv run gaia-eval /path/to/output.jsonl
-    uv run gaia-eval output.jsonl --output-file report.json
+    uv run gaia-eval output.jsonl --output-file /tmp/custom_report.json
         """,
     )
 
@@ -124,7 +124,7 @@ Examples:
         "--output-file",
         help=(
             "Output file for evaluation report "
-            "(default: input_file with .report.json extension)"
+            "(default: harness/gaia_report.json next to output.jsonl)"
         ),
     )
 
