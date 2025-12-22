@@ -11,15 +11,8 @@ from jinja2 import Environment, FileSystemLoader
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import (
-    construct_eval_output_dir,
-    get_default_on_result_writer,
-)
-from benchmarks.utils.models import (
-    EvalInstance,
-    EvalMetadata,
-    EvalOutput,
-)
+from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -290,7 +283,12 @@ class Commit0Evaluation(Evaluation):
         # Use python -m pytest instead of pytest command to avoid permission issues
         if test_cmd.strip() == "pytest":
             test_cmd = "python -m pytest"
-        full_test_cmd = f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
+        report_filename = "pytest_report.json"
+        full_test_cmd = (
+            f"cd {repo_path} && {test_cmd} --json-report "
+            f"--json-report-file={report_filename} "
+            f"--continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
+        )
         logger.info(f"Running test command: {full_test_cmd}")
         test_result = workspace.execute_command(full_test_cmd, timeout=600)
         logger.info(f"Test command exit code: {test_result.exit_code}")
@@ -333,7 +331,7 @@ class Commit0Evaluation(Evaluation):
 
         # Read test report
         report_result = workspace.execute_command(
-            f"cd {repo_path} && cat report.json",
+            f"cd {repo_path} && cat {report_filename}",
             timeout=600,
         )
 
@@ -345,10 +343,10 @@ class Commit0Evaluation(Evaluation):
                 f"Report preview: {report_result.stdout[:200]}..."
             )  # First 200 chars
         else:
-            logger.info(f"Failed to read report.json: {report_result.stderr}")
+            logger.info(f"Failed to read {report_filename}: {report_result.stderr}")
             # Check if file exists
             check_file = workspace.execute_command(
-                f"cd {repo_path} && ls -la report.json", timeout=60
+                f"cd {repo_path} && ls -la {report_filename}", timeout=60
             )
             logger.info(
                 f"File check: {check_file.stdout if check_file.exit_code == 0 else check_file.stderr}"
@@ -434,61 +432,29 @@ class Commit0Evaluation(Evaluation):
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
 
-        # Save workspace as zip (if supported by workspace implementation)
-        zip_dest = os.path.join(
-            self.metadata.eval_output_dir, "repos", repo_name, f"{repo_name}.zip"
-        )
-        os.makedirs(os.path.dirname(zip_dest), exist_ok=True)
-
-        # Try to copy workspace directory if the method is available
-        try:
-            download_directory = getattr(workspace, "download_directory", None)
-            if download_directory is not None:
-                temp_zip = download_directory(repo_path)
-                if temp_zip and os.path.exists(temp_zip):
-                    import shutil
-
-                    shutil.move(temp_zip, zip_dest)
-            else:
-                logger.warning(
-                    "Workspace does not support downloading directory, skipping zip creation"
-                )
-        except Exception as e:
-            logger.warning(f"Failed to save workspace as zip: {e}")
-
-        # Save patch, test output, and exit code
-        patch_file = os.path.join(
-            self.metadata.eval_output_dir, "repos", repo_name, f"{repo_name}_patch.diff"
-        )
-        test_output_file = os.path.join(
-            self.metadata.eval_output_dir,
-            "repos",
-            repo_name,
-            f"{repo_name}_test_output.txt",
-        )
-        pytest_exit_code_file = os.path.join(
-            self.metadata.eval_output_dir,
-            "repos",
-            repo_name,
-            f"{repo_name}_pytest_exit_code.txt",
-        )
-
-        write_targets = [
-            (patch_file, git_patch),
-            (test_output_file, test_output),
-            (pytest_exit_code_file, pytest_exit_code),
-        ]
-
-        for write_target in write_targets:
-            with open(write_target[0], "w") as f:
-                f.write(write_target[1])
-
         logger.info(
             f"Got evaluation result for repo {instance.id}:\n--------\n{eval_result}\n--------"
         )
 
+        resolved = bool(eval_result.get("passed") == 1.0)
+        if not resolved and eval_result.get("num_tests"):
+            resolved = eval_result.get("num_passed") == eval_result.get("num_tests")
+
         test_result = {
             "eval_result": eval_result,
+            "git_patch": git_patch,
+            "pytest_exit_code": pytest_exit_code,
+        }
+
+        artifacts_payload = {
+            "git_patch": git_patch,
+            "test_output": test_output,
+            "pytest_exit_code": pytest_exit_code,
+            "report_json": report_result.stdout.strip()
+            if report_result.exit_code == 0
+            else None,
+            "repo_name": repo_name,
+            "workspace_dir": repo_path,
         }
 
         out = EvalOutput(
@@ -498,6 +464,8 @@ class Commit0Evaluation(Evaluation):
             error=None,
             history=history,
             metrics=conversation.conversation_stats.get_combined_metrics(),
+            resolved=resolved,
+            artifacts=artifacts_payload,
         )
         return out
 
@@ -576,7 +544,7 @@ def main() -> None:
         dataset_split=args.split,
     )
 
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    evaluator.run()
 
     logger.info("Evaluation completed!")
 

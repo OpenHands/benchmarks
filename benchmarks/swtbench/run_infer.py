@@ -9,16 +9,9 @@ from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import (
-    construct_eval_output_dir,
-    get_default_on_result_writer,
-)
+from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.models import (
-    EvalInstance,
-    EvalMetadata,
-    EvalOutput,
-)
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.agent_server.docker.build import _base_slug
 from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
@@ -217,9 +210,7 @@ class SWTBenchEvaluation(Evaluation):
 
     # ---- Hook: evaluate one instance ---------------------------------------------
     def evaluate_instance(
-        self,
-        instance: EvalInstance,
-        workspace: RemoteWorkspace,
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.
@@ -306,6 +297,7 @@ class SWTBenchEvaluation(Evaluation):
             error=None,
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
+            resolved=bool(git_patch.strip()),
         )
         return out
 
@@ -372,10 +364,10 @@ def main() -> None:
         workspace_type=args.workspace,
     )
 
-    # Run orchestrator with a simple JSONL writer
+    # Run orchestrator with artifact capture
     evaluator = SWTBenchEvaluation(metadata=metadata, num_workers=args.num_workers)
 
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    evaluator.run()
 
     logger.info("Evaluation completed!")
 

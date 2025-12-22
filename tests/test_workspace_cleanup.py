@@ -61,7 +61,7 @@ def test_workspace_cleanup_called_on_success():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify the workspace cleanup was called
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -111,7 +111,7 @@ def test_workspace_cleanup_called_on_failure():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify the workspace cleanup was called even on failure
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -172,7 +172,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly - should not raise an exception
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify the workspace cleanup was attempted
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -241,7 +241,7 @@ def test_workspace_cleanup_with_retries():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, 1)
 
     # Verify cleanup was called for all attempts (3 total: initial + 2 retries)
     assert len(workspaces_created) == 3, "Should create workspace for each attempt"

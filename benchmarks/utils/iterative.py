@@ -7,10 +7,16 @@ using SDK critics to determine if an instance succeeded.
 
 import json
 import os
+from pathlib import Path
 from typing import Set
 
 from benchmarks.utils.critics import CriticBase, evaluate_output
-from benchmarks.utils.models import EvalInstanceID, EvalOutput
+from benchmarks.utils.models import (
+    EvalInstanceID,
+    EvalOutput,
+    cost_from_metrics,
+    write_output_line,
+)
 from openhands.sdk import get_logger
 
 
@@ -82,10 +88,8 @@ def aggregate_results(
     """
     logger.info(f"Aggregating results from {max_attempts} attempts")
 
-    # Dictionary to store the best result for each instance
     best_results: dict[EvalInstanceID, EvalOutput] = {}
 
-    # Work backwards from the last attempt to the first
     for attempt in range(max_attempts, 0, -1):
         attempt_file = os.path.join(
             output_dir, f"output.critic_attempt_{attempt}.jsonl"
@@ -103,25 +107,20 @@ def aggregate_results(
                     try:
                         data = json.loads(line.strip())
                         output = EvalOutput.model_validate(data)
+                        if output.attempt is None:
+                            output.attempt = attempt
 
-                        # Use this result if:
-                        # 1. We haven't seen this instance yet, OR
-                        # 2. This attempt is the first one to succeed
                         instance_id = output.instance_id
-
                         is_successful = evaluate_output(critic, output)
 
                         if instance_id not in best_results:
-                            # First time seeing this instance
                             best_results[instance_id] = output
                         elif is_successful:
-                            # This attempt succeeded, check if we should replace
                             current_best = best_results[instance_id]
                             current_is_successful = evaluate_output(
                                 critic, current_best
                             )
                             if not current_is_successful:
-                                # Replace failed result with successful one
                                 best_results[instance_id] = output
 
                     except json.JSONDecodeError as e:
@@ -136,24 +135,26 @@ def aggregate_results(
         except Exception as e:
             logger.error(f"Error reading attempt file {attempt_file}: {e}")
 
-    # Write the aggregated results
-    final_path = os.path.join(output_dir, final_output_file)
+    final_path = Path(output_dir) / final_output_file
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if final_path.exists():
+        final_path.unlink()
+
     if not best_results:
         logger.warning("No results found to aggregate - creating empty output file")
+        final_path.touch()
+        return
+
     logger.info(f"Writing {len(best_results)} aggregated results to {final_path}")
 
-    try:
-        successful_count = 0
-        with open(final_path, "w", encoding="utf-8") as f:
-            for output in best_results.values():
-                if not output.error:  # Skip outputs with errors
-                    f.write(output.model_dump_json() + "\n")
-                    successful_count += 1
-
-        logger.info(
-            f"Successfully wrote {successful_count} successful results to {final_path}"
-        )
-
-    except Exception as e:
-        logger.error(f"Error writing aggregated results to {final_path}: {e}")
-        raise
+    for output in best_results.values():
+        if output.status is None:
+            output.status = "error" if output.error else "success"
+        if output.resolved is None and output.status != "error":
+            output.resolved = evaluate_output(critic, output)
+        if output.cost is None:
+            output.cost = cost_from_metrics(output.metrics)
+        if output.artifacts_url is None:
+            output.artifacts_url = ""
+        write_output_line(final_path, output)

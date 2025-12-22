@@ -16,16 +16,9 @@ from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
-from benchmarks.utils.evaluation_utils import (
-    construct_eval_output_dir,
-    get_default_on_result_writer,
-)
+from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.models import (
-    EvalInstance,
-    EvalMetadata,
-    EvalOutput,
-)
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -280,6 +273,7 @@ class SWEBenchEvaluation(Evaluation):
             error=None,
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
+            resolved=bool(git_patch.strip()),
         )
         return out
 
@@ -353,7 +347,7 @@ def main() -> None:
         num_workers=args.num_workers,
     )
 
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    evaluator.run()
 
     logger.info("Evaluation completed!")
 

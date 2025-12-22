@@ -20,7 +20,6 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     generate_error_logs_summary,
-    get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
@@ -87,14 +86,6 @@ class GAIAEvaluation(Evaluation):
         # Convert to pandas and rename task_id to instance_id
         df = cast(pd.DataFrame, dataset[self.metadata.dataset_split].to_pandas())
         df.rename(columns={"task_id": "instance_id"}, inplace=True)
-
-        # Filter completed instances
-        completed_instances = self._get_completed_instances()
-        if completed_instances:
-            df = cast(
-                pd.DataFrame, df[~df["instance_id"].isin(list(completed_instances))]
-            )
-            logger.info(f"Filtered out {len(completed_instances)} completed instances")
 
         # Apply eval_limit if specified
         if self.metadata.eval_limit and self.metadata.eval_limit > 0:
@@ -334,6 +325,12 @@ class GAIAEvaluation(Evaluation):
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
             instance=instance.data,
+            resolved=bool(score),
+            artifacts={
+                "model_answer": model_answer,
+                "model_answer_raw": model_answer_raw,
+                "ground_truth": ground_truth,
+            },
         )
 
     def _build_instruction(self, instance: EvalInstance) -> str:
@@ -557,7 +554,7 @@ def main() -> None:
     evaluator = GAIAEvaluation(metadata=metadata, num_workers=args.num_workers)
 
     # Run evaluation
-    evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    evaluator.run()
 
     # Generate error logs summary for easy navigation
     generate_error_logs_summary(structured_output_dir)

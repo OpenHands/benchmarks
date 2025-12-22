@@ -144,6 +144,8 @@ def test_metrics_collection_pattern():
         error=None,
         history=[],
         metrics=metrics,
+        status="success",
+        resolved=True,
     )
 
     # Verify the output can be serialized properly
@@ -166,6 +168,8 @@ def test_eval_output_with_no_metrics():
         error=None,
         history=[],
         metrics=None,
+        status="success",
+        resolved=True,
     )
 
     # Verify the output can be serialized properly

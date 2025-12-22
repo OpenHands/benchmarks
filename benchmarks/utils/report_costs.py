@@ -38,7 +38,7 @@ def read_jsonl_file(file_path: Path) -> List[Dict]:
 
 
 def extract_accumulated_cost(jsonl_data: List[Dict]) -> float:
-    """Sum the accumulated costs from each line in JSONL data."""
+    """Sum the total_cost from each line in JSONL data."""
     if not jsonl_data:
         return 0.0
 
@@ -46,10 +46,7 @@ def extract_accumulated_cost(jsonl_data: List[Dict]) -> float:
 
     # Sum accumulated costs from each line
     for entry in jsonl_data:
-        metrics = entry.get("metrics", {})
-        accumulated_cost = metrics.get("accumulated_cost", 0.0)
-        if accumulated_cost is not None:
-            total_cost += float(accumulated_cost)
+        total_cost += float(entry["cost"]["total_cost"])
 
     return total_cost
 
@@ -61,32 +58,9 @@ def format_duration(seconds: float) -> str:
     return f"{minutes:02d}:{seconds_remainder:02d}"
 
 
-def calculate_line_duration(entry: Dict) -> Optional[float]:
+def calculate_line_duration(entry: Dict) -> float:
     """Calculate the duration for a single line (entry) in seconds."""
-    history = entry.get("history", [])
-    if not history:
-        return None
-
-    timestamps = []
-    for event in history:
-        timestamp_str = event.get("timestamp")
-        if timestamp_str:
-            try:
-                # Parse ISO format timestamp
-                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                timestamps.append(timestamp)
-            except ValueError:
-                continue
-
-    if len(timestamps) < 2:
-        return None
-
-    # Calculate duration from oldest to newest timestamp
-    oldest = min(timestamps)
-    newest = max(timestamps)
-    duration = (newest - oldest).total_seconds()
-
-    return duration
+    return float(entry["duration_seconds"])
 
 
 def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
@@ -101,11 +75,7 @@ def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
             "lines_with_duration": 0,
         }
 
-    durations = []
-    for entry in jsonl_data:
-        duration = calculate_line_duration(entry)
-        if duration is not None:
-            durations.append(duration)
+    durations = [calculate_line_duration(entry) for entry in jsonl_data]
 
     if not durations:
         return {
