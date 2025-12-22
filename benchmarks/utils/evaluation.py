@@ -19,14 +19,13 @@ from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import evaluate_output, get_completed_instances
-from benchmarks.utils.iterative import get_failed_instances
+from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
     cost_from_metrics,
     write_derived_report,
-    write_output_line,
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
@@ -333,7 +332,6 @@ class Evaluation(ABC, BaseModel):
                     self._prepare_output_for_jsonl(instance, out, attempt)
                     with open(attempt_file, "a", encoding="utf-8") as f:
                         f.write(out.model_dump_json() + "\n")
-                    write_output_line(Path(self.output_path), out)
                 except Exception as e:
                     logger.warning("Failed to write output for %s: %s", instance.id, e)
 
@@ -389,6 +387,14 @@ class Evaluation(ABC, BaseModel):
                 f"{len(attempt_outputs)} instances processed"
             )
             all_outputs.extend(attempt_outputs)
+
+        logger.info("Aggregating results from all attempts")
+        aggregate_results(
+            output_dir=self.metadata.eval_output_dir,
+            max_attempts=self.metadata.max_attempts,
+            critic=self.metadata.critic,
+            final_output_file="output.jsonl",
+        )
 
         logger.info("Writing derived report from output.jsonl")
         try:
