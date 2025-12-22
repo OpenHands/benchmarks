@@ -10,7 +10,7 @@ import os
 from typing import Set
 
 from benchmarks.utils.critics import CriticBase, evaluate_output
-from benchmarks.utils.models import EvalInstanceID, EvalOutput, write_derived_report
+from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 
 
@@ -61,32 +61,3 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
     logger.info(f"Found {len(failed_instances)} failed instances in {output_file}")
     return failed_instances
 
-
-def aggregate_results(
-    output_dir: str,
-    max_attempts: int,
-    critic: "CriticBase",
-    final_output_file: str = "output.jsonl",
-) -> None:
-    """
-    Derive the summary report from standardized output.jsonl.
-
-    Args:
-        output_dir: Directory containing attempt files
-        max_attempts: Maximum number of attempts
-        critic: Critic instance to use for evaluation
-        final_output_file: Name of the final output file
-    """
-    logger.info(f"Aggregating results from {max_attempts} attempts")
-
-    output_path = os.path.join(output_dir, final_output_file)
-    if not os.path.exists(output_path):
-        logger.warning("Canonical output file missing: %s", output_path)
-        return
-
-    try:
-        report_path = write_derived_report(output_dir)
-        logger.info("Wrote derived report to %s", report_path)
-    except Exception as e:
-        logger.error("Error writing derived report: %s", e)
-        raise
