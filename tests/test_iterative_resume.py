@@ -46,7 +46,6 @@ class MockEvaluation(Evaluation):
             status="success",
             resolved=True,
             attempt=attempt,
-            max_attempts=self.metadata.max_attempts,
         )
 
 
@@ -92,7 +91,6 @@ def test_iterative_resume_with_expanded_n_limit():
                         status="success",
                         resolved=True,
                         attempt=attempt,
-                        max_attempts=max_attempts,
                     )
                     f.write(output.model_dump_json() + "\n")
 
@@ -215,7 +213,6 @@ def test_iterative_resume_with_same_n_limit():
                         status="success",
                         resolved=True,
                         attempt=attempt,
-                        max_attempts=metadata.max_attempts,
                     )
                     f.write(output.model_dump_json() + "\n")
 
