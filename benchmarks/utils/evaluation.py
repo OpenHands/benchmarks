@@ -208,6 +208,7 @@ class Evaluation(ABC, BaseModel):
         artifacts_url = self._stage_instance_artifacts(instance.id, attempt, out)
 
         out.attempt = attempt
+        out.max_attempts = self.metadata.max_attempts
         out.status = status
         out.resolved = resolved
         out.cost = cost_from_metrics(out.metrics)
