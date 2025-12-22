@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -21,6 +22,19 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def get_report_output_path(input_file: str | Path) -> Path:
+    """Get the output path for the report file based on the input file path.
+
+    Args:
+        input_file: Path to the input file (e.g., output.jsonl)
+
+    Returns:
+        Path for the report file (e.g., output.report.json)
+    """
+    input_path = Path(input_file)
+    return input_path.with_suffix(".report.json")
 
 
 def run_multi_swebench_evaluation(
@@ -136,6 +150,14 @@ def main():
             / "final_report.json"
         )
         logger.info(f"Results saved to {results_file}")
+
+        # Move the report file to the output location
+        output_report_path = get_report_output_path(args.input_file)
+        if results_file.exists():
+            shutil.move(str(results_file), str(output_report_path))
+            logger.info(f"Report moved to {output_report_path}")
+        else:
+            logger.warning(f"Report file not found at {results_file}")
 
 
 if __name__ == "__main__":
