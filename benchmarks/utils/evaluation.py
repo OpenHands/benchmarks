@@ -103,6 +103,7 @@ class Evaluation(ABC, BaseModel):
             instance_id=instance.id,
             test_result={},
             instruction=None,
+            attempt=attempt,
             error=(
                 f"Instance failed after {retry_count} retries. Last error: {str(error)}"
             )[:200],
