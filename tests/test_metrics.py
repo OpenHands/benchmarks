@@ -235,6 +235,17 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 },
             },
         )
+    elif benchmark_name == "multiswebench":
+        return EvalInstance(
+            id="test-instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test-instance-1",
+                "base_commit": "abc123",
+                "number": 1,
+                "problem_statement": "Test problem",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -302,6 +313,27 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             details={"test": True},
             prompt_path=prompt_path,
             critic=PassCritic(),
+        )
+    elif benchmark_name == "multiswebench":
+        from benchmarks.multiswebench.run_infer import MultiSWEBenchEvalMetadata
+
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "multiswebench"
+            / "prompts"
+            / "default.j2"
+        )
+        return MultiSWEBenchEvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="test/multiswebench",
+            dataset_split="test",
+            details={"test": True},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+            lang="java",
         )
     else:
         # Generic metadata for unknown benchmarks
