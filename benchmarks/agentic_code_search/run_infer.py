@@ -24,9 +24,8 @@ from benchmarks.utils.models import (
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.critic import PassCritic
-from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -90,8 +89,8 @@ def get_parser():
         "--runtime",
         type=str,
         default="local",
-        choices=["local", "docker"],
-        help="Runtime environment for the agent (local or docker)",
+        choices=["local"],
+        help="Runtime environment for the agent (only local runtimes supported for now)",
     )
     parser.add_argument(
         "--select",
@@ -372,14 +371,6 @@ class AgenticCodeSearchEvaluation(Evaluation):
             workspace = LocalWorkspace(working_dir=str(working_dir))
             repo_dir = working_dir / instance.id
             repo_dir = str(repo_dir)
-        elif runtime_type == "docker":
-            # TODO: directly use prebuilt agent-server image?
-            workspace = DockerWorkspace(
-                # base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                working_dir="/workspace",
-                server_image="ghcr.io/openhands/agent-server:latest-python",
-            )
-            repo_dir = f"/workspace/{repo_name.split('/')[-1]}/"
         else:
             raise NotImplementedError(f"Unsupported runtime type: {runtime_type}")
 
@@ -440,9 +431,7 @@ class AgenticCodeSearchEvaluation(Evaluation):
         def _log_event(ev):  # keep it simple
             logger.debug("Event: %s", ev)
 
-        assert isinstance(workspace, RemoteWorkspace) or isinstance(
-            workspace, LocalWorkspace
-        )
+        assert isinstance(workspace, LocalWorkspace)
         conversation = Conversation(
             agent=agent,
             workspace=workspace,

@@ -36,7 +36,7 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
@@ -235,7 +235,7 @@ class GAIAEvaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """
         Run agent on a single GAIA instance and evaluate the result.
@@ -244,6 +244,7 @@ class GAIAEvaluation(Evaluation):
 
         # Build instruction
         instruction = self._build_instruction(instance)
+        assert isinstance(workspace, RemoteWorkspace)
 
         # Handle image URLs if the file is an image
         image_urls = []

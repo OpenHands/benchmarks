@@ -5,4 +5,4 @@ uv run python -m benchmarks.agentic_code_search.run_infer \
     --num-workers 1 \
     --output-dir ./agentic_code_search_outputs \
     --n-limit 1 \
-    --runtime docker
+    --runtime local
