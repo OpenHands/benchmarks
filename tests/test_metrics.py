@@ -399,9 +399,9 @@ def test_benchmark_metrics_collection(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
             ):
-                result = evaluation.evaluate_instance(instance, mock_workspace, 1)
+                result = evaluation.evaluate_instance(instance, mock_workspace)
         else:
-            result = evaluation.evaluate_instance(instance, mock_workspace, 1)
+            result = evaluation.evaluate_instance(instance, mock_workspace)
 
     # Verify result is EvalOutput
     assert isinstance(result, EvalOutput), (
@@ -479,9 +479,9 @@ def test_metrics_with_zero_cost(mock_workspace):
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
             ):
-                result = evaluation.evaluate_instance(instance, mock_workspace, 1)
+                result = evaluation.evaluate_instance(instance, mock_workspace)
         else:
-            result = evaluation.evaluate_instance(instance, mock_workspace, 1)
+            result = evaluation.evaluate_instance(instance, mock_workspace)
 
     # Verify metrics are collected even with zero cost
     assert result.metrics is not None

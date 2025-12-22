@@ -33,7 +33,7 @@ class MockEvaluation(Evaluation):
         return mock_workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """Return a mock output."""
         return EvalOutput(
@@ -45,7 +45,6 @@ class MockEvaluation(Evaluation):
             instance=instance.data,
             status="success",
             resolved=True,
-            attempt=attempt,
         )
 
 

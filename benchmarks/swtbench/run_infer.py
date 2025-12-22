@@ -210,7 +210,7 @@ class SWTBenchEvaluation(Evaluation):
 
     # ---- Hook: evaluate one instance ---------------------------------------------
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.

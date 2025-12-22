@@ -43,7 +43,7 @@ class TestEvaluation(Evaluation):
         return mock_workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         # Simulate long-running task
         time.sleep(60)  # Long sleep

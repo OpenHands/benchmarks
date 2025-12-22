@@ -226,7 +226,7 @@ class GAIAEvaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """
         Run agent on a single GAIA instance and evaluate the result.

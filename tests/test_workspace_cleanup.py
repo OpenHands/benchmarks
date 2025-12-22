@@ -55,7 +55,7 @@ def test_workspace_cleanup_called_on_success():
         def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
-        def evaluate_instance(self, instance, workspace, attempt):
+        def evaluate_instance(self, instance, workspace):
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
@@ -105,7 +105,7 @@ def test_workspace_cleanup_called_on_failure():
         def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
-        def evaluate_instance(self, instance, workspace, attempt):
+        def evaluate_instance(self, instance, workspace):
             raise RuntimeError("Test evaluation failure")
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
@@ -166,7 +166,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
         def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
-        def evaluate_instance(self, instance, workspace, attempt):
+        def evaluate_instance(self, instance, workspace):
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
@@ -224,7 +224,7 @@ def test_workspace_cleanup_with_retries():
         def prepare_workspace(self, instance: EvalInstance):
             return create_mock_workspace()
 
-        def evaluate_instance(self, instance, workspace, attempt):
+        def evaluate_instance(self, instance, workspace):
             nonlocal attempt_count
             attempt_count += 1
             if attempt_count <= 2:

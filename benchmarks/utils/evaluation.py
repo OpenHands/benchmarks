@@ -71,7 +71,7 @@ class Evaluation(ABC, BaseModel):
 
     @abstractmethod
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
@@ -461,7 +461,7 @@ class Evaluation(ABC, BaseModel):
                 workspace = None
                 try:
                     workspace = self.prepare_workspace(instance)
-                    out = self.evaluate_instance(instance, workspace, attempt)
+                    out = self.evaluate_instance(instance, workspace)
 
                     # Capture conversation archive after successful evaluation
                     self._capture_conversation_archive(workspace, instance)
