@@ -125,6 +125,7 @@ All benchmarks emit a common layout under each evaluation directory:
 - `output.report.json` is a derived cache regenerated from `output.jsonl` via `write_derived_report`; it is not a separate source of truth.
 - Per-attempt artifacts live under `artifacts/{instance_id}/attempt_{n}/` with `logs/instance.log`, `logs/instance.output.log`, optional `conversation.tar.gz`, patches, harness outputs, etc.
 - Run-wide harness outputs (e.g., SWE-Bench or GAIA reports) are copied to `harness/` next to `output.jsonl` (no more cache-only reports).
+- `ERROR_LOGS.txt` is an optional derived index that lists erroring instance IDs with pointers to their log files under `logs/`.
 
 ## Workspace Types
 
