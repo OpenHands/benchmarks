@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from benchmarks.utils.models import load_output_file
+from benchmarks.utils.models import EvalOutput, load_output_file
 
 
 def extract_accumulated_cost(outputs) -> float:
@@ -23,6 +23,46 @@ def extract_accumulated_cost(outputs) -> float:
         if entry.cost.total_cost is not None:
             total_cost += float(entry.cost.total_cost)
     return total_cost
+
+
+def calculate_time_statistics(outputs: list[EvalOutput]) -> Dict[str, Any]:
+    """Compute duration statistics from standardized outputs."""
+    durations = [
+        entry.duration_seconds
+        for entry in outputs
+        if entry.duration_seconds is not None
+    ]
+
+    if durations:
+        average = sum(durations) / len(durations)
+        maximum = max(durations)
+        minimum = min(durations)
+    else:
+        average = 0.0
+        maximum = 0.0
+        minimum = 0.0
+
+    return {
+        "average_duration": average,
+        "max_duration": maximum,
+        "min_duration": minimum,
+        "mean_duration": average,
+        "total_lines": len(outputs),
+        "lines_with_duration": len(durations),
+    }
+
+
+def format_duration(seconds: float) -> str:
+    """Format seconds as a human-friendly string."""
+    if seconds <= 0:
+        return "0.00s"
+    minutes, sec = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours >= 1:
+        return f"{int(hours)}h {int(minutes)}m {sec:.2f}s"
+    if minutes >= 1:
+        return f"{int(minutes)}m {sec:.2f}s"
+    return f"{sec:.2f}s"
 
 
 def find_output_file(directory: Path) -> Optional[Path]:
@@ -65,14 +105,26 @@ def calculate_costs(directory_path: str) -> None:
 
         jsonl_data = load_output_file(output_file)
         cost = extract_accumulated_cost(jsonl_data)
+        time_stats = calculate_time_statistics(jsonl_data)
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
+        print("    Time Stats:")
+        print(
+            f"      Average Duration: {format_duration(time_stats['average_duration'])}"
+        )
+        print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
+        print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
+        print(
+            "      Lines with Duration: "
+            f"{time_stats['lines_with_duration']}/{time_stats['total_lines']}"
+        )
 
         report_data["main_output"] = {
             "file": str(output_file),
             "lines": len(jsonl_data),
             "cost": cost,
+            "time_statistics": time_stats,
         }
 
     report_data["summary"] = {
