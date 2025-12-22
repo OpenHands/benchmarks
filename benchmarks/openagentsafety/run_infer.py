@@ -1,5 +1,6 @@
 """OpenAgentSafety evaluation using OpenHands SDK and shared evaluation framework."""
 
+import fcntl
 import json
 import os
 import subprocess
@@ -392,7 +393,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace, attempt: int
+        self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
         """Run the agent on one instance and return evaluation results."""
         import warnings
@@ -565,6 +566,19 @@ def main() -> None:
     # Define result writer with file locking
     def _default_on_result_writer(eval_output_dir: str):
         def _cb(instance: EvalInstance, out: EvalOutput) -> None:
+            try:
+                # Write to JSONL with exclusive lock
+                with open(evaluator.output_path, "a") as f:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+                    output_dict = out.model_dump()
+                    # Clean up any remaining numpy types
+                    output_dict = convert_numpy_types(output_dict)
+                    json_str = json.dumps(output_dict)
+                    f.write(json_str + "\n")
+                    fcntl.flock(f, fcntl.LOCK_UN)
+            except Exception as e:
+                logger.warning(f"Failed to write to attempt file: {e}")
+
             # Save individual files
             output_dir = eval_output_dir
             os.makedirs(output_dir, exist_ok=True)
