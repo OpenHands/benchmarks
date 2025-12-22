@@ -60,4 +60,3 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
 
     logger.info(f"Found {len(failed_instances)} failed instances in {output_file}")
     return failed_instances
-

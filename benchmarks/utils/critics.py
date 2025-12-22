@@ -184,4 +184,3 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
         logger.warning(f"Error reading output file {output_file}: {e}")
 
     return completed_instances
-

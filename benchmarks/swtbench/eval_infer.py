@@ -118,6 +118,7 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
+
         def _copytree(src: Path, dest: Path) -> None:
             if dest.exists():
                 shutil.rmtree(dest)

@@ -492,7 +492,9 @@ class Evaluation(ABC, BaseModel):
                             instance, last_error, max_retries, attempt
                         )
                         if error_output.duration_seconds is None:
-                            error_output.duration_seconds = time.monotonic() - start_time
+                            error_output.duration_seconds = (
+                                time.monotonic() - start_time
+                            )
                         return instance, error_output
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure

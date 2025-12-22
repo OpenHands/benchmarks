@@ -141,6 +141,7 @@ class EvalOutput(OpenHandsModel):
     def to_output_dict(self) -> dict[str, Any]:
         """Return the canonical output.jsonl representation."""
         self._require_output_fields()
+        assert self.cost is not None
         payload = {
             "instance_id": self.instance_id,
             "attempt": self.attempt,
@@ -283,7 +284,9 @@ def load_output_file(path: str | Path) -> list[EvalOutput]:
                 _validate_canonical_output_dict(data)
                 outputs.append(EvalOutput.model_validate(data))
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON on line {line_num} in {path}: {exc}") from exc
+                raise ValueError(
+                    f"Invalid JSON on line {line_num} in {path}: {exc}"
+                ) from exc
             except ValueError as exc:
                 raise ValueError(f"Invalid line {line_num} in {path}: {exc}") from exc
     return outputs

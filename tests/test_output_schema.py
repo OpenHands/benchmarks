@@ -29,6 +29,7 @@ def test_standardized_output_roundtrip(tmp_path: Path) -> None:
 
     assert len(loaded) == 1
     assert loaded[0].instance_id == original.instance_id
+    assert loaded[0].cost is not None
     assert loaded[0].cost.total_cost == 1.5
     assert loaded[0].duration_seconds == 12.5
 
