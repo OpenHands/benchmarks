@@ -322,7 +322,9 @@ Examples:
                 shutil.move(str(report_file), str(target_file))
                 logger.info(f"Moved evaluation report to: {target_file}")
             else:
-                logger.warning(f"Evaluation report not found at: {report_file}")
+                raise FileNotFoundError(
+                    f"Evaluation report not found at: {report_file}"
+                )
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
