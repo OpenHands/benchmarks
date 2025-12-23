@@ -116,8 +116,7 @@ def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
     workers: str = "12",
-    model_name: str = "OpenHands",
-) -> Path | None:
+) -> Path:
     """
     Run SWT-Bench evaluation on the predictions file.
 
@@ -130,10 +129,9 @@ def run_swtbench_evaluation(
         predictions_file: Path to the SWT-Bench format predictions file
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
-        model_name: Model name used in predictions (for locating report file)
 
     Returns:
-        Path to the generated report file, or None if not found
+        Path to the generated report file
     """
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
@@ -227,15 +225,15 @@ def run_swtbench_evaluation(
             raise subprocess.CalledProcessError(result.returncode, cmd)
 
         # Locate the generated report file
-        # SWT-Bench creates: {model_name.replace("/", "__")}.{run_id}.json
-        report_filename = f"{model_name.replace('/', '__')}.{run_id}.json"
-        report_path = swt_bench_dir / report_filename
-
-        if report_path.exists():
-            return report_path
-        else:
-            logger.warning(f"Report file not found at expected path: {report_path}")
-            return None
+        # SWT-Bench creates: evaluation_results/{model_name}.{run_id}.json
+        eval_results_dir = swt_bench_dir / "evaluation_results"
+        report_files = list(eval_results_dir.glob(f"*.{run_id}.json"))
+        if len(report_files) != 1:
+            raise FileNotFoundError(
+                f"Expected exactly one report file matching *.{run_id}.json in {eval_results_dir}, "
+                f"found {len(report_files)}: {report_files}"
+            )
+        return report_files[0]
 
     except FileNotFoundError:
         logger.error(
@@ -323,14 +321,13 @@ Examples:
         if not args.skip_evaluation:
             # Run evaluation
             report_path = run_swtbench_evaluation(
-                str(output_file), args.dataset, args.workers, args.model_name
+                str(output_file), args.dataset, args.workers
             )
 
             # Move report file to input file directory with .report.json extension
-            if report_path is not None:
-                dest_report_path = input_file.with_suffix(".report.json")
-                shutil.move(str(report_path), str(dest_report_path))
-                logger.info(f"Moved report file to: {dest_report_path}")
+            dest_report_path = input_file.with_suffix(".report.json")
+            shutil.move(str(report_path), str(dest_report_path))
+            logger.info(f"Moved report file to: {dest_report_path}")
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))

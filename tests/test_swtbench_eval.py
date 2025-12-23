@@ -84,16 +84,16 @@ def test_run_swtbench_evaluation_returns_report_path():
         predictions_file = tmpdir_path / "output.swtbench.jsonl"
         predictions_file.write_text('{"instance_id": "test", "model_patch": ""}\n')
 
-        model_name = "test-model"
         run_id = f"eval_{predictions_file.stem}"
-        expected_report_name = f"{model_name}.{run_id}.json"
+        expected_report_name = f"OpenHands.{run_id}.json"
 
-        # Create a mock swt-bench directory structure
+        # Create a mock swt-bench directory structure with evaluation_results subdir
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
-        swt_bench_dir.mkdir(parents=True, exist_ok=True)
+        eval_results_dir = swt_bench_dir / "evaluation_results"
+        eval_results_dir.mkdir(parents=True, exist_ok=True)
 
-        expected_report_path = swt_bench_dir / expected_report_name
+        expected_report_path = eval_results_dir / expected_report_name
 
         # Create the report file that swtbench harness would create
         expected_report_path.write_text('{"resolved": 0, "total": 1}')
@@ -108,7 +108,6 @@ def test_run_swtbench_evaluation_returns_report_path():
                 str(predictions_file),
                 dataset="test-dataset",
                 workers="1",
-                model_name=model_name,
             )
 
         assert result is not None
@@ -119,8 +118,8 @@ def test_run_swtbench_evaluation_returns_report_path():
         expected_report_path.unlink(missing_ok=True)
 
 
-def test_run_swtbench_evaluation_returns_none_when_report_not_found():
-    """Test that run_swtbench_evaluation returns None when report file is not found."""
+def test_run_swtbench_evaluation_raises_when_report_not_found():
+    """Test that run_swtbench_evaluation raises FileNotFoundError when report is missing."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
 
@@ -133,6 +132,11 @@ def test_run_swtbench_evaluation_returns_none_when_report_not_found():
         swt_bench_dir = cache_dir / "swt-bench"
         swt_bench_dir.mkdir(parents=True, exist_ok=True)
 
+        # Clean up any existing report files that match the pattern
+        run_id = f"eval_{predictions_file.stem}"
+        for f in swt_bench_dir.glob(f"*.{run_id}.json"):
+            f.unlink()
+
         # Mock subprocess.run to simulate successful evaluation
         # but don't create the report file
         mock_result = MagicMock()
@@ -140,56 +144,9 @@ def test_run_swtbench_evaluation_returns_none_when_report_not_found():
         mock_result.stdout = "/usr/bin/python"
 
         with patch("subprocess.run", return_value=mock_result):
-            result = run_swtbench_evaluation(
-                str(predictions_file),
-                dataset="test-dataset",
-                workers="1",
-                model_name="nonexistent-model",
-            )
-
-        assert result is None
-
-
-def test_run_swtbench_evaluation_handles_model_name_with_slash():
-    """Test that model names with slashes are handled correctly."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
-
-        # Create a mock predictions file
-        predictions_file = tmpdir_path / "output.swtbench.jsonl"
-        predictions_file.write_text('{"instance_id": "test", "model_patch": ""}\n')
-
-        model_name = "org/model-name"
-        run_id = f"eval_{predictions_file.stem}"
-        # Slashes should be replaced with double underscores
-        expected_report_name = f"{model_name.replace('/', '__')}.{run_id}.json"
-
-        # Create a mock swt-bench directory structure
-        cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
-        swt_bench_dir = cache_dir / "swt-bench"
-        swt_bench_dir.mkdir(parents=True, exist_ok=True)
-
-        expected_report_path = swt_bench_dir / expected_report_name
-
-        # Create the report file that swtbench harness would create
-        expected_report_path.write_text('{"resolved": 0, "total": 1}')
-
-        # Mock subprocess.run to simulate successful evaluation
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "/usr/bin/python"
-
-        with patch("subprocess.run", return_value=mock_result):
-            result = run_swtbench_evaluation(
-                str(predictions_file),
-                dataset="test-dataset",
-                workers="1",
-                model_name=model_name,
-            )
-
-        assert result is not None
-        assert result.name == expected_report_name
-        assert "__" in result.name  # Verify slash was replaced
-
-        # Cleanup
-        expected_report_path.unlink(missing_ok=True)
+            with pytest.raises(FileNotFoundError):
+                run_swtbench_evaluation(
+                    str(predictions_file),
+                    dataset="test-dataset",
+                    workers="1",
+                )
