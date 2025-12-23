@@ -23,6 +23,7 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 
+
 def run_multi_swebench_evaluation(
     dataset_name: str | None = None,
     split: str | None = None,
@@ -139,11 +140,8 @@ def main():
 
         # Move the report file to the output location
         output_report_path = args.input_file.with_suffix(".report.json")
-        if results_file.exists():
-            shutil.move(str(results_file), str(output_report_path))
-            logger.info(f"Report moved to {output_report_path}")
-        else:
-            logger.warning(f"Report file not found at {results_file}")
+        shutil.move(str(results_file), str(output_report_path))
+        logger.info(f"Report moved to {output_report_path}")
 
 
 if __name__ == "__main__":
