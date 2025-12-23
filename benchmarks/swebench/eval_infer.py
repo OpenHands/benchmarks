@@ -265,7 +265,6 @@ Examples:
             shutil.move(str(report_path), str(dest_report_path))
             logger.info(f"Moved report file to: {dest_report_path}")
 
-
         # Generate cost report as final step
         generate_cost_report(str(input_file))
 
