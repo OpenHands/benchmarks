@@ -237,21 +237,21 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
         )
     elif benchmark_name == "swebenchmultimodal":
         return EvalInstance(
-        id="test-instance-1",
-        data={
-            "repo": "test/repo",
-            "instance_id": "test-instance-1",
-            "base_commit": "abc123",
-           "problem_statement": "Test problem statement",
-            "hints_text": "",
-            "created_at": "2024-01-01",
-            "patch": "test patch",
-            "test_patch": "test test_patch",
-            "version": "1.0",
-            "FAIL_TO_PASS": '["test1"]',
-            "PASS_TO_PASS": '["test2"]',
-            "environment_setup_commit": "abc123",
-             },
+            id="test-instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test-instance-1",
+                "base_commit": "abc123",
+                "problem_statement": "Test problem statement",
+                "hints_text": "",
+                "created_at": "2024-01-01",
+                "patch": "test patch",
+                "test_patch": "test test_patch",
+                "version": "1.0",
+                "FAIL_TO_PASS": '["test1"]',
+                "PASS_TO_PASS": '["test2"]',
+                "environment_setup_commit": "abc123",
+            },
         )
     elif benchmark_name == "multiswebench":
         return EvalInstance(
