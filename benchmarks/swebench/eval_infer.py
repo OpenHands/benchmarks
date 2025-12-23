@@ -267,6 +267,7 @@ Examples:
                 logger.info(f"Moved report file to: {dest_report_path}")
             else:
                 logger.error(f"Report file not found at expected path: {report_path}")
+                raise RuntimeError(f"Report file not found at expected path: {report_path}")
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
