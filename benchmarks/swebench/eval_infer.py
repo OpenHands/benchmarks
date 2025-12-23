@@ -262,16 +262,11 @@ Examples:
             report_path = output_file.parent / report_filename
             dest_report_path = input_file.with_suffix(".report.json")
 
-            if dest_report_path.exists():
-                raise FileExistsError(
-                    f"Destination report file already exists: {dest_report_path}"
-                )
-
             if report_path.exists():
                 shutil.move(str(report_path), str(dest_report_path))
                 logger.info(f"Moved report file to: {dest_report_path}")
             else:
-                logger.warning(f"Report file not found at expected path: {report_path}")
+                logger.error(f"Report file not found at expected path: {report_path}")
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
