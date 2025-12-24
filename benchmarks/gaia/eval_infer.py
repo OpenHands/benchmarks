@@ -110,9 +110,7 @@ def process_gaia_results(
             except Exception as e:
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
-    error_path = Path(input_file).with_name(
-        f"{Path(input_file).stem}_errors.jsonl"
-    )
+    error_path = Path(input_file).with_name(f"{Path(input_file).stem}_errors.jsonl")
     if error_path.exists():
         with open(error_path, "r") as error_file:
             for line_num, line in enumerate(error_file, 1):
@@ -141,9 +139,7 @@ def process_gaia_results(
                 except json.JSONDecodeError as e:
                     logger.error(f"Error file line {line_num}: Invalid JSON - {e}")
                 except Exception as e:
-                    logger.error(
-                        f"Error file line {line_num}: Unexpected error - {e}"
-                    )
+                    logger.error(f"Error file line {line_num}: Unexpected error - {e}")
 
     submitted_ids = completed_ids + incomplete_ids
 

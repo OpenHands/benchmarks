@@ -20,7 +20,9 @@ from pathlib import Path
 def main() -> None:
     if "--benchmark-name" not in sys.argv:
         sys.argv.extend(["--benchmark-name", "GAIA"])
-    swebench_path = Path(__file__).resolve().parents[1] / "swebench" / "format_report.py"
+    swebench_path = (
+        Path(__file__).resolve().parents[1] / "swebench" / "format_report.py"
+    )
     runpy.run_path(str(swebench_path), run_name="__main__")
 
 
