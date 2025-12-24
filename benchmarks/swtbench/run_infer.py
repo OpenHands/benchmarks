@@ -339,6 +339,9 @@ def main() -> None:
     with open(llm_config_path, "r") as f:
         llm_config = f.read()
     llm = LLM.model_validate_json(llm_config)
+    if llm.timeout is None:
+        logger.info("LLM timeout not set; defaulting to 600s for SWT-bench")
+        llm = llm.model_copy(update={"timeout": 600})
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
