@@ -7,6 +7,7 @@ and generates a report similar to SWE-Bench format.
 
 Usage:
     uv run gaia-eval <path_to_output.jsonl>
+    uv run gaia-eval <path_to_output.jsonl> --output-file report.json
 """
 
 import argparse
@@ -27,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 def process_gaia_results(
-    input_file: str, output_file: str, model_name: str = "openhands"
+    input_file: str,
+    output_file: str,
+    model_name: str = "openhands",
+    extra_output_file: str | None = None,
 ) -> None:
     """
     Process GAIA output.jsonl and generate evaluation report.
@@ -51,11 +55,14 @@ def process_gaia_results(
         "total_instances": 165,
         "submitted_instances": 165,
         "completed_instances": 165,
+        "incomplete_instances": 0,
         "resolved_instances": 100,
         "unresolved_instances": 65,
         "empty_patch_instances": 0,
         "error_instances": 0,
+        "submitted_ids": [...],
         "completed_ids": [...],
+        "incomplete_ids": [...],
         "resolved_ids": [...],
         "unresolved_ids": [...]
     }
@@ -65,6 +72,10 @@ def process_gaia_results(
     completed_ids = []
     resolved_ids = []
     unresolved_ids = []
+    incomplete_ids = []
+
+    completed_seen = set()
+    incomplete_seen = set()
 
     with open(input_file, "r") as infile:
         for line_num, line in enumerate(infile, 1):
@@ -85,8 +96,15 @@ def process_gaia_results(
                 test_result = data.get("test_result", {})
                 score = test_result.get("score", False)
 
+                if instance_id in completed_seen:
+                    logger.warning(
+                        f"Line {line_num}: Duplicate instance_id {instance_id}"
+                    )
+                    continue
+
                 # Add to completed instances
                 completed_ids.append(instance_id)
+                completed_seen.add(instance_id)
 
                 # Determine if resolved (score=True means correct answer)
                 if score is True:
@@ -99,17 +117,57 @@ def process_gaia_results(
             except Exception as e:
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
+    error_path = Path(input_file).with_name(
+        f"{Path(input_file).stem}_errors.jsonl"
+    )
+    if error_path.exists():
+        with open(error_path, "r") as error_file:
+            for line_num, line in enumerate(error_file, 1):
+                try:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    data = json.loads(line)
+                    instance_id = data.get("instance_id")
+                    if not instance_id:
+                        logger.warning(
+                            f"Error file line {line_num}: Missing instance_id"
+                        )
+                        continue
+                    if instance_id in completed_seen or instance_id in incomplete_seen:
+                        logger.warning(
+                            "Error file line %s: Duplicate instance_id %s",
+                            line_num,
+                            instance_id,
+                        )
+                        continue
+
+                    incomplete_ids.append(instance_id)
+                    incomplete_seen.add(instance_id)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error file line {line_num}: Invalid JSON - {e}")
+                except Exception as e:
+                    logger.error(
+                        f"Error file line {line_num}: Unexpected error - {e}"
+                    )
+
+    submitted_ids = completed_ids + incomplete_ids
+
     # Generate report
     report = {
         "model_name_or_path": model_name,
-        "total_instances": len(completed_ids),
-        "submitted_instances": len(completed_ids),
+        "total_instances": len(submitted_ids),
+        "submitted_instances": len(submitted_ids),
         "completed_instances": len(completed_ids),
+        "incomplete_instances": len(incomplete_ids),
         "resolved_instances": len(resolved_ids),
         "unresolved_instances": len(unresolved_ids),
         "empty_patch_instances": 0,
-        "error_instances": 0,
+        "error_instances": len(incomplete_ids),
+        "submitted_ids": submitted_ids,
         "completed_ids": completed_ids,
+        "incomplete_ids": incomplete_ids,
         "resolved_ids": resolved_ids,
         "unresolved_ids": unresolved_ids,
     }
@@ -117,6 +175,13 @@ def process_gaia_results(
     # Write report
     with open(output_file, "w") as outfile:
         json.dump(report, outfile, indent=4)
+
+    if extra_output_file:
+        extra_path = Path(extra_output_file)
+        if extra_path.resolve() != Path(output_file).resolve():
+            with open(extra_path, "w") as extra_outfile:
+                json.dump(report, extra_outfile, indent=4)
+            logger.info(f"Additional report written to {extra_output_file}")
 
     logger.info("Report generated successfully:")
     logger.info(f"  Total instances: {report['total_instances']}")
@@ -138,10 +203,20 @@ def main() -> None:
 Examples:
     uv run gaia-eval output.jsonl
     uv run gaia-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
+    uv run gaia-eval output.jsonl --output-file report.json
         """,
     )
 
     parser.add_argument("input_file", help="Path to the GAIA output.jsonl file")
+
+    parser.add_argument(
+        "--output-file",
+        help=(
+            "Optional secondary output path for the report. "
+            "The canonical report is always written next to the input file "
+            "with a .report.json suffix."
+        ),
+    )
 
     parser.add_argument(
         "--model-name",
@@ -162,14 +237,22 @@ Examples:
 
     # Determine output file (same name as input with .report.json extension)
     output_file = input_file.with_suffix(".report.json")
+    extra_output_file = args.output_file
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Model name: {args.model_name}")
+    if extra_output_file:
+        logger.info(f"Additional output file: {extra_output_file}")
 
     try:
         # Process results and generate report
-        process_gaia_results(str(input_file), str(output_file), args.model_name)
+        process_gaia_results(
+            str(input_file),
+            str(output_file),
+            args.model_name,
+            extra_output_file,
+        )
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
