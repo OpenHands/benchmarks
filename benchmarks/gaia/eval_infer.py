@@ -11,19 +11,14 @@ Usage:
 
 import argparse
 import json
-import logging
 import sys
 from pathlib import Path
 
-
 from benchmarks.utils.report_costs import generate_cost_report
+from openhands.sdk import get_logger
 
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def process_gaia_results(
