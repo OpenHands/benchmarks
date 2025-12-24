@@ -97,6 +97,7 @@ def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
             "max_duration": 0.0,
             "min_duration": 0.0,
             "mean_duration": 0.0,
+            "total_duration": 0.0,
             "total_lines": 0,
             "lines_with_duration": 0,
         }
@@ -113,15 +114,18 @@ def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
             "max_duration": 0.0,
             "min_duration": 0.0,
             "mean_duration": 0.0,
+            "total_duration": 0.0,
             "total_lines": len(jsonl_data),
             "lines_with_duration": 0,
         }
 
+    total_duration = sum(durations)
     return {
-        "average_duration": sum(durations) / len(durations),
+        "average_duration": total_duration / len(durations),
         "max_duration": max(durations),
         "min_duration": min(durations),
-        "mean_duration": sum(durations) / len(durations),  # Same as average
+        "mean_duration": total_duration / len(durations),  # Same as average
+        "total_duration": total_duration,
         "total_lines": len(jsonl_data),
         "lines_with_duration": len(durations),
     }
@@ -187,9 +191,7 @@ def calculate_costs(directory_path: str) -> None:
         cost = extract_accumulated_cost(jsonl_data)
         time_stats = calculate_time_statistics(jsonl_data)
         total_individual_costs += cost
-        total_duration += (
-            time_stats["average_duration"] * time_stats["lines_with_duration"]
-        )
+        total_duration += time_stats["total_duration"]
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
@@ -224,9 +226,7 @@ def calculate_costs(directory_path: str) -> None:
             time_stats = calculate_time_statistics(jsonl_data)
             total_individual_costs += cost
             critic_total += cost
-            total_duration += (
-                time_stats["average_duration"] * time_stats["lines_with_duration"]
-            )
+            total_duration += time_stats["total_duration"]
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
