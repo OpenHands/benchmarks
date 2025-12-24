@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 def convert_to_swtbench_format(
     input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> None:
+) -> tuple[int, int]:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -109,8 +109,7 @@ def convert_to_swtbench_format(
         f"{error_count} errors"
     )
 
-    if converted_count == 0:
-        raise ValueError("No valid entries were converted")
+    return converted_count, error_count
 
 
 def run_swtbench_evaluation(
@@ -305,7 +304,36 @@ Examples:
 
     try:
         # Convert format
-        convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
+        converted_count, _ = convert_to_swtbench_format(
+            str(input_file), str(output_file), args.model_name
+        )
+
+        if converted_count == 0:
+            logger.error("No valid entries were converted")
+            eval_limit = int(os.getenv("EVAL_LIMIT", "0") or "0")
+            total_instances = eval_limit if eval_limit > 0 else 0
+            target_file = input_file.parent / "output.report.json"
+            report = {
+                "total_instances": total_instances,
+                "completed_instances": 0,
+                "resolved_instances": 0,
+                "unresolved_instances": 0,
+                "error_instances": total_instances,
+                "Mean coverage": 0,
+                "Mean coverage delta": 0,
+                "unstopped_instances": 0,
+                "completed_ids": [],
+                "resolved_ids": [],
+                "unresolved_ids": [],
+                "error_ids": [],
+                "unstopped_containers": [],
+                "unremoved_images": [],
+            }
+            target_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            logger.info("Wrote empty evaluation report to: %s", target_file)
+            generate_cost_report(str(input_file))
+            logger.info("Script completed successfully!")
+            return
 
         if not args.skip_evaluation:
             # Run evaluation

@@ -65,7 +65,9 @@ def format_swe_bench_report(
     """
     # Extract SWE-bench metrics
     total_instances = report.get("total_instances", 0)
-    submitted_instances = report.get("submitted_instances", 0)
+    submitted_instances = report.get("submitted_instances")
+    if submitted_instances is None:
+        submitted_instances = report.get("completed_instances", 0)
     resolved_instances = report.get("resolved_instances", 0)
     unresolved_instances = report.get("unresolved_instances", 0)
     empty_patch_instances = report.get("empty_patch_instances", 0)
