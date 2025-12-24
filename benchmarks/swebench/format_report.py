@@ -78,9 +78,11 @@ def format_swe_bench_report(
             f"({(resolved_instances / submitted_instances) * 100:.1f}%)"
         )
 
+    benchmark_label = os.environ.get("BENCHMARK_DISPLAY_NAME", "SWE-bench")
+
     # Build markdown message
     lines = [
-        "## 🎉 SWE-bench Evaluation Complete",
+        f"## 🎉 {benchmark_label} Evaluation Complete",
         "",
         f"**Evaluation:** `{eval_name}`",
         f"**Model:** `{model_name}`",
@@ -145,8 +147,10 @@ def format_swe_bench_failure(
     Returns:
         Markdown formatted failure notification
     """
+    benchmark_label = os.environ.get("BENCHMARK_DISPLAY_NAME", "SWE-bench")
+
     lines = [
-        "## ❌ SWE-bench Evaluation Failed",
+        f"## ❌ {benchmark_label} Evaluation Failed",
         "",
         f"**Evaluation:** `{eval_name}`",
         f"**Model:** `{model_name}`",
