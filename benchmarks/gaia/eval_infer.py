@@ -7,7 +7,6 @@ and generates a report similar to SWE-Bench format.
 
 Usage:
     uv run gaia-eval <path_to_output.jsonl>
-    uv run gaia-eval <path_to_output.jsonl> --output-file report.json
 """
 
 import argparse
@@ -31,7 +30,6 @@ def process_gaia_results(
     input_file: str,
     output_file: str,
     model_name: str = "openhands",
-    extra_output_file: str | None = None,
 ) -> None:
     """
     Process GAIA output.jsonl and generate evaluation report.
@@ -176,13 +174,6 @@ def process_gaia_results(
     with open(output_file, "w") as outfile:
         json.dump(report, outfile, indent=4)
 
-    if extra_output_file:
-        extra_path = Path(extra_output_file)
-        if extra_path.resolve() != Path(output_file).resolve():
-            with open(extra_path, "w") as extra_outfile:
-                json.dump(report, extra_outfile, indent=4)
-            logger.info(f"Additional report written to {extra_output_file}")
-
     logger.info("Report generated successfully:")
     logger.info(f"  Total instances: {report['total_instances']}")
     logger.info(f"  Completed instances: {report['completed_instances']}")
@@ -203,20 +194,10 @@ def main() -> None:
 Examples:
     uv run gaia-eval output.jsonl
     uv run gaia-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
-    uv run gaia-eval output.jsonl --output-file report.json
         """,
     )
 
     parser.add_argument("input_file", help="Path to the GAIA output.jsonl file")
-
-    parser.add_argument(
-        "--output-file",
-        help=(
-            "Optional secondary output path for the report. "
-            "The canonical report is always written next to the input file "
-            "with a .report.json suffix."
-        ),
-    )
 
     parser.add_argument(
         "--model-name",
@@ -237,13 +218,10 @@ Examples:
 
     # Determine output file (same name as input with .report.json extension)
     output_file = input_file.with_suffix(".report.json")
-    extra_output_file = args.output_file
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Model name: {args.model_name}")
-    if extra_output_file:
-        logger.info(f"Additional output file: {extra_output_file}")
 
     try:
         # Process results and generate report
@@ -251,7 +229,6 @@ Examples:
             str(input_file),
             str(output_file),
             args.model_name,
-            extra_output_file,
         )
 
         # Generate cost report as final step

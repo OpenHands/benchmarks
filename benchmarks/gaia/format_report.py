@@ -23,35 +23,16 @@ def load_json(path: str) -> dict[str, Any]:
         return json.load(f)
 
 
-def load_jsonl(path: str) -> list[dict[str, Any]]:
-    """Load JSONL file."""
-    results = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                results.append(json.loads(line))
-    return results
+def compute_gaia_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    """Compute GAIA metrics from SWE-bench style report.json."""
+    total = report.get("total_instances", 0)
+    success = report.get("resolved_instances", 0)
 
-
-def compute_gaia_metrics(
-    output_data: list[dict[str, Any]], error_data: list[dict[str, Any]]
-) -> dict[str, Any]:
-    """Compute GAIA metrics from output.jsonl and output_errors.jsonl data."""
-    # Count successful instances
-    success = 0
-    for item in output_data:
-        test_result = item.get("test_result", {})
-        if test_result.get("score") is True:
-            success += 1
-
-    # Total is successful + failed instances (including output_errors.jsonl)
-    total = len(output_data) + len(error_data)
-
-    # Treat every non-successful instance as an error/failure for reporting
+    # Treat unresolved + incomplete as errors for reporting
     errors = total - success
+    if errors < 0:
+        errors = 0
 
-    # Calculate success rate based on total launched instances
     success_rate = (success / total * 100) if total > 0 else 0.0
 
     return {
@@ -202,8 +183,7 @@ def main():
     )
     parser.add_argument(
         "report_json",
-        nargs="?",
-        help="Path to report.json (optional)",
+        help="Path to report.json (SWE-bench format)",
     )
     parser.add_argument(
         "--env-file",
@@ -216,28 +196,17 @@ def main():
 
     args = parser.parse_args()
 
-    # Load output.jsonl
-    try:
-        output_data = load_jsonl(args.output_jsonl)
-    except Exception as e:
-        print(f"Error loading output.jsonl: {e}", file=sys.stderr)
+    if not args.report_json:
+        print("Error: report.json is required for GAIA formatting", file=sys.stderr)
         sys.exit(1)
 
-    # Load output_errors.jsonl if it exists
-    error_jsonl_path = args.output_jsonl.replace(".jsonl", "_errors.jsonl")
-    error_data = []
-    if Path(error_jsonl_path).exists():
-        try:
-            error_data = load_jsonl(error_jsonl_path)
-            print(
-                f"Loaded {len(error_data)} error instances from {error_jsonl_path}",
-                file=sys.stderr,
-            )
-        except Exception as e:
-            print(f"Warning: Error loading {error_jsonl_path}: {e}", file=sys.stderr)
+    try:
+        report = load_json(args.report_json)
+    except Exception as e:
+        print(f"Error loading report.json: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    # Compute metrics from both output files
-    metrics = compute_gaia_metrics(output_data, error_data)
+    metrics = compute_gaia_metrics(report)
 
     # Load environment variables (from file or environment)
     if args.env_file and Path(args.env_file).exists():
