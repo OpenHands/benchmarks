@@ -35,9 +35,25 @@ def load_jsonl(path: str) -> list[dict[str, Any]]:
 
 
 def compute_swtbench_metrics(
-    output_data: list[dict[str, Any]], error_data: list[dict[str, Any]]
+    output_data: list[dict[str, Any]],
+    error_data: list[dict[str, Any]],
+    report_data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Compute SWT-Bench metrics from output.jsonl and output_errors.jsonl data."""
+    """Compute SWT-Bench metrics from aggregated report when available."""
+    if "total_instances" in report_data:
+        total = report_data.get("total_instances", 0)
+        resolved = report_data.get("resolved_instances", 0)
+        errors = report_data.get("error_instances", 0)
+        success_rate = (resolved / total * 100) if total else 0.0
+        return {
+            "total": total,
+            "success": resolved,
+            "errors": errors,
+            "success_rate": success_rate,
+            "resolved": resolved,
+            "unresolved": report_data.get("unresolved_instances", 0),
+        }
+
     # Count successful instances (those with valid git patches)
     success = 0
     for item in output_data:
@@ -72,10 +88,14 @@ def format_swtbench_notification(
     error_data = load_jsonl(str(error_path)) if error_path.exists() else []
 
     # Load report if available
-    report_data = load_json(str(report_path)) if report_path.exists() else {}
+    aggregated_report_path = report_path.parent / "output.report.json"
+    if aggregated_report_path.exists():
+        report_data = load_json(str(aggregated_report_path))
+    else:
+        report_data = load_json(str(report_path)) if report_path.exists() else {}
 
     # Compute metrics
-    metrics = compute_swtbench_metrics(output_data, error_data)
+    metrics = compute_swtbench_metrics(output_data, error_data, report_data)
 
     # Extract environment variables
     model_name = env_vars.get("MODEL_NAME", "Unknown")
@@ -115,9 +135,9 @@ def format_swtbench_notification(
     )
 
     # Add report metrics if available
-    if report_data:
-        lines.append(f"- **Resolved:** {report_data.get('resolved', 0)}")
-        lines.append(f"- **Unresolved:** {report_data.get('unresolved', 0)}")
+    if "resolved" in metrics or "unresolved" in metrics:
+        lines.append(f"- **Resolved:** {metrics.get('resolved', 0)}")
+        lines.append(f"- **Unresolved:** {metrics.get('unresolved', 0)}")
 
     if tar_url:
         lines.extend(
