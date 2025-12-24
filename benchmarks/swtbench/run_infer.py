@@ -22,6 +22,7 @@ from benchmarks.utils.models import (
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.agent_server.docker.build import _base_slug
 from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
+from openhands.sdk.conversation.exceptions import ConversationRunError
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
@@ -286,7 +287,18 @@ class SWTBenchEvaluation(Evaluation):
                     run_timeout,
                 )
         logger.info("Using SWT-bench run timeout: %ds", run_timeout)
-        conversation.run(timeout=run_timeout)
+        run_error = None
+        try:
+            conversation.run(timeout=run_timeout)
+        except ConversationRunError as exc:
+            run_error = f"{type(exc).__name__}: {exc}"
+            logger.warning("Conversation run failed: %s", run_error)
+            try:
+                conversation.pause()
+            except Exception as pause_exc:
+                logger.warning(
+                    "Failed to pause conversation after run error: %s", pause_exc
+                )
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -301,13 +313,25 @@ class SWTBenchEvaluation(Evaluation):
 
         # Get git patch
         base_commit = instance.data["base_commit"]
+        git_patch = ""
         git_patch_result = workspace.execute_command(
             (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
         )
-        assert git_patch_result.exit_code == 0, (
-            f"git diff failed: {git_patch_result.stderr}"
-        )
-        git_patch = git_patch_result.stdout
+        if git_patch_result.exit_code != 0:
+            if run_error:
+                logger.warning(
+                    "git diff failed after conversation error: %s",
+                    git_patch_result.stderr,
+                )
+                diff_error = git_patch_result.stderr.strip()
+                if diff_error:
+                    run_error = f"{run_error}; git diff failed: {diff_error}"
+            else:
+                assert git_patch_result.exit_code == 0, (
+                    f"git diff failed: {git_patch_result.stderr}"
+                )
+        else:
+            git_patch = git_patch_result.stdout
 
         out = EvalOutput(
             instance_id=instance.id,
@@ -315,7 +339,7 @@ class SWTBenchEvaluation(Evaluation):
                 "git_patch": git_patch,
             },
             instruction=instruction,
-            error=None,
+            error=run_error,
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
         )
@@ -354,6 +378,32 @@ def main() -> None:
     if llm.timeout is None:
         logger.info("LLM timeout not set; defaulting to 600s for SWT-bench")
         llm = llm.model_copy(update={"timeout": 600})
+    timeout_override = os.getenv("SWTBENCH_LLM_TIMEOUT", os.getenv("LLM_TIMEOUT"))
+    if timeout_override:
+        try:
+            llm_timeout = int(timeout_override)
+            llm = llm.model_copy(update={"timeout": llm_timeout})
+            logger.info("Using LLM timeout override: %ss", llm_timeout)
+        except ValueError:
+            logger.warning(
+                "Invalid LLM timeout '%s'; using %s",
+                timeout_override,
+                llm.timeout,
+            )
+    retries_override = os.getenv(
+        "SWTBENCH_LLM_NUM_RETRIES", os.getenv("LLM_NUM_RETRIES")
+    )
+    if retries_override:
+        try:
+            llm_num_retries = int(retries_override)
+            llm = llm.model_copy(update={"num_retries": llm_num_retries})
+            logger.info("Using LLM num_retries override: %s", llm_num_retries)
+        except ValueError:
+            logger.warning(
+                "Invalid LLM num_retries '%s'; using %s",
+                retries_override,
+                llm.num_retries,
+            )
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
