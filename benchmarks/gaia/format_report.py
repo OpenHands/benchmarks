@@ -10,16 +10,15 @@ Usage:
 
 from __future__ import annotations
 
-import runpy
 import sys
-from pathlib import Path
+
+from benchmarks.swebench import format_report as swebench_format_report
 
 
 def main() -> None:
     if "--benchmark-name" not in sys.argv:
         sys.argv.extend(["--benchmark-name", "GAIA"])
-    swebench_path = Path(__file__).resolve().parents[1] / "swebench" / "format_report.py"
-    runpy.run_path(str(swebench_path), run_name="__main__")
+    swebench_format_report.main()
 
 
 if __name__ == "__main__":
