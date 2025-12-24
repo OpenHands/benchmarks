@@ -36,6 +36,7 @@ def load_jsonl(path: str) -> list[dict[str, Any]]:
 
 def format_swe_bench_report(
     report: dict[str, Any],
+    benchmark_name: str,
     eval_name: str,
     model_name: str,
     dataset: str,
@@ -78,11 +79,9 @@ def format_swe_bench_report(
             f"({(resolved_instances / submitted_instances) * 100:.1f}%)"
         )
 
-    benchmark_label = os.environ.get("BENCHMARK_DISPLAY_NAME", "SWE-bench")
-
     # Build markdown message
     lines = [
-        f"## 🎉 {benchmark_label} Evaluation Complete",
+        f"## 🎉 {benchmark_name} Evaluation Complete",
         "",
         f"**Evaluation:** `{eval_name}`",
         f"**Model:** `{model_name}`",
@@ -122,6 +121,7 @@ def format_swe_bench_report(
 
 
 def format_swe_bench_failure(
+    benchmark_name: str,
     eval_name: str,
     model_name: str,
     dataset: str,
@@ -147,10 +147,8 @@ def format_swe_bench_failure(
     Returns:
         Markdown formatted failure notification
     """
-    benchmark_label = os.environ.get("BENCHMARK_DISPLAY_NAME", "SWE-bench")
-
     lines = [
-        f"## ❌ {benchmark_label} Evaluation Failed",
+        f"## ❌ {benchmark_name} Evaluation Failed",
         "",
         f"**Evaluation:** `{eval_name}`",
         f"**Model:** `{model_name}`",
@@ -193,6 +191,11 @@ def main():
         help="Optional environment file with evaluation metadata",
     )
     parser.add_argument(
+        "--benchmark-name",
+        default="SWE-bench",
+        help="Display name for the benchmark header (default: SWE-bench)",
+    )
+    parser.add_argument(
         "--output",
         help="Output file for formatted message (default: stdout)",
     )
@@ -232,6 +235,7 @@ def main():
     # Format the message
     message = format_swe_bench_report(
         report=report,
+        benchmark_name=args.benchmark_name,
         eval_name=eval_name,
         model_name=model_name,
         dataset=dataset,

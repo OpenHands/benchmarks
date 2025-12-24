@@ -10,13 +10,14 @@ Usage:
 
 from __future__ import annotations
 
-import os
+import sys
 
 from benchmarks.swebench import format_report as swebench_format_report
 
 
 def main() -> None:
-    os.environ.setdefault("BENCHMARK_DISPLAY_NAME", "GAIA")
+    if "--benchmark-name" not in sys.argv:
+        sys.argv.extend(["--benchmark-name", "GAIA"])
     swebench_format_report.main()
 
 
