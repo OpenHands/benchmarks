@@ -274,7 +274,19 @@ class SWTBenchEvaluation(Evaluation):
             workspace_path=workspace.working_dir,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        timeout_env = os.getenv("SWTBENCH_RUN_TIMEOUT", os.getenv("EVAL_TIMEOUT"))
+        run_timeout = 3600
+        if timeout_env:
+            try:
+                run_timeout = int(timeout_env)
+            except ValueError:
+                logger.warning(
+                    "Invalid SWT-bench run timeout '%s'; using default %s",
+                    timeout_env,
+                    run_timeout,
+                )
+        logger.info("Using SWT-bench run timeout: %ds", run_timeout)
+        conversation.run(timeout=run_timeout)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
