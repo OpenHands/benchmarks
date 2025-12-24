@@ -2,7 +2,8 @@
 """
 GAIA Evaluation Script
 
-This script processes OpenHands output.jsonl format and computes GAIA scores.
+This script processes OpenHands output.jsonl format for GAIA benchmark
+and generates a report similar to SWE-Bench format.
 
 Usage:
     uv run gaia-eval <path_to_output.jsonl>
@@ -10,42 +11,63 @@ Usage:
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
-from openhands.sdk import get_logger
+
+from benchmarks.utils.report_costs import generate_cost_report
 
 
-logger = get_logger(__name__)
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
-def evaluate_gaia_results(input_file: str) -> dict[str, int | float]:
+def process_gaia_results(
+    input_file: str, output_file: str, model_name: str = "openhands"
+) -> None:
     """
-    Evaluate GAIA results from OpenHands output.jsonl file.
+    Process GAIA output.jsonl and generate evaluation report.
 
-    OpenHands format:
+    GAIA format:
     {
         "instance_id": "task_id",
         "test_result": {
-            "score": true/false
+            "score": true/false,
+            "model_answer": "...",
+            "model_answer_raw": "...",
+            "ground_truth": "..."
         },
-        "metadata": {...},
         "instruction": "...",
-        "error": null,
         "history": [...]
     }
 
-    Returns:
-        Dictionary with evaluation metrics
+    Report format (similar to SWE-Bench):
+    {
+        "model_name_or_path": "openhands",
+        "total_instances": 165,
+        "submitted_instances": 165,
+        "completed_instances": 165,
+        "resolved_instances": 100,
+        "unresolved_instances": 65,
+        "empty_patch_instances": 0,
+        "error_instances": 0,
+        "completed_ids": [...],
+        "resolved_ids": [...],
+        "unresolved_ids": [...]
+    }
     """
-    logger.info(f"Evaluating GAIA results from {input_file}")
+    logger.info(f"Processing {input_file} to generate report: {output_file}")
 
-    total = 0
-    success = 0
-    errors = 0
+    completed_ids = []
+    resolved_ids = []
+    unresolved_ids = []
 
-    with open(input_file, "r") as f:
-        for line_num, line in enumerate(f, 1):
+    with open(input_file, "r") as infile:
+        for line_num, line in enumerate(infile, 1):
             try:
                 line = line.strip()
                 if not line:
@@ -57,99 +79,74 @@ def evaluate_gaia_results(input_file: str) -> dict[str, int | float]:
                 instance_id = data.get("instance_id")
                 if not instance_id:
                     logger.warning(f"Line {line_num}: Missing instance_id")
-                    errors += 1
                     continue
 
                 # Extract score from test_result
                 test_result = data.get("test_result", {})
                 score = test_result.get("score", False)
 
-                total += 1
-                if score:
-                    success += 1
+                # Add to completed instances
+                completed_ids.append(instance_id)
+
+                # Determine if resolved (score=True means correct answer)
+                if score is True:
+                    resolved_ids.append(instance_id)
                 else:
-                    errors += 1
+                    unresolved_ids.append(instance_id)
 
             except json.JSONDecodeError as e:
                 logger.error(f"Line {line_num}: Invalid JSON - {e}")
-                errors += 1
             except Exception as e:
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
-                errors += 1
 
-    if total == 0:
-        logger.error("No valid entries found in the file")
-        raise ValueError("No valid entries were evaluated")
-
-    success_rate = success / total if total > 0 else 0.0
-
-    logger.info("Evaluation complete:")
-    logger.info(f"  Total: {total}")
-    logger.info(f"  Success: {success}")
-    logger.info(f"  Success rate: {success_rate:.2%}")
-    logger.info(f"  Errors: {errors}")
-
-    return {
-        "total": total,
-        "success": success,
-        "success_rate": success_rate,
-        "errors": errors,
-    }
-
-
-def write_evaluation_report(
-    input_file: str, metrics: dict[str, int | float], output_file: str | None = None
-) -> None:
-    """
-    Write evaluation report to a JSON file.
-
-    Args:
-        input_file: Path to the input file
-        metrics: Evaluation metrics
-        output_file: Path to the output file (optional)
-    """
-    if output_file is None:
-        input_path = Path(input_file)
-        output_file = str(input_path.with_suffix(".report.json"))
-
+    # Generate report
     report = {
-        "input_file": input_file,
-        "metrics": metrics,
+        "model_name_or_path": model_name,
+        "total_instances": len(completed_ids),
+        "submitted_instances": len(completed_ids),
+        "completed_instances": len(completed_ids),
+        "resolved_instances": len(resolved_ids),
+        "unresolved_instances": len(unresolved_ids),
+        "empty_patch_instances": 0,
+        "error_instances": 0,
+        "completed_ids": completed_ids,
+        "resolved_ids": resolved_ids,
+        "unresolved_ids": unresolved_ids,
     }
 
-    with open(output_file, "w") as f:
-        json.dump(report, f, indent=2)
+    # Write report
+    with open(output_file, "w") as outfile:
+        json.dump(report, outfile, indent=4)
 
-    logger.info(f"Evaluation report written to {output_file}")
+    logger.info("Report generated successfully:")
+    logger.info(f"  Total instances: {report['total_instances']}")
+    logger.info(f"  Completed instances: {report['completed_instances']}")
+    logger.info(f"  Resolved instances: {report['resolved_instances']}")
+    logger.info(f"  Unresolved instances: {report['unresolved_instances']}")
+    if report["completed_instances"] > 0:
+        logger.info(
+            f"  Success rate: {report['resolved_instances'] / report['completed_instances'] * 100:.1f}%"
+        )
 
 
 def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Evaluate GAIA results from OpenHands output",
+        description="Process GAIA output and generate evaluation report",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
     uv run gaia-eval output.jsonl
-    uv run gaia-eval /path/to/output.jsonl
-    uv run gaia-eval output.jsonl --output-file report.json
+    uv run gaia-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
-    parser.add_argument("input_file", help="Path to the OpenHands output.jsonl file")
+    parser.add_argument("input_file", help="Path to the GAIA output.jsonl file")
 
     parser.add_argument(
-        "--output-file",
-        help=(
-            "Output file for evaluation report "
-            "(default: input_file with .report.json extension)"
-        ),
-    )
-
-    parser.add_argument(
-        "--skip-report",
-        action="store_true",
-        help="Only print metrics, skip writing report file",
+        "--model-name",
+        default="openhands",
+        help="Model name to use in the model_name_or_path field (default: openhands)",
     )
 
     args = parser.parse_args()
@@ -163,26 +160,19 @@ Examples:
     if not input_file.suffix == ".jsonl":
         logger.warning(f"Input file does not have .jsonl extension: {input_file}")
 
+    # Determine output file (same name as input with .report.json extension)
+    output_file = input_file.with_suffix(".report.json")
+
     logger.info(f"Input file: {input_file}")
+    logger.info(f"Output file: {output_file}")
+    logger.info(f"Model name: {args.model_name}")
 
     try:
-        # Evaluate results
-        metrics = evaluate_gaia_results(str(input_file))
+        # Process results and generate report
+        process_gaia_results(str(input_file), str(output_file), args.model_name)
 
-        # Print summary
-        print("\n" + "=" * 80)
-        print("GAIA Evaluation Results")
-        print("=" * 80)
-        print(f"Total instances: {metrics['total']}")
-        print(f"Successful: {metrics['success']}")
-        print(f"Success rate: {metrics['success_rate']:.2%}")
-        if metrics["errors"] > 0:
-            print(f"Errors: {metrics['errors']}")
-        print("=" * 80 + "\n")
-
-        if not args.skip_report:
-            # Write report
-            write_evaluation_report(str(input_file), metrics, args.output_file)
+        # Generate cost report as final step
+        generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
 
