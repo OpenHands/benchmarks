@@ -176,6 +176,7 @@ def calculate_costs(directory_path: str) -> None:
     }
 
     total_individual_costs = 0.0
+    total_duration = 0.0
 
     # Process main output file
     if output_file:
@@ -186,6 +187,9 @@ def calculate_costs(directory_path: str) -> None:
         cost = extract_accumulated_cost(jsonl_data)
         time_stats = calculate_time_statistics(jsonl_data)
         total_individual_costs += cost
+        total_duration += (
+            time_stats["average_duration"] * time_stats["lines_with_duration"]
+        )
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
@@ -220,6 +224,9 @@ def calculate_costs(directory_path: str) -> None:
             time_stats = calculate_time_statistics(jsonl_data)
             total_individual_costs += cost
             critic_total += cost
+            total_duration += (
+                time_stats["average_duration"] * time_stats["lines_with_duration"]
+            )
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
@@ -263,16 +270,19 @@ def calculate_costs(directory_path: str) -> None:
             ),
             "sum_critic_files": critic_only_total,
             "total_cost": critic_only_total,  # Total is just critic files since main is subset
+            "total_duration": total_duration,
         }
     elif output_file:
         report_data["summary"] = {
             "only_main_output_cost": total_individual_costs,
             "total_cost": 0,  # No critic files, so total is 0 (main is subset)
+            "total_duration": total_duration,
         }
     elif critic_files:
         report_data["summary"] = {
             "sum_critic_files": critic_total,
             "total_cost": critic_total,
+            "total_duration": total_duration,
         }
 
     # Save JSON report
