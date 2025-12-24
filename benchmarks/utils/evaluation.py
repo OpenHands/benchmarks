@@ -287,22 +287,16 @@ class Evaluation(ABC, BaseModel):
                         logger.warning("on_result callback failed: %s", cb_err)
 
             # Run evaluation for this attempt
-            pool = ProcessPoolExecutor(max_workers=self.num_workers)
-            futures = []
-            try:
-                futures = [
-                    pool.submit(self._process_one_mp, inst)
-                    for inst in instances_to_process
-                ]
-
-                for fut in tqdm(
-                    as_completed(futures),
-                    total=len(futures),
+            if self.num_workers == 1:
+                logger.info("Single-worker evaluation; running in-process")
+                for inst in tqdm(
+                    instances_to_process,
+                    total=len(instances_to_process),
                     desc=f"Attempt {attempt}",
                     leave=False,
                 ):
                     try:
-                        instance, out = fut.result()
+                        instance, out = self._process_one_mp(inst)
                         attempt_on_result(instance, out)
                     except Exception as e:
                         logger.error(
@@ -310,17 +304,43 @@ class Evaluation(ABC, BaseModel):
                             exc_info=True,
                             stack_info=True,
                         )
+            else:
+                pool = ProcessPoolExecutor(max_workers=self.num_workers)
+                futures = []
+                try:
+                    futures = [
+                        pool.submit(self._process_one_mp, inst)
+                        for inst in instances_to_process
+                    ]
 
-                # Normal completion - shutdown gracefully
-                pool.shutdown(wait=True)
-            except KeyboardInterrupt:
-                logger.warning("KeyboardInterrupt received, shutting down workers...")
-                self._cleanup_pool(pool, futures, wait=False)
-                logger.info("All workers terminated")
-                raise
-            except Exception:
-                self._cleanup_pool(pool, futures, wait=False)
-                raise
+                    for fut in tqdm(
+                        as_completed(futures),
+                        total=len(futures),
+                        desc=f"Attempt {attempt}",
+                        leave=False,
+                    ):
+                        try:
+                            instance, out = fut.result()
+                            attempt_on_result(instance, out)
+                        except Exception as e:
+                            logger.error(
+                                f"Unexpected error from worker process: {str(e)[:50]}",
+                                exc_info=True,
+                                stack_info=True,
+                            )
+
+                    # Normal completion - shutdown gracefully
+                    pool.shutdown(wait=True)
+                except KeyboardInterrupt:
+                    logger.warning(
+                        "KeyboardInterrupt received, shutting down workers..."
+                    )
+                    self._cleanup_pool(pool, futures, wait=False)
+                    logger.info("All workers terminated")
+                    raise
+                except Exception:
+                    self._cleanup_pool(pool, futures, wait=False)
+                    raise
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
