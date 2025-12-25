@@ -313,7 +313,6 @@ Examples:
             eval_limit = int(os.getenv("EVAL_LIMIT", "0") or "0")
             total_instances = eval_limit if eval_limit > 0 else 0
             target_file = input_file.parent / "output.report.json"
-            report_file = input_file.parent / "report.json"
             report = {
                 "total_instances": total_instances,
                 "completed_instances": 0,
@@ -332,9 +331,7 @@ Examples:
             }
             report_text = json.dumps(report, indent=2)
             target_file.write_text(report_text, encoding="utf-8")
-            report_file.write_text(report_text, encoding="utf-8")
             logger.info("Wrote empty evaluation report to: %s", target_file)
-            logger.info("Wrote empty evaluation report to: %s", report_file)
             generate_cost_report(str(input_file))
             logger.info("Script completed successfully!")
             return
@@ -354,11 +351,8 @@ Examples:
                 raise FileNotFoundError(f"Evaluation report not found at: {report_file}")
 
             target_file = input_file.parent / "output.report.json"
-            output_report_file = input_file.parent / "report.json"
             shutil.copyfile(str(report_file), str(target_file))
-            shutil.copyfile(str(report_file), str(output_report_file))
             logger.info("Copied evaluation report to: %s", target_file)
-            logger.info("Copied evaluation report to: %s", output_report_file)
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
