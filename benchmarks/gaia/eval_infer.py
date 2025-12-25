@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-GAIA Evaluation Script
+GAIA Evaluation Report Script
 
-This script processes OpenHands output.jsonl format for GAIA benchmark
-and generates a report similar to SWE-Bench format.
+This script reads the output.jsonl produced by gaia run_infer, aggregates the
+precomputed test_result.score values, optionally merges *_errors.jsonl to count
+incomplete/error instances, and writes a SWE-bench-style summary report
+(output.report.json next to the input file). It does not run model inference or
+re-score answers; it only summarizes existing results and generates a cost
+report.
 
 Usage:
     uv run gaia-eval <path_to_output.jsonl>
