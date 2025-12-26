@@ -310,11 +310,10 @@ Examples:
             # Move SWT-Bench evaluation report to same folder as output.jsonl
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
-            report_file = (
-                swt_bench_dir
-                / "evaluation_results"
-                / f"{args.model_name}.eval_output.swtbench.json"
-            )
+            report_dir = swt_bench_dir / "evaluation_results"
+            run_id = f"eval_{output_file.stem}"
+            model_name_safe = args.model_name.replace("/", "__")
+            report_file = report_dir / f"{model_name_safe}.{run_id}.json"
 
             if report_file.exists():
                 target_dir = input_file.parent
