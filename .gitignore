@@ -210,7 +210,9 @@ workspace/
 !.openhands/microagents/
 .vscode/
 
-# LLM configuration directory (contains API keys and sensitive configs)
+# LLM configuration files
+# Contains API keys and sensitive configs - see README.md for setup instructions
+# Only the example template is tracked in version control
 .llm_config/
 !.llm_config/example.json
 
