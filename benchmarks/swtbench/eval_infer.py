@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.report import SwebenchReport
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -315,10 +316,14 @@ Examples:
             model_name_safe = args.model_name.replace("/", "__")
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
 
-            target_dir = input_file.parent
-            target_file = target_dir / "output.report.json"
-            shutil.move(str(report_file), str(target_file))
-            logger.info(f"Moved evaluation report to: {target_file}")
+            if not report_file.exists():
+                raise FileNotFoundError(f"Evaluation report not found at: {report_file}")
+
+            report_data = json.loads(report_file.read_text(encoding="utf-8"))
+            normalized_report = SwebenchReport.from_swtbench_report(report_data)
+            target_file = input_file.parent / "output.report.json"
+            normalized_report.save(target_file)
+            logger.info("Wrote evaluation report to: %s", target_file)
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))

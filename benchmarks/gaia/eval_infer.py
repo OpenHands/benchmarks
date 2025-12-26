@@ -18,6 +18,7 @@ import json
 import sys
 from pathlib import Path
 
+from benchmarks.utils.report import SwebenchReport, load_jsonl
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -25,214 +26,155 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def process_gaia_results(
-    input_file: str,
-    output_file: str,
-    model_name: str = "openhands",
-) -> None:
-    """
-    Process GAIA output.jsonl and generate evaluation report.
+def _read_eval_limit(output_path: Path) -> int | None:
+    metadata_path = output_path.parent / "metadata.json"
+    if not metadata_path.exists():
+        return None
+    try:
+        with metadata_path.open("r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception as e:
+        logger.warning("Failed to read metadata.json: %s", e)
+        return None
+    eval_limit = metadata.get("eval_limit")
+    if isinstance(eval_limit, int) and eval_limit > 0:
+        return eval_limit
+    return None
 
-    GAIA format:
-    {
-        "instance_id": "task_id",
-        "test_result": {
-            "score": true/false,
-            "model_answer": "...",
-            "model_answer_raw": "...",
-            "ground_truth": "..."
-        },
-        "instruction": "...",
-        "history": [...]
-    }
 
-    Report format (similar to SWE-Bench):
-    {
-        "model_name_or_path": "openhands",
-        "total_instances": 165,
-        "submitted_instances": 165,
-        "completed_instances": 165,
-        "incomplete_instances": 0,
-        "resolved_instances": 100,
-        "unresolved_instances": 65,
-        "empty_patch_instances": 0,
-        "error_instances": 0,
-        "submitted_ids": [...],
-        "completed_ids": [...],
-        "incomplete_ids": [...],
-        "resolved_ids": [...],
-        "unresolved_ids": [...]
-    }
-    """
-    logger.info(f"Processing {input_file} to generate report: {output_file}")
+def _error_output_path(input_file: Path) -> Path:
+    return Path(str(input_file).replace(".jsonl", "_errors.jsonl"))
 
-    completed_ids = []
-    resolved_ids = []
-    unresolved_ids = []
-    incomplete_ids = []
 
-    completed_seen = set()
-    incomplete_seen = set()
+def build_gaia_report(input_file: Path) -> SwebenchReport:
+    output_rows = load_jsonl(input_file)
+    error_rows: list[dict[str, object]] = []
 
-    with open(input_file, "r") as infile:
-        for line_num, line in enumerate(infile, 1):
-            try:
-                line = line.strip()
-                if not line:
-                    continue
-
-                data = json.loads(line)
-
-                # Extract required fields
-                instance_id = data.get("instance_id")
-                if not instance_id:
-                    logger.warning(f"Line {line_num}: Missing instance_id")
-                    continue
-
-                # Extract score from test_result
-                test_result = data.get("test_result", {})
-                score = test_result.get("score", False)
-
-                if instance_id in completed_seen:
-                    logger.warning(
-                        f"Line {line_num}: Duplicate instance_id {instance_id}"
-                    )
-                    continue
-
-                # Add to completed instances
-                completed_ids.append(instance_id)
-                completed_seen.add(instance_id)
-
-                # Determine if resolved (score=True means correct answer)
-                if score is True:
-                    resolved_ids.append(instance_id)
-                else:
-                    unresolved_ids.append(instance_id)
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Line {line_num}: Invalid JSON - {e}")
-            except Exception as e:
-                logger.error(f"Line {line_num}: Unexpected error - {e}")
-
-    error_path = Path(input_file).with_name(f"{Path(input_file).stem}_errors.jsonl")
+    error_path = _error_output_path(input_file)
     if error_path.exists():
-        with open(error_path, "r") as error_file:
-            for line_num, line in enumerate(error_file, 1):
-                try:
-                    line = line.strip()
-                    if not line:
-                        continue
+        error_rows = load_jsonl(error_path)
 
-                    data = json.loads(line)
-                    instance_id = data.get("instance_id")
-                    if not instance_id:
-                        logger.warning(
-                            f"Error file line {line_num}: Missing instance_id"
-                        )
-                        continue
-                    if instance_id in completed_seen or instance_id in incomplete_seen:
-                        logger.warning(
-                            "Error file line %s: Duplicate instance_id %s",
-                            line_num,
-                            instance_id,
-                        )
-                        continue
+    completed_ids: list[str] = []
+    resolved_ids: list[str] = []
+    unresolved_ids: list[str] = []
+    error_ids: list[str] = []
 
-                    incomplete_ids.append(instance_id)
-                    incomplete_seen.add(instance_id)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Error file line {line_num}: Invalid JSON - {e}")
-                except Exception as e:
-                    logger.error(f"Error file line {line_num}: Unexpected error - {e}")
+    seen_ids: set[str] = set()
 
-    submitted_ids = completed_ids + incomplete_ids
+    for row in output_rows:
+        instance_id = row.get("instance_id")
+        if not instance_id:
+            logger.warning("Skipping row without instance_id")
+            continue
+        if instance_id in seen_ids:
+            continue
+        seen_ids.add(instance_id)
 
-    # Generate report
-    report = {
-        "model_name_or_path": model_name,
-        "total_instances": len(submitted_ids),
-        "submitted_instances": len(submitted_ids),
-        "completed_instances": len(completed_ids),
-        "incomplete_instances": len(incomplete_ids),
-        "resolved_instances": len(resolved_ids),
-        "unresolved_instances": len(unresolved_ids),
-        "empty_patch_instances": 0,
-        "error_instances": len(incomplete_ids),
-        "submitted_ids": submitted_ids,
-        "completed_ids": completed_ids,
-        "incomplete_ids": incomplete_ids,
-        "resolved_ids": resolved_ids,
-        "unresolved_ids": unresolved_ids,
-    }
+        if row.get("error"):
+            error_ids.append(instance_id)
+            continue
 
-    # Write report
-    with open(output_file, "w") as outfile:
-        json.dump(report, outfile, indent=4)
+        completed_ids.append(instance_id)
+        score = row.get("test_result", {}).get("score")
+        if bool(score):
+            resolved_ids.append(instance_id)
+        else:
+            unresolved_ids.append(instance_id)
 
-    logger.info("Report generated successfully:")
-    logger.info(f"  Total instances: {report['total_instances']}")
-    logger.info(f"  Completed instances: {report['completed_instances']}")
-    logger.info(f"  Resolved instances: {report['resolved_instances']}")
-    logger.info(f"  Unresolved instances: {report['unresolved_instances']}")
-    if report["completed_instances"] > 0:
-        logger.info(
-            f"  Success rate: {report['resolved_instances'] / report['completed_instances'] * 100:.1f}%"
-        )
+    for row in error_rows:
+        instance_id = row.get("instance_id")
+        if not instance_id:
+            logger.warning("Skipping error row without instance_id")
+            continue
+        if instance_id in seen_ids:
+            continue
+        seen_ids.add(instance_id)
+        error_ids.append(instance_id)
+
+    total_instances = _read_eval_limit(input_file)
+    if total_instances is None:
+        total_instances = len(completed_ids) + len(error_ids)
+
+    submitted_ids = completed_ids + error_ids
+
+    return SwebenchReport.from_ids(
+        total_instances=total_instances,
+        completed_ids=completed_ids,
+        resolved_ids=resolved_ids,
+        unresolved_ids=unresolved_ids,
+        error_ids=error_ids,
+        submitted_ids=submitted_ids,
+        empty_patch_ids=[],
+    )
 
 
 def main() -> None:
-    """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Process GAIA output and generate evaluation report",
+        description="Generate GAIA evaluation report from output.jsonl",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
     uv run gaia-eval output.jsonl
-    uv run gaia-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
+    uv run gaia-eval /path/to/output.jsonl
+    uv run gaia-eval output.jsonl --output-file report.json
         """,
     )
-
     parser.add_argument("input_file", help="Path to the GAIA output.jsonl file")
-
+    parser.add_argument(
+        "--output-file",
+        help=(
+            "Output file for evaluation report "
+            "(default: input_file with .report.json extension)"
+        ),
+    )
+    parser.add_argument(
+        "--skip-report",
+        action="store_true",
+        help="Only print metrics, skip writing report file",
+    )
     parser.add_argument(
         "--model-name",
         default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        help="Model name for logging (default: openhands)",
     )
-
     args = parser.parse_args()
 
-    # Validate input file
     input_file = Path(args.input_file)
     if not input_file.exists():
-        logger.error(f"Input file does not exist: {input_file}")
+        logger.error("Input file does not exist: %s", input_file)
         sys.exit(1)
 
-    if not input_file.suffix == ".jsonl":
-        logger.warning(f"Input file does not have .jsonl extension: {input_file}")
+    if input_file.suffix != ".jsonl":
+        logger.warning("Input file does not have .jsonl extension: %s", input_file)
 
-    # Determine output file (same name as input with .report.json extension)
-    output_file = input_file.with_suffix(".report.json")
+    if args.output_file:
+        output_file = Path(args.output_file)
+    else:
+        output_file = input_file.with_suffix(".report.json")
 
-    logger.info(f"Input file: {input_file}")
-    logger.info(f"Output file: {output_file}")
-    logger.info(f"Model name: {args.model_name}")
+    logger.info("Input file: %s", input_file)
+    logger.info("Output file: %s", output_file)
+    logger.info("Model name: %s", args.model_name)
 
     try:
-        # Process results and generate report
-        process_gaia_results(
-            str(input_file),
-            str(output_file),
-            args.model_name,
+        report = build_gaia_report(input_file)
+        logger.info(
+            "Report summary: total=%d submitted=%d resolved=%d unresolved=%d errors=%d",
+            report.total_instances,
+            report.submitted_instances,
+            report.resolved_instances,
+            report.unresolved_instances,
+            report.error_instances,
         )
 
-        # Generate cost report as final step
+        if not args.skip_report:
+            report.save(output_file)
+            logger.info("Report generated successfully")
+
         generate_cost_report(str(input_file))
 
-        logger.info("Script completed successfully!")
-
     except Exception as e:
-        logger.error(f"Script failed: {e}")
+        logger.error("Failed to generate report: %s", e)
         sys.exit(1)
 
 
