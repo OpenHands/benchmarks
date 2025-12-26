@@ -187,6 +187,17 @@ def run_swtbench_evaluation(
         env = os.environ.copy()
         env["PYTHONPATH"] = str(swt_bench_dir)
 
+        timeout = None
+        timeout_env = os.getenv("EVAL_TIMEOUT")
+        if timeout_env:
+            try:
+                timeout = int(timeout_env)
+            except ValueError:
+                logger.warning(
+                    "Invalid EVAL_TIMEOUT '%s'; using SWT-Bench default",
+                    timeout_env,
+                )
+
         cmd = [
             python_executable,
             "src/main.py",  # Run as script instead of module
@@ -200,6 +211,8 @@ def run_swtbench_evaluation(
             "--run_id",
             f"eval_{predictions_path.stem}",
         ]
+        if timeout:
+            cmd.extend(["--timeout", str(timeout)])
 
         logger.info(f"Using Python executable: {python_executable}")
         logger.info(f"Running command: {' '.join(cmd)}")
