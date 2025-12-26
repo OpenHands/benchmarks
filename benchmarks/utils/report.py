@@ -8,23 +8,54 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SwebenchReport(BaseModel):
+    """SWE-bench compatible evaluation summary."""
+
     model_config = ConfigDict(extra="ignore")
 
-    total_instances: int = Field(ge=0)
-    submitted_instances: int = Field(ge=0)
-    completed_instances: int = Field(ge=0)
-    resolved_instances: int = Field(ge=0)
-    unresolved_instances: int = Field(ge=0)
-    empty_patch_instances: int = Field(ge=0)
-    error_instances: int = Field(ge=0)
+    total_instances: int = Field(
+        ge=0, description="Total number of instances in the benchmark split."
+    )
+    submitted_instances: int = Field(
+        ge=0, description="Number of instances submitted for evaluation."
+    )
+    completed_instances: int = Field(
+        ge=0, description="Number of instances with completed, non-error outputs."
+    )
+    resolved_instances: int = Field(
+        ge=0, description="Number of instances marked as resolved/successful."
+    )
+    unresolved_instances: int = Field(
+        ge=0, description="Number of instances marked as unresolved/failed."
+    )
+    empty_patch_instances: int = Field(
+        ge=0, description="Number of instances producing an empty patch."
+    )
+    error_instances: int = Field(
+        ge=0, description="Number of instances that failed with errors."
+    )
 
-    completed_ids: list[str] = Field(default_factory=list)
-    incomplete_ids: list[str] = Field(default_factory=list)
-    submitted_ids: list[str] = Field(default_factory=list)
-    resolved_ids: list[str] = Field(default_factory=list)
-    unresolved_ids: list[str] = Field(default_factory=list)
-    empty_patch_ids: list[str] = Field(default_factory=list)
-    error_ids: list[str] = Field(default_factory=list)
+    completed_ids: list[str] = Field(
+        default_factory=list, description="Instance IDs with completed outputs."
+    )
+    incomplete_ids: list[str] = Field(
+        default_factory=list,
+        description="Instance IDs that did not complete or are missing outputs.",
+    )
+    submitted_ids: list[str] = Field(
+        default_factory=list, description="Instance IDs submitted for evaluation."
+    )
+    resolved_ids: list[str] = Field(
+        default_factory=list, description="Instance IDs marked as resolved."
+    )
+    unresolved_ids: list[str] = Field(
+        default_factory=list, description="Instance IDs marked as unresolved."
+    )
+    empty_patch_ids: list[str] = Field(
+        default_factory=list, description="Instance IDs with empty patches."
+    )
+    error_ids: list[str] = Field(
+        default_factory=list, description="Instance IDs that failed with errors."
+    )
 
     @classmethod
     def from_ids(
