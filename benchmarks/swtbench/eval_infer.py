@@ -155,6 +155,36 @@ def run_swtbench_evaluation(
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
 
+        run_eval_path = swt_bench_dir / "src" / "run_evaluation.py"
+        if run_eval_path.exists():
+            run_eval_text = run_eval_path.read_text()
+            patch_marker = "completed_ids.add(instance_id)"
+            if patch_marker not in run_eval_text:
+                report_block = (
+                    "            report = report_results(\n"
+                    "                patch_id_base,\n"
+                    "                run_id,\n"
+                    "                instance[\"golden_code_patch\"],\n"
+                    "                output_paths,\n"
+                    "                instance_id,\n"
+                    "                instance[\"repo\"],\n"
+                    "                exec_mode,\n"
+                    "            )\n"
+                )
+                if report_block not in run_eval_text:
+                    raise RuntimeError(
+                        "Unexpected SWT-Bench run_evaluation.py layout; "
+                        "cannot apply completed_ids patch"
+                    )
+                run_eval_text = run_eval_text.replace(
+                    report_block,
+                    report_block + "            completed_ids.add(instance_id)\n",
+                )
+                run_eval_path.write_text(run_eval_text)
+                logger.info(
+                    "Patched SWT-Bench run_evaluation.py to track completed_ids"
+                )
+
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
