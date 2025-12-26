@@ -155,6 +155,30 @@ def run_swtbench_evaluation(
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
 
+        run_eval_path = swt_bench_dir / "src" / "run_evaluation.py"
+        if run_eval_path.exists():
+            run_eval_text = run_eval_path.read_text()
+            patch_marker = "test_source = test_patch if test_patch else model_patch"
+            if patch_marker not in run_eval_text:
+                old_line = (
+                    "            exec_spec.test_directives = get_test_directives("
+                    "model_patch if test_patch is None else test_patch, exec_spec.repo)"
+                )
+                new_lines = (
+                    "            test_source = test_patch if test_patch else model_patch\n"
+                    "            exec_spec.test_directives = get_test_directives("
+                    "test_source, exec_spec.repo)"
+                )
+                if old_line not in run_eval_text:
+                    raise RuntimeError(
+                        "Unexpected SWT-Bench run_evaluation.py layout; "
+                        "cannot apply test directive patch"
+                    )
+                run_eval_path.write_text(run_eval_text.replace(old_line, new_lines))
+                logger.info(
+                    "Patched SWT-Bench run_evaluation.py to reuse model test directives"
+                )
+
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
