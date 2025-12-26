@@ -188,13 +188,13 @@ def run_swtbench_evaluation(
         env["PYTHONPATH"] = str(swt_bench_dir)
 
         timeout = None
-        timeout_env = os.getenv("EVAL_TIMEOUT")
+        timeout_env = os.getenv("SWTBENCH_TEST_TIMEOUT") or os.getenv("EVAL_TIMEOUT")
         if timeout_env:
             try:
                 timeout = int(timeout_env)
             except ValueError:
                 logger.warning(
-                    "Invalid EVAL_TIMEOUT '%s'; using SWT-Bench default",
+                    "Invalid SWT-bench timeout '%s'; using default",
                     timeout_env,
                 )
 
