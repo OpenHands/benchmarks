@@ -17,7 +17,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from benchmarks.utils.docker import ensure_docker_running
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -28,7 +27,7 @@ logger = get_logger(__name__)
 
 def convert_to_swtbench_format(
     input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> tuple[int, int]:
+) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -109,7 +108,8 @@ def convert_to_swtbench_format(
         f"{error_count} errors"
     )
 
-    return converted_count, error_count
+    if converted_count == 0:
+        raise ValueError("No valid entries were converted")
 
 
 def run_swtbench_evaluation(
@@ -133,9 +133,6 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
-        # Ensure Docker is running (required for SWT-Bench evaluation)
-        ensure_docker_running()
-
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
@@ -304,37 +301,7 @@ Examples:
 
     try:
         # Convert format
-        converted_count, _ = convert_to_swtbench_format(
-            str(input_file), str(output_file), args.model_name
-        )
-
-        if converted_count == 0:
-            logger.error("No valid entries were converted")
-            eval_limit = int(os.getenv("EVAL_LIMIT", "0") or "0")
-            total_instances = eval_limit if eval_limit > 0 else 0
-            target_file = input_file.parent / "output.report.json"
-            report = {
-                "total_instances": total_instances,
-                "completed_instances": 0,
-                "resolved_instances": 0,
-                "unresolved_instances": 0,
-                "error_instances": total_instances,
-                "Mean coverage": 0,
-                "Mean coverage delta": 0,
-                "unstopped_instances": 0,
-                "completed_ids": [],
-                "resolved_ids": [],
-                "unresolved_ids": [],
-                "error_ids": [],
-                "unstopped_containers": [],
-                "unremoved_images": [],
-            }
-            report_text = json.dumps(report, indent=2)
-            target_file.write_text(report_text, encoding="utf-8")
-            logger.info("Wrote empty evaluation report to: %s", target_file)
-            generate_cost_report(str(input_file))
-            logger.info("Script completed successfully!")
-            return
+        convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
         if not args.skip_evaluation:
             # Run evaluation
@@ -351,8 +318,8 @@ Examples:
                 raise FileNotFoundError(f"Evaluation report not found at: {report_file}")
 
             target_file = input_file.parent / "output.report.json"
-            shutil.copyfile(str(report_file), str(target_file))
-            logger.info("Copied evaluation report to: %s", target_file)
+            shutil.move(str(report_file), str(target_file))
+            logger.info("Moved evaluation report to: %s", target_file)
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
