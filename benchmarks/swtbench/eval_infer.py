@@ -155,6 +155,44 @@ def run_swtbench_evaluation(
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
 
+        run_eval_path = swt_bench_dir / "src" / "run_evaluation.py"
+        if run_eval_path.exists():
+            run_eval_text = run_eval_path.read_text()
+            patch_marker = (
+                "test_directives = get_test_directives(test_patch or \"\", exec_spec.repo)"
+            )
+            if patch_marker not in run_eval_text:
+                old_line = (
+                    "            exec_spec.test_directives = get_test_directives("
+                    "model_patch if test_patch is None else test_patch, exec_spec.repo)"
+                )
+                old_block = (
+                    "            test_source = test_patch if test_patch else model_patch\n"
+                    "            exec_spec.test_directives = get_test_directives("
+                    "test_source, exec_spec.repo)"
+                )
+                new_block = (
+                    "            test_directives = get_test_directives("
+                    "test_patch or \"\", exec_spec.repo)\n"
+                    "            if not test_directives:\n"
+                    "                test_directives = get_test_directives("
+                    "model_patch, exec_spec.repo)\n"
+                    "            exec_spec.test_directives = test_directives"
+                )
+                if old_line in run_eval_text:
+                    run_eval_text = run_eval_text.replace(old_line, new_block)
+                elif old_block in run_eval_text:
+                    run_eval_text = run_eval_text.replace(old_block, new_block)
+                else:
+                    raise RuntimeError(
+                        "Unexpected SWT-Bench run_evaluation.py layout; "
+                        "cannot apply test directive patch"
+                    )
+                run_eval_path.write_text(run_eval_text)
+                logger.info(
+                    "Patched SWT-Bench run_evaluation.py to reuse model test directives"
+                )
+
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
@@ -187,6 +225,17 @@ def run_swtbench_evaluation(
         env = os.environ.copy()
         env["PYTHONPATH"] = str(swt_bench_dir)
 
+        timeout = None
+        timeout_env = os.getenv("SWTBENCH_TEST_TIMEOUT") or os.getenv("EVAL_TIMEOUT")
+        if timeout_env:
+            try:
+                timeout = int(timeout_env)
+            except ValueError:
+                logger.warning(
+                    "Invalid SWT-bench timeout '%s'; using default",
+                    timeout_env,
+                )
+
         cmd = [
             python_executable,
             "src/main.py",  # Run as script instead of module
@@ -200,6 +249,11 @@ def run_swtbench_evaluation(
             "--run_id",
             f"eval_{predictions_path.stem}",
         ]
+        compute_coverage = os.getenv("SWTBENCH_COMPUTE_COVERAGE")
+        if compute_coverage is not None:
+            cmd.extend(["--compute_coverage", compute_coverage])
+        if timeout:
+            cmd.extend(["--timeout", str(timeout)])
 
         logger.info(f"Using Python executable: {python_executable}")
         logger.info(f"Running command: {' '.join(cmd)}")
@@ -306,7 +360,6 @@ Examples:
         if not args.skip_evaluation:
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
-
             # Move SWT-Bench evaluation report to same folder as output.jsonl
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
@@ -314,11 +367,9 @@ Examples:
             run_id = f"eval_{output_file.stem}"
             model_name_safe = args.model_name.replace("/", "__")
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
-
-            target_dir = input_file.parent
-            target_file = target_dir / "output.report.json"
+            target_file = input_file.parent / "output.report.json"
             shutil.move(str(report_file), str(target_file))
-            logger.info(f"Moved evaluation report to: {target_file}")
+            logger.info("Moved evaluation report to: %s", target_file)
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
