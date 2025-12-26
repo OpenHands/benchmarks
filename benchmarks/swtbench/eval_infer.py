@@ -211,6 +211,9 @@ def run_swtbench_evaluation(
             "--run_id",
             f"eval_{predictions_path.stem}",
         ]
+        compute_coverage = os.getenv("SWTBENCH_COMPUTE_COVERAGE")
+        if compute_coverage is not None:
+            cmd.extend(["--compute_coverage", compute_coverage])
         if timeout:
             cmd.extend(["--timeout", str(timeout)])
 
