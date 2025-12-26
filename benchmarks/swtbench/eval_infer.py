@@ -317,7 +317,9 @@ Examples:
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
 
             if not report_file.exists():
-                raise FileNotFoundError(f"Evaluation report not found at: {report_file}")
+                raise FileNotFoundError(
+                    f"Evaluation report not found at: {report_file}"
+                )
 
             report_data = json.loads(report_file.read_text(encoding="utf-8"))
             normalized_report = SwebenchReport.from_swtbench_report(report_data)

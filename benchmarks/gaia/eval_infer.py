@@ -17,6 +17,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from benchmarks.utils.report import SwebenchReport, load_jsonl
 from benchmarks.utils.report_costs import generate_cost_report
@@ -48,7 +49,7 @@ def _error_output_path(input_file: Path) -> Path:
 
 def build_gaia_report(input_file: Path) -> SwebenchReport:
     output_rows = load_jsonl(input_file)
-    error_rows: list[dict[str, object]] = []
+    error_rows: list[dict[str, Any]] = []
 
     error_path = _error_output_path(input_file)
     if error_path.exists():
@@ -63,7 +64,7 @@ def build_gaia_report(input_file: Path) -> SwebenchReport:
 
     for row in output_rows:
         instance_id = row.get("instance_id")
-        if not instance_id:
+        if not isinstance(instance_id, str) or not instance_id:
             logger.warning("Skipping row without instance_id")
             continue
         if instance_id in seen_ids:
@@ -83,7 +84,7 @@ def build_gaia_report(input_file: Path) -> SwebenchReport:
 
     for row in error_rows:
         instance_id = row.get("instance_id")
-        if not instance_id:
+        if not isinstance(instance_id, str) or not instance_id:
             logger.warning("Skipping error row without instance_id")
             continue
         if instance_id in seen_ids:
