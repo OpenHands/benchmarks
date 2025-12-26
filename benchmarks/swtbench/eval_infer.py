@@ -315,15 +315,10 @@ Examples:
             model_name_safe = args.model_name.replace("/", "__")
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
 
-            if report_file.exists():
-                target_dir = input_file.parent
-                target_file = target_dir / "output.report.json"
-                shutil.move(str(report_file), str(target_file))
-                logger.info(f"Moved evaluation report to: {target_file}")
-            else:
-                raise FileNotFoundError(
-                    f"Evaluation report not found at: {report_file}"
-                )
+            target_dir = input_file.parent
+            target_file = target_dir / "output.report.json"
+            shutil.move(str(report_file), str(target_file))
+            logger.info(f"Moved evaluation report to: {target_file}")
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
