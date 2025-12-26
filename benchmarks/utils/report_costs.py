@@ -97,6 +97,7 @@ def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
             "max_duration": 0.0,
             "min_duration": 0.0,
             "mean_duration": 0.0,
+            "total_duration": 0.0,
             "total_lines": 0,
             "lines_with_duration": 0,
         }
@@ -113,15 +114,18 @@ def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
             "max_duration": 0.0,
             "min_duration": 0.0,
             "mean_duration": 0.0,
+            "total_duration": 0.0,
             "total_lines": len(jsonl_data),
             "lines_with_duration": 0,
         }
 
+    total_duration = sum(durations)
     return {
-        "average_duration": sum(durations) / len(durations),
+        "average_duration": total_duration / len(durations),
         "max_duration": max(durations),
         "min_duration": min(durations),
-        "mean_duration": sum(durations) / len(durations),  # Same as average
+        "mean_duration": total_duration / len(durations),  # Same as average
+        "total_duration": total_duration,
         "total_lines": len(jsonl_data),
         "lines_with_duration": len(durations),
     }
@@ -176,6 +180,7 @@ def calculate_costs(directory_path: str) -> None:
     }
 
     total_individual_costs = 0.0
+    total_duration = 0.0
 
     # Process main output file
     if output_file:
@@ -186,6 +191,7 @@ def calculate_costs(directory_path: str) -> None:
         cost = extract_accumulated_cost(jsonl_data)
         time_stats = calculate_time_statistics(jsonl_data)
         total_individual_costs += cost
+        total_duration += time_stats["total_duration"]
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
@@ -220,6 +226,7 @@ def calculate_costs(directory_path: str) -> None:
             time_stats = calculate_time_statistics(jsonl_data)
             total_individual_costs += cost
             critic_total += cost
+            total_duration += time_stats["total_duration"]
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
@@ -263,16 +270,19 @@ def calculate_costs(directory_path: str) -> None:
             ),
             "sum_critic_files": critic_only_total,
             "total_cost": critic_only_total,  # Total is just critic files since main is subset
+            "total_duration": total_duration,
         }
     elif output_file:
         report_data["summary"] = {
             "only_main_output_cost": total_individual_costs,
             "total_cost": 0,  # No critic files, so total is 0 (main is subset)
+            "total_duration": total_duration,
         }
     elif critic_files:
         report_data["summary"] = {
             "sum_critic_files": critic_total,
             "total_cost": critic_total,
+            "total_duration": total_duration,
         }
 
     # Save JSON report
