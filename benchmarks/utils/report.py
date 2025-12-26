@@ -26,11 +26,6 @@ class SwebenchReport(BaseModel):
     empty_patch_ids: list[str] = Field(default_factory=list)
     error_ids: list[str] = Field(default_factory=list)
 
-    schema_version: int = Field(default=2, ge=1)
-    unstopped_instances: int = Field(default=0, ge=0)
-    unstopped_containers: list[str] = Field(default_factory=list)
-    unremoved_images: list[str] = Field(default_factory=list)
-
     @classmethod
     def from_ids(
         cls,
@@ -43,10 +38,6 @@ class SwebenchReport(BaseModel):
         error_ids: Sequence[str] | None = None,
         submitted_ids: Sequence[str] | None = None,
         incomplete_ids: Sequence[str] | None = None,
-        schema_version: int = 2,
-        unstopped_instances: int = 0,
-        unstopped_containers: Sequence[str] | None = None,
-        unremoved_images: Sequence[str] | None = None,
     ) -> "SwebenchReport":
         empty_patch_ids_list = list(empty_patch_ids or [])
         error_ids_list = list(error_ids or [])
@@ -59,8 +50,6 @@ class SwebenchReport(BaseModel):
             else list(completed_ids_list)
         )
         incomplete_ids_list = list(incomplete_ids or [])
-        unstopped_containers_list = list(unstopped_containers or [])
-        unremoved_images_list = list(unremoved_images or [])
 
         return cls(
             total_instances=total_instances,
@@ -77,10 +66,6 @@ class SwebenchReport(BaseModel):
             unresolved_ids=unresolved_ids_list,
             empty_patch_ids=empty_patch_ids_list,
             error_ids=error_ids_list,
-            schema_version=schema_version,
-            unstopped_instances=unstopped_instances,
-            unstopped_containers=unstopped_containers_list,
-            unremoved_images=unremoved_images_list,
         )
 
     @classmethod
@@ -102,10 +87,6 @@ class SwebenchReport(BaseModel):
             resolved_ids=resolved_ids,
             unresolved_ids=unresolved_ids,
             error_ids=error_ids,
-            schema_version=int(report.get("schema_version", 2)),
-            unstopped_instances=int(report.get("unstopped_instances", 0)),
-            unstopped_containers=report.get("unstopped_containers", []),
-            unremoved_images=report.get("unremoved_images", []),
         )
 
     def save(self, path: str | Path) -> None:
