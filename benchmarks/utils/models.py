@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from openhands.sdk import LLM, Event, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.llm import Metrics
+from openhands.sdk.utils.models import OpenHandsModel
 
 
 logger = get_logger(__name__)
@@ -68,7 +69,16 @@ class EvalInstance(BaseModel):
     )
 
 
-class EvalOutput(BaseModel):
+class EvalOutput(OpenHandsModel):
+    """
+    Evaluation output model.
+
+    Uses OpenHandsModel to ensure pydantic schemas are properly rebuilt when
+    new discriminated union types (like Browser actions/observations) are registered.
+    This prevents deserialization errors when loading results that contain
+    dynamically registered event types.
+    """
+
     # NOTE: User-specified
     instance_id: str
     # output of the evaluation

@@ -183,8 +183,8 @@ Examples:
     if not input_file.suffix == ".jsonl":
         logger.warning(f"Input file does not have .jsonl extension: {input_file}")
 
-    # Determine output file (always use default name)
-    output_file = input_file.parent / "commit0_report.json"
+    # Determine output file (same name as input with .report.json extension)
+    output_file = input_file.with_suffix(".report.json")
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")

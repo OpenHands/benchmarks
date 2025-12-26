@@ -1,14 +1,13 @@
+import json
 import os
 from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.swebench.build_images import (
+from benchmarks.swebenchmultimodal.build_images import (
     extract_custom_tag,
     get_official_docker_image,
-    should_wrap_instance_id,
-    wrap_image,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
@@ -27,7 +26,15 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import (
+    LLM,
+    Agent,
+    Conversation,
+    ImageContent,
+    Message,
+    TextContent,
+    get_logger,
+)
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -100,18 +107,17 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
         """
+        # Use multimodal image
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
-        base_agent_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
-        )
-        wrap_needed = should_wrap_instance_id(instance.id)
-        agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+            )
             SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
             logger.info(f"SKIP_BUILD={SKIP_BUILD}")
             if not SKIP_BUILD:
@@ -119,10 +125,11 @@ class SWEBenchEvaluation(Evaluation):
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
                     "This may take a while...\n"
-                    "You can run benchmarks/swebench/build_images.py and set "
+                    "You can run benchmarks/swebenchmultimodal/build_images.py and set "
                     "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
                     "agent-server image."
                 )
+
                 output = build_image(
                     base_image=official_docker_image,
                     target_image=EVAL_AGENT_SERVER_IMAGE,
@@ -132,18 +139,11 @@ class SWEBenchEvaluation(Evaluation):
                 )
                 logger.info(f"Image build output: {output}")
                 assert output.error is None, f"Image build failed: {output.error}"
-                if base_agent_image not in output.tags:
+                if agent_server_image not in output.tags:
                     raise RuntimeError(
                         f"Built image tags {output.tags} do not include expected tag "
-                        f"{base_agent_image}"
+                        f"{agent_server_image}"
                     )
-                if wrap_needed:
-                    wrapped_result = wrap_image(base_agent_image, push=False)
-                    if wrapped_result.error:
-                        raise RuntimeError(
-                            "Wrapped image build failed: "
-                            f"{wrapped_result.error}; log={wrapped_result.log_path}"
-                        )
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
@@ -230,45 +230,107 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         logger.info("repo_path: %s", repo_path)
-        cp_testebed_repo = workspace.execute_command(
-            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
-        )
-        assert cp_testebed_repo.exit_code == 0, (
-            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
+        # For multimodal datasets, we don't copy from testbed since it doesn't exist
+        # The repo should already be available in the workspace
+        logger.info("Skipping testbed copy for multimodal dataset")
+
+        # Create repo directory if it doesn't exist
+        mkdir_result = workspace.execute_command(f"mkdir -p {repo_path}")
+        if mkdir_result.exit_code != 0:
+            logger.warning(f"mkdir failed: {mkdir_result.stderr}")
+
+        # Initialize git repo if it doesn't exist, or reset if it does
+        git_init_result = workspace.execute_command(f"cd {repo_path} ; git init")
+        if git_init_result.exit_code != 0:
+            logger.warning(f"git init failed: {git_init_result.stderr}")
+
+        # Configure git user globally in the workspace
+        workspace.execute_command(
+            "git config --global user.email 'evaluation@openhands.dev' && "
+            "git config --global user.name 'OpenHands Evaluation'"
         )
 
-        # git reset
-        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
-        assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
+        # Create an empty initial commit to establish HEAD
+        initial_commit_result = workspace.execute_command(
+            f"cd {repo_path} ; git commit --allow-empty -m 'Initial empty commit'"
+        )
+        if initial_commit_result.exit_code != 0:
+            logger.warning(
+                f"Initial empty commit failed: {initial_commit_result.stderr}"
+            )
 
         instruction = get_instruction(
             instance=instance.data,
             metadata=self.metadata,
             workspace_path=workspace.working_dir,
         )
-        conversation.send_message(instruction)
+
+        # Handle image assets for multimodal instances
+        if "image_assets" in instance.data and instance.data["image_assets"]:
+            try:
+                assets = json.loads(instance.data["image_assets"])
+                if "problem_statement" in assets and assets["problem_statement"]:
+                    image_urls = assets["problem_statement"]
+                    logger.info(f"Sending instruction with {len(image_urls)} images")
+
+                    # Create message with both text and images
+                    message = Message(
+                        role="user",
+                        content=[
+                            TextContent(text=instruction),
+                            ImageContent(image_urls=image_urls),
+                        ],
+                    )
+                    conversation.send_message(message)
+                else:
+                    logger.info("No problem_statement images found in image_assets")
+                    conversation.send_message(instruction)
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Failed to parse image_assets: {e}")
+                conversation.send_message(instruction)
+        else:
+            logger.info("No image_assets found, sending text-only instruction")
+            conversation.send_message(instruction)
         conversation.run()
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
-        # git commit
-        workspace.execute_command(
-            f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+        # Check if there are any changes to commit
+        status_result = workspace.execute_command(
+            f"cd {repo_path} ; git status --porcelain"
         )
 
-        # Get git patch
-        base_commit = instance.data["base_commit"]
-        git_patch_result = workspace.execute_command(
-            (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
-        )
-        assert git_patch_result.exit_code == 0, (
-            f"git diff failed: {git_patch_result.stderr}"
-        )
-        git_patch = git_patch_result.stdout
+        if status_result.exit_code == 0 and status_result.stdout.strip():
+            # There are changes to commit
+            commit_result = workspace.execute_command(
+                f"cd {repo_path} ; git commit -m 'patch'"
+            )
+            if commit_result.exit_code != 0:
+                logger.warning(f"git commit failed: {commit_result.stderr}")
+                git_patch = ""
+            else:
+                # Get git patch - diff between the initial commit and the current commit
+                git_patch_result = workspace.execute_command(
+                    (f"cd {repo_path} ; git --no-pager diff --no-color HEAD~1 HEAD")
+                )
+                if git_patch_result.exit_code != 0:
+                    logger.warning(f"git diff HEAD~1 failed: {git_patch_result.stderr}")
+                    # Try to get the last commit as a patch
+                    git_patch_result = workspace.execute_command(
+                        (f"cd {repo_path} ; git --no-pager show --no-color HEAD")
+                    )
+                    if git_patch_result.exit_code != 0:
+                        logger.warning("git show HEAD also failed, using empty patch")
+                        git_patch = ""
+                    else:
+                        git_patch = git_patch_result.stdout
+                else:
+                    git_patch = git_patch_result.stdout
+        else:
+            # No changes to commit
+            logger.warning("No changes detected, using empty patch")
+            git_patch = ""
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
@@ -300,6 +362,8 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    # Override the default dataset and split for multimodal
+    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Multimodal", split="dev")
     args = parser.parse_args()
 
     # Validate max_attempts

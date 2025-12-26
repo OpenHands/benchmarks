@@ -360,17 +360,13 @@ Examples:
         if not args.skip_evaluation:
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
-
+            # Move SWT-Bench evaluation report to same folder as output.jsonl
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
             report_dir = swt_bench_dir / "evaluation_results"
             run_id = f"eval_{output_file.stem}"
             model_name_safe = args.model_name.replace("/", "__")
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
-
-            if not report_file.exists():
-                raise FileNotFoundError(f"Evaluation report not found at: {report_file}")
-
             target_file = input_file.parent / "output.report.json"
             shutil.move(str(report_file), str(target_file))
             logger.info("Moved evaluation report to: %s", target_file)
