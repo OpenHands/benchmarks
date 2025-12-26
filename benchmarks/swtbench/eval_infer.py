@@ -158,23 +158,37 @@ def run_swtbench_evaluation(
         run_eval_path = swt_bench_dir / "src" / "run_evaluation.py"
         if run_eval_path.exists():
             run_eval_text = run_eval_path.read_text()
-            patch_marker = "test_source = test_patch if test_patch else model_patch"
+            patch_marker = (
+                "test_directives = get_test_directives(test_patch or \"\", exec_spec.repo)"
+            )
             if patch_marker not in run_eval_text:
                 old_line = (
                     "            exec_spec.test_directives = get_test_directives("
                     "model_patch if test_patch is None else test_patch, exec_spec.repo)"
                 )
-                new_lines = (
+                old_block = (
                     "            test_source = test_patch if test_patch else model_patch\n"
                     "            exec_spec.test_directives = get_test_directives("
                     "test_source, exec_spec.repo)"
                 )
-                if old_line not in run_eval_text:
+                new_block = (
+                    "            test_directives = get_test_directives("
+                    "test_patch or \"\", exec_spec.repo)\n"
+                    "            if not test_directives:\n"
+                    "                test_directives = get_test_directives("
+                    "model_patch, exec_spec.repo)\n"
+                    "            exec_spec.test_directives = test_directives"
+                )
+                if old_line in run_eval_text:
+                    run_eval_text = run_eval_text.replace(old_line, new_block)
+                elif old_block in run_eval_text:
+                    run_eval_text = run_eval_text.replace(old_block, new_block)
+                else:
                     raise RuntimeError(
                         "Unexpected SWT-Bench run_evaluation.py layout; "
                         "cannot apply test directive patch"
                     )
-                run_eval_path.write_text(run_eval_text.replace(old_line, new_lines))
+                run_eval_path.write_text(run_eval_text)
                 logger.info(
                     "Patched SWT-Bench run_evaluation.py to reuse model test directives"
                 )
