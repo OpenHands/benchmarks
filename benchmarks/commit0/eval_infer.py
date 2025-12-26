@@ -3,7 +3,7 @@
 Commit0 Evaluation Script
 
 This script processes OpenHands output.jsonl format for Commit0 benchmark
-and generates a report similar to SWE-Bench format.
+and generates a SWE-Bench-compatible report.
 
 Usage:
     uv run commit0-eval <path_to_output.jsonl>
@@ -15,6 +15,7 @@ import logging
 import sys
 from pathlib import Path
 
+from benchmarks.utils.report import SwebenchReport
 from benchmarks.utils.report_costs import generate_cost_report
 
 
@@ -47,7 +48,7 @@ def process_commit0_results(
         "history": [...]
     }
 
-    Report format (similar to SWE-Bench):
+    Report format (SWE-Bench compatible):
     {
         "total_instances": 16,
         "submitted_instances": 16,
@@ -56,11 +57,17 @@ def process_commit0_results(
         "unresolved_instances": 11,
         "empty_patch_instances": 0,
         "error_instances": 0,
-        "total_tests": 500,
-        "total_passed_tests": 400,
         "completed_ids": [...],
+        "incomplete_ids": [...],
+        "submitted_ids": [...],
         "resolved_ids": [...],
-        "unresolved_ids": [...]
+        "unresolved_ids": [...],
+        "empty_patch_ids": [...],
+        "error_ids": [...],
+        "schema_version": 2,
+        "unstopped_instances": 0,
+        "unstopped_containers": [...],
+        "unremoved_images": [...]
     }
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
@@ -120,36 +127,32 @@ def process_commit0_results(
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
     # Generate report
-    report = {
-        "model_name_or_path": model_name,
-        "total_instances": 16,  # Fixed as per requirement
-        "submitted_instances": len(completed_ids),
-        "completed_instances": len(completed_ids),
-        "resolved_instances": len(resolved_ids),
-        "unresolved_instances": len(unresolved_ids),
-        "empty_patch_instances": 0,  # Always 0 as per requirement
-        "error_instances": 0,  # Always 0 as per requirement
-        "total_tests": total_tests,
-        "total_passed_tests": total_passed_tests,
-        "completed_ids": completed_ids,
-        "resolved_ids": resolved_ids,
-        "unresolved_ids": unresolved_ids,
-    }
+    report = SwebenchReport.from_ids(
+        total_instances=16,
+        completed_ids=completed_ids,
+        resolved_ids=resolved_ids,
+        unresolved_ids=unresolved_ids,
+        empty_patch_ids=[],
+        error_ids=[],
+    )
 
     # Write report
-    with open(output_file, "w") as outfile:
-        json.dump(report, outfile, indent=4)
+    report.save(output_file)
 
     logger.info("Report generated successfully:")
-    logger.info(f"  Total instances: {report['total_instances']}")
-    logger.info(f"  Completed instances: {report['completed_instances']}")
-    logger.info(f"  Resolved instances: {report['resolved_instances']}")
-    logger.info(f"  Unresolved instances: {report['unresolved_instances']}")
-    logger.info(f"  Total tests: {report['total_tests']}")
-    logger.info(f"  Total passed tests: {report['total_passed_tests']}")
-    logger.info(
-        f"  Success rate: {report['resolved_instances'] / report['completed_instances'] * 100:.1f}%"
-    )
+    logger.info(f"  Total instances: {report.total_instances}")
+    logger.info(f"  Completed instances: {report.completed_instances}")
+    logger.info(f"  Resolved instances: {report.resolved_instances}")
+    logger.info(f"  Unresolved instances: {report.unresolved_instances}")
+    logger.info(f"  Total tests: {total_tests}")
+    logger.info(f"  Total passed tests: {total_passed_tests}")
+    if report.completed_instances:
+        logger.info(
+            "  Success rate: %.1f%%",
+            report.resolved_instances / report.completed_instances * 100,
+        )
+    else:
+        logger.info("  Success rate: N/A")
 
 
 def main() -> None:
@@ -169,7 +172,7 @@ Examples:
     parser.add_argument(
         "--model-name",
         default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        help="Model name for logging (default: openhands)",
     )
 
     args = parser.parse_args()
