@@ -117,6 +117,62 @@ After setting up the environment and configuring your LLM, see the individual be
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
+## Incomplete Run Detection
+
+The evaluation infrastructure includes automatic detection of incomplete runs where some instances fail to execute due to infrastructure issues. This helps identify reliability problems early.
+
+### Automatic Detection
+
+During evaluation runs, the system automatically:
+- Tracks which instances are expected vs. which completed
+- Logs ERROR messages when instances are missing
+- Lists missing instance IDs
+- Suggests possible causes (infrastructure failures, OOM, network issues)
+
+Example output:
+```
+================================================================================
+INCOMPLETE EVALUATION RUN DETECTED
+================================================================================
+Expected instances: 50
+Completed instances: 48
+Missing instances: 2
+================================================================================
+Missing instance IDs:
+  - scikit-learn__scikit-learn-25232
+  - scikit-learn__scikit-learn-25973
+================================================================================
+POSSIBLE CAUSES:
+- Infrastructure failures (Modal, Docker, network)
+- Worker process crashes before returning results
+- Resource exhaustion (OOM, disk space)
+- Scheduler issues dropping tasks
+================================================================================
+```
+
+### Post-hoc Analysis
+
+You can also analyze evaluation runs after completion using the `check-incomplete-runs` command:
+
+```bash
+uv run check-incomplete-runs /path/to/evaluation/output/dir -v
+```
+
+This is useful for:
+- Debugging evaluation issues
+- Verifying run completeness before reporting results
+- Identifying patterns in infrastructure failures
+
+### Best Practices
+
+1. **Always check for incomplete runs** before reporting evaluation results
+2. **Re-run missing instances** to get accurate metrics
+3. **Monitor infrastructure health** if you see frequent incomplete runs
+4. **Distinguish between**:
+   - Infrastructure failures (instance never started) ← detected by this feature
+   - Execution failures (instance ran but failed)
+   - Evaluation failures (instance ran but tests failed)
+
 ## Workspace Types
 
 Benchmarks support two workspace types for running evaluations:
