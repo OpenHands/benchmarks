@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.report import SwebenchReport
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -178,6 +179,12 @@ def run_swebench_evaluation(
         raise
 
 
+def validate_swebench_report(report_path: Path) -> None:
+    with report_path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    SwebenchReport.model_validate(payload)
+
+
 def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
@@ -262,6 +269,7 @@ Examples:
             report_path = output_file.parent / report_filename
             dest_report_path = input_file.with_suffix(".report.json")
 
+            validate_swebench_report(report_path)
             shutil.move(str(report_path), str(dest_report_path))
             logger.info(f"Moved report file to: {dest_report_path}")
 
