@@ -20,7 +20,7 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
 
@@ -393,7 +393,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """Run the agent on one instance and return evaluation results."""
         import warnings
@@ -407,6 +407,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
 
         # Create agent
         agent = Agent(llm=self.metadata.llm, tools=tools)
+        assert isinstance(workspace, RemoteWorkspace)
 
         # Collect events
         received_events = []

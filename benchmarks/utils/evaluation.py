@@ -26,7 +26,7 @@ from benchmarks.utils.models import (
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -75,13 +75,15 @@ class Evaluation(ABC, BaseModel):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance
+    ) -> RemoteWorkspace | LocalWorkspace:
         """Create and return a context-managed Workspace for the given instance."""
         raise NotImplementedError
 
     @abstractmethod
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
@@ -408,7 +410,8 @@ class Evaluation(ABC, BaseModel):
                     out = self.evaluate_instance(instance, workspace)
 
                     # Capture conversation archive after successful evaluation
-                    self._capture_conversation_archive(workspace, instance)
+                    if isinstance(workspace, RemoteWorkspace):
+                        self._capture_conversation_archive(workspace, instance)
 
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
