@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir playwright
 RUN playwright install chromium --with-deps
 
 # Create NPC chat script in /usr/local/bin
-COPY benchmarks/openagentsafety/chat_npc.py /usr/local/bin/chat_npc
+COPY benchmarks/benchmarks/openagentsafety/chat_npc.py /usr/local/bin/chat_npc
 RUN chmod +x /usr/local/bin/chat_npc
 
 WORKDIR /workspace
