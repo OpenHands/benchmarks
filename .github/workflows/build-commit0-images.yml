@@ -216,15 +216,15 @@ jobs:
 
           TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
           SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
-import sys
-import json
-count = 0
-for line in sys.stdin:
-    data = json.loads(line.strip())
-    if data.get('error') is None and len(data.get('tags', [])) > 0:
-        count += 1
-print(count)
-")
+          import sys
+          import json
+          count = 0
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is None and len(data.get('tags', [])) > 0:
+                  count += 1
+          print(count)
+          ")
           FAILURES=$((TOTAL - SUCCESSES))
 
           echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
@@ -236,11 +236,11 @@ print(count)
             echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             cat $MANIFEST_FILES | python -c "
-import sys
-import json
-for line in sys.stdin:
-    data = json.loads(line.strip())
-    if data.get('error') is not None or len(data.get('tags', [])) == 0:
-        print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
-" >> "$GITHUB_STEP_SUMMARY"
+          import sys
+          import json
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is not None or len(data.get('tags', [])) == 0:
+                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
+          " >> "$GITHUB_STEP_SUMMARY"
           fi
