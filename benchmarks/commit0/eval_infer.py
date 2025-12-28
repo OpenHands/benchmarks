@@ -148,7 +148,9 @@ def process_commit0_results(
     logger.info(f"  Total tests: {report['total_tests']}")
     logger.info(f"  Total passed tests: {report['total_passed_tests']}")
     if report["completed_instances"]:
-        success_rate = report["resolved_instances"] / report["completed_instances"] * 100
+        success_rate = (
+            report["resolved_instances"] / report["completed_instances"] * 100
+        )
         success_rate_display = f"{success_rate:.1f}%"
     else:
         success_rate_display = "N/A"
