@@ -81,7 +81,7 @@ jobs:
             echo "Using triggering ref (default)"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
 
