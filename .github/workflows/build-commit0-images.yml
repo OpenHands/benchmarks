@@ -21,12 +21,12 @@ on:
         default: 'lite'
         type: string
       max-workers:
-        description: 'Number of concurrent build workers (unused; logged for parity)'
+        description: 'Number of concurrent build workers'
         required: false
         default: '16'
         type: string
       n-limit:
-        description: 'Limit number of repos to build (unused; logged for parity)'
+        description: 'Limit number of repos to build (for testing). Leave blank for no limit.'
         required: false
         default: ''
         type: string
@@ -36,7 +36,7 @@ on:
         default: ''
         type: string
       sdk-commit:
-        description: 'Software Agent SDK commit/ref to use (logged only)'
+        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
         required: false
         default: ''
         type: string
@@ -53,19 +53,26 @@ env:
   MAX_WORKERS: '16'
   N_LIMIT: ''
   INSTANCE_IDS: ''
+  SELECT_FILE: ''
 
 concurrency:
   group: build-commit0-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  noop-build:
+  build-and-push:
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' && github.event.label.name == 'build-commit0')
-    runs-on: ubuntu-latest
+
+    runs-on:
+      labels: blacksmith-32vcpu-ubuntu-2204
+
     permissions:
       contents: read
+      packages: write
+      issues: write
+
     steps:
       - name: Determine checkout ref
         id: checkout-ref
@@ -84,6 +91,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
+          submodules: recursive
 
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -119,20 +127,120 @@ jobs:
           echo "Selected instance IDs:"
           cat "${SELECT_FILE}"
 
-      - name: Log parameters (no-op build)
+      - name: Update SDK submodule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
         run: |
-          echo "Commit0 build is a no-op; images are provided by upstream dataset."
-          echo "Dataset: ${DATASET}"
-          echo "Split: ${SPLIT}"
-          echo "Repo split: ${REPO_SPLIT}"
-          echo "Max workers: ${MAX_WORKERS}"
-          echo "N limit: ${N_LIMIT}"
-          echo "Instance IDs: ${INSTANCE_IDS}"
-          echo "SDK commit: ${SDK_COMMIT:-unset}"
-          if [ -n "${SELECT_FILE:-}" ]; then
-            echo "Select file:"
-            cat "${SELECT_FILE}"
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          SDK_SHA=$(git rev-parse HEAD)
+          cd ../..
+          git add vendor/software-agent-sdk
+          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+
+      - name: Set up Docker Buildx with Blacksmith
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          make build
+
+      - name: Build and push Commit0 images
+        run: |
+          set -euo pipefail
+
+          CMD="uv run benchmarks/commit0/build_images.py \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
+            --repo-split '${REPO_SPLIT}' \
+            --image ghcr.io/openhands/eval-agent-server \
+            --push \
+            --max-workers '${MAX_WORKERS}'"
+
+          if [ -n "${N_LIMIT}" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
+          fi
+          if [ -n "${SELECT_FILE}" ]; then
+            CMD="$CMD --select '${SELECT_FILE}'"
           fi
 
-      - name: Complete
-        run: echo "Commit0 no-op build completed successfully."
+          echo "Running: $CMD"
+          eval "$CMD"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
+      - name: Archive build logs
+        if: always()
+        run: |
+          if [ -d builds ]; then
+            tar -czf build-logs.tar.gz builds/
+            echo "Build logs archived successfully"
+          else
+            echo "No builds directory found"
+          fi
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-logs-${{ github.run_id }}
+          path: build-logs.tar.gz
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Display build summary
+        if: always()
+        run: |
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
+
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            exit 0
+          fi
+
+          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
+          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
+          import sys
+          import json
+          count = 0
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is None and len(data.get('tags', [])) > 0:
+                  count += 1
+          print(count)
+          ")
+          FAILURES=$((TOTAL - SUCCESSES))
+
+          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat $MANIFEST_FILES | python -c "
+          import sys
+          import json
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is not None or len(data.get('tags', [])) == 0:
+                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
+          " >> "$GITHUB_STEP_SUMMARY"
+          fi
