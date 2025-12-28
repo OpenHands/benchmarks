@@ -10,16 +10,15 @@ Example:
 
 import os
 import sys
-from pathlib import Path
 
 from commit0.harness.constants import SPLIT
-from openhands.sdk import get_logger
 
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
     get_build_parser,
 )
+from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
