@@ -325,12 +325,6 @@ def get_build_parser() -> argparse.ArgumentParser:
         "--max-workers", type=int, default=1, help="Concurrent builds (be cautious)"
     )
     parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=3,
-        help="Retries per image build (default: 3)",
-    )
-    parser.add_argument(
         "--batch-size",
         type=int,
         default=0,
