@@ -1,0 +1,76 @@
+name: Build OpenAgentSafety Image
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use'
+        required: true
+        type: string
+
+concurrency:
+  group: build-openagentsafety-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.label.name == 'build-openagentsafety')
+
+    runs-on:
+      labels: blacksmith-32vcpu-ubuntu-2204
+
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+
+    steps:
+      - name: Determine checkout ref
+        id: checkout-ref
+        run: |
+          if [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            echo "Using default ref (the commit that triggered this workflow)"
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.checkout-ref.outputs.ref }}
+          submodules: recursive
+
+      - name: Update SDK submodule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        run: |
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          SDK_SHA=$(git rev-parse HEAD)
+          cd ../..
+          git add vendor/software-agent-sdk
+          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+
+      - name: Set up Docker Buildx
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          make build
+
+      - name: Build OpenAgentSafety image
+        run: |
+          set -euo pipefail
+
+          uv run benchmarks/openagentsafety/build_images.py
