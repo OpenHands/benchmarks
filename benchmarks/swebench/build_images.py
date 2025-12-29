@@ -15,6 +15,7 @@ from pathlib import Path
 
 from benchmarks.utils.build_utils import (
     BuildOutput,
+    apply_cache_mode,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
@@ -167,6 +168,7 @@ def main(argv: list[str]) -> int:
         args.select,
     )
     total_images = len(base_images)
+    apply_cache_mode(args)
     if "OPENHANDS_BUILDKIT_CACHE_MODE" not in os.environ and total_images >= 200:
         os.environ["OPENHANDS_BUILDKIT_CACHE_MODE"] = "min"
         logger.info(
