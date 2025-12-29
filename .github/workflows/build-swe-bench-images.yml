@@ -15,6 +15,11 @@ on:
         required: true
         default: 'test'
         type: string
+      language:
+        description: 'Programming language for Multi-SWE-Bench (e.g., java, python, go, c)'
+        required: false
+        default: 'java'
+        type: string
       max-workers:
         description: 'Number of concurrent builds'
         required: false
@@ -45,6 +50,7 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
+  LANGUAGE: java
   MAX_WORKERS: '32'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
@@ -100,6 +106,7 @@ jobs:
         run: |
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.language }}" ]; then echo "LANGUAGE=${{ inputs.language }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
@@ -182,10 +189,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          CMD="uv run benchmarks/swebench/build_images.py \
+          BUILD_SCRIPT="benchmarks/swebench/build_images.py"
+          if [ "$DATASET" = "bytedance-research/Multi-SWE-Bench" ] || [[ "$DATASET" == "ByteDance-Seed/Multi-SWE-bench"* ]]; then
+            BUILD_SCRIPT="benchmarks/multiswebench/build_images.py"
+            if [ -z "${LANGUAGE}" ]; then
+              echo "LANGUAGE must be set for Multi-SWE-Bench builds" >&2
+              exit 1
+            fi
+          fi
+
+          CMD="uv run ${BUILD_SCRIPT} \
             --dataset '${DATASET}' \
             --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \
+            --target source-minimal \
             --push \
             --max-workers '${MAX_WORKERS}'"
 
