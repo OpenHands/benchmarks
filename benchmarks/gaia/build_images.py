@@ -11,15 +11,16 @@ Example:
 """
 
 import sys
+from pathlib import Path
 
 from benchmarks.utils.build_utils import (
+    BuildOutput,
     _get_sdk_submodule_info,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
+    run_docker_build_layer,
 )
-from benchmarks.utils.image_utils import image_exists
-from openhands.agent_server.docker.build import BuildOptions
 from openhands.sdk import get_logger
 
 
@@ -27,11 +28,34 @@ logger = get_logger(__name__)
 
 # GAIA base image: Python 3.12 + Node.js 22 (default for agent server)
 GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
+# MCP layer Dockerfile
+MCP_DOCKERFILE = Path(__file__).with_name("Dockerfile.gaia")
 
 
-def gaia_tag_fn(_: str) -> str:
-    """Return custom tag for GAIA images (all use 'gaia' tag)."""
-    return "gaia"
+def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutput:
+    """
+    Build the GAIA image with MCP server pre-installed, overriding the base image.
+
+    Args:
+        base_gaia_image: The base GAIA image (e.g., ghcr.io/openhands/eval-agent-server:SHA-gaia)
+        push: If True, push to registry. If False, load locally.
+
+    Returns:
+        BuildOutput with the same image tag or error.
+    """
+    logger.info(
+        "Building MCP-enhanced GAIA image (overriding base): %s", base_gaia_image
+    )
+
+    return run_docker_build_layer(
+        dockerfile=MCP_DOCKERFILE,
+        context=MCP_DOCKERFILE.parent.parent.parent,  # Root of benchmarks repo
+        tags=[base_gaia_image],
+        build_args={"SDK_IMAGE": base_gaia_image},
+        push=push,
+        platform="linux/amd64",
+        load=not push,
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -46,29 +70,12 @@ def main(argv: list[str]) -> int:
     logger.info(f"Image: {args.image}")
     logger.info(f"Push: {args.push}")
 
-    # Skip build if expected tags already exist in the registry
-    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
-    opts = BuildOptions(
-        base_image=GAIA_BASE_IMAGE,
-        custom_tags=gaia_tag_fn(GAIA_BASE_IMAGE),
-        image=args.image,
-        target=args.target,
-        platforms=["linux/amd64"],
-        push=args.push,
-        git_ref=git_ref,
-        git_sha=git_sha,
-        sdk_version=sdk_version,
-    )
-    expected_tags = opts.all_tags[0]
-    if expected_tags and all(image_exists(tag) for tag in expected_tags):
-        logger.info(
-            "All GAIA images already exist: %s. Skipping build.",
-            ", ".join(expected_tags),
-        )
-        return 0
+    def tag_fn(_base: str) -> str:
+        return f"gaia-{args.target}"
 
+    # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
-    return build_all_images(
+    exit_code = build_all_images(
         base_images=base_images,
         target=args.target,
         build_dir=build_dir,
@@ -77,8 +84,29 @@ def main(argv: list[str]) -> int:
         max_workers=1,  # Only building one image
         dry_run=args.dry_run,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=gaia_tag_fn,  # Tag all with "gaia"
+        base_image_to_custom_tag_fn=tag_fn,
     )
+
+    if exit_code != 0:
+        logger.error("Base GAIA image build failed")
+        return exit_code
+
+    # Build MCP-enhanced layer after base image succeeds
+    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+    base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
+
+    logger.info("Building MCP-enhanced GAIA image from base: %s", base_gaia_image)
+    mcp_result = build_gaia_mcp_layer(base_gaia_image, push=args.push)
+
+    if mcp_result.error:
+        logger.error("MCP layer build failed: %s", mcp_result.error)
+        return 1
+
+    logger.info(
+        "Successfully built MCP-enhanced GAIA image: %s",
+        mcp_result.tags[0] if mcp_result.tags else "unknown",
+    )
+    return 0
 
 
 if __name__ == "__main__":

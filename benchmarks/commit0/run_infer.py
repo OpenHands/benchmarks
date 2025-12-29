@@ -8,32 +8,32 @@ from commit0.harness.constants import SPLIT
 from datasets import load_dataset
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.commit0.build_images import (
+    extract_custom_tag,
+    get_base_docker_image,
+)
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 
 logger = get_logger(__name__)
-
-
-def get_docker_image(
-    repo_name: str, docker_image_prefix: str = "docker.io/wentingzhao/"
-) -> str:
-    """Get docker image for a commit0 repository."""
-    return (docker_image_prefix.rstrip("/") + "/" + repo_name).lower() + ":v0"
 
 
 def get_instruction(
@@ -159,19 +159,56 @@ class Commit0Evaluation(Evaluation):
         Create workspace and set up the commit0 repository.
         """
         repo_name = instance.data["repo"].split("/")[1]
-        base_docker_image = get_docker_image(repo_name)
+        base_docker_image = get_base_docker_image(repo_name)
+        build_target = "source-minimal"
         logger.info(f"Using base docker image: {base_docker_image}")
 
-        # Build agent-server image from base commit0 image
-        workspace = DockerDevWorkspace(
-            base_image=base_docker_image,
-            working_dir="/workspace",
-            target="source-minimal",
-            forward_env=forward_env or [],
-        )
-        logger.info(
-            f"Building workspace from {base_docker_image}. This may take a while..."
-        )
+        if self.metadata.workspace_type == "docker":
+            # Build agent-server image from base commit0 image
+            workspace = DockerDevWorkspace(
+                base_image=base_docker_image,
+                working_dir="/workspace",
+                target=build_target,
+                forward_env=forward_env or [],
+            )
+            logger.info(
+                f"Building workspace from {base_docker_image}. This may take a while..."
+            )
+        elif self.metadata.workspace_type == "remote":
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                )
+
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            custom_tag = extract_custom_tag(base_docker_image)
+            suffix = f"-{build_target}" if build_target != "binary" else ""
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+            )
+
+            if not image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry. "
+                    "Run 'benchmarks/commit0/build_images.py --push' to build and push it first."
+                )
+
+            logger.info(
+                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
+            )
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=os.getenv(
+                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                ),
+                runtime_api_key=runtime_api_key,
+                server_image=agent_server_image,
+                target_type="source" if "source" in build_target else "binary",
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
 
         # Clone the repository to the specific directory
         workspace_dir_name = instance.data["repo"].split("/")[1]
@@ -569,6 +606,7 @@ def main() -> None:
         critic=create_critic(args),
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        workspace_type=args.workspace,
     )
 
     evaluator = Commit0Evaluation(

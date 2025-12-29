@@ -477,12 +477,12 @@ class Evaluation(ABC, BaseModel):
                         logger.warning(
                             f"[child] Instance {instance.id} failed "
                             f"(attempt {retry_count}/{max_retries}): "
-                            f"{str(e)[:50]}"
+                            f"{str(e)}"
                         )
                     else:
                         logger.error(
                             f"[child] Instance {instance.id} failed after "
-                            f"{max_retries} retries. Last error: {str(e)[:50]}",
+                            f"{max_retries} retries. Last error: {str(e)}",
                             exc_info=True,
                         )
                         # Create error output for final failure
