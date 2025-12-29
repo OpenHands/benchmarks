@@ -8,6 +8,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -64,7 +65,22 @@ def _should_throttle_reset(
     return last > 0 and (now - last) < throttle_sec
 
 
-def _reset_buildkit(reset_kind: str) -> None:
+def _buildkit_prune_filters(
+    base_image: str | None, target_image: str | None
+) -> list[str]:
+    patterns = []
+    for value in (base_image, target_image):
+        if value:
+            patterns.append(re.escape(value))
+    if not patterns:
+        return []
+    pattern = "|".join(patterns)
+    return ["--filter", f"description~={pattern}"]
+
+
+def _reset_buildkit(
+    reset_kind: str, base_image: str | None, target_image: str | None
+) -> None:
     if os.getenv("BUILDKIT_RESET_ON_FAILURE", "1") == "0":
         return
     if reset_kind not in {"restart", "partial", "full"}:
@@ -99,20 +115,25 @@ def _reset_buildkit(reset_kind: str) -> None:
             )
             return
 
+        prune_filters = _buildkit_prune_filters(base_image, target_image)
         if reset_kind == "restart":
             cmds = [["docker", "buildx", "inspect", "--bootstrap"]]
         elif reset_kind == "partial":
             cmds = [
-                ["docker", "buildx", "prune", "--force"],
+                ["docker", "buildx", "prune", "--force", *prune_filters],
                 ["docker", "buildx", "inspect", "--bootstrap"],
             ]
         else:
             cmds = [
-                ["docker", "buildx", "prune", "--all", "--force"],
+                ["docker", "buildx", "prune", "--all", "--force", *prune_filters],
                 ["docker", "buildx", "inspect", "--bootstrap"],
             ]
 
-        logger.warning("Resetting buildx (%s) after BuildKit failure", reset_kind)
+        logger.warning(
+            "Resetting buildx (%s) after BuildKit failure%s",
+            reset_kind,
+            f\" with filters {prune_filters}\" if prune_filters else \"\",
+        )
         for cmd in cmds:
             proc = subprocess.run(cmd, text=True, capture_output=True)
             if proc.stdout:
@@ -129,13 +150,15 @@ def _reset_buildkit(reset_kind: str) -> None:
             pass
 
 
-def _maybe_reset_buildkit(attempt: int, max_retries: int) -> None:
+def _maybe_reset_buildkit(
+    base_image: str, target_image: str, attempt: int, max_retries: int
+) -> None:
     if attempt >= max_retries - 1:
         return
     if attempt == 0:
-        _reset_buildkit("partial")
+        _reset_buildkit("partial", base_image, target_image)
     else:
-        _reset_buildkit("full")
+        _reset_buildkit("full", base_image, target_image)
 
 
 class BuildOutput(BaseModel):
@@ -448,7 +471,7 @@ def _build_with_logging(
             result.log_path = str(log_path)
             if result.error:
                 logger.error("Build error for %s: %s", base_image, result.error)
-                _maybe_reset_buildkit(attempt, max_retries)
+                _maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                 if attempt == max_retries - 1:
                     logger.error("Max retries reached for %s. Giving up.", base_image)
                     return result
@@ -462,7 +485,9 @@ def _build_with_logging(
                     logger.error(
                         "Post-build error for %s: %s", base_image, result.error
                     )
-                    _maybe_reset_buildkit(attempt, max_retries)
+                    _maybe_reset_buildkit(
+                        base_image, target_image, attempt, max_retries
+                    )
                     if attempt == max_retries - 1:
                         logger.error(
                             "Max retries reached for %s. Giving up.", base_image
