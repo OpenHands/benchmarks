@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import time
 from argparse import ArgumentParser
 from pathlib import Path
@@ -24,11 +25,25 @@ from benchmarks.utils.models import (
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.critic import PassCritic
+from openhands.sdk.tool import Tool
 from openhands.sdk.workspace import LocalWorkspace
+from openhands.tools.file_editor import FileEditorTool
+from openhands.tools.glob import GlobTool
+from openhands.tools.grep import GrepTool
+from openhands.tools.planning_file_editor import PlanningFileEditorTool
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.terminal import TerminalTool
 
 
 logger = get_logger(__name__)
+
+TOOL_MAP = {
+    "grep": GrepTool,
+    "terminal": TerminalTool,
+    "glob": GlobTool,
+    "file_editor": FileEditorTool,
+    "planning_file_editor": PlanningFileEditorTool,
+}
 
 
 def get_parser():
@@ -49,6 +64,26 @@ def get_parser():
         required=True,
         help="Path of the prepared dataset JSONL file.",
     )
+    parser.add_argument(
+        "--system_prompt_file",
+        type=str,
+        default="",
+        help="System prompt jinja template file (defaults to OpenHands system prompt)",
+    )
+    parser.add_argument(
+        "--user_prompt_file",
+        type=str,
+        default=str(default_prompt_path),
+        help="User prompt jinja template file (defaults to prompts/file_module.j2)",
+    )
+    # accept list of tools as argument
+    parser.add_argument(
+        "--tools",
+        type=str,
+        nargs="*",
+        default=[],
+        help="List of tool names to enable for the agent (e.g.: grep, terminal, glob)",
+    )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
         "--llm-config-path",
@@ -65,7 +100,6 @@ def get_parser():
     parser.add_argument(
         "--num-workers", type=int, default=1, help="Number of evaluation workers"
     )
-    # parser.add_argument("--note", type=str, default="initial", help="Evaluation note")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -77,12 +111,6 @@ def get_parser():
         type=int,
         default=-1,
         help="Limit number of instances to evaluate",
-    )
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        help="Path to prompt template file",
     )
 
     parser.add_argument(
@@ -110,16 +138,21 @@ def get_parser():
 def get_instruction(instance: EvalInstance, metadata: EvalMetadata) -> str:
     working_dir = instance.data.get("repo_dir", "./")
     problem_statement = instance.data.get("problem_statement", "")
-    if metadata.prompt_path is not None:
-        prompts_dir = os.path.dirname(metadata.prompt_path)
-        template_name = os.path.basename(metadata.prompt_path)
-        env = Environment(loader=FileSystemLoader(prompts_dir))
-        template = env.get_template(template_name)
-        context = {"problem_statement": problem_statement, "working_dir": working_dir}
-        instruction = template.render(context)
-        return instruction
-    else:
-        raise ValueError("metadata.prompt_path is None")
+    user_prompt_path = (
+        metadata.details.get("user_prompt_file", None)
+        if isinstance(metadata.details, dict)
+        else None
+    )
+    if user_prompt_path is None:
+        raise ValueError("args.user_prompt_file is None")
+    user_prompt_path = os.path.abspath(user_prompt_path)
+    prompts_dir = os.path.dirname(user_prompt_path)
+    template_name = os.path.basename(user_prompt_path)
+    env = Environment(loader=FileSystemLoader(prompts_dir))
+    template = env.get_template(template_name)
+    context = {"problem_statement": problem_statement, "working_dir": working_dir}
+    instruction = template.render(context)
+    return instruction
 
 
 def f1_reward_function(predicted_set, true_set):
@@ -129,7 +162,7 @@ def f1_reward_function(predicted_set, true_set):
     precision = tp / len(predicted_set) if predicted_set else 0.0
     recall = tp / len(true_set) if true_set else 0.0
     if not predicted_set and not true_set:
-        return 1.0
+        return 0.0
     return (
         0.0
         if precision + recall == 0
@@ -368,29 +401,25 @@ class AgenticCodeSearchEvaluation(Evaluation):
             working_dir = Path(self.metadata.details["workspace_base_dir"]).resolve()
             # instance_dir_name = f"{repo_name.replace('/', '_')}_{instance_id}"
             # working_dir = output_dir / instance_dir_name
-            workspace = LocalWorkspace(working_dir=str(working_dir))
             repo_dir = working_dir / instance.id
             repo_dir = str(repo_dir)
+            # delete repo_dir if it already exists
+            try:
+                shutil.rmtree(repo_dir)
+            except Exception as _:
+                pass
+            # create repo_dir if it does not exist
+            os.makedirs(repo_dir, exist_ok=True)
+            workspace = LocalWorkspace(working_dir=repo_dir)
         else:
             raise NotImplementedError(f"Unsupported runtime type: {runtime_type}")
 
         base_commit_id = instance.data["base_commit"]
         instance.data["repo_dir"] = (
-            repo_dir  # pass repo_dir to instance data for later use
+            repo_dir  # pass repo_dir to instance.data for later use
         )
 
         # run environment setup commands for cloning repo
-        # remove working dir if it already exists
-        _ = workspace.execute_command(f"rm -rf {repo_dir}")
-        # assert rm_dir.exit_code == 0, (
-        #     f"Failed to remove existing working dir: {rm_dir.stderr}"
-        # )
-
-        # make new empty directory
-        mk_dir = workspace.execute_command(f"mkdir -p {repo_dir}")
-        assert mk_dir.exit_code == 0, (
-            f"Failed to create repo directory: {mk_dir.stderr}"
-        )
 
         # clone repo inside repo_dir
         repo_url = f"https://github.com/{repo_name}.git"
@@ -421,12 +450,43 @@ class AgenticCodeSearchEvaluation(Evaluation):
         eval_start_time = time.time()
         instruction = get_instruction(instance, self.metadata)
         # NOTE: the default condenser is LLM-based summarizer in get_default_agent, disabling it for now as done in SWE-Bench. This is why we make agent manually here.
-        tools = get_default_tools(enable_browser=False)
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
+        tool_names = (
+            self.metadata.details.get("tools", [])
+            if isinstance(self.metadata.details, dict)
+            else []
         )
+        if len(tool_names) > 0:
+            tools = []
+            for tool_name in tool_names:
+                if tool_name in TOOL_MAP:
+                    tools.append(Tool(name=TOOL_MAP[tool_name].name))
+                else:
+                    raise ValueError(
+                        f"Unsupported tool name: {tool_name}. Options are: {list(TOOL_MAP.keys())}"
+                    )
+        else:
+            tools = get_default_tools(enable_browser=False)
+        system_prompt_path = (
+            self.metadata.details.get("system_prompt_file", None)
+            if isinstance(self.metadata.details, dict)
+            else None
+        )
+        if system_prompt_path is None or system_prompt_path == "":
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+            )
+        else:
+            # get absolute path of system prompt file
+            system_prompt_path = os.path.abspath(system_prompt_path)
+            assert os.path.isfile(system_prompt_path), (
+                f"System prompt file {system_prompt_path} does not exist"
+            )
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_filename=str(system_prompt_path),
+            )
 
         def _log_event(ev):  # keep it simple
             logger.debug("Event: %s", ev)
@@ -517,8 +577,13 @@ def main():
         details={
             "runtime": args.runtime,
             "workspace_base_dir": args.workspace_base_dir,
+            "system_prompt_file": args.system_prompt_file
+            if args.system_prompt_file != ""
+            else None,
+            "user_prompt_file": args.user_prompt_file,
+            "tools": args.tools,
         },
-        prompt_path=args.prompt_path,
+        prompt_path="",
         eval_limit=args.n_limit,
         env_setup_commands=[],
         # max_attempts=args.max_attempts,

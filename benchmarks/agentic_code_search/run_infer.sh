@@ -1,8 +1,12 @@
 uv run python -m benchmarks.agentic_code_search.run_infer \
     --dataset_file gt_location.jsonl \
-    --llm-config-path .llm_config/example.json \
-    --max-iterations 5 \
+    --llm-config-path .llm_config/qwen3.json \
+    --system_prompt_file benchmarks/agentic_code_search/prompts/system_prompt.j2 \
+    --user_prompt_file benchmarks/agentic_code_search/prompts/file_module_short.j2 \
+    --tools terminal \
+    --max-iterations 10 \
     --num-workers 1 \
     --output-dir ./agentic_code_search_outputs \
     --n-limit 1 \
-    --runtime local
+    --runtime local \
+    --workspace_base_dir /tmp/testbed/
