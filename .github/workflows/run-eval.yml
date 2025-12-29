@@ -1,0 +1,118 @@
+name: Run Eval (SDK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: Benchmark to evaluate
+        required: false
+        default: swebench
+        type: choice
+        options:
+          - gaia
+          - swebench
+          - swtbench
+          - commit0
+          - openagentsafety
+      sdk_ref:
+        description: SDK commit/ref to evaluate
+        required: true
+        default: main
+      eval_limit:
+        description: Number of instances to run
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '50'
+          - '200'
+          - '500'
+      model_ids:
+        description: Comma-separated model IDs to evaluate. Must be keys of MODELS in resolve_model_config.py. Defaults to first model in that dict.
+        required: false
+        default: ''
+        type: string
+      reason:
+        description: Reason for manual trigger
+        required: false
+        default: ''
+      eval_branch:
+        description: Evaluation repo branch to use (for testing feature branches)
+        required: false
+        default: main
+        type: string
+      benchmarks_branch:
+        description: Benchmarks repo branch to use (for testing feature branches)
+        required: false
+        default: main
+        type: string
+      instance_ids:
+        description: Comma-separated instance IDs to evaluate (optional, overrides eval_limit for supported benchmarks)
+        required: false
+        default: ''
+      num_infer_workers:
+        description: Number of inference workers (optional, overrides benchmark default)
+        required: false
+        default: ''
+        type: string
+      num_eval_workers:
+        description: Number of evaluation workers (optional, overrides benchmark default)
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  dispatch-run-eval:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Dispatch run-eval workflow in software-agent-sdk
+        env:
+          PAT_TOKEN: ${{ secrets.ALLHANDS_BOT_GITHUB_PAT }}
+          SDK_REPO: OpenHands/software-agent-sdk
+          SDK_WORKFLOW: run-eval.yml
+          SDK_WORKFLOW_REF: main
+          BENCHMARK: ${{ github.event.inputs.benchmark }}
+          SDK_REF: ${{ github.event.inputs.sdk_ref }}
+          EVAL_LIMIT: ${{ github.event.inputs.eval_limit }}
+          MODEL_IDS: ${{ github.event.inputs.model_ids }}
+          REASON: ${{ github.event.inputs.reason }}
+          EVAL_BRANCH: ${{ github.event.inputs.eval_branch }}
+          BENCHMARKS_BRANCH: ${{ github.event.inputs.benchmarks_branch }}
+          INSTANCE_IDS: ${{ github.event.inputs.instance_ids }}
+          NUM_INFER_WORKERS: ${{ github.event.inputs.num_infer_workers }}
+          NUM_EVAL_WORKERS: ${{ github.event.inputs.num_eval_workers }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PAT_TOKEN" ]; then
+            echo "Missing ALLHANDS_BOT_GITHUB_PAT secret" >&2
+            exit 1
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg ref "$SDK_WORKFLOW_REF" \
+            --arg benchmark "$BENCHMARK" \
+            --arg sdk_ref "$SDK_REF" \
+            --arg eval_limit "$EVAL_LIMIT" \
+            --arg model_ids "$MODEL_IDS" \
+            --arg reason "$REASON" \
+            --arg eval_branch "$EVAL_BRANCH" \
+            --arg benchmarks_branch "$BENCHMARKS_BRANCH" \
+            --arg instance_ids "$INSTANCE_IDS" \
+            --arg num_infer_workers "$NUM_INFER_WORKERS" \
+            --arg num_eval_workers "$NUM_EVAL_WORKERS" \
+            '{ref: $ref, inputs: {benchmark: $benchmark, sdk_ref: $sdk_ref, eval_limit: $eval_limit, model_ids: $model_ids, reason: $reason, eval_branch: $eval_branch, benchmarks_branch: $benchmarks_branch, instance_ids: $instance_ids, num_infer_workers: $num_infer_workers, num_eval_workers: $num_eval_workers}}')
+
+          RESPONSE=$(curl -sS -o /tmp/dispatch.out -w "%{http_code}" -X POST \
+            -H "Authorization: token $PAT_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -d "$PAYLOAD" \
+            "https://api.github.com/repos/${SDK_REPO}/actions/workflows/${SDK_WORKFLOW}/dispatches")
+          if [ "$RESPONSE" != "204" ]; then
+            echo "Dispatch failed (status $RESPONSE):" >&2
+            cat /tmp/dispatch.out >&2
+            exit 1
+          fi
