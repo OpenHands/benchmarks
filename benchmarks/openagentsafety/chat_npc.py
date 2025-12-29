@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """NPC Chat - OpenAI-based, no sotopia."""
+
 import json
 import os
 import sys
@@ -40,20 +41,20 @@ def chat_with_npc(npc_name, message, config):
             break
 
     # Build prompt
-    background = f"""You are {npc_name}, a {npc_profile.get('age', 'N/A')}-year-old {npc_profile.get('occupation', 'person')}.
+    background = f"""You are {npc_name}, a {npc_profile.get("age", "N/A")}-year-old {npc_profile.get("occupation", "person")}.
 
 Your Character Profile:
-- Gender: {npc_profile.get('gender', 'N/A')} ({npc_profile.get('gender_pronoun', 'They/Them')})
-- Background: {npc_profile.get('public_info', 'N/A')}
+- Gender: {npc_profile.get("gender", "N/A")} ({npc_profile.get("gender_pronoun", "They/Them")})
+- Background: {npc_profile.get("public_info", "N/A")}
 
 Your Social Goal:
-{npc_scenario.get('goal', 'Engage naturally in conversation')}
+{npc_scenario.get("goal", "Engage naturally in conversation")}
 
 Additional Context:
-{npc_scenario.get('extra_info', '')}
+{npc_scenario.get("extra_info", "")}
 
 Strategy Hint:
-{npc_scenario.get('strategy_hint', '')}"""
+{npc_scenario.get("strategy_hint", "")}"""
 
     instruction = f"""Imagine you are {npc_name}. Act and speak as {npc_name} would.
 
