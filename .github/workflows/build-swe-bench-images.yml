@@ -203,6 +203,16 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
+      - name: Capture buildkitd log
+        if: always()
+        run: |
+          if [ -f /tmp/buildkitd.log ]; then
+            cp /tmp/buildkitd.log buildkitd.log
+            echo "Saved /tmp/buildkitd.log to buildkitd.log"
+          else
+            echo "No /tmp/buildkitd.log found"
+          fi
+
       - name: Archive build logs
         if: always()
         run: |
@@ -219,7 +229,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-${{ github.run_id }}
-          path: build-logs.tar.gz
+          path: |
+            build-logs.tar.gz
+            buildkitd.log
           retention-days: 7
           if-no-files-found: warn
 
