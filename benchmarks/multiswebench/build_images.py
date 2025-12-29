@@ -9,8 +9,11 @@ Example:
 """
 
 import os
+import tempfile
 from pathlib import Path
 
+from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
+from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -84,6 +87,15 @@ def get_base_images_from_dataset(
     selected_instances_file: str | None = None,
 ) -> list[str]:
     """Get all unique base images from the dataset."""
+    if dataset_name.startswith("ByteDance-Seed/Multi-SWE-bench"):
+        downloaded_path = download_and_concat_dataset(dataset_name, LANGUAGE)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        ) as temp_file:
+            formatted_path = temp_file.name
+        format_data_for_inference(downloaded_path, formatted_path)
+        dataset_name = formatted_path
+
     dataset = get_dataset(
         dataset_name,
         split,
