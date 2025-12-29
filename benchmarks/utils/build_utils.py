@@ -132,7 +132,7 @@ def _reset_buildkit(
         logger.warning(
             "Resetting buildx (%s) after BuildKit failure%s",
             reset_kind,
-            f\" with filters {prune_filters}\" if prune_filters else \"\",
+            f" with filters {prune_filters}" if prune_filters else "",
         )
         for cmd in cmds:
             proc = subprocess.run(cmd, text=True, capture_output=True)
