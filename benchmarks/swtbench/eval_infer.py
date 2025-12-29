@@ -25,6 +25,65 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
+def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
+    instance_ids: list[str] = []
+    seen = set()
+    with predictions_file.open("r") as infile:
+        for line_num, line in enumerate(infile, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "Skipping invalid JSON in predictions file line %s: %s",
+                    line_num,
+                    e,
+                )
+                continue
+            instance_id = data.get("instance_id")
+            if not instance_id:
+                logger.warning(
+                    "Skipping predictions file line %s without instance_id",
+                    line_num,
+                )
+                continue
+            if instance_id in seen:
+                continue
+            seen.add(instance_id)
+            instance_ids.append(instance_id)
+    return instance_ids
+
+
+def update_report_with_submitted_instances(
+    report_path: Path, predictions_path: Path
+) -> None:
+    if not report_path.exists():
+        raise FileNotFoundError(f"Report file not found for update: {report_path}")
+    if not predictions_path.exists():
+        raise FileNotFoundError(
+            f"Predictions file not found for update: {predictions_path}"
+        )
+
+    report = json.loads(report_path.read_text())
+    submitted_ids = _load_prediction_instance_ids(predictions_path)
+    report["submitted_instances"] = len(submitted_ids)
+    report["submitted_ids"] = submitted_ids
+
+    resolved_ids = report.get("resolved_ids")
+    unresolved_ids = report.get("unresolved_ids")
+    if isinstance(resolved_ids, list) and isinstance(unresolved_ids, list):
+        completed_ids = sorted(set(resolved_ids) | set(unresolved_ids))
+        report["completed_ids"] = completed_ids
+        report["completed_instances"] = len(completed_ids)
+
+    report_path.write_text(json.dumps(report, indent=4))
+    logger.info(
+        "Updated report with submitted_instances/submitted_ids: %s", report_path
+    )
+
+
 def convert_to_swtbench_format(
     input_file: str, output_file: str, model_name: str = "OpenHands"
 ) -> None:
@@ -319,6 +378,7 @@ Examples:
             target_file = target_dir / "output.report.json"
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
+            update_report_with_submitted_instances(target_file, output_file)
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
