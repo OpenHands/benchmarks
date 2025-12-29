@@ -127,13 +127,15 @@ def main():
     logger.info(f"Found {len(base_images)} unique base images")
 
     # Build all images
+    output_dir = args.output_dir
+    if output_dir == "./eval_outputs":
+        output_dir = None
+
     build_all_images(
         base_images=base_images,
         image=args.image,
         target=args.target,
-        build_dir=Path(
-            args.output_dir or default_build_output_dir(args.dataset, args.split)
-        ),
+        build_dir=Path(output_dir or default_build_output_dir(args.dataset, args.split)),
         max_workers=args.num_workers,
         dry_run=False,
     )
