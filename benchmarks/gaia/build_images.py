@@ -16,7 +16,6 @@ from pathlib import Path
 from benchmarks.utils.build_utils import (
     BuildOutput,
     _get_sdk_submodule_info,
-    apply_cache_mode,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
@@ -62,7 +61,6 @@ def build_gaia_mcp_layer(base_gaia_image: str, push: bool = False) -> BuildOutpu
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
     args = parser.parse_args(argv)
-    apply_cache_mode(args)
 
     # GAIA only needs one universal image for all instances
     base_images = [GAIA_BASE_IMAGE]

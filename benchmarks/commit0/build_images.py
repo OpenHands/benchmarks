@@ -14,7 +14,6 @@ import sys
 from commit0.harness.constants import SPLIT
 
 from benchmarks.utils.build_utils import (
-    apply_cache_mode,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
@@ -102,7 +101,6 @@ def main(argv: list[str]) -> int:
     )
     parser.set_defaults(dataset="wentingzhao/commit0_combined")
     args = parser.parse_args(argv)
-    apply_cache_mode(args)
 
     docker_image_prefix = args.docker_image_prefix or None
 

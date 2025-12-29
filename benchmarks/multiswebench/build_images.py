@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 
 from benchmarks.utils.build_utils import (
-    apply_cache_mode,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
@@ -94,7 +93,6 @@ def main():
     """Main entry point for building Multi-SWE-Bench images."""
     parser = get_build_parser()
     args = parser.parse_args()
-    apply_cache_mode(args)
 
     # Get base images from dataset
     base_images = get_base_images_from_dataset(args.dataset, args.split)

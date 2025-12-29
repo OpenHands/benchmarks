@@ -385,23 +385,9 @@ def get_build_parser() -> argparse.ArgumentParser:
         help="Zero-based batch index for large runs (-1 builds all batches)",
     )
     parser.add_argument(
-        "--cache-mode",
-        choices=["max", "min", "off"],
-        default=None,
-        help="Override buildx cache export mode (sets OPENHANDS_BUILDKIT_CACHE_MODE)",
-    )
-    parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
     return parser
-
-
-def apply_cache_mode(args: argparse.Namespace) -> None:
-    cache_mode = getattr(args, "cache_mode", None)
-    if not cache_mode:
-        return
-    os.environ["OPENHANDS_BUILDKIT_CACHE_MODE"] = cache_mode
-    logger.info("Using OPENHANDS_BUILDKIT_CACHE_MODE=%s", cache_mode)
 
 
 def build_image(

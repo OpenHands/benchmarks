@@ -11,7 +11,6 @@ Example:
 import sys
 
 from benchmarks.utils.build_utils import (
-    apply_cache_mode,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
@@ -70,7 +69,6 @@ def collect_unique_base_images(dataset, split, n_limit):
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
     args = parser.parse_args(argv)
-    apply_cache_mode(args)
 
     base_images: list[str] = collect_unique_base_images(
         args.dataset, args.split, args.n_limit
