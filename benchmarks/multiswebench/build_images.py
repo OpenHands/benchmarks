@@ -135,6 +135,7 @@ def main():
         base_images=base_images,
         image=args.image,
         target=args.target,
+        push=args.push,
         build_dir=Path(output_dir or default_build_output_dir(args.dataset, args.split)),
         max_workers=args.num_workers,
         dry_run=False,
