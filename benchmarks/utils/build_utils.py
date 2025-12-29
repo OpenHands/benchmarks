@@ -373,18 +373,6 @@ def get_build_parser() -> argparse.ArgumentParser:
         "--max-workers", type=int, default=1, help="Concurrent builds (be cautious)"
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=0,
-        help="Optional batch size for large runs (use with --batch-index)",
-    )
-    parser.add_argument(
-        "--batch-index",
-        type=int,
-        default=-1,
-        help="Zero-based batch index for large runs (-1 builds all batches)",
-    )
-    parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
     return parser
