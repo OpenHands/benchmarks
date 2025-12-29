@@ -60,11 +60,11 @@ def update_report_with_submitted_instances(
     report_path: Path, predictions_path: Path
 ) -> None:
     if not report_path.exists():
-        logger.warning("Report file not found for update: %s", report_path)
-        return
+        raise FileNotFoundError(f"Report file not found for update: {report_path}")
     if not predictions_path.exists():
-        logger.warning("Predictions file not found for update: %s", predictions_path)
-        return
+        raise FileNotFoundError(
+            f"Predictions file not found for update: {predictions_path}"
+        )
 
     report = json.loads(report_path.read_text())
     submitted_ids = _load_prediction_instance_ids(predictions_path)
