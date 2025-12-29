@@ -28,7 +28,7 @@ on:
       batch-size:
         description: 'Batch size for large builds (0 disables batching)'
         required: false
-        default: '100'
+        default: '50'
         type: string
       batch-index:
         description: 'Zero-based batch index (optional, overrides sequential batching)'
@@ -62,7 +62,7 @@ env:
   SPLIT: test
   MAX_WORKERS: '16'
   MAX_RETRIES: '5'
-  BATCH_SIZE: '100'
+  BATCH_SIZE: '50'
   BATCH_INDEX: ''
   N_LIMIT: '500'
   INSTANCE_IDS: ''
