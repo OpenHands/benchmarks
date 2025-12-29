@@ -18,7 +18,22 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '32'
+        default: '16'
+        type: string
+      max-retries:
+        description: 'Retries per image build'
+        required: false
+        default: '5'
+        type: string
+      batch-size:
+        description: 'Batch size for large builds (0 disables batching)'
+        required: false
+        default: '100'
+        type: string
+      batch-index:
+        description: 'Zero-based batch index (optional, overrides sequential batching)'
+        required: false
+        default: ''
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
@@ -45,7 +60,10 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '32'
+  MAX_WORKERS: '16'
+  MAX_RETRIES: '5'
+  BATCH_SIZE: '100'
+  BATCH_INDEX: ''
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
@@ -101,6 +119,9 @@ jobs:
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.batch-size }}" ]; then echo "BATCH_SIZE=${{ inputs.batch-size }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.batch-index }}" ]; then echo "BATCH_INDEX=${{ inputs.batch-index }}" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
@@ -169,6 +190,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Preflight Buildx cleanup for large builds
+        run: |
+          set -euo pipefail
+          RUN_PRUNE=0
+          if [ -z "${N_LIMIT}" ]; then
+            RUN_PRUNE=1
+          else
+            if [ "${N_LIMIT}" -ge 200 ] 2>/dev/null; then
+              RUN_PRUNE=1
+            fi
+          fi
+          if [ "${RUN_PRUNE}" -eq 1 ]; then
+            echo "Pruning buildx cache before large build"
+            docker buildx prune --all --force
+            docker buildx inspect --bootstrap
+          else
+            echo "Skipping buildx prune for small build"
+          fi
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -187,11 +227,18 @@ jobs:
             --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \
             --push \
-            --max-workers '${MAX_WORKERS}'"
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
 
           # Only include --n-limit if provided (non-empty)
           if [ -n "${N_LIMIT}" ]; then
             CMD="$CMD --n-limit '${N_LIMIT}'"
+          fi
+          if [ -n "${BATCH_SIZE}" ] && [ "${BATCH_SIZE}" -gt 0 ] 2>/dev/null; then
+            CMD="$CMD --batch-size '${BATCH_SIZE}'"
+          fi
+          if [ -n "${BATCH_INDEX}" ]; then
+            CMD="$CMD --batch-index '${BATCH_INDEX}'"
           fi
           if [ -n "${SELECT_FILE}" ]; then
             CMD="$CMD --select '${SELECT_FILE}'"
@@ -202,6 +249,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          BUILDKIT_RESET_ON_FAILURE: 1
 
       - name: Archive build logs
         if: always()

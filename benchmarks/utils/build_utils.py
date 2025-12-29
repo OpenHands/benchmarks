@@ -6,6 +6,8 @@ Shared utilities for batch building agent-server images.
 import argparse
 import contextlib
 import io
+import os
+import re
 import subprocess
 import sys
 import time
@@ -27,6 +29,65 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+_BUILDKIT_ERROR_PATTERNS = (
+    "frontend grpc server closed unexpectedly",
+    "failed to initialize client from environment",
+    "DeadlineExceeded",
+    "context deadline exceeded",
+)
+
+
+def _log_has_buildkit_failure(log_path: Path | None, max_lines: int = 200) -> bool:
+    if not log_path or not log_path.exists():
+        return False
+    try:
+        lines = log_path.read_text(errors="ignore").splitlines()
+    except Exception:
+        return False
+    haystack = "\n".join(lines[-max_lines:])
+    return any(pattern in haystack for pattern in _BUILDKIT_ERROR_PATTERNS)
+
+
+def _should_reset_buildkit(error: str | None, log_path: Path | None) -> bool:
+    if error:
+        for pattern in _BUILDKIT_ERROR_PATTERNS:
+            if pattern in error:
+                return True
+    return _log_has_buildkit_failure(log_path)
+
+
+def _reset_buildkit() -> None:
+    if os.getenv("BUILDKIT_RESET_ON_FAILURE", "1") == "0":
+        return
+
+    lock_path = Path(os.getenv("BUILDKIT_RESET_LOCK", "/tmp/buildkit-reset.lock"))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lock_file = lock_path.open("w")
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        except Exception:
+            # Best-effort locking; continue without it on unsupported platforms.
+            pass
+
+        logger.warning("Resetting buildx cache after BuildKit failure")
+        for cmd in (
+            ["docker", "buildx", "prune", "--all", "--force"],
+            ["docker", "buildx", "inspect", "--bootstrap"],
+        ):
+            proc = subprocess.run(cmd, text=True, capture_output=True)
+            if proc.stdout:
+                logger.info(proc.stdout.strip())
+            if proc.stderr:
+                logger.warning(proc.stderr.strip())
+    finally:
+        try:
+            lock_file.close()
+        except Exception:
+            pass
 
 
 class BuildOutput(BaseModel):
@@ -264,6 +325,24 @@ def get_build_parser() -> argparse.ArgumentParser:
         "--max-workers", type=int, default=1, help="Concurrent builds (be cautious)"
     )
     parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Retries per image build (default: 3)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=0,
+        help="Optional batch size for large runs (use with --batch-index)",
+    )
+    parser.add_argument(
+        "--batch-index",
+        type=int,
+        default=-1,
+        help="Zero-based batch index for large runs (-1 builds all batches)",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
     return parser
@@ -330,10 +409,19 @@ def _build_with_logging(
                     f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
                 )
                 time.sleep(2 + attempt * 2)
-            result = build_image(base_image, target_image, custom_tag, target, push)
+            try:
+                result = build_image(base_image, target_image, custom_tag, target, push)
+            except Exception as e:
+                result = BuildOutput(
+                    base_image=base_image, tags=[], error=repr(e), log_path=str(log_path)
+                )
             result.log_path = str(log_path)
             if result.error:
                 logger.error("Build error for %s: %s", base_image, result.error)
+                if attempt < max_retries - 1 and _should_reset_buildkit(
+                    result.error, log_path
+                ):
+                    _reset_buildkit()
                 if attempt == max_retries - 1:
                     logger.error("Max retries reached for %s. Giving up.", base_image)
                     return result

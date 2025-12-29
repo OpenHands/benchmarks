@@ -165,6 +165,64 @@ def main(argv: list[str]) -> int:
         args.n_limit,
         args.select,
     )
+    total_images = len(base_images)
+    if args.batch_size:
+        if args.batch_size < 1:
+            raise ValueError("batch-size must be >= 1")
+        num_batches = (total_images + args.batch_size - 1) // args.batch_size
+        if args.batch_index >= 0:
+            start = args.batch_index * args.batch_size
+            end = start + args.batch_size
+            if start >= total_images:
+                logger.info(
+                    "Batch %d is empty for %d images (batch-size=%d); skipping",
+                    args.batch_index,
+                    total_images,
+                    args.batch_size,
+                )
+                return 0
+            base_images = base_images[start:end]
+            logger.info(
+                "Building batch %d (%d:%d) of %d images",
+                args.batch_index,
+                start,
+                min(end, total_images),
+                total_images,
+            )
+            build_dir = default_build_output_dir(args.dataset, args.split) / (
+                f"batch-{args.batch_index:03d}"
+            )
+        else:
+            exit_code = 0
+            for batch_index in range(num_batches):
+                start = batch_index * args.batch_size
+                end = min(start + args.batch_size, total_images)
+                batch_images = base_images[start:end]
+                if not batch_images:
+                    continue
+                logger.info(
+                    "Building batch %d (%d:%d) of %d images",
+                    batch_index,
+                    start,
+                    end,
+                    total_images,
+                )
+                batch_dir = default_build_output_dir(args.dataset, args.split) / (
+                    f"batch-{batch_index:03d}"
+                )
+                exit_code |= build_all_images(
+                    base_images=batch_images,
+                    target=args.target,
+                    build_dir=batch_dir,
+                    image=args.image,
+                    push=args.push,
+                    max_workers=args.max_workers,
+                    dry_run=args.dry_run,
+                    max_retries=args.max_retries,
+                    base_image_to_custom_tag_fn=extract_custom_tag,
+                    post_build_fn=_wrap_if_needed,
+                )
+            return exit_code
     build_dir = default_build_output_dir(args.dataset, args.split)
 
     return build_all_images(
