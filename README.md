@@ -141,7 +141,7 @@ gh workflow run run-eval.yml --repo OpenHands/benchmarks --ref main \
 ```
 
 Inputs (forwarded to the SDK `run-eval.yml` workflow):
-- `benchmark`: Benchmark suite to run. Choices: `gaia`, `swebench`, `swtbench`, `commit0`, `openagentsafety`. Default: `swebench`.
+- `benchmark`: Benchmark suite to run. Choices: `gaia`, `swebench`, `swtbench`, `commit0`. Default: `swebench`.
 - `sdk_ref`: SDK commit, tag, or branch to evaluate. Default: `main`.
 - `eval_limit`: Number of instances to run. Choices: `1`, `50`, `200`, `500`. Default: `1`.
 - `model_ids`: Comma-separated model IDs (keys of `MODELS` in the SDK `.github/run-eval/resolve_model_config.py`). Empty uses the SDK default.
