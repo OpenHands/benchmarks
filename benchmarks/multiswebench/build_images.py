@@ -138,6 +138,7 @@ def main():
         build_dir=Path(output_dir or default_build_output_dir(args.dataset, args.split)),
         max_workers=args.num_workers,
         dry_run=False,
+        base_image_to_custom_tag_fn=extract_custom_tag,
     )
 
 
