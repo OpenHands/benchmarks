@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-SWE-Bench Evaluation Script
+SWE-Bench Multimodal Evaluation Script
 
 This script converts OpenHands output.jsonl format to SWE-Bench prediction format
-and runs the SWE-Bench evaluation.
+and runs the SWE-Bench Multimodal evaluation.
 
 Usage:
-    uv run swebench-eval <path_to_output.jsonl>
+    uv run swebenchmultimodal-eval <path_to_output.jsonl>
 """
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -111,20 +110,24 @@ def convert_to_swebench_format(
         raise ValueError("No valid entries were converted")
 
 
-def run_swebench_evaluation(
+def run_swebench_multimodal_evaluation(
     predictions_file: str,
-    dataset: str = "princeton-nlp/SWE-bench_Verified",
+    dataset: str = "princeton-nlp/SWE-bench_Multimodal",
+    split: str = "dev",
     workers: str = "12",
+    run_id: str | None = None,
 ) -> None:
     """
-    Run SWE-Bench evaluation on the predictions file.
+    Run SWE-Bench Multimodal evaluation on the predictions file.
 
     Args:
         predictions_file: Path to the SWE-Bench format predictions file
         dataset: SWE-Bench dataset to evaluate against
+        split: Dataset split to use (default: dev)
         workers: Number of workers to use for evaluation
+        run_id: Optional run ID for the evaluation
     """
-    logger.info(f"Running SWE-Bench evaluation on {predictions_file}")
+    logger.info(f"Running SWE-Bench Multimodal evaluation on {predictions_file}")
 
     try:
         # Get the directory of the predictions file
@@ -132,8 +135,12 @@ def run_swebench_evaluation(
         predictions_dir = predictions_path.parent
         predictions_filename = predictions_path.name
 
-        # Run SWE-Bench evaluation using global python (not UV environment)
-        # since swebench is installed globally
+        # Generate run_id if not provided
+        if run_id is None:
+            run_id = f"eval_{predictions_path.stem}"
+
+        # Run SWE-Bench Multimodal evaluation using UV environment
+        # The key difference from regular SWE-Bench is the --modal true flag
         cmd = [
             "uv",
             "run",
@@ -142,17 +149,21 @@ def run_swebench_evaluation(
             "swebench.harness.run_evaluation",
             "--dataset_name",
             dataset,
+            "--split",
+            split,
             "--predictions_path",
             predictions_filename,
             "--max_workers",
             str(workers),
+            "--modal",
+            "true",
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            run_id,
         ]
 
         logger.info(f"Running command: {' '.join(cmd)}")
         logger.info(f"Working directory: {predictions_dir}")
-        logger.info("SWE-Bench evaluation output:")
+        logger.info("SWE-Bench Multimodal evaluation output:")
         print("-" * 80)
 
         # Stream output directly to console, running from predictions file directory
@@ -160,10 +171,10 @@ def run_swebench_evaluation(
 
         print("-" * 80)
         if result.returncode == 0:
-            logger.info("SWE-Bench evaluation completed successfully")
+            logger.info("SWE-Bench Multimodal evaluation completed successfully")
         else:
             logger.error(
-                f"SWE-Bench evaluation failed with return code {result.returncode}"
+                f"SWE-Bench Multimodal evaluation failed with return code {result.returncode}"
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
 
@@ -174,20 +185,20 @@ def run_swebench_evaluation(
         )
         raise
     except Exception as e:
-        logger.error(f"Error running SWE-Bench evaluation: {e}")
+        logger.error(f"Error running SWE-Bench Multimodal evaluation: {e}")
         raise
 
 
 def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Convert OpenHands output to SWE-Bench format and run evaluation",
+        description="Convert OpenHands output to SWE-Bench format and run multimodal evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    uv run swebench-eval output.jsonl
-    uv run swebench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swebench-eval output.jsonl --model-name "MyModel-v1.0"
+    uv run swebenchmultimodal-eval output.jsonl
+    uv run swebenchmultimodal-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Multimodal
+    uv run swebenchmultimodal-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
@@ -195,9 +206,15 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Verified",
+        default="princeton-nlp/SWE-bench_Multimodal",
         help="SWE-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Verified)",
+        "(default: princeton-nlp/SWE-bench_Multimodal)",
+    )
+
+    parser.add_argument(
+        "--split",
+        default="dev",
+        help="Dataset split to use (default: dev)",
     )
 
     parser.add_argument(
@@ -224,6 +241,11 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
+    parser.add_argument(
+        "--run-id",
+        help="Run ID for the evaluation (default: eval_<output_filename>)",
+    )
+
     args = parser.parse_args()
 
     # Validate input file
@@ -244,6 +266,7 @@ Examples:
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
+    logger.info(f"Split: {args.split}")
     logger.info(f"Model name: {args.model_name}")
 
     try:
@@ -251,19 +274,10 @@ Examples:
         convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
 
         if not args.skip_evaluation:
-            # Run evaluation
-            run_swebench_evaluation(str(output_file), args.dataset, args.workers)
-
-            # Move report file to input file directory with .report.json extension
-            # SWE-Bench creates: {model_name.replace("/", "__")}.eval_{output_file.stem}.json
-            report_filename = (
-                f"{args.model_name.replace('/', '__')}.eval_{output_file.stem}.json"
+            # Run multimodal evaluation
+            run_swebench_multimodal_evaluation(
+                str(output_file), args.dataset, args.split, args.workers, args.run_id
             )
-            report_path = output_file.parent / report_filename
-            dest_report_path = input_file.with_suffix(".report.json")
-
-            shutil.move(str(report_path), str(dest_report_path))
-            logger.info(f"Moved report file to: {dest_report_path}")
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
