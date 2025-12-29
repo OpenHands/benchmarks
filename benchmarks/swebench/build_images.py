@@ -9,7 +9,6 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -167,12 +166,6 @@ def main(argv: list[str]) -> int:
         args.select,
     )
     total_images = len(base_images)
-    if "OPENHANDS_BUILDKIT_CACHE_MODE" not in os.environ and total_images >= 200:
-        os.environ["OPENHANDS_BUILDKIT_CACHE_MODE"] = "min"
-        logger.info(
-            "Large run (%d images); using OPENHANDS_BUILDKIT_CACHE_MODE=min",
-            total_images,
-        )
     if args.batch_size:
         if args.batch_size < 1:
             raise ValueError("batch-size must be >= 1")
