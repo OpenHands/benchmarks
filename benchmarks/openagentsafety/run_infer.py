@@ -12,7 +12,10 @@ import pandas as pd
 import requests
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.openagentsafety.build_images import build_workspace_image
+from benchmarks.openagentsafety.build_images import (
+    build_workspace_image,
+    resolve_openagentsafety_image_tag,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -26,6 +29,16 @@ from openhands.workspace import DockerWorkspace
 
 
 logger = get_logger(__name__)
+
+
+def _resolve_server_image() -> str:
+    """Resolve the OpenAgentSafety agent-server image tag."""
+    image_override = os.getenv("OPENAGENTSAFETY_IMAGE")
+    target_override = os.getenv("OPENAGENTSAFETY_TARGET")
+    return resolve_openagentsafety_image_tag(
+        image=image_override or None,
+        target=target_override or None,
+    )
 
 
 def convert_numpy_types(obj: Any) -> Any:
@@ -361,7 +374,21 @@ class OpenAgentSafetyEvaluation(Evaluation):
 
     def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
         """Create a fresh Docker workspace for this instance."""
-        server_image = build_workspace_image()
+        server_image = None
+        if self.metadata.details:
+            server_image = self.metadata.details.get("server_image")
+        if not server_image:
+            server_image = _resolve_server_image()
+
+        skip_build = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
+        logger.info("SKIP_BUILD=%s", skip_build)
+        if not skip_build:
+            image_override = os.getenv("OPENAGENTSAFETY_IMAGE")
+            target_override = os.getenv("OPENAGENTSAFETY_TARGET")
+            server_image = build_workspace_image(
+                image=image_override or None,
+                target=target_override or None,
+            )
 
         workspace = DockerWorkspace(
             server_image=server_image,
@@ -546,7 +573,7 @@ def main() -> None:
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
         details={
-            "server_image": "openagentsafety-agent-server:local",
+            "server_image": _resolve_server_image(),
             "platform": "linux/amd64",
         },
         eval_limit=args.n_limit,
