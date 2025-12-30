@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from benchmarks.utils.report import SwebenchReport, load_jsonl
+from benchmarks.utils.report import GaiaReport, load_jsonl, write_report
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -47,7 +47,7 @@ def _error_output_path(input_file: Path) -> Path:
     return Path(str(input_file).replace(".jsonl", "_errors.jsonl"))
 
 
-def build_gaia_report(input_file: Path) -> SwebenchReport:
+def build_gaia_report(input_file: Path, model_name: str) -> GaiaReport:
     output_rows = load_jsonl(input_file)
     error_rows: list[dict[str, Any]] = []
 
@@ -92,20 +92,27 @@ def build_gaia_report(input_file: Path) -> SwebenchReport:
         seen_ids.add(instance_id)
         error_ids.append(instance_id)
 
-    total_instances = _read_eval_limit(input_file)
-    if total_instances is None:
-        total_instances = len(completed_ids) + len(error_ids)
-
     submitted_ids = completed_ids + error_ids
+    eval_limit = _read_eval_limit(input_file)
+    total_instances = eval_limit if eval_limit is not None else len(submitted_ids)
 
-    return SwebenchReport.from_ids(
+    return GaiaReport(
+        model_name_or_path=model_name,
         total_instances=total_instances,
+        submitted_instances=len(submitted_ids),
+        completed_instances=len(completed_ids),
+        incomplete_instances=len(error_ids),
+        resolved_instances=len(resolved_ids),
+        unresolved_instances=len(unresolved_ids),
+        empty_patch_instances=0,
+        error_instances=len(error_ids),
+        submitted_ids=submitted_ids,
         completed_ids=completed_ids,
+        incomplete_ids=error_ids,
         resolved_ids=resolved_ids,
         unresolved_ids=unresolved_ids,
         error_ids=error_ids,
-        submitted_ids=submitted_ids,
-        empty_patch_ids=[],
+        eval_limit=eval_limit,
     )
 
 
@@ -158,7 +165,7 @@ Examples:
     logger.info("Model name: %s", args.model_name)
 
     try:
-        report = build_gaia_report(input_file)
+        report = build_gaia_report(input_file, args.model_name)
         logger.info(
             "Report summary: total=%d submitted=%d resolved=%d unresolved=%d errors=%d",
             report.total_instances,
@@ -167,9 +174,14 @@ Examples:
             report.unresolved_instances,
             report.error_instances,
         )
+        if report.completed_instances > 0:
+            logger.info(
+                "Success rate: %.1f%%",
+                report.resolved_instances / report.completed_instances * 100,
+            )
 
         if not args.skip_report:
-            report.save(output_file)
+            write_report(output_file, report)
             logger.info("Report generated successfully")
 
         generate_cost_report(str(input_file))

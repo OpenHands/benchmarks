@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
-from benchmarks.utils.report import SwebenchReport
+from benchmarks.utils.report import SwtbenchReport, write_report
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -26,8 +26,9 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
+def _load_prediction_metadata(predictions_file: Path) -> tuple[list[str], list[str]]:
     instance_ids: list[str] = []
+    empty_patch_ids: list[str] = []
     seen = set()
     with predictions_file.open("r") as infile:
         for line_num, line in enumerate(infile, 1):
@@ -54,11 +55,14 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
                 continue
             seen.add(instance_id)
             instance_ids.append(instance_id)
-    return instance_ids
+            model_patch = data.get("model_patch", "")
+            if not model_patch:
+                empty_patch_ids.append(instance_id)
+    return instance_ids, empty_patch_ids
 
 
-def update_report_with_submitted_instances(
-    report_path: Path, predictions_path: Path
+def normalize_swtbench_report(
+    report_path: Path, predictions_path: Path, model_name: str
 ) -> None:
     if not report_path.exists():
         raise FileNotFoundError(f"Report file not found for update: {report_path}")
@@ -67,22 +71,42 @@ def update_report_with_submitted_instances(
             f"Predictions file not found for update: {predictions_path}"
         )
 
-    report = json.loads(report_path.read_text())
-    submitted_ids = _load_prediction_instance_ids(predictions_path)
-    report["submitted_instances"] = len(submitted_ids)
-    report["submitted_ids"] = submitted_ids
+    report_data = json.loads(report_path.read_text())
+    submitted_ids, empty_patch_ids = _load_prediction_metadata(predictions_path)
 
-    resolved_ids = report.get("resolved_ids")
-    unresolved_ids = report.get("unresolved_ids")
-    if isinstance(resolved_ids, list) and isinstance(unresolved_ids, list):
+    resolved_ids = report_data.get("resolved_ids") or []
+    unresolved_ids = report_data.get("unresolved_ids") or []
+    completed_ids = report_data.get("completed_ids")
+    if not isinstance(completed_ids, list):
         completed_ids = sorted(set(resolved_ids) | set(unresolved_ids))
-        report["completed_ids"] = completed_ids
-        report["completed_instances"] = len(completed_ids)
+    error_ids = report_data.get("error_ids") or []
 
-    report_path.write_text(json.dumps(report, indent=4))
-    logger.info(
-        "Updated report with submitted_instances/submitted_ids: %s", report_path
+    report = SwtbenchReport(
+        model_name_or_path=model_name,
+        total_instances=report_data.get("total_instances", len(submitted_ids)),
+        submitted_instances=len(submitted_ids),
+        completed_instances=report_data.get("completed_instances", len(completed_ids)),
+        resolved_instances=report_data.get("resolved_instances", len(resolved_ids)),
+        unresolved_instances=report_data.get("unresolved_instances", len(unresolved_ids)),
+        empty_patch_instances=len(empty_patch_ids),
+        error_instances=report_data.get("error_instances", len(error_ids)),
+        submitted_ids=submitted_ids,
+        completed_ids=completed_ids,
+        resolved_ids=resolved_ids,
+        unresolved_ids=unresolved_ids,
+        empty_patch_ids=empty_patch_ids,
+        error_ids=error_ids,
+        mean_coverage=report_data.get("Mean coverage", report_data.get("mean_coverage")),
+        mean_coverage_delta=report_data.get(
+            "Mean coverage delta", report_data.get("mean_coverage_delta")
+        ),
+        unstopped_instances=report_data.get("unstopped_instances"),
+        unstopped_containers=report_data.get("unstopped_containers", []),
+        unremoved_images=report_data.get("unremoved_images", []),
     )
+
+    write_report(report_path, report)
+    logger.info("Standardized report written to: %s", report_path)
 
 
 def convert_to_swtbench_format(
@@ -384,11 +408,7 @@ Examples:
             target_file = target_dir / "output.report.json"
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
-            update_report_with_submitted_instances(target_file, output_file)
-            report_data = json.loads(target_file.read_text(encoding="utf-8"))
-            normalized_report = SwebenchReport.from_swtbench_report(report_data)
-            normalized_report.save(target_file)
-            logger.info("Wrote evaluation report to: %s", target_file)
+            normalize_swtbench_report(target_file, output_file, args.model_name)
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))

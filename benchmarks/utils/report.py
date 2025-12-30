@@ -2,15 +2,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# Metric references:
+# - SWE-bench report format: https://github.com/princeton-nlp/SWE-bench/blob/main/swebench/harness/reporting.py
+# - SWT-bench resolution logic: https://github.com/logic-star-ai/swt-bench/blob/master/src/grading.py
+# - SWT-bench report aggregates: https://github.com/logic-star-ai/swt-bench/blob/master/src/run_evaluation.py
+# - Commit0 evaluation (average pass rate): https://github.com/commit-0/commit0/blob/main/commit0/harness/evaluate.py
+# - GAIA accuracy definition: https://arxiv.org/abs/2311.12983
+# - GAIA dataset: https://huggingface.co/datasets/gaia-benchmark/GAIA
+
+ReportT = TypeVar("ReportT", bound=BaseModel)
 
 
 class SwebenchReport(BaseModel):
     """SWE-bench compatible evaluation summary."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    model_name_or_path: str | None = None
 
     total_instances: int = Field(
         ge=0, description="Total number of instances in the benchmark split."
@@ -32,6 +44,11 @@ class SwebenchReport(BaseModel):
     )
     error_instances: int = Field(
         ge=0, description="Number of instances that failed with errors."
+    )
+    incomplete_instances: int | None = Field(
+        default=None,
+        ge=0,
+        description="Number of instances that did not complete (optional).",
     )
 
     completed_ids: list[str] = Field(
@@ -57,6 +74,11 @@ class SwebenchReport(BaseModel):
         default_factory=list, description="Instance IDs that failed with errors."
     )
 
+    schema_version: int | None = 2
+    unstopped_instances: int | None = None
+    unstopped_containers: list[str] = Field(default_factory=list)
+    unremoved_images: list[str] = Field(default_factory=list)
+
     @classmethod
     def from_ids(
         cls,
@@ -69,6 +91,7 @@ class SwebenchReport(BaseModel):
         error_ids: Sequence[str] | None = None,
         submitted_ids: Sequence[str] | None = None,
         incomplete_ids: Sequence[str] | None = None,
+        model_name_or_path: str | None = None,
     ) -> "SwebenchReport":
         empty_patch_ids_list = list(empty_patch_ids or [])
         error_ids_list = list(error_ids or [])
@@ -83,6 +106,7 @@ class SwebenchReport(BaseModel):
         incomplete_ids_list = list(incomplete_ids or [])
 
         return cls(
+            model_name_or_path=model_name_or_path,
             total_instances=total_instances,
             submitted_instances=len(submitted_ids_list),
             completed_instances=len(completed_ids_list),
@@ -90,6 +114,9 @@ class SwebenchReport(BaseModel):
             unresolved_instances=len(unresolved_ids_list),
             empty_patch_instances=len(empty_patch_ids_list),
             error_instances=len(error_ids_list),
+            incomplete_instances=(
+                len(incomplete_ids_list) if incomplete_ids_list else None
+            ),
             completed_ids=completed_ids_list,
             incomplete_ids=incomplete_ids_list,
             submitted_ids=submitted_ids_list,
@@ -122,8 +149,41 @@ class SwebenchReport(BaseModel):
 
     def save(self, path: str | Path) -> None:
         output_path = Path(path)
-        with output_path.open("w", encoding="utf-8") as f:
-            json.dump(self.model_dump(), f, indent=2)
+        output_path.write_text(
+            self.model_dump_json(indent=4, by_alias=True, exclude_none=True)
+        )
+
+
+class Commit0InstanceMetrics(BaseModel):
+    num_tests: int
+    num_passed: int
+    pass_rate: float
+
+
+class Commit0Report(SwebenchReport):
+    total_tests: int
+    total_passed_tests: int
+    instance_metrics: dict[str, Commit0InstanceMetrics] = Field(default_factory=dict)
+    average_pass_rate: float | None = None
+
+
+class GaiaReport(SwebenchReport):
+    eval_limit: int | None = None
+
+
+class SwtbenchReport(SwebenchReport):
+    mean_coverage: float | None = Field(default=None, alias="Mean coverage")
+    mean_coverage_delta: float | None = Field(default=None, alias="Mean coverage delta")
+
+
+def write_report(path: Path, report: BaseModel, *, by_alias: bool = True) -> None:
+    path.write_text(
+        report.model_dump_json(indent=4, by_alias=by_alias, exclude_none=True)
+    )
+
+
+def read_report(path: Path, model: type[ReportT]) -> ReportT:
+    return model.model_validate_json(path.read_text())
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
