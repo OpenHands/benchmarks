@@ -176,25 +176,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Preflight Buildx cleanup for large builds
-        run: |
-          set -euo pipefail
-          RUN_PRUNE=0
-          if [ -z "${N_LIMIT}" ]; then
-            RUN_PRUNE=1
-          else
-            if [ "${N_LIMIT}" -ge 200 ] 2>/dev/null; then
-              RUN_PRUNE=1
-            fi
-          fi
-          if [ "${RUN_PRUNE}" -eq 1 ]; then
-            echo "Pruning buildx cache before large build"
-            docker buildx prune --all --force
-            docker buildx inspect --bootstrap
-          else
-            echo "Skipping buildx prune for small build"
-          fi
-
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
