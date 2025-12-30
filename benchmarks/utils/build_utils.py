@@ -460,7 +460,10 @@ def _build_with_logging(
                 result = build_image(base_image, target_image, custom_tag, target, push)
             except Exception as e:
                 result = BuildOutput(
-                    base_image=base_image, tags=[], error=repr(e), log_path=str(log_path)
+                    base_image=base_image,
+                    tags=[],
+                    error=repr(e),
+                    log_path=str(log_path),
                 )
             result.log_path = str(log_path)
             if result.error:
