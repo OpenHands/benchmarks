@@ -19,7 +19,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from benchmarks.utils.report import SwebenchReport, load_jsonl, write_report
+from benchmarks.swebench.report import SwebenchReport
+from benchmarks.utils.report import load_jsonl, write_report
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
