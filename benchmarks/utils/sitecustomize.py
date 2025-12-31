@@ -19,6 +19,7 @@ so no extra wiring is needed.
 from __future__ import annotations
 
 import json
+import time
 import traceback
 
 
@@ -52,8 +53,50 @@ def _patch_modal_sklearn_install_flag() -> None:
     return
 
 
+def _patch_modal_sandbox_cgroup_retry() -> None:
+    try:
+        from swebench.harness.modal_eval import run_evaluation_modal as mod
+    except Exception:
+        return
+
+    runtime_cls = getattr(mod, "ModalSandboxRuntime", None)
+    if runtime_cls is None:
+        return
+
+    original_write_file = runtime_cls.write_file
+    if getattr(original_write_file, "_benchmarks_retry_patch", False):
+        return
+
+    try:
+        from modal.exception import FilesystemExecutionError
+    except Exception:
+        FilesystemExecutionError = Exception
+
+    def write_file_with_retry(self, file_path: str, content: str):
+        target_path = "/sys/fs/cgroup/cpu/cpu.shares"
+        attempts = 5
+        delay = 1.0
+        path_str = str(file_path)
+        for attempt in range(1, attempts + 1):
+            try:
+                return original_write_file(self, file_path, content)
+            except Exception as exc:
+                if path_str != target_path or not isinstance(
+                    exc, FilesystemExecutionError
+                ):
+                    raise
+                if attempt == attempts:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 10.0)
+
+    write_file_with_retry._benchmarks_retry_patch = True
+    runtime_cls.write_file = write_file_with_retry
+
+
 def _apply_modal_logging_patch() -> None:
     _patch_modal_sklearn_install_flag()
+    _patch_modal_sandbox_cgroup_retry()
 
     try:
         # Import inside the function so this file is harmless for non-SWE-Bench runs.
@@ -83,90 +126,188 @@ def _apply_modal_logging_patch() -> None:
         write run_instance.log + report.json so scoring can surface the error.
         """
         test_specs = list(map(make_test_spec, instances))
+        max_attempts = 3
+        attempt = 0
+        backoff = 5.0
+        try:
+            import modal as modal_pkg
 
-        with mod.modal.enable_output():
-            with mod.app.run():
-                run_test_specs = []
+            client_closed_exc = getattr(
+                getattr(modal_pkg, "exception", None), "ClientClosed", None
+            )
+        except Exception:
+            client_closed_exc = None
 
-                # Skip any instances that already have logs.
-                for test_spec in test_specs:
-                    log_dir = get_log_dir(
-                        predictions[test_spec.instance_id],
-                        run_id,
-                        test_spec.instance_id,
-                    )
-                    if log_dir.exists():
+        def is_client_closed_error(error: Exception) -> bool:
+            if client_closed_exc is not None and isinstance(error, client_closed_exc):
+                return True
+            return "ClientClosed" in str(error)
+
+        while True:
+            run_test_specs = []
+
+            # Skip any instances that already have logs.
+            for test_spec in test_specs:
+                log_dir = get_log_dir(
+                    predictions[test_spec.instance_id],
+                    run_id,
+                    test_spec.instance_id,
+                )
+                if log_dir.exists():
+                    continue
+                run_test_specs.append(test_spec)
+
+            if not run_test_specs:
+                break
+
+            attempt += 1
+            client_closed_specs = []
+            try:
+                with mod.modal.enable_output():
+                    with mod.app.run():
+                        results = mod.run_instance_modal.starmap(
+                            [
+                                (
+                                    test_spec,
+                                    predictions[test_spec.instance_id],
+                                    run_id,
+                                    timeout,
+                                )
+                                for test_spec in run_test_specs
+                            ],
+                            return_exceptions=True,
+                        )
+
+                        for test_spec, result in zip(run_test_specs, results):
+                            pred = predictions[test_spec.instance_id]
+                            log_dir = get_log_dir(pred, run_id, test_spec.instance_id)
+                            log_dir.mkdir(parents=True, exist_ok=True)
+
+                            if isinstance(result, TestOutput):
+                                # Normal path: write logs exactly as upstream does.
+                                with open(log_dir / "run_instance.log", "w") as f:
+                                    f.write(result.run_instance_log)
+                                with open(log_dir / "test_output.txt", "w") as f:
+                                    f.write(result.test_output)
+                                with open(log_dir / "patch.diff", "w") as f:
+                                    f.write(result.patch_diff)
+                                if result.report_json_str:
+                                    try:
+                                        parsed = json.loads(result.report_json_str)
+                                        (log_dir / "report.json").write_text(
+                                            json.dumps(parsed, indent=4)
+                                        )
+                                    except Exception:
+                                        # Best-effort write if JSON is malformed.
+                                        (log_dir / "report.json").write_text(
+                                            result.report_json_str
+                                        )
+                            else:
+                                if is_client_closed_error(result):
+                                    client_closed_specs.append((test_spec, result))
+                                    continue
+                                # Exception path: persist a minimal log + report so scoring sees it.
+                                log_file = log_dir / "run_instance.log"
+                                logger = setup_logger(
+                                    test_spec.instance_id, log_file, add_stdout=False
+                                )
+                                logger.error(
+                                    "Modal run failed before producing TestOutput: %s",
+                                    result,
+                                )
+                                logger.error(
+                                    "Traceback:\n%s",
+                                    "".join(traceback.format_exception(result)),
+                                )
+
+                                # Save the attempted patch for debugging.
+                                (log_dir / "patch.diff").write_text(
+                                    pred.get("model_patch", "")
+                                )
+
+                                error_msg = f"Modal error: {result}"
+                                report = {
+                                    test_spec.instance_id: {
+                                        "resolved": False,
+                                        "error": error_msg,
+                                    }
+                                }
+                                (log_dir / "report.json").write_text(
+                                    json.dumps(report, indent=4)
+                                )
+                if client_closed_specs:
+                    if attempt < max_attempts:
+                        time.sleep(backoff)
+                        backoff = min(backoff * 2, 60.0)
                         continue
-                    run_test_specs.append(test_spec)
-
-                if run_test_specs:
-                    results = mod.run_instance_modal.starmap(
-                        [
-                            (
-                                test_spec,
-                                predictions[test_spec.instance_id],
-                                run_id,
-                                timeout,
-                            )
-                            for test_spec in run_test_specs
-                        ],
-                        return_exceptions=True,
-                    )
-
-                    for test_spec, result in zip(run_test_specs, results):
+                    for test_spec, result in client_closed_specs:
                         pred = predictions[test_spec.instance_id]
                         log_dir = get_log_dir(pred, run_id, test_spec.instance_id)
+                        if log_dir.exists():
+                            continue
                         log_dir.mkdir(parents=True, exist_ok=True)
-
-                        if isinstance(result, TestOutput):
-                            # Normal path: write logs exactly as upstream does.
-                            with open(log_dir / "run_instance.log", "w") as f:
-                                f.write(result.run_instance_log)
-                            with open(log_dir / "test_output.txt", "w") as f:
-                                f.write(result.test_output)
-                            with open(log_dir / "patch.diff", "w") as f:
-                                f.write(result.patch_diff)
-                            if result.report_json_str:
-                                try:
-                                    parsed = json.loads(result.report_json_str)
-                                    (log_dir / "report.json").write_text(
-                                        json.dumps(parsed, indent=4)
-                                    )
-                                except Exception:
-                                    # Best-effort write if JSON is malformed.
-                                    (log_dir / "report.json").write_text(
-                                        result.report_json_str
-                                    )
-                        else:
-                            # Exception path: persist a minimal log + report so scoring sees it.
-                            log_file = log_dir / "run_instance.log"
-                            logger = setup_logger(
-                                test_spec.instance_id, log_file, add_stdout=False
-                            )
-                            logger.error(
-                                "Modal run failed before producing TestOutput: %s",
-                                result,
-                            )
-                            logger.error(
-                                "Traceback:\n%s",
-                                "".join(traceback.format_exception(result)),
-                            )
-
-                            # Save the attempted patch for debugging.
-                            (log_dir / "patch.diff").write_text(
-                                pred.get("model_patch", "")
-                            )
-
-                            error_msg = f"Modal error: {result}"
-                            report = {
-                                test_spec.instance_id: {
-                                    "resolved": False,
-                                    "error": error_msg,
-                                }
+                        log_file = log_dir / "run_instance.log"
+                        logger = setup_logger(
+                            test_spec.instance_id, log_file, add_stdout=False
+                        )
+                        logger.error(
+                            "Modal client closed during image build/sandbox create: %s",
+                            result,
+                        )
+                        (log_dir / "patch.diff").write_text(
+                            pred.get("model_patch", "")
+                        )
+                        report = {
+                            test_spec.instance_id: {
+                                "resolved": False,
+                                "error": (
+                                    "Modal client closed during image build/sandbox "
+                                    f"create: {result}"
+                                ),
                             }
-                            (log_dir / "report.json").write_text(
-                                json.dumps(report, indent=4)
-                            )
+                        }
+                        (log_dir / "report.json").write_text(
+                            json.dumps(report, indent=4)
+                        )
+                    break
+            except Exception as exc:
+                is_client_closed = is_client_closed_error(exc)
+
+                if is_client_closed and attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 60.0)
+                    continue
+
+                if is_client_closed:
+                    for test_spec in run_test_specs:
+                        pred = predictions[test_spec.instance_id]
+                        log_dir = get_log_dir(pred, run_id, test_spec.instance_id)
+                        if log_dir.exists():
+                            continue
+                        log_dir.mkdir(parents=True, exist_ok=True)
+                        log_file = log_dir / "run_instance.log"
+                        logger = setup_logger(
+                            test_spec.instance_id, log_file, add_stdout=False
+                        )
+                        logger.error(
+                            "Modal client closed during image build/sandbox create: %s",
+                            exc,
+                        )
+                        (log_dir / "patch.diff").write_text(
+                            pred.get("model_patch", "")
+                        )
+                        report = {
+                            test_spec.instance_id: {
+                                "resolved": False,
+                                "error": f"Modal client closed: {exc}",
+                            }
+                        }
+                        (log_dir / "report.json").write_text(
+                            json.dumps(report, indent=4)
+                        )
+                    break
+
+                raise
 
         # Always build the aggregate report (upstream behavior).
         make_run_report(predictions, full_dataset, run_id)
@@ -181,6 +322,14 @@ def _apply_modal_logging_patch() -> None:
     except Exception:
         # If run_evaluation isn't available yet, skip—sitecustomize will have
         # already patched the modal module itself.
+        pass
+    try:
+        # modal_eval re-exports run_instances_modal; update the package export too.
+        import swebench.harness.modal_eval as modal_eval_pkg
+
+        modal_eval_pkg.run_instances_modal = run_instances_modal_with_logging
+    except Exception:
+        # Keep best-effort behavior if the package import fails.
         pass
 
 
