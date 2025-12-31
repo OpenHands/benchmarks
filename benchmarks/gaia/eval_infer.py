@@ -124,7 +124,7 @@ def main() -> None:
 Examples:
     uv run gaia-eval output.jsonl
     uv run gaia-eval /path/to/output.jsonl
-    uv run gaia-eval output.jsonl --output-file report.json
+    uv run gaia-eval output.jsonl --output-file output.report.json
         """,
     )
     parser.add_argument("input_file", help="Path to the GAIA output.jsonl file")
