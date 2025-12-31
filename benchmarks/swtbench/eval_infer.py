@@ -21,7 +21,6 @@ from pydantic import Field
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.swebench.eval_infer import SwebenchReport
-from benchmarks.utils.report import write_report
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -113,7 +112,9 @@ def normalize_swtbench_report(
         unremoved_images=report_data.get("unremoved_images", []),
     )
 
-    write_report(report_path, report)
+    report_path.write_text(
+        report.model_dump_json(indent=4, by_alias=True, exclude_none=True)
+    )
     logger.info("Standardized report written to: %s", report_path)
 
 

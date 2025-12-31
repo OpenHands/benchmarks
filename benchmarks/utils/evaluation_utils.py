@@ -3,7 +3,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-from typing import Callable
+from pathlib import Path
+from typing import Any, Callable
 
 from benchmarks.utils.models import EvalInstance, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
@@ -135,3 +136,17 @@ def generate_error_logs_summary(eval_output_dir: str) -> None:
         )
     except Exception as e:
         logger.warning(f"Failed to generate ERROR_LOGS.txt: {e}")
+
+
+def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    input_path = Path(path)
+    if not input_path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with input_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows

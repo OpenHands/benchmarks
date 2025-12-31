@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.swebench.eval_infer import SwebenchReport
-from benchmarks.utils.report import load_jsonl, write_report
+from benchmarks.utils.evaluation_utils import load_jsonl
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -186,7 +186,9 @@ Examples:
             )
 
         if not args.skip_report:
-            write_report(output_file, report)
+            output_file.write_text(
+                report.model_dump_json(indent=4, by_alias=True, exclude_none=True)
+            )
             logger.info("Report generated successfully")
 
         generate_cost_report(str(input_file))

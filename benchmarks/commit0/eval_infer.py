@@ -18,7 +18,6 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from benchmarks.swebench.eval_infer import SwebenchReport
-from benchmarks.utils.report import write_report
 from benchmarks.utils.report_costs import generate_cost_report
 
 
@@ -174,7 +173,9 @@ def process_commit0_results(
         average_pass_rate=average_pass_rate,
     )
 
-    write_report(Path(output_file), report)
+    Path(output_file).write_text(
+        report.model_dump_json(indent=4, by_alias=True, exclude_none=True)
+    )
 
     logger.info("Report generated successfully:")
     logger.info("  Total instances: %s", report.total_instances)
