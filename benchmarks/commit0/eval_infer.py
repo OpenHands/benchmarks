@@ -17,7 +17,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from benchmarks.swebench.report import SwebenchReport
+from benchmarks.swebench.eval_infer import SwebenchReport
 from benchmarks.utils.report import write_report
 from benchmarks.utils.report_costs import generate_cost_report
 

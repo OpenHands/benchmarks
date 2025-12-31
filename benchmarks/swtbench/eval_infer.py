@@ -20,7 +20,7 @@ from pathlib import Path
 from pydantic import Field
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
-from benchmarks.swebench.report import SwebenchReport
+from benchmarks.swebench.eval_infer import SwebenchReport
 from benchmarks.utils.report import write_report
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
