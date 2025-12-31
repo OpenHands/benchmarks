@@ -15,7 +15,9 @@ import logging
 import sys
 from pathlib import Path
 
-from benchmarks.utils.report import Commit0InstanceMetrics, Commit0Report, write_report
+from pydantic import BaseModel, Field
+
+from benchmarks.utils.report import SwebenchReport, write_report
 from benchmarks.utils.report_costs import generate_cost_report
 
 
@@ -24,6 +26,19 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+class Commit0InstanceMetrics(BaseModel):
+    num_tests: int
+    num_passed: int
+    pass_rate: float
+
+
+class Commit0Report(SwebenchReport):
+    total_tests: int
+    total_passed_tests: int
+    instance_metrics: dict[str, Commit0InstanceMetrics] = Field(default_factory=dict)
+    average_pass_rate: float | None = None
 
 
 def process_commit0_results(

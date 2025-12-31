@@ -19,12 +19,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from benchmarks.utils.report import GaiaReport, load_jsonl, write_report
+from benchmarks.utils.report import SwebenchReport, load_jsonl, write_report
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+class GaiaReport(SwebenchReport):
+    eval_limit: int | None = None
 
 
 def _read_eval_limit(output_path: Path) -> int | None:

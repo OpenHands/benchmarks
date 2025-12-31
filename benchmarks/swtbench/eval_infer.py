@@ -17,13 +17,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+from pydantic import Field
+
 from benchmarks.utils.patch_utils import remove_files_from_patch
-from benchmarks.utils.report import SwtbenchReport, write_report
+from benchmarks.utils.report import SwebenchReport, write_report
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+class SwtbenchReport(SwebenchReport):
+    mean_coverage: float | None = Field(default=None, alias="Mean coverage")
+    mean_coverage_delta: float | None = Field(default=None, alias="Mean coverage delta")
 
 
 def _load_prediction_metadata(predictions_file: Path) -> tuple[list[str], list[str]]:

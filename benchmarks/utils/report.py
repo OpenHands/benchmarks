@@ -154,28 +154,6 @@ class SwebenchReport(BaseModel):
         )
 
 
-class Commit0InstanceMetrics(BaseModel):
-    num_tests: int
-    num_passed: int
-    pass_rate: float
-
-
-class Commit0Report(SwebenchReport):
-    total_tests: int
-    total_passed_tests: int
-    instance_metrics: dict[str, Commit0InstanceMetrics] = Field(default_factory=dict)
-    average_pass_rate: float | None = None
-
-
-class GaiaReport(SwebenchReport):
-    eval_limit: int | None = None
-
-
-class SwtbenchReport(SwebenchReport):
-    mean_coverage: float | None = Field(default=None, alias="Mean coverage")
-    mean_coverage_delta: float | None = Field(default=None, alias="Mean coverage delta")
-
-
 def write_report(path: Path, report: BaseModel, *, by_alias: bool = True) -> None:
     path.write_text(
         report.model_dump_json(indent=4, by_alias=by_alias, exclude_none=True)
