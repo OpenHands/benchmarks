@@ -94,30 +94,6 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
     return filtered_dataset
 
 
-def _get_conversation_timeout_seconds() -> int:
-    default_timeout = 4 * 60 * 60
-    raw_timeout = os.getenv("CONVERSATION_TIMEOUT")
-    if not raw_timeout:
-        return default_timeout
-    try:
-        timeout = int(raw_timeout)
-    except ValueError:
-        logger.warning(
-            "Invalid CONVERSATION_TIMEOUT=%s, using default %s",
-            raw_timeout,
-            default_timeout,
-        )
-        return default_timeout
-    if timeout <= 0:
-        logger.warning(
-            "Non-positive CONVERSATION_TIMEOUT=%s, using default %s",
-            raw_timeout,
-            default_timeout,
-        )
-        return default_timeout
-    return timeout
-
-
 class Commit0Evaluation(Evaluation):
     """
     Process-based Commit0 evaluation implemented as a child of the
@@ -316,7 +292,7 @@ class Commit0Evaluation(Evaluation):
             metadata=self.metadata,
         )
         conversation.send_message(instruction)
-        run_timeout = _get_conversation_timeout_seconds()
+        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
         timed_out = False
         try:
             conversation.run(timeout=run_timeout)
