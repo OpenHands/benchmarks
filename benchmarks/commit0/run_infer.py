@@ -28,6 +28,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk.conversation.exceptions import ConversationRunError
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
@@ -91,6 +92,30 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
     )
 
     return filtered_dataset
+
+
+def _get_conversation_timeout_seconds() -> int:
+    default_timeout = 4 * 60 * 60
+    raw_timeout = os.getenv("CONVERSATION_TIMEOUT")
+    if not raw_timeout:
+        return default_timeout
+    try:
+        timeout = int(raw_timeout)
+    except ValueError:
+        logger.warning(
+            "Invalid CONVERSATION_TIMEOUT=%s, using default %s",
+            raw_timeout,
+            default_timeout,
+        )
+        return default_timeout
+    if timeout <= 0:
+        logger.warning(
+            "Non-positive CONVERSATION_TIMEOUT=%s, using default %s",
+            raw_timeout,
+            default_timeout,
+        )
+        return default_timeout
+    return timeout
 
 
 class Commit0Evaluation(Evaluation):
@@ -291,7 +316,27 @@ class Commit0Evaluation(Evaluation):
             metadata=self.metadata,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        run_timeout = _get_conversation_timeout_seconds()
+        timed_out = False
+        try:
+            conversation.run(timeout=run_timeout)
+        except ConversationRunError as exc:
+            original_exc = getattr(exc, "original_exception", None)
+            if isinstance(original_exc, TimeoutError):
+                timed_out = True
+                logger.warning(
+                    "Conversation run timed out after %s seconds; continuing evaluation",
+                    run_timeout,
+                )
+                try:
+                    conversation.pause()
+                except Exception as pause_error:
+                    logger.warning(
+                        "Failed to pause conversation after timeout: %s",
+                        pause_error,
+                    )
+            else:
+                raise
 
         history = list(conversation.state.events)
 
@@ -526,6 +571,7 @@ class Commit0Evaluation(Evaluation):
 
         test_result = {
             "eval_result": eval_result,
+            "conversation_timed_out": timed_out,
         }
 
         out = EvalOutput(
