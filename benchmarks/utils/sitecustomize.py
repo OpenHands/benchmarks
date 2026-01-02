@@ -19,8 +19,11 @@ so no extra wiring is needed.
 from __future__ import annotations
 
 import json
+import sys
 import time
 import traceback
+
+_MODAL_SITECUSTOMIZE_INJECTED = False
 
 
 def _patch_modal_sklearn_install_flag() -> None:
@@ -221,11 +224,50 @@ def _patch_modal_sandbox_timing() -> None:
     runtime_cls._get_sandbox = get_sandbox_with_timing
 
 
+def _inject_modal_sitecustomize() -> None:
+    global _MODAL_SITECUSTOMIZE_INJECTED
+
+    if _MODAL_SITECUSTOMIZE_INJECTED:
+        return
+
+    try:
+        from pathlib import Path
+
+        from swebench.harness.modal_eval import run_evaluation_modal as mod
+    except Exception:
+        return
+
+    patch_path = Path(__file__).with_name("modal_sitecustomize.py")
+    if not patch_path.exists():
+        return
+
+    run_fn = getattr(mod, "run_instance_modal", None)
+    if run_fn is None or not hasattr(run_fn, "spec"):
+        return
+
+    image = run_fn.spec.image
+    patched_image = image.add_local_file(
+        patch_path,
+        "/root/sitecustomize.py",
+        copy=True,
+    ).env({"PYTHONPATH": "/root"})
+
+    run_fn.spec.image = patched_image
+    mod.swebench_image = patched_image
+    _MODAL_SITECUSTOMIZE_INJECTED = True
+    print(
+        "benchmarks injected modal sitecustomize into run_instance_modal image",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def _apply_modal_logging_patch() -> None:
     _patch_modal_sklearn_install_flag()
     _patch_modal_sandbox_cgroup_retry()
     _patch_modal_libmamba_solver()
     _patch_modal_sandbox_timing()
+    _inject_modal_sitecustomize()
 
     try:
         # Import inside the function so this file is harmless for non-SWE-Bench runs.
