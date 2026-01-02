@@ -60,6 +60,11 @@ on:
         required: false
         default: ''
         type: string
+      output_jsonl_gcs:
+        description: Optional GCS path to output.jsonl or results tar.gz to skip inference
+        required: false
+        default: ''
+        type: string
 
 jobs:
   dispatch-run-eval:
@@ -84,6 +89,7 @@ jobs:
           INSTANCE_IDS: ${{ github.event.inputs.instance_ids }}
           NUM_INFER_WORKERS: ${{ github.event.inputs.num_infer_workers }}
           NUM_EVAL_WORKERS: ${{ github.event.inputs.num_eval_workers }}
+          OUTPUT_JSONL_GCS: ${{ github.event.inputs.output_jsonl_gcs }}
         run: |
           set -euo pipefail
           if [ -z "$PAT_TOKEN" ]; then
@@ -103,7 +109,8 @@ jobs:
             --arg instance_ids "$INSTANCE_IDS" \
             --arg num_infer_workers "$NUM_INFER_WORKERS" \
             --arg num_eval_workers "$NUM_EVAL_WORKERS" \
-            '{ref: $ref, inputs: {benchmark: $benchmark, sdk_ref: $sdk_ref, eval_limit: $eval_limit, model_ids: $model_ids, reason: $reason, eval_branch: $eval_branch, benchmarks_branch: $benchmarks_branch, instance_ids: $instance_ids, num_infer_workers: $num_infer_workers, num_eval_workers: $num_eval_workers}}')
+            --arg output_jsonl_gcs "$OUTPUT_JSONL_GCS" \
+            '{ref: $ref, inputs: {benchmark: $benchmark, sdk_ref: $sdk_ref, eval_limit: $eval_limit, model_ids: $model_ids, reason: $reason, eval_branch: $eval_branch, benchmarks_branch: $benchmarks_branch, instance_ids: $instance_ids, num_infer_workers: $num_infer_workers, num_eval_workers: $num_eval_workers, output_jsonl_gcs: $output_jsonl_gcs}}')
 
           RESPONSE=$(curl -sS -o /tmp/dispatch.out -w "%{http_code}" -X POST \
             -H "Authorization: token $PAT_TOKEN" \
