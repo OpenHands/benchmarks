@@ -103,21 +103,66 @@ def _patch_modal_sandbox_cgroup_retry() -> None:
     runtime_cls.write_file = write_file_with_retry
 
 
-def _split_env_script_for_env_create(env_script: str) -> tuple[str, str, bool]:
+_HEREDOC_RE = re.compile(r"<<-?\s*'?(?P<delim>[A-Za-z0-9_]+)'?")
+
+
+def _iter_non_heredoc_lines(lines: list[str]):
+    in_heredoc = False
+    heredoc_end = None
+    for idx, line in enumerate(lines):
+        if in_heredoc:
+            if line.strip() == heredoc_end:
+                in_heredoc = False
+                heredoc_end = None
+            continue
+
+        yield idx, line
+
+        match = _HEREDOC_RE.search(line)
+        if match:
+            in_heredoc = True
+            heredoc_end = match.group("delim")
+
+
+def _find_env_create_lines(env_script: str) -> list[tuple[int, str]]:
+    lines = env_script.splitlines()
+    matches: list[tuple[int, str]] = []
+    for idx, line in _iter_non_heredoc_lines(lines):
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if re.search(r"\bconda\s+env\s+create\b", line):
+            matches.append((idx, line))
+    return matches
+
+
+def _rewrite_env_create_command(line: str) -> str:
+    rewritten, count = re.subn(
+        r"\bconda\b", "/opt/miniconda3/bin/mamba", line, count=1
+    )
+    if count == 0:
+        raise RuntimeError(
+            "Unable to rewrite conda env create command for mamba: "
+            f"{line.strip()}"
+        )
+    return rewritten.strip()
+
+
+def _split_env_script_for_env_create(env_script: str) -> tuple[str, str, str | None]:
     """Split env script around the conda env create line so we can run mamba in-line."""
     lines = env_script.splitlines()
-    matches = [idx for idx, line in enumerate(lines) if re.search(r"\bconda\s+env\s+create\b", line)]
+    matches = _find_env_create_lines(env_script)
     if not matches:
-        return env_script, "", False
+        return env_script, "", None
     if len(matches) > 1:
         raise RuntimeError(
             "Multiple 'conda env create' lines found in setup_env_script; "
             "refusing to guess which one to replace."
         )
-    idx = matches[0]
+    idx, line = matches[0]
     pre = "\n".join(lines[:idx])
     post = "\n".join(lines[idx + 1 :])
-    return pre, post, True
+    return pre, post, line
 
 
 def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False) -> None:
@@ -162,17 +207,17 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
             "conda activate testbed && python -m pip install --trusted-host "
             "pypi-mirror.modal.local -r $HOME/requirements.txt",
         )
-        pre_script, post_script, has_env_create = _split_env_script_for_env_create(
+        pre_script, post_script, env_create_line = _split_env_script_for_env_create(
             env_script
         )
+        has_env_create = env_create_line is not None
         if has_env_create:
-            if re.search(r"\bconda\s+env\s+create\b", pre_script) or re.search(
-                r"\bconda\s+env\s+create\b", post_script
-            ):
+            if _find_env_create_lines(pre_script) or _find_env_create_lines(post_script):
                 raise RuntimeError(
                     "conda env create still present after split; aborting to avoid "
                     "silent fallback to conda."
                 )
+            mamba_env_create = _rewrite_env_create_command(env_create_line)
         emit(
             f"[benchmarks] Modal image spec: split env script "
             f"(env_create_found={has_env_create}) for {instance_id}"
@@ -196,8 +241,7 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
                 (
                     "/bin/bash -c 'source ~/.bashrc && cd /root && "
                     "echo \"[benchmarks] using mamba for env create\" && "
-                    "/opt/miniconda3/bin/mamba env create --file environment.yml "
-                    "|| /opt/miniconda3/bin/conda env create --file environment.yml'"
+                    f"{mamba_env_create}'"
                 ),
                 "/bin/bash -c 'source ~/.bashrc && cd /root && /root/setup_env_post.sh'",
             ]
@@ -229,8 +273,7 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
                 "echo 'export PATH=/opt/miniconda3/bin:$PATH' >> ~/.bashrc",
                 "/opt/miniconda3/bin/conda init --all",
                 "/opt/miniconda3/bin/conda config --append channels conda-forge",
-                "/bin/bash -c '/opt/miniconda3/bin/conda install -n base -y mamba "
-                "|| echo \"mamba install failed; continuing\"'",
+                "/bin/bash -c '/opt/miniconda3/bin/conda install -n base -y mamba'",
                 "adduser --disabled-password --gecos 'dog' nonroot",
             )
             .add_local_file(
