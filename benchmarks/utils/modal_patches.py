@@ -178,6 +178,22 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
         Path(remote_env_script_path).write_text(env_script)
         Path(remote_repo_script_path).write_text(repo_script)
 
+        # Force mamba usage and emit diagnostics in the setup script.
+        setup_lines = [
+            "echo \"[benchmarks] setup_env.sh diagnostics\"",
+            "which conda || true",
+            "which mamba || true",
+            "if [ -f /opt/miniconda3/bin/conda ]; then head -n 5 /opt/miniconda3/bin/conda || true; fi",
+            "if command -v /opt/miniconda3/bin/mamba >/dev/null 2>&1; then",
+            "  echo \"[benchmarks] forcing mamba env create\"",
+            "  /opt/miniconda3/bin/mamba env create --file environment.yml || /opt/miniconda3/bin/conda env create --file environment.yml",
+            "else",
+            "  echo \"[benchmarks] mamba missing; falling back to conda\"",
+            "  /opt/miniconda3/bin/conda env create --file environment.yml",
+            "fi",
+        ]
+        env_script = "\n".join(setup_lines) + "\n" + env_script
+
         image = (
             modal.Image.from_registry("ubuntu:22.04", add_python="3.11")
             .run_commands("apt update")
