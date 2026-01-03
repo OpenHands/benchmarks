@@ -5,6 +5,7 @@ Shared Modal patch helpers for host and in-image sitecustomize.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 import traceback
@@ -102,6 +103,28 @@ def _patch_modal_sandbox_cgroup_retry() -> None:
     runtime_cls.write_file = write_file_with_retry
 
 
+def _rewrite_env_script_for_mamba(env_script: str) -> tuple[str, bool]:
+    """Rewrite conda env creation lines to prefer mamba, keeping a conda fallback."""
+    lines = env_script.splitlines()
+    rewritten = []
+    replaced = False
+    for line in lines:
+        if re.search(r"\bconda\s+env\s+create\b", line):
+            indent = re.match(r"\s*", line).group(0)
+            if not replaced:
+                rewritten.append(
+                    f"{indent}echo \"[benchmarks] using mamba for env create\""
+                )
+            replaced = True
+            mamba_line = re.sub(
+                r"\bconda\s+env\s+create\b", "mamba env create", line, count=1
+            )
+            rewritten.append(f"{mamba_line} || {line.strip()}")
+        else:
+            rewritten.append(line)
+    return "\n".join(rewritten), replaced
+
+
 def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False) -> None:
     """Prefer mamba/libmamba in Modal builds to avoid conda solver stalls."""
     try:
@@ -144,14 +167,9 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
             "conda activate testbed && python -m pip install --trusted-host "
             "pypi-mirror.modal.local -r $HOME/requirements.txt",
         )
-        env_script = env_script.replace(
-            "conda env create --file environment.yml",
-            "mamba env create --file environment.yml || "
-            "conda env create --file environment.yml",
-        ).replace(
-            "conda env create -f environment.yml",
-            "mamba env create -f environment.yml || conda env create -f environment.yml",
-        )
+        env_script, used_mamba = _rewrite_env_script_for_mamba(env_script)
+        if used_mamba:
+            emit(f"[benchmarks] Modal image spec: mamba rewrite applied for {instance_id}")
         repo_script = test_spec.install_repo_script
 
         remote_env_script_path = "/root/setup_env.sh"
@@ -366,15 +384,24 @@ def _patch_modal_function_timeout(
         instance_id = getattr(test_spec, "instance_id", None) or pred.get(
             "instance_id", "unknown"
         )
+        effective_timeout = timeout
+        if timeout is None or timeout < timeout_seconds:
+            effective_timeout = timeout_seconds
+            print(
+                "[benchmarks] Modal function overriding timeout "
+                f"instance={instance_id} from {timeout} to {effective_timeout}",
+                file=sys.stderr,
+                flush=True,
+            )
         start = time.time()
         print(
             "[benchmarks] Modal function start "
-            f"instance={instance_id} run_id={run_id} timeout={timeout}",
+            f"instance={instance_id} run_id={run_id} timeout={effective_timeout}",
             file=sys.stderr,
             flush=True,
         )
         try:
-            result = raw_f(test_spec, pred, run_id, timeout)
+            result = raw_f(test_spec, pred, run_id, effective_timeout)
         except Exception as exc:
             elapsed = time.time() - start
             print(
