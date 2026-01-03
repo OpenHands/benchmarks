@@ -106,12 +106,18 @@ def _patch_modal_sandbox_cgroup_retry() -> None:
 def _split_env_script_for_env_create(env_script: str) -> tuple[str, str, bool]:
     """Split env script around the conda env create line so we can run mamba in-line."""
     lines = env_script.splitlines()
-    for idx, line in enumerate(lines):
-        if re.search(r"\bconda\s+env\s+create\b", line):
-            pre = "\n".join(lines[:idx])
-            post = "\n".join(lines[idx + 1 :])
-            return pre, post, True
-    return env_script, "", False
+    matches = [idx for idx, line in enumerate(lines) if re.search(r"\bconda\s+env\s+create\b", line)]
+    if not matches:
+        return env_script, "", False
+    if len(matches) > 1:
+        raise RuntimeError(
+            "Multiple 'conda env create' lines found in setup_env_script; "
+            "refusing to guess which one to replace."
+        )
+    idx = matches[0]
+    pre = "\n".join(lines[:idx])
+    post = "\n".join(lines[idx + 1 :])
+    return pre, post, True
 
 
 def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False) -> None:
@@ -159,6 +165,14 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
         pre_script, post_script, has_env_create = _split_env_script_for_env_create(
             env_script
         )
+        if has_env_create:
+            if re.search(r"\bconda\s+env\s+create\b", pre_script) or re.search(
+                r"\bconda\s+env\s+create\b", post_script
+            ):
+                raise RuntimeError(
+                    "conda env create still present after split; aborting to avoid "
+                    "silent fallback to conda."
+                )
         emit(
             f"[benchmarks] Modal image spec: split env script "
             f"(env_create_found={has_env_create}) for {instance_id}"
