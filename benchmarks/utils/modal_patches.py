@@ -61,6 +61,7 @@ def _patch_modal_sklearn_install_flag() -> None:
 
 
 def _patch_modal_sandbox_cgroup_retry() -> None:
+    """Retry cgroup writes to avoid transient Modal filesystem errors."""
     try:
         from swebench.harness.modal_eval import run_evaluation_modal as mod
     except Exception:
@@ -102,6 +103,7 @@ def _patch_modal_sandbox_cgroup_retry() -> None:
 
 
 def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False) -> None:
+    """Prefer mamba/libmamba in Modal builds to avoid conda solver stalls."""
     try:
         from swebench.harness.modal_eval import run_evaluation_modal as mod
     except Exception as exc:
@@ -142,6 +144,14 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
             "conda activate testbed && python -m pip install --trusted-host "
             "pypi-mirror.modal.local -r $HOME/requirements.txt",
         )
+        env_script = env_script.replace(
+            "conda env create --file environment.yml",
+            "mamba env create --file environment.yml || "
+            "conda env create --file environment.yml",
+        ).replace(
+            "conda env create -f environment.yml",
+            "mamba env create -f environment.yml || conda env create -f environment.yml",
+        )
         repo_script = test_spec.install_repo_script
 
         remote_env_script_path = "/root/setup_env.sh"
@@ -176,6 +186,8 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
                 "|| echo \"conda-libmamba-solver install failed; continuing\"'",
                 "/bin/bash -c '/opt/miniconda3/bin/conda config --set solver libmamba "
                 "|| echo \"conda libmamba solver unavailable; continuing\"'",
+                "/bin/bash -c '/opt/miniconda3/bin/conda install -n base -y mamba "
+                "|| echo \"mamba install failed; continuing\"'",
                 "adduser --disabled-password --gecos 'dog' nonroot",
             )
             .add_local_file(
@@ -203,10 +215,11 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
     get_instance_image_with_libmamba._benchmarks_libmamba_patch = True
     runtime_cls.get_instance_image = staticmethod(get_instance_image_with_libmamba)
     if log_errors:
-        _log("[benchmarks] modal sitecustomize: applied libmamba patch")
+        _log("[benchmarks] modal sitecustomize: applied mamba patch")
 
 
 def _patch_modal_sandbox_timing(log_errors: bool = False, stderr: bool = False) -> None:
+    """Log sandbox creation timing to pinpoint Modal startup delays."""
     try:
         from swebench.harness.modal_eval import run_evaluation_modal as mod
     except Exception as exc:
@@ -250,7 +263,164 @@ def _patch_modal_sandbox_timing(log_errors: bool = False, stderr: bool = False) 
         _log("[benchmarks] modal sitecustomize: applied sandbox timing patch")
 
 
+def _patch_modal_runtime_debug(log_errors: bool = False, stderr: bool = False) -> None:
+    """Log Modal runtime init and critical exec timings for debugging."""
+    try:
+        from swebench.harness.modal_eval import run_evaluation_modal as mod
+    except Exception as exc:
+        if log_errors:
+            _log(f"[benchmarks] modal sitecustomize: failed to import modal_eval: {exc}")
+        return
+
+    runtime_cls = getattr(mod, "ModalSandboxRuntime", None)
+    if runtime_cls is None:
+        if log_errors:
+            _log("[benchmarks] modal sitecustomize: ModalSandboxRuntime missing")
+        return
+
+    emit = _make_emit(stderr)
+
+    original_init = runtime_cls.__init__
+    if not getattr(original_init, "_benchmarks_runtime_init_patch", False):
+
+        def init_with_logging(self, test_spec, timeout: int | None = None, verbose=True):
+            instance_id = getattr(test_spec, "instance_id", "unknown")
+            emit(
+                f"[benchmarks] Modal runtime init start for {instance_id} "
+                f"(timeout={timeout})"
+            )
+            start = time.time()
+            try:
+                return original_init(self, test_spec, timeout, verbose)
+            finally:
+                elapsed = time.time() - start
+                emit(
+                    f"[benchmarks] Modal runtime init end for {instance_id} "
+                    f"(elapsed={elapsed:.2f}s)"
+                )
+
+        init_with_logging._benchmarks_runtime_init_patch = True
+        runtime_cls.__init__ = init_with_logging
+
+    original_exec = runtime_cls.exec
+    if not getattr(original_exec, "_benchmarks_runtime_exec_patch", False):
+
+        def exec_with_logging(self, command: str):
+            instance_id = getattr(getattr(self, "test_spec", None), "instance_id", "unknown")
+            label = None
+            if "/root/eval.sh" in command:
+                label = "eval"
+            elif "git apply" in command or "patch --batch" in command:
+                label = "apply_patch"
+
+            if label:
+                emit(f"[benchmarks] Modal exec start for {instance_id} ({label})")
+                start = time.time()
+                output, returncode = original_exec(self, command)
+                elapsed = time.time() - start
+                emit(
+                    f"[benchmarks] Modal exec end for {instance_id} ({label}) "
+                    f"(elapsed={elapsed:.2f}s, returncode={returncode})"
+                )
+                return output, returncode
+
+            return original_exec(self, command)
+
+        exec_with_logging._benchmarks_runtime_exec_patch = True
+        runtime_cls.exec = exec_with_logging
+
+    if log_errors:
+        _log("[benchmarks] modal sitecustomize: applied runtime debug patch")
+
+
+def _patch_modal_function_timeout(
+    timeout_seconds: int = 4 * 60 * 60, log_errors: bool = False
+) -> None:
+    """Raise Modal function timeout and emit per-instance logs in Modal."""
+    try:
+        from swebench.harness.modal_eval import run_evaluation_modal as mod
+    except Exception as exc:
+        if log_errors:
+            _log(f"[benchmarks] modal sitecustomize: failed to import modal_eval: {exc}")
+        return
+
+    run_fn = getattr(mod, "run_instance_modal", None)
+    if run_fn is None:
+        if log_errors:
+            _log("[benchmarks] modal sitecustomize: run_instance_modal missing")
+        return
+    if getattr(run_fn, "_benchmarks_timeout_patch", False):
+        return
+
+    raw_f = getattr(getattr(run_fn, "info", None), "raw_f", None)
+    if raw_f is None:
+        if log_errors:
+            _log("[benchmarks] modal sitecustomize: run_instance_modal raw_f missing")
+        return
+
+    image = getattr(getattr(run_fn, "spec", None), "image", None)
+    if image is None:
+        image = getattr(mod, "swebench_image", None)
+
+    def run_instance_modal_with_logging(test_spec, pred, run_id, timeout=None):
+        instance_id = getattr(test_spec, "instance_id", None) or pred.get(
+            "instance_id", "unknown"
+        )
+        start = time.time()
+        print(
+            "[benchmarks] Modal function start "
+            f"instance={instance_id} run_id={run_id} timeout={timeout}",
+            file=sys.stderr,
+            flush=True,
+        )
+        try:
+            result = raw_f(test_spec, pred, run_id, timeout)
+        except Exception as exc:
+            elapsed = time.time() - start
+            print(
+                "[benchmarks] Modal function error "
+                f"instance={instance_id} elapsed={elapsed:.2f}s error={exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
+        elapsed = time.time() - start
+        status = "errored" if getattr(result, "errored", False) else "ok"
+        print(
+            "[benchmarks] Modal function end "
+            f"instance={instance_id} elapsed={elapsed:.2f}s status={status}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return result
+
+    try:
+        patched_fn = mod.app.function(
+            image=image,
+            timeout=timeout_seconds,
+            include_source=True,
+            serialized=True,
+            name="run_instance_modal",
+        )(run_instance_modal_with_logging)
+    except Exception as exc:
+        if log_errors:
+            _log(
+                "[benchmarks] modal sitecustomize: failed to patch timeout: "
+                f"{exc}"
+            )
+        return
+
+    patched_fn._benchmarks_timeout_patch = True
+    mod.run_instance_modal = patched_fn
+    if log_errors:
+        _log(
+            "[benchmarks] modal sitecustomize: patched function timeout "
+            f"to {timeout_seconds}s"
+        )
+
+
 def _inject_modal_sitecustomize() -> None:
+    """Inject modal_sitecustomize into the Modal function image."""
     global _MODAL_SITECUSTOMIZE_INJECTED
 
     if _MODAL_SITECUSTOMIZE_INJECTED:
@@ -296,6 +466,7 @@ def _inject_modal_sitecustomize() -> None:
 
 
 def _patch_run_instances_modal_logging() -> None:
+    """Persist logs/reports for Modal exceptions before TestOutput is returned."""
     try:
         # Import inside the function so this file is harmless for non-SWE-Bench runs.
         from swebench.harness.docker_build import setup_logger
@@ -363,6 +534,13 @@ def _patch_run_instances_modal_logging() -> None:
             try:
                 with mod.modal.enable_output():
                     with mod.app.run():
+                        emit = _make_emit(stderr=False)
+                        submit_ids = [spec.instance_id for spec in run_test_specs]
+                        emit(
+                            f"[benchmarks] Modal starmap submit {len(submit_ids)} "
+                            f"instances: {', '.join(submit_ids)}"
+                        )
+                        starmap_start = time.time()
                         results = mod.run_instance_modal.starmap(
                             [
                                 (
@@ -374,6 +552,11 @@ def _patch_run_instances_modal_logging() -> None:
                                 for test_spec in run_test_specs
                             ],
                             return_exceptions=True,
+                        )
+                        starmap_elapsed = time.time() - starmap_start
+                        emit(
+                            f"[benchmarks] Modal starmap completed in "
+                            f"{starmap_elapsed:.2f}s"
                         )
 
                         for test_spec, result in zip(run_test_specs, results):
@@ -535,7 +718,9 @@ def apply_host_patches() -> None:
     _patch_modal_sklearn_install_flag()
     _patch_modal_sandbox_cgroup_retry()
     _patch_modal_libmamba_solver()
-    _patch_modal_sandbox_timing()
+    _patch_modal_sandbox_timing(log_errors=True, stderr=True)
+    _patch_modal_runtime_debug(log_errors=True, stderr=True)
+    _patch_modal_function_timeout(log_errors=True)
     _inject_modal_sitecustomize()
     _patch_run_instances_modal_logging()
 
@@ -544,3 +729,4 @@ def apply_image_patches() -> None:
     _log("[benchmarks] modal sitecustomize imported")
     _patch_modal_libmamba_solver(log_errors=True, stderr=True)
     _patch_modal_sandbox_timing(log_errors=True, stderr=True)
+    _patch_modal_runtime_debug(log_errors=True, stderr=True)

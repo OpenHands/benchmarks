@@ -3,7 +3,7 @@ Sitecustomize injected into the Modal function image for SWE-bench runs.
 
 This file is copied into the Modal function container and imported automatically
 by Python (via sitecustomize) to patch the modal_eval runtime with extra timing
-logs and a libmamba solver setup.
+logs and a mamba/libmamba solver setup.
 """
 
 from __future__ import annotations
