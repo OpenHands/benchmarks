@@ -5,12 +5,14 @@ Shared Modal patch helpers for host and in-image sitecustomize.
 from __future__ import annotations
 
 import json
-import re
+import os
 import sys
 import time
 import traceback
 
 _MODAL_SITECUSTOMIZE_INJECTED = False
+DEFAULT_AGENT_IMAGE = "ghcr.io/openhands/eval-agent-server"
+DEFAULT_BUILD_TARGET = "source-minimal"
 
 
 def _log(message: str) -> None:
@@ -29,6 +31,60 @@ def _make_emit(stderr: bool):
             print(message)
 
     return emit
+
+
+def _get_sdk_short_sha() -> str:
+    """
+    Resolve SDK short SHA from the benchmarks repo when available, otherwise
+    fall back to environment variables for the Modal function image.
+    """
+    try:
+        from benchmarks.utils.version import SDK_SHORT_SHA as version_sdk_short_sha
+
+        return version_sdk_short_sha
+    except Exception:
+        return os.getenv("SDK_SHORT_SHA", "").strip() or "unknown"
+
+
+def _get_agent_server_image_repo() -> str:
+    return os.getenv("EVAL_AGENT_SERVER_IMAGE", DEFAULT_AGENT_IMAGE).strip() or DEFAULT_AGENT_IMAGE
+
+
+def _get_build_target() -> str:
+    return (
+        os.getenv("SWEBENCH_IMAGE_TARGET")
+        or os.getenv("SWEBENCH_BUILD_TARGET")
+        or DEFAULT_BUILD_TARGET
+    )
+
+
+def _get_custom_tag_from_instance_id(instance_id: str) -> str:
+    try:
+        repo, name = instance_id.split("__", 1)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Unable to compute SWE-bench image tag; unexpected instance id: {instance_id}"
+        ) from exc
+    return f"sweb.eval.x86_64.{repo}_1776_{name}".lower()
+
+
+def _build_prebuilt_image_tag(test_spec) -> str:
+    instance_id = getattr(test_spec, "instance_id", None)
+    if not instance_id:
+        raise RuntimeError("TestSpec missing instance_id; cannot select Modal image")
+
+    sdk_short_sha = _get_sdk_short_sha()
+    if sdk_short_sha in ("", "unknown", None):
+        raise RuntimeError(
+            "SDK short SHA is unavailable. Set SDK_SHORT_SHA or ensure the "
+            "benchmarks repository has an initialized SDK submodule."
+        )
+
+    target = _get_build_target()
+    suffix = f"-{target}" if target and target != "binary" else ""
+    custom_tag = _get_custom_tag_from_instance_id(instance_id)
+    agent_repo = _get_agent_server_image_repo()
+    return f"{agent_repo}:{sdk_short_sha}-{custom_tag}{suffix}"
 
 
 def _patch_modal_sklearn_install_flag() -> None:
@@ -103,70 +159,8 @@ def _patch_modal_sandbox_cgroup_retry() -> None:
     runtime_cls.write_file = write_file_with_retry
 
 
-_HEREDOC_RE = re.compile(r"<<-?\s*'?(?P<delim>[A-Za-z0-9_]+)'?")
-
-
-def _iter_non_heredoc_lines(lines: list[str]):
-    in_heredoc = False
-    heredoc_end = None
-    for idx, line in enumerate(lines):
-        if in_heredoc:
-            if line.strip() == heredoc_end:
-                in_heredoc = False
-                heredoc_end = None
-            continue
-
-        yield idx, line
-
-        match = _HEREDOC_RE.search(line)
-        if match:
-            in_heredoc = True
-            heredoc_end = match.group("delim")
-
-
-def _find_env_create_lines(env_script: str) -> list[tuple[int, str]]:
-    lines = env_script.splitlines()
-    matches: list[tuple[int, str]] = []
-    for idx, line in _iter_non_heredoc_lines(lines):
-        stripped = line.lstrip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if re.search(r"\bconda\s+env\s+create\b", line):
-            matches.append((idx, line))
-    return matches
-
-
-def _rewrite_env_create_command(line: str) -> str:
-    rewritten, count = re.subn(
-        r"\bconda\b", "/opt/miniconda3/bin/mamba", line, count=1
-    )
-    if count == 0:
-        raise RuntimeError(
-            "Unable to rewrite conda env create command for mamba: "
-            f"{line.strip()}"
-        )
-    return rewritten.strip()
-
-
-def _split_env_script_for_env_create(env_script: str) -> tuple[str, str, str | None]:
-    """Split env script around the conda env create line so we can run mamba in-line."""
-    lines = env_script.splitlines()
-    matches = _find_env_create_lines(env_script)
-    if not matches:
-        return env_script, "", None
-    if len(matches) > 1:
-        raise RuntimeError(
-            "Multiple 'conda env create' lines found in setup_env_script; "
-            "refusing to guess which one to replace."
-        )
-    idx, line = matches[0]
-    pre = "\n".join(lines[:idx])
-    post = "\n".join(lines[idx + 1 :])
-    return pre, post, line
-
-
-def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False) -> None:
-    """Prefer mamba/libmamba in Modal builds to avoid conda solver stalls."""
+def _patch_modal_prebuilt_images(log_errors: bool = False, stderr: bool = False) -> None:
+    """Use prebuilt SWE-Bench images in Modal instead of rebuilding per instance."""
     try:
         from swebench.harness.modal_eval import run_evaluation_modal as mod
     except Exception as exc:
@@ -187,122 +181,44 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
         if log_errors:
             _log("[benchmarks] modal sitecustomize: get_instance_image missing")
         return
-    if getattr(original_get_instance_image, "_benchmarks_libmamba_patch", False):
+    if getattr(original_get_instance_image, "_benchmarks_prebuilt_patch", False):
         return
 
     emit = _make_emit(stderr)
 
-    def get_instance_image_with_libmamba(test_spec):
+    def get_instance_image_from_registry(test_spec):
         import modal
-        from pathlib import Path
 
-        start = time.time()
         instance_id = getattr(test_spec, "instance_id", "unknown")
-        emit(f"[benchmarks] Modal image spec start for {instance_id}")
+        try:
+            image_tag = _build_prebuilt_image_tag(test_spec)
+        except Exception as exc:
+            emit(
+                "[benchmarks] Modal image spec failed to compute tag for "
+                f"{instance_id}: {exc}"
+            )
+            raise
 
-        env_script = test_spec.setup_env_script
-        # add trusted host flag for Modal's PyPI mirror
-        env_script = env_script.replace(
-            "conda activate testbed && python -m pip install -r $HOME/requirements.txt",
-            "conda activate testbed && python -m pip install --trusted-host "
-            "pypi-mirror.modal.local -r $HOME/requirements.txt",
-        )
-        pre_script, post_script, env_create_line = _split_env_script_for_env_create(
-            env_script
-        )
-        has_env_create = env_create_line is not None
-        if has_env_create:
-            if _find_env_create_lines(pre_script) or _find_env_create_lines(post_script):
-                raise RuntimeError(
-                    "conda env create still present after split; aborting to avoid "
-                    "silent fallback to conda."
-                )
-            mamba_env_create = _rewrite_env_create_command(env_create_line)
         emit(
-            f"[benchmarks] Modal image spec: split env script "
-            f"(env_create_found={has_env_create}) for {instance_id}"
+            "[benchmarks] Modal image spec using prebuilt image "
+            f"{image_tag} for {instance_id}"
         )
-        repo_script = test_spec.install_repo_script
-
-        remote_env_script_path = "/root/setup_env.sh"
-        remote_env_pre_path = "/root/setup_env_pre.sh"
-        remote_env_post_path = "/root/setup_env_post.sh"
-        remote_repo_script_path = "/root/setup_repo.sh"
-
-        Path(remote_env_script_path).write_text(env_script)
-        Path(remote_env_pre_path).write_text(pre_script)
-        Path(remote_env_post_path).write_text(post_script)
-        Path(remote_repo_script_path).write_text(repo_script)
-
-        if has_env_create:
-            env_setup_cmds = [
-                f"chmod +x {remote_env_pre_path} {remote_env_post_path}",
-                "/bin/bash -c 'source ~/.bashrc && cd /root && /root/setup_env_pre.sh'",
-                (
-                    "/bin/bash -c 'source ~/.bashrc && cd /root && "
-                    "echo \"[benchmarks] using mamba for env create\" && "
-                    f"{mamba_env_create}'"
-                ),
-                "/bin/bash -c 'source ~/.bashrc && cd /root && /root/setup_env_post.sh'",
-            ]
-        else:
-            env_setup_cmds = [
-                f"chmod +x {remote_env_script_path}",
-                "/bin/bash -c 'source ~/.bashrc && cd /root && /root/setup_env.sh'",
-            ]
-
-        image = (
-            modal.Image.from_registry("ubuntu:22.04", add_python="3.11")
-            .run_commands("apt update")
-            .env({"DEBIAN_FRONTEND": "noninteractive", "TZ": "Etc/UTC"})
-            .apt_install(
-                "wget",
-                "git",
-                "build-essential",
-                "libffi-dev",
-                "libtiff-dev",
-                "jq",
-                "curl",
-                "locales",
-                "locales-all",
-                "tzdata",
+        try:
+            image = modal.Image.from_registry(image_tag)
+        except Exception as exc:
+            emit(
+                "[benchmarks] Failed to load Modal image from registry "
+                f"{image_tag}: {exc}"
             )
-            .run_commands(
-                "wget 'https://repo.anaconda.com/miniconda/Miniconda3-py311_23.11.0-2-Linux-x86_64.sh' -O miniconda.sh",
-                "bash miniconda.sh -b -p /opt/miniconda3",
-                "echo 'export PATH=/opt/miniconda3/bin:$PATH' >> ~/.bashrc",
-                "/opt/miniconda3/bin/conda init --all",
-                "/opt/miniconda3/bin/conda config --append channels conda-forge",
-                "/bin/bash -c '/opt/miniconda3/bin/conda install -n base -y mamba'",
-                "adduser --disabled-password --gecos 'dog' nonroot",
-            )
-            .add_local_file(
-                Path(remote_env_script_path), remote_env_script_path, copy=True
-            )
-            .add_local_file(Path(remote_env_pre_path), remote_env_pre_path, copy=True)
-            .add_local_file(Path(remote_env_post_path), remote_env_post_path, copy=True)
-            .add_local_file(
-                Path(remote_repo_script_path), remote_repo_script_path, copy=True
-            )
-            .run_commands(
-                *env_setup_cmds,
-                "echo 'source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed' >> /root/.bashrc",
-                f"/bin/bash {remote_repo_script_path}",
-            )
-            .workdir("/testbed/")
-        )
+            raise
 
-        elapsed = time.time() - start
-        emit(
-            f"[benchmarks] Modal image spec end for {instance_id} "
-            f"(elapsed={elapsed:.2f}s)"
-        )
-        return image
+        # Upstream expects /testbed as the working directory when running evals.
+        return image.workdir("/testbed/")
 
-    get_instance_image_with_libmamba._benchmarks_libmamba_patch = True
-    runtime_cls.get_instance_image = staticmethod(get_instance_image_with_libmamba)
+    get_instance_image_from_registry._benchmarks_prebuilt_patch = True
+    runtime_cls.get_instance_image = staticmethod(get_instance_image_from_registry)
     if log_errors:
-        _log("[benchmarks] modal sitecustomize: applied mamba patch")
+        _log("[benchmarks] modal sitecustomize: applied prebuilt image patch")
 
 
 def _patch_modal_sandbox_timing(log_errors: bool = False, stderr: bool = False) -> None:
@@ -553,7 +469,21 @@ def _inject_modal_sitecustomize() -> None:
             copy=True,
         )
 
-    patched_image = patched_image.env({"PYTHONPATH": "/root"})
+    env_vars = {"PYTHONPATH": "/root"}
+    try:
+        from benchmarks.utils.version import SDK_SHA, SDK_SHORT_SHA
+
+        env_vars["SDK_SHA"] = SDK_SHA
+        env_vars["SDK_SHORT_SHA"] = SDK_SHORT_SHA
+    except Exception:
+        if os.getenv("SDK_SHA"):
+            env_vars["SDK_SHA"] = os.getenv("SDK_SHA")
+        env_vars["SDK_SHORT_SHA"] = _get_sdk_short_sha()
+
+    env_vars["EVAL_AGENT_SERVER_IMAGE"] = _get_agent_server_image_repo()
+    env_vars["SWEBENCH_IMAGE_TARGET"] = _get_build_target()
+
+    patched_image = patched_image.env(env_vars)
 
     run_fn.spec.image = patched_image
     mod.swebench_image = patched_image
@@ -813,7 +743,7 @@ def _patch_run_instances_modal_logging() -> None:
 def apply_host_patches() -> None:
     _patch_modal_sklearn_install_flag()
     _patch_modal_sandbox_cgroup_retry()
-    _patch_modal_libmamba_solver()
+    _patch_modal_prebuilt_images()
     _patch_modal_sandbox_timing(log_errors=True, stderr=True)
     _patch_modal_runtime_debug(log_errors=True, stderr=True)
     _patch_modal_function_timeout(log_errors=True)
@@ -823,6 +753,6 @@ def apply_host_patches() -> None:
 
 def apply_image_patches() -> None:
     _log("[benchmarks] modal sitecustomize imported")
-    _patch_modal_libmamba_solver(log_errors=True, stderr=True)
+    _patch_modal_prebuilt_images(log_errors=True, stderr=True)
     _patch_modal_sandbox_timing(log_errors=True, stderr=True)
     _patch_modal_runtime_debug(log_errors=True, stderr=True)
