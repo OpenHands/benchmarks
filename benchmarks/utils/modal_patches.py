@@ -206,6 +206,20 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
                 "|| echo \"conda libmamba solver unavailable; continuing\"'",
                 "/bin/bash -c '/opt/miniconda3/bin/conda install -n base -y mamba "
                 "|| echo \"mamba install failed; continuing\"'",
+                "/bin/bash -c 'if [ -f /opt/miniconda3/bin/conda ] && [ ! -f /opt/miniconda3/bin/conda.real ]; then "
+                "mv /opt/miniconda3/bin/conda /opt/miniconda3/bin/conda.real; fi'",
+                "/bin/bash -c 'cat > /opt/miniconda3/bin/conda <<\"EOF\"\n"
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "if [[ \"${1:-}\" == \"env\" && \"${2:-}\" == \"create\" ]]; then\n"
+                "  if command -v /opt/miniconda3/bin/mamba >/dev/null 2>&1; then\n"
+                "    echo \"[benchmarks] conda wrapper: using mamba for env create\" >&2\n"
+                "    exec /opt/miniconda3/bin/mamba \"$@\"\n"
+                "  fi\n"
+                "fi\n"
+                "exec /opt/miniconda3/bin/conda.real \"$@\"\n"
+                "EOF\n"
+                "chmod +x /opt/miniconda3/bin/conda'",
                 "adduser --disabled-password --gecos 'dog' nonroot",
             )
             .add_local_file(
