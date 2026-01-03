@@ -103,26 +103,15 @@ def _patch_modal_sandbox_cgroup_retry() -> None:
     runtime_cls.write_file = write_file_with_retry
 
 
-def _rewrite_env_script_for_mamba(env_script: str) -> tuple[str, bool]:
-    """Rewrite conda env creation lines to prefer mamba, keeping a conda fallback."""
+def _split_env_script_for_env_create(env_script: str) -> tuple[str, str, bool]:
+    """Split env script around the conda env create line so we can run mamba in-line."""
     lines = env_script.splitlines()
-    rewritten = []
-    replaced = False
-    for line in lines:
+    for idx, line in enumerate(lines):
         if re.search(r"\bconda\s+env\s+create\b", line):
-            indent = re.match(r"\s*", line).group(0)
-            if not replaced:
-                rewritten.append(
-                    f"{indent}echo \"[benchmarks] using mamba for env create\""
-                )
-            replaced = True
-            mamba_line = re.sub(
-                r"\bconda\s+env\s+create\b", "mamba env create", line, count=1
-            )
-            rewritten.append(f"{mamba_line} || {line.strip()}")
-        else:
-            rewritten.append(line)
-    return "\n".join(rewritten), replaced
+            pre = "\n".join(lines[:idx])
+            post = "\n".join(lines[idx + 1 :])
+            return pre, post, True
+    return env_script, "", False
 
 
 def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False) -> None:
@@ -167,32 +156,42 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
             "conda activate testbed && python -m pip install --trusted-host "
             "pypi-mirror.modal.local -r $HOME/requirements.txt",
         )
-        env_script, used_mamba = _rewrite_env_script_for_mamba(env_script)
-        if used_mamba:
-            emit(f"[benchmarks] Modal image spec: mamba rewrite applied for {instance_id}")
+        pre_script, post_script, has_env_create = _split_env_script_for_env_create(
+            env_script
+        )
+        emit(
+            f"[benchmarks] Modal image spec: split env script "
+            f"(env_create_found={has_env_create}) for {instance_id}"
+        )
         repo_script = test_spec.install_repo_script
 
         remote_env_script_path = "/root/setup_env.sh"
+        remote_env_pre_path = "/root/setup_env_pre.sh"
+        remote_env_post_path = "/root/setup_env_post.sh"
         remote_repo_script_path = "/root/setup_repo.sh"
 
         Path(remote_env_script_path).write_text(env_script)
+        Path(remote_env_pre_path).write_text(pre_script)
+        Path(remote_env_post_path).write_text(post_script)
         Path(remote_repo_script_path).write_text(repo_script)
 
-        # Force mamba usage and emit diagnostics in the setup script.
-        setup_lines = [
-            "echo \"[benchmarks] setup_env.sh diagnostics\"",
-            "which conda || true",
-            "which mamba || true",
-            "if [ -f /opt/miniconda3/bin/conda ]; then head -n 5 /opt/miniconda3/bin/conda || true; fi",
-            "if command -v /opt/miniconda3/bin/mamba >/dev/null 2>&1; then",
-            "  echo \"[benchmarks] forcing mamba env create\"",
-            "  /opt/miniconda3/bin/mamba env create --file environment.yml || /opt/miniconda3/bin/conda env create --file environment.yml",
-            "else",
-            "  echo \"[benchmarks] mamba missing; falling back to conda\"",
-            "  /opt/miniconda3/bin/conda env create --file environment.yml",
-            "fi",
-        ]
-        env_script = "\n".join(setup_lines) + "\n" + env_script
+        if has_env_create:
+            env_setup_cmds = [
+                f"chmod +x {remote_env_pre_path} {remote_env_post_path}",
+                "/bin/bash -c 'source ~/.bashrc && cd /root && /root/setup_env_pre.sh'",
+                (
+                    "/bin/bash -c 'source ~/.bashrc && cd /root && "
+                    "echo \"[benchmarks] using mamba for env create\" && "
+                    "/opt/miniconda3/bin/mamba env create --file environment.yml "
+                    "|| /opt/miniconda3/bin/conda env create --file environment.yml'"
+                ),
+                "/bin/bash -c 'source ~/.bashrc && cd /root && /root/setup_env_post.sh'",
+            ]
+        else:
+            env_setup_cmds = [
+                f"chmod +x {remote_env_script_path}",
+                "/bin/bash -c 'source ~/.bashrc && cd /root && /root/setup_env.sh'",
+            ]
 
         image = (
             modal.Image.from_registry("ubuntu:22.04", add_python="3.11")
@@ -216,37 +215,20 @@ def _patch_modal_libmamba_solver(log_errors: bool = False, stderr: bool = False)
                 "echo 'export PATH=/opt/miniconda3/bin:$PATH' >> ~/.bashrc",
                 "/opt/miniconda3/bin/conda init --all",
                 "/opt/miniconda3/bin/conda config --append channels conda-forge",
-                "/bin/bash -c '/opt/miniconda3/bin/conda install -n base -y conda-libmamba-solver "
-                "|| echo \"conda-libmamba-solver install failed; continuing\"'",
-                "/bin/bash -c '/opt/miniconda3/bin/conda config --set solver libmamba "
-                "|| echo \"conda libmamba solver unavailable; continuing\"'",
                 "/bin/bash -c '/opt/miniconda3/bin/conda install -n base -y mamba "
                 "|| echo \"mamba install failed; continuing\"'",
-                "/bin/bash -c 'if [ -f /opt/miniconda3/bin/conda ] && [ ! -f /opt/miniconda3/bin/conda.real ]; then "
-                "mv /opt/miniconda3/bin/conda /opt/miniconda3/bin/conda.real; fi'",
-                "/bin/bash -c 'cat > /opt/miniconda3/bin/conda <<\"EOF\"\n"
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                "if [[ \"${1:-}\" == \"env\" && \"${2:-}\" == \"create\" ]]; then\n"
-                "  if command -v /opt/miniconda3/bin/mamba >/dev/null 2>&1; then\n"
-                "    echo \"[benchmarks] conda wrapper: using mamba for env create\" >&2\n"
-                "    exec /opt/miniconda3/bin/mamba \"$@\"\n"
-                "  fi\n"
-                "fi\n"
-                "exec /opt/miniconda3/bin/conda.real \"$@\"\n"
-                "EOF\n"
-                "chmod +x /opt/miniconda3/bin/conda'",
                 "adduser --disabled-password --gecos 'dog' nonroot",
             )
             .add_local_file(
                 Path(remote_env_script_path), remote_env_script_path, copy=True
             )
+            .add_local_file(Path(remote_env_pre_path), remote_env_pre_path, copy=True)
+            .add_local_file(Path(remote_env_post_path), remote_env_post_path, copy=True)
             .add_local_file(
                 Path(remote_repo_script_path), remote_repo_script_path, copy=True
             )
             .run_commands(
-                f"chmod +x {remote_env_script_path}",
-                f"/bin/bash -c 'source ~/.bashrc && {remote_env_script_path}'",
+                *env_setup_cmds,
                 "echo 'source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed' >> /root/.bashrc",
                 f"/bin/bash {remote_repo_script_path}",
             )
