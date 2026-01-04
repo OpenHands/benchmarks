@@ -53,12 +53,21 @@ class Evaluation(ABC, BaseModel):
             logger.warning(
                 "Falling back to safe metadata serialization due to error: %s", exc
             )
-            safe_metadata = self.metadata.model_dump(
-                mode="json",
-                exclude={"llm"},
-                by_alias=True,
-                warnings=False,
-            )
+            try:
+                safe_metadata = self.metadata.model_dump(
+                    mode="json",
+                    exclude={"llm", "critic"},
+                    by_alias=True,
+                    warnings=False,
+                )
+            except Exception as inner_exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Secondary metadata serialization failed: %s; using raw values",
+                    inner_exc,
+                )
+                safe_metadata = json.loads(
+                    json.dumps(self.metadata.__dict__, default=str)
+                )
             llm_value = getattr(self.metadata, "llm", None)
             if llm_value is not None:
                 safe_metadata["llm"] = str(llm_value)
