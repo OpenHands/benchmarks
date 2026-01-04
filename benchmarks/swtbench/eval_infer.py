@@ -210,6 +210,37 @@ def _build_run_id(predictions_path: Path) -> str:
     return f"eval_{predictions_path.stem}"
 
 
+def _write_placeholder_report(
+    report_path: Path,
+    input_file: Path,
+    dataset: str,
+    model_name: str,
+    converted_count: int,
+    error_count: int,
+    reason: str,
+) -> None:
+    """
+    Emit a minimal report.json when we skip SWT-Bench evaluation.
+    """
+    report = {
+        "input_file": input_file.name,
+        "dataset": dataset,
+        "model_name": model_name,
+        "generated_at": _utcnow(),
+        "metrics": {
+            "total": converted_count,
+            "success": 0,
+            "success_rate": 0.0,
+            "errors": error_count,
+        },
+        "resolved_ids": [],
+        "unresolved_ids": [],
+        "notes": reason,
+    }
+    report_path.write_text(json.dumps(report, indent=4))
+    logger.info("Wrote placeholder report: %s", report_path)
+
+
 def convert_to_swtbench_format(
     input_file: str, output_file: str, model_name: str = "OpenHands"
 ) -> tuple[int, int]:
@@ -534,15 +565,31 @@ Examples:
         converted_count, error_count = convert_to_swtbench_format(
             str(input_file), str(output_file), args.model_name
         )
+        report_path = input_file.with_name("output.report.json")
 
-        if converted_count == 0:
+        if converted_count == 0 or args.skip_evaluation:
+            reason = (
+                "No predictions converted to SWT-Bench format"
+                if converted_count == 0
+                else "Evaluation skipped by flag"
+            )
             logger.warning(
-                "No predictions converted; skipping SWT-Bench evaluation. "
-                "Source: %s, errors: %s",
+                "%s; producing placeholder report. Source: %s, errors: %s",
+                reason,
                 input_file,
                 error_count,
             )
-        elif not args.skip_evaluation:
+            _write_placeholder_report(
+                report_path,
+                input_file,
+                args.dataset,
+                args.model_name,
+                converted_count,
+                error_count,
+                reason,
+            )
+            update_report_with_submitted_instances(report_path, output_file)
+        else:
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
 
@@ -555,10 +602,9 @@ Examples:
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
 
             target_dir = input_file.parent
-            target_file = target_dir / "output.report.json"
-            shutil.move(str(report_file), str(target_file))
-            logger.info(f"Moved evaluation report to: {target_file}")
-            update_report_with_submitted_instances(target_file, output_file)
+            shutil.move(str(report_file), str(report_path))
+            logger.info(f"Moved evaluation report to: {report_path}")
+            update_report_with_submitted_instances(report_path, output_file)
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
