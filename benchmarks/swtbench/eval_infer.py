@@ -10,11 +10,13 @@ Usage:
 """
 
 import argparse
+import datetime
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
@@ -23,6 +25,10 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def _utcnow() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
@@ -82,6 +88,126 @@ def update_report_with_submitted_instances(
     logger.info(
         "Updated report with submitted_instances/submitted_ids: %s", report_path
     )
+
+
+def _format_id_preview(instance_ids: list[str], limit: int = 10) -> str:
+    if len(instance_ids) <= limit:
+        return ", ".join(instance_ids)
+    return f"{', '.join(instance_ids[:limit])} ... (+{len(instance_ids) - limit} more)"
+
+
+def _write_swtbench_sitecustomize(
+    swt_bench_dir: Path, timing_file: Path
+) -> Path:
+    """
+    Emit a sitecustomize.py into the SWT-Bench clone that records dataset timing.
+    """
+    sitecustomize_path = swt_bench_dir / "sitecustomize.py"
+    content = f"""import json
+import os
+import time
+from datetime import datetime, timezone
+
+TIMING_FILE = os.environ.get("SWT_BENCH_TIMING_FILE")
+
+
+def _append_timing(event, start_ts, end_ts, duration, extra=None):
+    if not TIMING_FILE:
+        return
+    record = {{
+        "event": event,
+        "start_time": start_ts,
+        "end_time": end_ts,
+        "duration_seconds": duration,
+    }}
+    if extra:
+        record.update(extra)
+    try:
+        with open(TIMING_FILE, "a", encoding="utf-8") as fp:
+            fp.write(json.dumps(record) + "\\n")
+    except Exception:
+        # Best-effort timing; do not break evaluation
+        pass
+
+
+if TIMING_FILE:
+    try:
+        from src import dataset as _dataset
+
+        _original_get_dataset_from_preds = _dataset.get_dataset_from_preds
+
+        def _timed_get_dataset_from_preds(*args, **kwargs):
+            start = time.perf_counter()
+            start_ts = datetime.now(timezone.utc).isoformat()
+            result = _original_get_dataset_from_preds(*args, **kwargs)
+            end_ts = datetime.now(timezone.utc).isoformat()
+            duration = time.perf_counter() - start
+
+            instance_ids = None
+            if len(args) > 2:
+                instance_ids = args[2]
+            else:
+                instance_ids = kwargs.get("instance_ids")
+
+            extra = {{
+                "dataset_name": args[0] if len(args) > 0 else kwargs.get("dataset_name"),
+                "split": args[1] if len(args) > 1 else kwargs.get("split"),
+                "instance_ids": list(instance_ids) if instance_ids is not None else None,
+                "run_id": args[4] if len(args) > 4 else kwargs.get("run_id"),
+                "is_swt": args[5] if len(args) > 5 else kwargs.get("is_swt"),
+                "filter_swt": args[6] if len(args) > 6 else kwargs.get("filter_swt"),
+                "dataset_size": len(result) if hasattr(result, "__len__") else None,
+            }}
+            _append_timing("dataset_load", start_ts, end_ts, duration, extra)
+            return result
+
+        _dataset.get_dataset_from_preds = _timed_get_dataset_from_preds
+    except Exception:
+        pass
+"""
+    sitecustomize_path.write_text(content)
+    return sitecustomize_path
+
+
+def _log_timing_file(timing_file: Path) -> None:
+    if not timing_file.exists():
+        logger.warning("SWT-Bench timing file not found: %s", timing_file)
+        return
+
+    try:
+        records = [
+            json.loads(line)
+            for line in timing_file.read_text().splitlines()
+            if line.strip()
+        ]
+    except Exception as exc:  # pragma: no cover - best-effort logging
+        logger.warning("Failed to read timing file %s: %s", timing_file, exc)
+        return
+
+    if not records:
+        logger.info("No timing records captured in %s", timing_file)
+        return
+
+    for record in records:
+        if record.get("event") != "dataset_load":
+            continue
+        ids = record.get("instance_ids") or []
+        id_summary = _format_id_preview(ids, limit=5) if isinstance(ids, list) else ids
+        logger.info(
+            "Dataset load timing: start=%s end=%s duration=%.2fs size=%s "
+            "is_swt=%s filter_swt=%s ids=%s",
+            record.get("start_time"),
+            record.get("end_time"),
+            record.get("duration_seconds"),
+            record.get("dataset_size"),
+            record.get("is_swt"),
+            record.get("filter_swt"),
+            id_summary,
+        )
+
+
+def _build_run_id(predictions_path: Path) -> str:
+    return f"eval_{predictions_path.stem}"
 
 
 def convert_to_swtbench_format(
@@ -189,7 +315,10 @@ def run_swtbench_evaluation(
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
     """
-    logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
+    overall_start = time.perf_counter()
+    logger.info(
+        "Running SWT-Bench evaluation on %s (start: %s)", predictions_file, _utcnow()
+    )
 
     try:
         # Use a global cache directory for SWT-Bench source
@@ -217,10 +346,28 @@ def run_swtbench_evaluation(
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
+        run_id = _build_run_id(predictions_path)
+        timing_file = swt_bench_dir / "evaluation_results" / f"{run_id}_timing.jsonl"
+        timing_file.parent.mkdir(parents=True, exist_ok=True)
+        if timing_file.exists():
+            timing_file.unlink()
 
         # Copy predictions file to swt-bench directory
         swt_predictions_file = swt_bench_dir / predictions_filename
         shutil.copy2(predictions_file, swt_predictions_file)
+
+        prediction_instance_ids = _load_prediction_instance_ids(predictions_path)
+        if not prediction_instance_ids:
+            raise ValueError(
+                f"No instance IDs found in predictions file: {predictions_path}"
+            )
+        logger.info(
+            "Prediction instance IDs (%s): %s",
+            len(prediction_instance_ids),
+            _format_id_preview(prediction_instance_ids),
+        )
+
+        sitecustomize_path = _write_swtbench_sitecustomize(swt_bench_dir, timing_file)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
         # but using the uv environment's python executable which has all dependencies
@@ -244,7 +391,12 @@ def run_swtbench_evaluation(
 
         # Set up environment with PYTHONPATH to include swt-bench directory
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(swt_bench_dir)
+        existing_pythonpath = env.get("PYTHONPATH")
+        pythonpath_entries = [str(swt_bench_dir)]
+        if existing_pythonpath:
+            pythonpath_entries.append(existing_pythonpath)
+        env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+        env["SWT_BENCH_TIMING_FILE"] = str(timing_file)
 
         cmd = [
             python_executable,
@@ -257,17 +409,22 @@ def run_swtbench_evaluation(
             "--max_workers",
             str(workers),
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            run_id,
         ]
+        cmd.extend(["--instance_ids", *prediction_instance_ids])
 
         logger.info(f"Using Python executable: {python_executable}")
         logger.info(f"Running command: {' '.join(cmd)}")
         logger.info(f"Working directory: {swt_bench_dir}")
         logger.info(f"PYTHONPATH: {env['PYTHONPATH']}")
+        logger.info("SWT-Bench timing hooks -> sitecustomize: %s", sitecustomize_path)
+        logger.info("Timing file: %s", timing_file)
+        logger.info("SWT-Bench run start: %s", _utcnow())
         logger.info("SWT-Bench evaluation output:")
         print("-" * 80)
 
         # Stream output directly to console, running from swt-bench directory
+        run_start = time.perf_counter()
         result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
 
         print("-" * 80)
@@ -279,6 +436,18 @@ def run_swtbench_evaluation(
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
 
+        _log_timing_file(timing_file)
+        run_duration = time.perf_counter() - run_start
+        total_duration = time.perf_counter() - overall_start
+        logger.info(
+            "SWT-Bench run end: %s (duration: %.2f seconds)",
+            _utcnow(),
+            run_duration,
+        )
+        logger.info(
+            "Total evaluation duration: %.2f seconds",
+            total_duration,
+        )
     except FileNotFoundError:
         logger.error(
             "SWT-Bench evaluation command not found. "
@@ -370,7 +539,7 @@ Examples:
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
             report_dir = swt_bench_dir / "evaluation_results"
-            run_id = f"eval_{output_file.stem}"
+            run_id = _build_run_id(output_file)
             model_name_safe = args.model_name.replace("/", "__")
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
 
