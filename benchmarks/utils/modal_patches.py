@@ -744,10 +744,12 @@ def apply_host_patches() -> None:
     _patch_modal_sklearn_install_flag()
     _patch_modal_sandbox_cgroup_retry()
     _patch_modal_prebuilt_images()
+    # Inject sitecustomize before re-registering the Modal function so the
+    # patched image (with env + sitecustomize) is baked into the function spec.
+    _inject_modal_sitecustomize()
     _patch_modal_sandbox_timing(log_errors=True, stderr=True)
     _patch_modal_runtime_debug(log_errors=True, stderr=True)
     _patch_modal_function_timeout(log_errors=True)
-    _inject_modal_sitecustomize()
     _patch_run_instances_modal_logging()
 
 
