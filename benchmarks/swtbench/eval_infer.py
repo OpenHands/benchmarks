@@ -212,7 +212,7 @@ def _build_run_id(predictions_path: Path) -> str:
 
 def convert_to_swtbench_format(
     input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> None:
+) -> tuple[int, int]:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -294,7 +294,9 @@ def convert_to_swtbench_format(
     )
 
     if converted_count == 0:
-        raise ValueError("No valid entries were converted")
+        logger.warning("No valid entries converted from %s", input_file)
+
+    return converted_count, error_count
 
 
 def run_swtbench_evaluation(
@@ -529,9 +531,18 @@ Examples:
 
     try:
         # Convert format
-        convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
+        converted_count, error_count = convert_to_swtbench_format(
+            str(input_file), str(output_file), args.model_name
+        )
 
-        if not args.skip_evaluation:
+        if converted_count == 0:
+            logger.warning(
+                "No predictions converted; skipping SWT-Bench evaluation. "
+                "Source: %s, errors: %s",
+                input_file,
+                error_count,
+            )
+        elif not args.skip_evaluation:
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
 
