@@ -456,6 +456,20 @@ def _inject_modal_sitecustomize() -> None:
         return
 
     image = run_fn.spec.image
+
+    # Rebuild from the base swebench image so add_local_file mounts (from the
+    # original function definition) are converted to copies. Modal rejects
+    # adding build steps after mount layers.
+    base_image = getattr(mod, "swebench_image", None)
+    entry_local = getattr(mod, "LOCAL_SANDBOX_ENTRYPOINT_PATH", None)
+    entry_remote = getattr(mod, "REMOTE_SANDBOX_ENTRYPOINT_PATH", None)
+    if base_image is not None and entry_local is not None and entry_remote is not None:
+        image = base_image.add_local_file(
+            Path(entry_local),
+            str(entry_remote),
+            copy=True,
+        )
+
     patched_image = image.add_local_file(
         patch_path,
         "/root/sitecustomize.py",
