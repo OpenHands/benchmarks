@@ -47,34 +47,8 @@ class Evaluation(ABC, BaseModel):
 
         # Save metadata to JSON file
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
-        try:
-            metadata_json = self.metadata.model_dump_json(indent=2)
-        except Exception as exc:  # pragma: no cover - defensive against serialization issues
-            logger.warning(
-                "Falling back to safe metadata serialization due to error: %s", exc
-            )
-            try:
-                safe_metadata = self.metadata.model_dump(
-                    mode="json",
-                    exclude={"llm", "critic"},
-                    by_alias=True,
-                    warnings=False,
-                )
-            except Exception as inner_exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "Secondary metadata serialization failed: %s; using raw values",
-                    inner_exc,
-                )
-                safe_metadata = json.loads(
-                    json.dumps(self.metadata.__dict__, default=str)
-                )
-            llm_value = getattr(self.metadata, "llm", None)
-            if llm_value is not None:
-                safe_metadata["llm"] = str(llm_value)
-            metadata_json = json.dumps(safe_metadata, indent=2)
-
         with open(metadata_file, "w", encoding="utf-8") as f:
-            f.write(metadata_json)
+            f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
 
     @property
