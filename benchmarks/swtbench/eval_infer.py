@@ -10,11 +10,14 @@ Usage:
 """
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 from benchmarks.utils.patch_utils import remove_files_from_patch
@@ -23,6 +26,54 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def _now() -> str:
+    """Return an ISO8601 UTC timestamp for logging."""
+    return datetime.utcnow().isoformat() + "Z"
+
+
+@contextlib.contextmanager
+def _chdir(path: Path):
+    """Temporarily change working directory."""
+    original = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(original)
+
+
+class TimingRecorder:
+    """Lightweight timing helper to capture named durations."""
+
+    def __init__(self) -> None:
+        self._origin = time.perf_counter()
+        self._events: dict[str, float] = {}
+
+    def mark(self, name: str) -> None:
+        self._events[name] = time.perf_counter()
+
+    def elapsed(self, start: str, end: str | None = None) -> float:
+        if end is None:
+            end = start
+            start = "start"
+        start_time = self._events.get(start, self._origin)
+        end_time = self._events.get(end, time.perf_counter())
+        return end_time - start_time
+
+    def summary(self) -> dict[str, float]:
+        keys = sorted(self._events.keys(), key=self._events.get)
+        if "start" not in self._events:
+            keys.insert(0, "start")
+            self._events["start"] = self._origin
+        summary: dict[str, float] = {}
+        for idx, key in enumerate(keys):
+            next_key = keys[idx + 1] if idx + 1 < len(keys) else None
+            start_time = self._events[key]
+            end_time = self._events.get(next_key, time.perf_counter())
+            summary[key] = end_time - start_time
+        return summary
 
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
@@ -175,119 +226,236 @@ def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
     workers: str = "12",
+    model_name: str = "OpenHands",
 ) -> None:
     """
     Run SWT-Bench evaluation on the predictions file.
-
-    Note: The swt-bench package is included as a dependency in pyproject.toml
-    to ensure all its dependencies are available, but the package itself is not
-    properly structured for import. We use subprocess to run it from a cached
-    clone since that's how the upstream package is designed to work.
 
     Args:
         predictions_file: Path to the SWT-Bench format predictions file
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
+        model_name: Model name stored in the predictions file/report
     """
-    logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
+    logger.info("Running SWT-Bench evaluation on %s", predictions_file)
 
-    try:
-        # Use a global cache directory for SWT-Bench source
-        cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
-        swt_bench_dir = cache_dir / "swt-bench"
+    timers = TimingRecorder()
+    timers.mark("start")
 
-        # Clone SWT-Bench repository if it doesn't exist
-        if not swt_bench_dir.exists():
-            logger.info("Setting up SWT-Bench source in global cache...")
-            cache_dir.mkdir(parents=True, exist_ok=True)
-
-            logger.info("Cloning SWT-Bench repository...")
-            clone_cmd = [
-                "git",
-                "clone",
-                "https://github.com/logic-star-ai/swt-bench.git",
-                str(swt_bench_dir),
-            ]
-            result = subprocess.run(clone_cmd, text=True)
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, clone_cmd)
-
-            logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
-
-        # Get the directory and filename of the predictions file
-        predictions_path = Path(predictions_file).resolve()
-        predictions_filename = predictions_path.name
-
-        # Copy predictions file to swt-bench directory
-        swt_predictions_file = swt_bench_dir / predictions_filename
-        shutil.copy2(predictions_file, swt_predictions_file)
-
-        # Run SWT-Bench evaluation by running python directly from the swt-bench directory
-        # but using the uv environment's python executable which has all dependencies
-        benchmarks_dir = Path(__file__).parent.parent.parent
-
-        # Get the python executable from the uv environment
-        python_executable = subprocess.run(
-            [
-                "uv",
-                "run",
-                "--directory",
-                str(benchmarks_dir),
-                "python",
-                "-c",
-                "import sys; print(sys.executable)",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=benchmarks_dir,
-        ).stdout.strip()
-
-        # Set up environment with PYTHONPATH to include swt-bench directory
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(swt_bench_dir)
-
-        cmd = [
-            python_executable,
-            "src/main.py",  # Run as script instead of module
-            "--dataset_name",
-            dataset,
-            "--predictions_path",
-            predictions_filename,
-            "--filter_swt",
-            "--max_workers",
-            str(workers),
-            "--run_id",
-            f"eval_{predictions_path.stem}",
-        ]
-
-        logger.info(f"Using Python executable: {python_executable}")
-        logger.info(f"Running command: {' '.join(cmd)}")
-        logger.info(f"Working directory: {swt_bench_dir}")
-        logger.info(f"PYTHONPATH: {env['PYTHONPATH']}")
-        logger.info("SWT-Bench evaluation output:")
-        print("-" * 80)
-
-        # Stream output directly to console, running from swt-bench directory
-        result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
-
-        print("-" * 80)
-        if result.returncode == 0:
-            logger.info("SWT-Bench evaluation completed successfully")
-        else:
-            logger.error(
-                f"SWT-Bench evaluation failed with return code {result.returncode}"
-            )
-            raise subprocess.CalledProcessError(result.returncode, cmd)
-
-    except FileNotFoundError:
-        logger.error(
-            "SWT-Bench evaluation command not found. "
-            "Make sure git and python are available."
+    cache_dir = Path(
+        os.getenv(
+            "SWT_BENCH_CACHE_DIR",
+            Path.home() / ".cache" / "openhands" / "swt-bench",
         )
-        raise
-    except Exception as e:
-        logger.error(f"Error running SWT-Bench evaluation: {e}")
-        raise
+    )
+    repo_override = os.getenv("SWT_BENCH_REPO_PATH")
+    repo_candidates = [
+        Path(p) for p in ([repo_override] if repo_override else []) if p
+    ]
+    repo_candidates.append(Path("/opt/swt-bench"))
+    repo_candidates.append(cache_dir / "swt-bench")
+
+    hf_cache = Path(
+        os.getenv(
+            "HF_HOME",
+            os.getenv("SWT_BENCH_HF_CACHE", cache_dir / "huggingface"),
+        )
+    )
+    hf_datasets_cache = Path(
+        os.getenv(
+            "HF_DATASETS_CACHE",
+            os.getenv("SWT_BENCH_HF_DATASETS_CACHE", hf_cache / "datasets"),
+        )
+    )
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    hf_cache.mkdir(parents=True, exist_ok=True)
+    hf_datasets_cache.mkdir(parents=True, exist_ok=True)
+
+    swt_bench_dir = None
+    for candidate in repo_candidates:
+        if candidate and candidate.exists():
+            swt_bench_dir = candidate
+            break
+
+    if swt_bench_dir is None:
+        swt_bench_dir = repo_candidates[-1]
+        logger.info(
+            "SWT-Bench source not found; cloning into %s (started %s)",
+            swt_bench_dir,
+            _now(),
+        )
+        swt_bench_dir.parent.mkdir(parents=True, exist_ok=True)
+
+        clone_cmd = [
+            "git",
+            "clone",
+            "https://github.com/logic-star-ai/swt-bench.git",
+            str(swt_bench_dir),
+        ]
+        result = subprocess.run(clone_cmd, text=True)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, clone_cmd)
+
+        logger.info("SWT-Bench source installed at %s", swt_bench_dir)
+    else:
+        logger.info("Using existing SWT-Bench source at %s", swt_bench_dir)
+
+    os.environ.setdefault("SWT_BENCH_CACHE_DIR", str(cache_dir))
+    os.environ.setdefault("SWT_BENCH_REPO_PATH", str(swt_bench_dir))
+    os.environ.setdefault("HF_HOME", str(hf_cache))
+    os.environ.setdefault("HF_DATASETS_CACHE", str(hf_datasets_cache))
+
+    predictions_path = Path(predictions_file).resolve()
+    run_id = f"eval_{predictions_path.stem}"
+    max_workers = int(workers) if isinstance(workers, str) else workers
+    cache_level = os.getenv("SWT_BENCH_CACHE_LEVEL", "env")
+    clean_images = os.getenv("SWT_BENCH_CLEAN_IMAGES", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    force_rebuild = os.getenv("SWT_BENCH_FORCE_REBUILD", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    build_mode = os.getenv("SWT_BENCH_BUILD_MODE", "api")
+
+    dataset_durations: list[float] = []
+    run_timings: dict[str, float] = {}
+    run_timestamps: dict[str, str] = {}
+    report_file: Path | None = None
+
+    logger.info("HF_HOME=%s HF_DATASETS_CACHE=%s", hf_cache, hf_datasets_cache)
+    logger.info(
+        "SWT-Bench run_id=%s cache_level=%s clean_images=%s force_rebuild=%s",
+        run_id,
+        cache_level,
+        clean_images,
+        force_rebuild,
+    )
+
+    with _chdir(swt_bench_dir):
+        sys.path.insert(0, str(swt_bench_dir))
+        try:
+            import src.dataset as swt_dataset
+            import src.main as swt_main
+            import src.run_evaluation as swt_run_eval
+        except Exception:
+            logger.error("Failed to import swt-bench modules from %s", swt_bench_dir)
+            raise
+
+        original_get_dataset = swt_dataset.get_dataset_from_preds
+        original_run_instances = swt_run_eval.run_instances
+
+        def _timed_get_dataset_from_preds(*args, **kwargs):
+            start = time.perf_counter()
+            result = original_get_dataset(*args, **kwargs)
+            duration = time.perf_counter() - start
+            dataset_durations.append(duration)
+            logger.info(
+                "Dataset load/prep finished in %.2fs at %s (instances=%s)",
+                duration,
+                _now(),
+                len(result) if result else 0,
+            )
+            return result
+
+        def _timed_run_instances(*args, **kwargs):
+            run_timings["start"] = time.perf_counter()
+            run_timestamps["start"] = _now()
+            try:
+                return original_run_instances(*args, **kwargs)
+            finally:
+                run_timings["end"] = time.perf_counter()
+                run_timestamps["end"] = _now()
+                logger.info(
+                    "SWT-Bench run_instances completed in %.2fs (start=%s end=%s)",
+                    run_timings["end"] - run_timings["start"],
+                    run_timestamps.get("start", "unknown"),
+                    run_timestamps.get("end", "unknown"),
+                )
+
+        swt_dataset.get_dataset_from_preds = _timed_get_dataset_from_preds
+        swt_run_eval.run_instances = _timed_run_instances
+
+        timers.mark("swtbench_start")
+        logger.info(
+            "Starting SWT-Bench harness (run_id=%s) at %s with %s workers",
+            run_id,
+            _now(),
+            max_workers,
+        )
+
+        try:
+            swt_main.run(
+                dataset_name=dataset,
+                is_swt=False,
+                split="test",
+                instance_ids=None,
+                predictions_path=str(predictions_path),
+                compute_coverage=True,
+                max_workers=max_workers,
+                force_rebuild=force_rebuild,
+                cache_level=cache_level,
+                clean=clean_images,
+                open_file_limit=4096,
+                run_id=run_id,
+                patch_types=["vanilla"],
+                timeout=1800,
+                filter_swt=True,
+                build_mode=build_mode,
+                skip_eval=False,
+                exec_mode="unit_test",
+                reproduction_script_name=None,
+            )
+        except Exception:
+            logger.exception("SWT-Bench evaluation failed")
+            raise
+        finally:
+            swt_dataset.get_dataset_from_preds = original_get_dataset
+            swt_run_eval.run_instances = original_run_instances
+            timers.mark("swtbench_end")
+
+        report_dir = swt_bench_dir / "evaluation_results"
+        model_name_safe = model_name.replace("/", "__")
+        report_file = report_dir / f"{model_name_safe}.{run_id}.json"
+        logger.info("Expected report at %s", report_file)
+
+    timers.mark("end")
+
+    if report_file and report_file.exists():
+        logger.info("SWT-Bench evaluation completed successfully at %s", _now())
+    else:
+        logger.error("SWT-Bench evaluation finished without report output")
+        raise FileNotFoundError(f"Report file not found: {report_file}")
+
+    if dataset_durations:
+        total_dataset_time = sum(dataset_durations)
+        logger.info(
+            "Dataset load/preprocessing time: %.2fs over %d call(s)",
+            total_dataset_time,
+            len(dataset_durations),
+        )
+    else:
+        logger.info("Dataset load timing unavailable (no calls recorded)")
+
+    if run_timings:
+        logger.info(
+            "SWT-Bench run_instances timing: start=%s end=%s duration=%.2fs",
+            run_timestamps.get("start", "unknown"),
+            run_timestamps.get("end", "unknown"),
+            run_timings["end"] - run_timings["start"],
+        )
+
+    total_duration = timers.elapsed("start", "end")
+    harness_duration = timers.elapsed("swtbench_start", "swtbench_end")
+    logger.info(
+        "SWT-Bench evaluation total duration: %.2fs (harness: %.2fs)",
+        total_duration,
+        harness_duration,
+    )
 
 
 def main() -> None:
@@ -364,11 +532,23 @@ Examples:
 
         if not args.skip_evaluation:
             # Run evaluation
-            run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
+            run_swtbench_evaluation(
+                str(output_file),
+                args.dataset,
+                args.workers,
+                args.model_name,
+            )
 
             # Move SWT-Bench evaluation report to same folder as output.jsonl
-            cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
-            swt_bench_dir = cache_dir / "swt-bench"
+            cache_dir = Path(
+                os.getenv(
+                    "SWT_BENCH_CACHE_DIR",
+                    Path.home() / ".cache" / "openhands" / "swt-bench",
+                )
+            )
+            swt_bench_dir = Path(
+                os.getenv("SWT_BENCH_REPO_PATH", cache_dir / "swt-bench")
+            )
             report_dir = swt_bench_dir / "evaluation_results"
             run_id = f"eval_{output_file.stem}"
             model_name_safe = args.model_name.replace("/", "__")
