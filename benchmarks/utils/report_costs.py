@@ -279,6 +279,8 @@ def calculate_costs(directory_path: str) -> None:
             "average_duration": summary_average_duration,
         }
     elif output_file:
+        # TODO(https://github.com/OpenHands/benchmarks/issues/249):
+        # Revisit summary cost semantics so total_cost reflects actual total even without critic files.
         report_data["summary"] = {
             "only_main_output_cost": total_individual_costs,
             "total_cost": 0,  # No critic files, so total is 0 (main is subset)
