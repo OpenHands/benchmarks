@@ -17,6 +17,7 @@ The script looks for files matching:
 Output:
 - Console report with detailed cost breakdown
 - cost_report.jsonl file with structured cost data
+- total_cost reflects real spend (sum of critic attempt files when present, otherwise main output)
 """
 
 import argparse
@@ -175,7 +176,8 @@ def calculate_costs(directory_path: str) -> None:
         "summary": {},
     }
 
-    total_individual_costs = 0.0
+    main_cost: Optional[float] = None
+    main_average_duration: Optional[float] = None
 
     # Process main output file
     if output_file:
@@ -185,7 +187,8 @@ def calculate_costs(directory_path: str) -> None:
         jsonl_data = read_jsonl_file(output_file)
         cost = extract_accumulated_cost(jsonl_data)
         time_stats = calculate_time_statistics(jsonl_data)
-        total_individual_costs += cost
+        main_cost = cost
+        main_average_duration = time_stats.get("average_duration", 0.0)
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
@@ -218,7 +221,6 @@ def calculate_costs(directory_path: str) -> None:
             jsonl_data = read_jsonl_file(critic_file)
             cost = extract_accumulated_cost(jsonl_data)
             time_stats = calculate_time_statistics(jsonl_data)
-            total_individual_costs += cost
             critic_total += cost
 
             print(f"    Lines: {len(jsonl_data)}")
@@ -249,31 +251,28 @@ def calculate_costs(directory_path: str) -> None:
     print("\n" + "=" * 80)
     print("SUMMARY:")
 
-    if output_file and critic_files:
-        # Calculate cost excluding main output.jsonl (only critic files)
-        critic_only_total = total_individual_costs - extract_accumulated_cost(
-            read_jsonl_file(output_file)
-        )
-        print(f"  Sum Critic Files: ${critic_only_total:.6f}")
+    # Summary duration is based on the main (aggregated) output only
+    summary_average_duration = main_average_duration or 0.0
 
-        # Add summary to report data
-        report_data["summary"] = {
-            "only_main_output_cost": extract_accumulated_cost(
-                read_jsonl_file(output_file)
-            ),
-            "sum_critic_files": critic_only_total,
-            "total_cost": critic_only_total,  # Total is just critic files since main is subset
-        }
-    elif output_file:
-        report_data["summary"] = {
-            "only_main_output_cost": total_individual_costs,
-            "total_cost": 0,  # No critic files, so total is 0 (main is subset)
-        }
-    elif critic_files:
-        report_data["summary"] = {
-            "sum_critic_files": critic_total,
-            "total_cost": critic_total,
-        }
+    # Total cost represents actual spend:
+    # - If critic files exist, they contain all attempts; use their sum.
+    # - Otherwise, fall back to the main output cost.
+    total_cost = critic_total if critic_files else (main_cost or 0.0)
+
+    if main_cost is not None:
+        print(f"  Main Output Cost (best results): ${main_cost:.6f}")
+    if critic_files:
+        print(f"  Sum Critic Files (all attempts): ${critic_total:.6f}")
+    print(f"  Total Cost (no double-count): ${total_cost:.6f}")
+
+    summary = {"total_cost": total_cost, "average_duration": summary_average_duration}
+
+    if main_cost is not None:
+        summary["only_main_output_cost"] = main_cost
+    if critic_files:
+        summary["sum_critic_files"] = critic_total
+
+    report_data["summary"] = summary
 
     # Save JSON report
     report_file = directory / "cost_report.jsonl"
