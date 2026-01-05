@@ -333,6 +333,16 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
+    # Allow bumping max iterations via env, defaulting to a higher floor for SWT-bench
+    min_max_iters = int(os.getenv("SWT_MAX_ITERATIONS_MIN", "120"))
+    if args.max_iterations < min_max_iters:
+        logger.info(
+            "Raising max_iterations from %s to %s to allow longer conversations",
+            args.max_iterations,
+            min_max_iters,
+        )
+        args.max_iterations = min_max_iters
+
     llm_config_path = args.llm_config_path
     if not os.path.isfile(llm_config_path):
         raise ValueError(f"LLM config file {llm_config_path} does not exist")
