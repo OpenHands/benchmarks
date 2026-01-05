@@ -210,6 +210,27 @@ def _build_run_id(predictions_path: Path) -> str:
     return f"eval_{predictions_path.stem}"
 
 
+def _patch_swtbench_init(swt_bench_dir: Path) -> None:
+    """Remove circular import in swt-bench src/__init__.py that pulls src.main."""
+    init_path = swt_bench_dir / "src" / "__init__.py"
+    if not init_path.exists():
+        return
+
+    text = init_path.read_text()
+    marker = "from src.main import"
+    if marker not in text:
+        return
+
+    cleaned = []
+    for line in text.splitlines():
+        if marker in line:
+            cleaned.append("# " + line + "  # removed to avoid circular import")
+        else:
+            cleaned.append(line)
+    init_path.write_text("\n".join(cleaned))
+    logger.info("Patched swt-bench __init__.py to skip src.main import")
+
+
 def _write_placeholder_report(
     report_path: Path,
     input_file: Path,
@@ -375,6 +396,9 @@ def run_swtbench_evaluation(
                 raise subprocess.CalledProcessError(result.returncode, clone_cmd)
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
+            _patch_swtbench_init(swt_bench_dir)
+        else:
+            _patch_swtbench_init(swt_bench_dir)
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
