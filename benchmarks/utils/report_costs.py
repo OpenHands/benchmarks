@@ -212,7 +212,6 @@ def calculate_costs(directory_path: str) -> None:
 
     # Process critic files individually
     critic_total = 0.0
-    critic_average_duration: Optional[float] = None
     if critic_files:
         print("\nCritic Attempt Files:")
 
@@ -223,8 +222,6 @@ def calculate_costs(directory_path: str) -> None:
             cost = extract_accumulated_cost(jsonl_data)
             time_stats = calculate_time_statistics(jsonl_data)
             critic_total += cost
-            if critic_average_duration is None:
-                critic_average_duration = time_stats.get("average_duration", 0.0)
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
@@ -254,9 +251,8 @@ def calculate_costs(directory_path: str) -> None:
     print("\n" + "=" * 80)
     print("SUMMARY:")
 
-    summary_average_duration = (
-        main_average_duration or critic_average_duration or 0.0
-    )
+    # Summary duration is based on the main (aggregated) output only
+    summary_average_duration = main_average_duration or 0.0
 
     # Total cost represents actual spend:
     # - If critic files exist, they contain all attempts; use their sum.
