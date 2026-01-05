@@ -222,11 +222,16 @@ def _patch_swtbench_init(swt_bench_dir: Path) -> None:
         return
 
     cleaned = []
+    skip_block = False
     for line in text.splitlines():
+        if skip_block:
+            if line.strip().startswith(")"):
+                skip_block = False
+            continue
         if marker in line:
-            cleaned.append("# " + line + "  # removed to avoid circular import")
-        else:
-            cleaned.append(line)
+            skip_block = True
+            continue
+        cleaned.append(line)
     init_path.write_text("\n".join(cleaned))
     logger.info("Patched swt-bench __init__.py to skip src.main import")
 
