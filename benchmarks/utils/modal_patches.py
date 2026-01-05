@@ -10,6 +10,7 @@ import sys
 import time
 import traceback
 
+
 _MODAL_SITECUSTOMIZE_INJECTED = False
 DEFAULT_AGENT_IMAGE = "ghcr.io/openhands/eval-agent-server"
 DEFAULT_BUILD_TARGET = "source-minimal"
@@ -47,7 +48,10 @@ def _get_sdk_short_sha() -> str:
 
 
 def _get_agent_server_image_repo() -> str:
-    return os.getenv("EVAL_AGENT_SERVER_IMAGE", DEFAULT_AGENT_IMAGE).strip() or DEFAULT_AGENT_IMAGE
+    return (
+        os.getenv("EVAL_AGENT_SERVER_IMAGE", DEFAULT_AGENT_IMAGE).strip()
+        or DEFAULT_AGENT_IMAGE
+    )
 
 
 def _get_build_target() -> str:
@@ -155,11 +159,13 @@ def _patch_modal_sandbox_cgroup_retry() -> None:
                 time.sleep(delay)
                 delay = min(delay * 2, 10.0)
 
-    write_file_with_retry._benchmarks_retry_patch = True
+    setattr(write_file_with_retry, "_benchmarks_retry_patch", True)
     runtime_cls.write_file = write_file_with_retry
 
 
-def _patch_modal_prebuilt_images(log_errors: bool = False, stderr: bool = False) -> None:
+def _patch_modal_prebuilt_images(
+    log_errors: bool = False, stderr: bool = False
+) -> None:
     """Use prebuilt SWE-Bench images in Modal instead of rebuilding per instance."""
     try:
         from swebench.harness.modal_eval import run_evaluation_modal as mod
@@ -215,7 +221,7 @@ def _patch_modal_prebuilt_images(log_errors: bool = False, stderr: bool = False)
         # Upstream expects /testbed as the working directory when running evals.
         return image.workdir("/testbed/")
 
-    get_instance_image_from_registry._benchmarks_prebuilt_patch = True
+    setattr(get_instance_image_from_registry, "_benchmarks_prebuilt_patch", True)
     runtime_cls.get_instance_image = staticmethod(get_instance_image_from_registry)
     if log_errors:
         _log("[benchmarks] modal sitecustomize: applied prebuilt image patch")
@@ -245,7 +251,9 @@ def _patch_modal_sandbox_timing(log_errors: bool = False, stderr: bool = False) 
     emit = _make_emit(stderr)
 
     def get_sandbox_with_timing(self, timeout: int | None = None):
-        instance_id = getattr(getattr(self, "test_spec", None), "instance_id", "unknown")
+        instance_id = getattr(
+            getattr(self, "test_spec", None), "instance_id", "unknown"
+        )
         start = time.time()
         emit(
             f"[benchmarks] Modal sandbox create start for {instance_id} "
@@ -260,7 +268,7 @@ def _patch_modal_sandbox_timing(log_errors: bool = False, stderr: bool = False) 
                 f"(elapsed={elapsed:.2f}s)"
             )
 
-    get_sandbox_with_timing._benchmarks_timing_patch = True
+    setattr(get_sandbox_with_timing, "_benchmarks_timing_patch", True)
     runtime_cls._get_sandbox = get_sandbox_with_timing
     if log_errors:
         _log("[benchmarks] modal sitecustomize: applied sandbox timing patch")
@@ -272,7 +280,9 @@ def _patch_modal_runtime_debug(log_errors: bool = False, stderr: bool = False) -
         from swebench.harness.modal_eval import run_evaluation_modal as mod
     except Exception as exc:
         if log_errors:
-            _log(f"[benchmarks] modal sitecustomize: failed to import modal_eval: {exc}")
+            _log(
+                f"[benchmarks] modal sitecustomize: failed to import modal_eval: {exc}"
+            )
         return
 
     runtime_cls = getattr(mod, "ModalSandboxRuntime", None)
@@ -286,7 +296,9 @@ def _patch_modal_runtime_debug(log_errors: bool = False, stderr: bool = False) -
     original_init = runtime_cls.__init__
     if not getattr(original_init, "_benchmarks_runtime_init_patch", False):
 
-        def init_with_logging(self, test_spec, timeout: int | None = None, verbose=True):
+        def init_with_logging(
+            self, test_spec, timeout: int | None = None, verbose=True
+        ):
             instance_id = getattr(test_spec, "instance_id", "unknown")
             emit(
                 f"[benchmarks] Modal runtime init start for {instance_id} "
@@ -302,14 +314,16 @@ def _patch_modal_runtime_debug(log_errors: bool = False, stderr: bool = False) -
                     f"(elapsed={elapsed:.2f}s)"
                 )
 
-        init_with_logging._benchmarks_runtime_init_patch = True
+        setattr(init_with_logging, "_benchmarks_runtime_init_patch", True)
         runtime_cls.__init__ = init_with_logging
 
     original_exec = runtime_cls.exec
     if not getattr(original_exec, "_benchmarks_runtime_exec_patch", False):
 
         def exec_with_logging(self, command: str):
-            instance_id = getattr(getattr(self, "test_spec", None), "instance_id", "unknown")
+            instance_id = getattr(
+                getattr(self, "test_spec", None), "instance_id", "unknown"
+            )
             label = None
             if "/root/eval.sh" in command:
                 label = "eval"
@@ -329,7 +343,7 @@ def _patch_modal_runtime_debug(log_errors: bool = False, stderr: bool = False) -
 
             return original_exec(self, command)
 
-        exec_with_logging._benchmarks_runtime_exec_patch = True
+        setattr(exec_with_logging, "_benchmarks_runtime_exec_patch", True)
         runtime_cls.exec = exec_with_logging
 
     if log_errors:
@@ -344,7 +358,9 @@ def _patch_modal_function_timeout(
         from swebench.harness.modal_eval import run_evaluation_modal as mod
     except Exception as exc:
         if log_errors:
-            _log(f"[benchmarks] modal sitecustomize: failed to import modal_eval: {exc}")
+            _log(
+                f"[benchmarks] modal sitecustomize: failed to import modal_eval: {exc}"
+            )
         return
 
     run_fn = getattr(mod, "run_instance_modal", None)
@@ -416,13 +432,10 @@ def _patch_modal_function_timeout(
         )(run_instance_modal_with_logging)
     except Exception as exc:
         if log_errors:
-            _log(
-                "[benchmarks] modal sitecustomize: failed to patch timeout: "
-                f"{exc}"
-            )
+            _log(f"[benchmarks] modal sitecustomize: failed to patch timeout: {exc}")
         return
 
-    patched_fn._benchmarks_timeout_patch = True
+    setattr(patched_fn, "_benchmarks_timeout_patch", True)
     mod.run_instance_modal = patched_fn
     if log_errors:
         _log(
@@ -490,8 +503,9 @@ def _inject_modal_sitecustomize() -> None:
         env_vars["SDK_SHA"] = SDK_SHA
         env_vars["SDK_SHORT_SHA"] = SDK_SHORT_SHA
     except Exception:
-        if os.getenv("SDK_SHA"):
-            env_vars["SDK_SHA"] = os.getenv("SDK_SHA")
+        sdk_sha_env = os.getenv("SDK_SHA")
+        if sdk_sha_env:
+            env_vars["SDK_SHA"] = sdk_sha_env
         env_vars["SDK_SHORT_SHA"] = _get_sdk_short_sha()
 
     env_vars["EVAL_AGENT_SERVER_IMAGE"] = _get_agent_server_image_repo()
@@ -675,9 +689,7 @@ def _patch_run_instances_modal_logging() -> None:
                             "Modal client closed during image build/sandbox create: %s",
                             result,
                         )
-                        (log_dir / "patch.diff").write_text(
-                            pred.get("model_patch", "")
-                        )
+                        (log_dir / "patch.diff").write_text(pred.get("model_patch", ""))
                         report = {
                             test_spec.instance_id: {
                                 "resolved": False,
@@ -714,9 +726,7 @@ def _patch_run_instances_modal_logging() -> None:
                             "Modal client closed during image build/sandbox create: %s",
                             exc,
                         )
-                        (log_dir / "patch.diff").write_text(
-                            pred.get("model_patch", "")
-                        )
+                        (log_dir / "patch.diff").write_text(pred.get("model_patch", ""))
                         report = {
                             test_spec.instance_id: {
                                 "resolved": False,
