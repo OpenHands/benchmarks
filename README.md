@@ -220,7 +220,7 @@ When running or dispatching builds, no extra flags are needed—the selective wr
 When evaluating a specific SDK version, you need to ensure the benchmarks code is compatible with that SDK version. You have two options:
 
 1. **Use the `benchmarks-commit` parameter in the workflow** (Recommended):
-   - When manually triggering the `build-swe-bench-images` workflow (builds + wraps images in-place), specify both:
+   - When manually triggering the `build-swebench-images` workflow (builds + wraps images in-place), specify both:
      - `sdk-commit`: The SDK version you want to evaluate
      - `benchmarks-commit`: A benchmarks commit that's compatible with that SDK version
    
