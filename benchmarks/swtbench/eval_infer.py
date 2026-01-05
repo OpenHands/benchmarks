@@ -336,7 +336,12 @@ def run_swtbench_evaluation(
         force_rebuild,
     )
 
+    src_path = swt_bench_dir / "src"
+
     with _chdir(swt_bench_dir):
+        # Ensure swt-bench sources (including src/run_evaluation.py) are importable
+        if src_path.exists():
+            sys.path.insert(0, str(src_path))
         sys.path.insert(0, str(swt_bench_dir))
         try:
             import src.dataset as swt_dataset
