@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.buildx_utils import maybe_reset_buildkit
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.image_utils import image_exists
 from openhands.agent_server.docker.build import BuildOptions, TargetType, build
@@ -295,7 +296,7 @@ def build_image(
     for t in opts.all_tags:
         # Check if image exists or not
         if image_exists(t):
-            logger.info(f"Image {t} already exists. Skipping build.")
+            logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
@@ -330,10 +331,19 @@ def _build_with_logging(
                     f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
                 )
                 time.sleep(2 + attempt * 2)
-            result = build_image(base_image, target_image, custom_tag, target, push)
+            try:
+                result = build_image(base_image, target_image, custom_tag, target, push)
+            except Exception as e:
+                result = BuildOutput(
+                    base_image=base_image,
+                    tags=[],
+                    error=repr(e),
+                    log_path=str(log_path),
+                )
             result.log_path = str(log_path)
             if result.error:
                 logger.error("Build error for %s: %s", base_image, result.error)
+                maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                 if attempt == max_retries - 1:
                     logger.error("Max retries reached for %s. Giving up.", base_image)
                     return result
@@ -347,6 +357,7 @@ def _build_with_logging(
                     logger.error(
                         "Post-build error for %s: %s", base_image, result.error
                     )
+                    maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                     if attempt == max_retries - 1:
                         logger.error(
                             "Max retries reached for %s. Giving up.", base_image

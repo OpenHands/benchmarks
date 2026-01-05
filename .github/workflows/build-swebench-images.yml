@@ -18,7 +18,12 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '32'
+        default: '16'
+        type: string
+      max-retries:
+        description: 'Retries per image build'
+        required: false
+        default: '5'
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
@@ -45,7 +50,8 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '32'
+  MAX_WORKERS: '16'
+  MAX_RETRIES: '5'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
@@ -88,7 +94,7 @@ jobs:
             echo "Using default ref (the commit that triggered this workflow)"
           fi
       
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # When ref is empty, actions/checkout uses the commit that triggered the workflow
           ref: ${{ steps.checkout-ref.outputs.ref }}
@@ -101,6 +107,7 @@ jobs:
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
@@ -187,7 +194,8 @@ jobs:
             --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \
             --push \
-            --max-workers '${MAX_WORKERS}'"
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
 
           # Only include --n-limit if provided (non-empty)
           if [ -n "${N_LIMIT}" ]; then
@@ -202,6 +210,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          BUILDKIT_RESET_ON_FAILURE: 1
 
       - name: Archive build logs
         if: always()
@@ -216,7 +225,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-logs-${{ github.run_id }}
           path: build-logs.tar.gz
