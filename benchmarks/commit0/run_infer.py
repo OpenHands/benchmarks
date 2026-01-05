@@ -291,7 +291,8 @@ class Commit0Evaluation(Evaluation):
             metadata=self.metadata,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+        conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
 
