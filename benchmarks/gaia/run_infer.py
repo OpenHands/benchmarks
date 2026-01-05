@@ -303,7 +303,8 @@ class GAIAEvaluation(Evaluation):
             conversation.send_message(msg)
         else:
             conversation.send_message(instruction)
-        conversation.run()
+        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+        conversation.run(timeout=run_timeout)
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)

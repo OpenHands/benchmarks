@@ -340,7 +340,8 @@ class MultiSWEBenchEvaluation(Evaluation):
             workspace_path=workspace.working_dir,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+        conversation.run(timeout=run_timeout)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")

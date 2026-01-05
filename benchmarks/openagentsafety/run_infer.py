@@ -434,10 +434,11 @@ class OpenAgentSafetyEvaluation(Evaluation):
         conversation.send_message(instruction)
 
         # Run conversation with error handling
+        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning)
-                conversation.run()
+                conversation.run(timeout=run_timeout)
             logger.info(f"Conversation completed for {instance.id}")
         except ValidationError as e:
             logger.warning(f"Validation error from custom events (continuing): {e}")
