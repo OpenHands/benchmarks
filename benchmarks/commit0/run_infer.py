@@ -28,7 +28,6 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
-from openhands.sdk.conversation.exceptions import ConversationRunError
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
@@ -293,26 +292,7 @@ class Commit0Evaluation(Evaluation):
         )
         conversation.send_message(instruction)
         run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
-        timed_out = False
-        try:
-            conversation.run(timeout=run_timeout)
-        except ConversationRunError as exc:
-            original_exc = getattr(exc, "original_exception", None)
-            if isinstance(original_exc, TimeoutError):
-                timed_out = True
-                logger.warning(
-                    "Conversation run timed out after %s seconds; continuing evaluation",
-                    run_timeout,
-                )
-                try:
-                    conversation.pause()
-                except Exception as pause_error:
-                    logger.warning(
-                        "Failed to pause conversation after timeout: %s",
-                        pause_error,
-                    )
-            else:
-                raise
+        conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
 
@@ -547,7 +527,6 @@ class Commit0Evaluation(Evaluation):
 
         test_result = {
             "eval_result": eval_result,
-            "conversation_timed_out": timed_out,
         }
 
         out = EvalOutput(
