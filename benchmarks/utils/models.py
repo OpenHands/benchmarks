@@ -16,6 +16,13 @@ class EvalMetadata(BaseModel):
     dataset: str
     dataset_split: str = Field(default="test")
     max_iterations: int
+    runtime_resource_factor: int = Field(
+        default=1,
+        description=(
+            "Resource multiplier for remote runtimes. "
+            "Applies to APIRemoteWorkspace resource requests."
+        ),
+    )
     eval_output_dir: str
     details: dict[str, Any] | None = None
     prompt_path: str | None = Field(

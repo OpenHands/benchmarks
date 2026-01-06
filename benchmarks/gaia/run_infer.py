@@ -158,6 +158,7 @@ class GAIAEvaluation(Evaluation):
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
+                resource_factor=self.metadata.runtime_resource_factor,
                 target_type="binary",  # GAIA images use binary target
             )
         else:
@@ -545,12 +546,13 @@ def main() -> None:
         dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
-        details={"level": args.level},
+        details={"level": args.level, "runtime_resource_factor": args.runtime_resource_factor},
         eval_limit=args.n_limit,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
         workspace_type=args.workspace,
+        runtime_resource_factor=args.runtime_resource_factor,
     )
 
     # Create evaluator
