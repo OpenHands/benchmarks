@@ -15,6 +15,7 @@ from benchmarks.commit0.build_images import (
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.critics import create_critic
+from benchmarks.utils.dataset import prepare_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
@@ -134,6 +135,14 @@ class Commit0Evaluation(Evaluation):
 
         dataset = load_dataset(dataset_name, split=dataset_split)
         df = commit0_setup(dataset, repo_split)
+
+        if self.metadata.selected_instances_file:
+            df = prepare_dataset(
+                dataset=df,
+                n_limit=None,
+                selected_instances_file=self.metadata.selected_instances_file,
+            )
+            self.metadata.eval_limit = len(df)
 
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
