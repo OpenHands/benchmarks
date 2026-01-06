@@ -116,8 +116,17 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Total instances to process: {len(instances)}")
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
-        """Create workspace and copy necessary files."""
+    def prepare_workspace(
+        self, instance: EvalInstance, resource_factor: int = 1
+    ) -> RemoteWorkspace:
+        """Create workspace and copy necessary files.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           Used by APIRemoteWorkspace for remote runtime allocation.
+        """
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
@@ -150,7 +159,8 @@ class GAIAEvaluation(Evaluation):
                 )
 
             logger.info(
-                f"Using remote workspace with GAIA image {agent_server_image} (sdk sha: {sdk_short_sha})"
+                f"Using remote workspace with GAIA image {agent_server_image} "
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
@@ -159,6 +169,7 @@ class GAIAEvaluation(Evaluation):
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="binary",  # GAIA images use binary target
+                resource_factor=resource_factor,
             )
         else:
             raise ValueError(

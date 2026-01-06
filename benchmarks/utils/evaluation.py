@@ -17,6 +17,7 @@ from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
+from benchmarks.utils.exceptions import is_fatal_runtime_error
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
@@ -75,8 +76,20 @@ class Evaluation(ABC, BaseModel):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
-        """Create and return a context-managed Workspace for the given instance."""
+    def prepare_workspace(
+        self, instance: EvalInstance, resource_factor: int = 1
+    ) -> RemoteWorkspace:
+        """Create and return a context-managed Workspace for the given instance.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           This is automatically increased when runtime crashes occur.
+
+        Returns:
+            A context-managed RemoteWorkspace instance.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -375,6 +388,24 @@ class Evaluation(ABC, BaseModel):
         # Shutdown the pool
         pool.shutdown(wait=wait, cancel_futures=True)
 
+    def _calculate_resource_factor(self, runtime_failure_count: int) -> int:
+        """Calculate the resource factor based on runtime failure count.
+
+        Uses exponential backoff: base_factor * 2^runtime_failure_count
+        Capped at max_resource_factor from metadata.
+
+        Args:
+            runtime_failure_count: Number of runtime failures encountered so far.
+
+        Returns:
+            The resource factor to use for this attempt.
+        """
+        if runtime_failure_count <= 0:
+            return self.metadata.base_resource_factor
+
+        factor = self.metadata.base_resource_factor * (2**runtime_failure_count)
+        return min(factor, self.metadata.max_resource_factor)
+
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
         self, instance: EvalInstance
@@ -383,6 +414,7 @@ class Evaluation(ABC, BaseModel):
 
         - Creates workspace in the *child* process
         - Handles retries within the worker process
+        - Tracks runtime failures and increases resource_factor exponentially
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
@@ -398,13 +430,26 @@ class Evaluation(ABC, BaseModel):
             logger.info("[child] start id=%s", instance.id)
 
             retry_count = 0
+            runtime_failure_count = 0
             last_error = None
             max_retries = self.metadata.max_retries
 
             while retry_count <= max_retries:
                 workspace = None
                 try:
-                    workspace = self.prepare_workspace(instance)
+                    # Calculate resource factor based on runtime failures
+                    resource_factor = self._calculate_resource_factor(
+                        runtime_failure_count
+                    )
+                    if runtime_failure_count > 0:
+                        logger.warning(
+                            f"[child] Instance {instance.id}: "
+                            f"attempt {retry_count + 1}/{max_retries + 1}, "
+                            f"runtime_failure_count={runtime_failure_count}, "
+                            f"resource_factor={resource_factor}"
+                        )
+
+                    workspace = self.prepare_workspace(instance, resource_factor)
                     out = self.evaluate_instance(instance, workspace)
 
                     # Capture conversation archive after successful evaluation
@@ -415,6 +460,14 @@ class Evaluation(ABC, BaseModel):
                 except Exception as e:
                     last_error = e
                     retry_count += 1
+
+                    # Check if this is a fatal runtime error (crash/disconnect)
+                    if is_fatal_runtime_error(e):
+                        runtime_failure_count += 1
+                        logger.warning(
+                            f"[child] Instance {instance.id}: fatal runtime error "
+                            f"detected (runtime_failure_count={runtime_failure_count})"
+                        )
 
                     if retry_count <= max_retries:
                         logger.warning(
