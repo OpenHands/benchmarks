@@ -96,17 +96,32 @@ class GAIAEvaluation(Evaluation):
             )
             logger.info(f"Filtered out {len(completed_instances)} completed instances")
 
-        # Apply eval_limit if specified
-        if self.metadata.eval_limit and self.metadata.eval_limit > 0:
-            df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
-            logger.info(f"Limited to {len(df)} instances due to eval_limit")
-
-        # Filter by selected_instances_file if provided
+        # Filter by selected_instances_file if provided (before applying eval_limit)
         if self.metadata.selected_instances_file:
             with open(self.metadata.selected_instances_file, "r") as f:
                 selected_ids = set(line.strip() for line in f if line.strip())
+
+            before_selection = len(df)
             df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
-            logger.info(f"Filtered to {len(df)} selected instances from file")
+            logger.info(
+                "Filtered to %d selected instances from file (from %d)",
+                len(df),
+                before_selection,
+            )
+
+            if len(df) == 0:
+                logger.warning(
+                    "Selected instances file %s produced 0 matching instances",
+                    self.metadata.selected_instances_file,
+                )
+
+            # Keep all requested IDs; ignore eval_limit when selections are provided
+            self.metadata.eval_limit = len(df)
+
+        # Apply eval_limit if specified (only when no explicit selection)
+        elif self.metadata.eval_limit and self.metadata.eval_limit > 0:
+            df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
+            logger.info(f"Limited to {len(df)} instances due to eval_limit")
 
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
