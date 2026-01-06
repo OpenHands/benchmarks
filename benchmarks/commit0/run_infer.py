@@ -204,6 +204,7 @@ class Commit0Evaluation(Evaluation):
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
+                forward_env=forward_env or [],
             )
         else:
             raise ValueError(

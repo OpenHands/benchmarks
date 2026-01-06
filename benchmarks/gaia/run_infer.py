@@ -162,6 +162,7 @@ class GAIAEvaluation(Evaluation):
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="binary",  # GAIA images use binary target
+                forward_env=forward_env or [],
             )
         else:
             raise ValueError(
