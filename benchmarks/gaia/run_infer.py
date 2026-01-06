@@ -406,13 +406,15 @@ For example: if you want to search for a research paper on Arxiv, either use the
           This method implements a retry mechanism to handle that case.
         """
         # FIXME: Implement a more robust event synchronization mechanism in the SDK
-        max_retries = 30  # Increased from 10 for better reliability
-        retry_delay = 1.0  # Increased from 0.5s for slower networks
-        retry_backoff = 1.2  # Exponential backoff factor
+        # Note: This is for event synchronization (waiting for WebSocket events),
+        # not for error retries (which are handled by the Evaluation base class).
+        max_event_sync_retries = 30
+        retry_delay = 1.0
+        retry_backoff = 1.2
 
         # Log event type distribution for debugging
         if events:
-            event_types = {}
+            event_types: dict[str, int] = {}
             agent_events_count = 0
             for event in events:
                 event_type = type(event).__name__
@@ -424,14 +426,14 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 f"agent-sourced events: {agent_events_count}"
             )
 
-        for attempt in range(max_retries):
+        for attempt in range(max_event_sync_retries):
             # Search backwards through events for agent output
             if attempt == 0:
                 logger.info(f"Extracting answer from {len(events)} events")
             else:
                 logger.warning(
-                    f"Retry {attempt + 1}/{max_retries}: searching for agent "
-                    f"message in {len(events)} events"
+                    f"Retry {attempt + 1}/{max_event_sync_retries}: searching for "
+                    f"agent message in {len(events)} events"
                 )
 
             for event in reversed(events):
@@ -474,7 +476,7 @@ For example: if you want to search for a research paper on Arxiv, either use the
                     )
 
             # If not found and we have retries left, wait and try again
-            if attempt < max_retries - 1:
+            if attempt < max_event_sync_retries - 1:
                 current_delay = retry_delay * (retry_backoff**attempt)
                 current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
@@ -485,9 +487,13 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 # Note: events is a reference to the conversation's events list,
                 # which gets updated by the WebSocket callback in the background
             else:
+                total_wait = sum(
+                    retry_delay * (retry_backoff**i)
+                    for i in range(max_event_sync_retries)
+                )
                 logger.error(
-                    f"Could not find agent output after {max_retries} attempts "
-                    f"and {sum(retry_delay * (retry_backoff**i) for i in range(max_retries)):.1f}s total wait time"
+                    f"Could not find agent output after {max_event_sync_retries} "
+                    f"attempts and {total_wait:.1f}s total wait time"
                 )
                 logger.error(
                     f"Final event types (last 10): "
@@ -565,6 +571,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
         workspace_type=args.workspace,
     )
 
