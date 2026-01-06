@@ -52,7 +52,7 @@ def test_workspace_cleanup_called_on_success():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -102,7 +102,7 @@ def test_workspace_cleanup_called_on_failure():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -163,7 +163,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -221,7 +221,7 @@ def test_workspace_cleanup_with_retries():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
             return create_mock_workspace()
 
         def evaluate_instance(self, instance, workspace):
