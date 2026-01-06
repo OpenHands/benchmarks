@@ -12,6 +12,13 @@ class EvalTimeoutException(Exception):
     pass
 
 
+# Runtime error exceptions for testing and handling
+class AgentRuntimeDisconnectedError(Exception):
+    """Raised when the agent runtime becomes disconnected."""
+
+    pass
+
+
 # Fatal runtime error types that indicate the runtime crashed or disconnected
 # These are based on the OpenHands evaluation patterns
 FATAL_RUNTIME_ERRORS = [
