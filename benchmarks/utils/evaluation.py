@@ -406,10 +406,6 @@ class Evaluation(ABC, BaseModel):
                 try:
                     workspace = self.prepare_workspace(instance)
                     out = self.evaluate_instance(instance, workspace)
-
-                    # Capture conversation archive after successful evaluation
-                    self._capture_conversation_archive(workspace, instance)
-
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
@@ -436,6 +432,14 @@ class Evaluation(ABC, BaseModel):
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure
                     if workspace is not None:
+                        try:
+                            self._capture_conversation_archive(workspace, instance)
+                        except Exception as archive_error:
+                            logger.warning(
+                                "[child] Failed to capture conversation archive for %s: %s",
+                                instance.id,
+                                archive_error,
+                            )
                         try:
                             # Use the context manager protocol for cleanup
                             workspace.__exit__(None, None, None)
