@@ -3,6 +3,7 @@ Argument parsing utilities for SWE-bench benchmarks.
 """
 
 import argparse
+import os
 
 from benchmarks.utils.critics import add_critic_args
 
@@ -74,5 +75,16 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         type=int,
         default=3,
         help="Maximum retries for instances that throw exceptions (default: 3)",
+    )
+    runtime_factor_default = int(os.getenv("RUNTIME_RESOURCE_FACTOR", "1"))
+
+    parser.add_argument(
+        "--runtime-resource-factor",
+        type=int,
+        default=runtime_factor_default,
+        help=(
+            "Resource multiplier for remote runtimes. "
+            "Defaults to RUNTIME_RESOURCE_FACTOR env var or 1."
+        ),
     )
     return parser
