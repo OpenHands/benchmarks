@@ -266,13 +266,13 @@ Examples:
             shutil.move(str(report_path), str(dest_report_path))
             logger.info(f"Moved report file to: {dest_report_path}")
 
+            # Update Laminar datapoints with evaluation scores
+            LaminarService.get().update_evaluation_scores(
+                str(input_file), str(dest_report_path)
+            )
+
         # Generate cost report as final step
         generate_cost_report(str(input_file))
-
-        # Update Laminar datapoints with SWE-bench scores
-        LaminarService.get().update_evaluation_scores_swebench(
-            str(input_file), str(output_file), args.model_name
-        )
 
         logger.info("Script completed successfully!")
 

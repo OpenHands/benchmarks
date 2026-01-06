@@ -173,7 +173,7 @@ class LaminarService:
                 exc,
             )
 
-    def _update_evaluation_datapoints_from_output_file(
+    def _update_evaluation_scores_from_output_file(
         self,
         output_file: str,
         resolved_ids: set[str],
@@ -259,49 +259,40 @@ class LaminarService:
 
         logger.debug("Laminar score updates complete")
 
-    def update_evaluation_scores_swebench(
-        self, input_file: str, swebench_predictions_file: str, model_name: str
+    def update_evaluation_scores(
+        self, output_file: str, report_file: str | None = None
     ) -> None:
         """
-        Update Laminar evaluation datapoints with SWE-bench evaluation scores.
+        Update Laminar evaluation datapoints with evaluation scores.
 
-        Reads the SWE-bench harness output to determine which instances resolved,
-        then uses LaminarService to update datapoints with scores.
+        Reads the report file to determine which instances resolved,
+        then updates Laminar datapoints with scores.
 
         Args:
-            input_file: Path to the OpenHands output.jsonl file
-            swebench_predictions_file: Path to the SWE-bench predictions file (.swebench.jsonl)
-            model_name: Model name used in the evaluation
+            output_file: Path to the output.jsonl file containing evaluation results
+            report_file: Path to the report file with resolved_ids. If None, defaults
+                        to output.report.json in the same directory as output_file.
         """
+        if report_file is None:
+            report_path = Path(output_file).parent / "output.report.json"
+        else:
+            report_path = Path(report_file)
 
-        # Determine the SWE-bench harness output file path
-        # Format: {model_name}.eval_{predictions_stem}.json
-        predictions_path = Path(swebench_predictions_file)
-        harness_output_file = (
-            predictions_path.parent / f"{model_name}.eval_{predictions_path.stem}.json"
-        )
-
-        if not harness_output_file.exists():
+        if not report_path.exists():
             logger.debug(
-                f"SWE-bench harness output file not found: {harness_output_file}. "
-                "Skipping Laminar score updates."
+                f"Report file not found: {report_path}. Skipping Laminar score updates."
             )
             return
 
-        # Read resolved instance IDs from harness output
+        # Read resolved instance IDs from report
         try:
-            with open(harness_output_file, "r") as f:
-                harness_data = json.load(f)
-            resolved_ids = set(harness_data.get("resolved_ids", []))
-            logger.debug(
-                f"Found {len(resolved_ids)} resolved instances in harness output"
-            )
+            with open(report_path, "r") as f:
+                report_data = json.load(f)
+            resolved_ids = set(report_data.get("resolved_ids", []))
+            logger.debug(f"Found {len(resolved_ids)} resolved instances in report")
         except Exception as e:
-            logger.error(f"Failed to read harness output file: {e}")
+            logger.warning(f"[Laminar] Failed to read report file: {e}")
             return
 
-        # Use LaminarService to update scores
-        laminar_service = LaminarService.get()
-        laminar_service._update_evaluation_datapoints_from_output_file(
-            input_file, resolved_ids
-        )
+        # Update Laminar datapoints with scores
+        self._update_evaluation_scores_from_output_file(output_file, resolved_ids)

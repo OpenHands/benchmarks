@@ -2431,7 +2431,7 @@ requires-dist = [
     { name = "deprecation", specifier = ">=2.1.0" },
     { name = "fastmcp", specifier = ">=2.11.3" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "litellm", specifier = ">=1.80.10" },
+    { name = "litellm", specifier = ">=1.80.7" },
     { name = "lmnr", specifier = ">=0.7.24" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "python-frontmatter", specifier = ">=1.1.0" },
