@@ -228,7 +228,9 @@ def calculate_costs(directory_path: str) -> None:
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
         print("    Time Stats:")
-        print(f"      Average Duration: {format_duration(time_stats['average_duration'])}")
+        print(
+            f"      Average Duration: {format_duration(time_stats['average_duration'])}"
+        )
         print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
         print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
         print(
