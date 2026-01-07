@@ -203,7 +203,6 @@ class SWTBenchEvaluation(Evaluation):
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
-                resource_factor=self.metadata.runtime_resource_factor,
                 target_type="source" if "source" in build_target else "binary",
                 forward_env=forward_env or [],
             )
@@ -367,7 +366,7 @@ def main() -> None:
         dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
-        details={"runtime_resource_factor": args.runtime_resource_factor},
+        details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
@@ -376,7 +375,6 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
-        runtime_resource_factor=args.runtime_resource_factor,
     )
 
     # Run orchestrator with a simple JSONL writer
