@@ -6,6 +6,7 @@ Shared utilities for batch building agent-server images.
 import argparse
 import contextlib
 import io
+import os
 import subprocess
 import sys
 import time
@@ -443,11 +444,11 @@ def build_all_images(
     failures = 0
     mu = Lock()
 
-    # Fixed batch/prune settings (hardcoded to avoid extra CLI surface)
-    batch_size = 50
-    prune_keep_storage_gb = 450
-    prune_threshold_pct = 85.0
-    prune_filters: list[str] | None = ["unused-for=24h"]
+    # Batch/prune settings (tunable via env to control disk usage on sticky runners)
+    batch_size = int(os.getenv("BUILD_BATCH_SIZE", "25"))
+    prune_keep_storage_gb = int(os.getenv("BUILDKIT_PRUNE_KEEP_GB", "120"))
+    prune_threshold_pct = float(os.getenv("BUILDKIT_PRUNE_THRESHOLD_PCT", "70"))
+    prune_filters: list[str] | None = ["unused-for=12h"]
 
     def _chunks(seq: list[str], size: int):
         if size <= 0:

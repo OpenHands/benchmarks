@@ -188,9 +188,9 @@ jobs:
       - name: "Preflight: prune cache and verify BuildKit disk"
         run: |
           set -euo pipefail
-          KEEP_GB=450
-          echo "Pruning BuildKit cache (keep ${KEEP_GB} GiB, filter unused-for=24h)..."
-          docker buildx prune --all --force --keep-storage ${KEEP_GB}g --filter unused-for=24h || true
+          KEEP_GB=120
+          echo "Pruning BuildKit cache (keep ${KEEP_GB} GiB, filter unused-for=12h)..."
+          docker buildx prune --all --force --keep-storage ${KEEP_GB}g --filter unused-for=12h || true
 
           if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
             LINE=$(tail -n1 /tmp/buildkit_df)
@@ -297,7 +297,17 @@ jobs:
           if [ "$FAILURES" -gt 0 ]; then
             echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            cat $MANIFEST_FILES | python -c 'import sys,json; [print(f"- `{d.get(\"base_image\",\"unknown\")}`: {d.get(\"error\",\"No tags generated\")}") for d in map(json.loads, sys.stdin) if d.get("error") or not d.get("tags")]' >> "$GITHUB_STEP_SUMMARY"
+            cat $MANIFEST_FILES | python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+import json
+import sys
+
+for line in sys.stdin:
+    data = json.loads(line.strip())
+    if data.get("error") or not data.get("tags"):
+        base = data.get("base_image", "unknown")
+        err = data.get("error") or "No tags generated"
+        print(f"- `{base}`: {err}")
+PY
           fi
 
           if [ "$FAILURES" -gt 0 ]; then
