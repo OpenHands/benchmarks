@@ -161,7 +161,9 @@ class Commit0Evaluation(Evaluation):
         logger.info("Total instances to process: %d", len(instances))
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance, forward_env: list[str] | None = None
+    ) -> RemoteWorkspace:
         """
         Create workspace and set up the commit0 repository.
         """
@@ -176,6 +178,7 @@ class Commit0Evaluation(Evaluation):
                 base_image=base_docker_image,
                 working_dir="/workspace",
                 target=build_target,
+                forward_env=forward_env or [],
             )
             logger.info(
                 f"Building workspace from {base_docker_image}. This may take a while..."
@@ -211,6 +214,7 @@ class Commit0Evaluation(Evaluation):
                 server_image=agent_server_image,
                 resource_factor=self.metadata.runtime_resource_factor,
                 target_type="source" if "source" in build_target else "binary",
+                forward_env=forward_env or [],
             )
         else:
             raise ValueError(

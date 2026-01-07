@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from benchmarks.utils.laminar import LaminarEvalMetadata
 from openhands.sdk import LLM, Event, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.llm import Metrics
@@ -56,6 +57,10 @@ class EvalMetadata(BaseModel):
     workspace_type: Literal["docker", "remote"] = Field(
         default="docker",
         description="Type of workspace to use, e.g., 'docker' or 'remote'",
+    )
+    lmnr: LaminarEvalMetadata | None = Field(
+        default=None,
+        description="Laminar evaluation metadata",
     )
 
 

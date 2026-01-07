@@ -96,7 +96,9 @@ class SWEBenchEvaluation(Evaluation):
         return instances
 
     # ---- Hook: prepare a workspace per instance ----------------------------------
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance, forward_env: list[str] | None = None
+    ) -> RemoteWorkspace:
         """
         Use DockerWorkspace by default.
         """
@@ -148,6 +150,7 @@ class SWEBenchEvaluation(Evaluation):
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
+                forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -176,6 +179,7 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 resource_factor=self.metadata.runtime_resource_factor,
                 target_type="source" if "source" in build_target else "binary",
+                forward_env=forward_env or [],
             )
         else:
             raise ValueError(

@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -379,6 +380,11 @@ Examples:
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
             update_report_with_submitted_instances(target_file, output_file)
+
+            # Update Laminar datapoints with evaluation scores
+            LaminarService.get().update_evaluation_scores(
+                str(input_file), str(target_file)
+            )
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
