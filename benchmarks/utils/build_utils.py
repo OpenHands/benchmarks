@@ -179,7 +179,9 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
         )
         git_ref = result.stdout.strip()
     except subprocess.CalledProcessError:
-        git_ref = "unknown"
+        # Detached HEADs are common for submodules; fall back to short SHA so logs
+        # carry something more useful than "unknown".
+        git_ref = git_sha[:7] if git_sha and git_sha != "unknown" else "unknown"
 
     # Get SDK version from pyproject.toml
     pyproject_path = sdk_path / "openhands-sdk" / "pyproject.toml"
