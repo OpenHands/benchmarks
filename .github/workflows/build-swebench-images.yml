@@ -185,6 +185,33 @@ jobs:
         run: |
           make build
 
+      - name: "Preflight: prune cache and verify BuildKit disk"
+        run: |
+          set -euo pipefail
+          KEEP_GB=120
+          echo "Pruning BuildKit cache (keep ${KEEP_GB} GiB, filter unused-for=12h)..."
+          docker buildx prune --all --force --keep-storage ${KEEP_GB}g --filter unused-for=12h || true
+
+          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
+            LINE=$(tail -n1 /tmp/buildkit_df)
+            TOTAL=$(echo "$LINE" | awk '{print $2}')
+            USED=$(echo "$LINE" | awk '{print $3}')
+            FREE=$(echo "$LINE" | awk '{print $4}')
+            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
+              PCT=$(( 100 * USED / TOTAL ))
+              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
+              MIN=$((75 * 1024 * 1024 * 1024))
+              if [ "$FREE" -lt "$MIN" ]; then
+                echo "::error::Not enough free space on /var/lib/buildkit (${FREE} bytes free, need >= ${MIN})"
+                exit 1
+              fi
+            else
+              echo "Warning: unable to parse df output for /var/lib/buildkit"
+            fi
+          else
+            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
+
       - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
@@ -270,14 +297,22 @@ jobs:
           if [ "$FAILURES" -gt 0 ]; then
             echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            cat $MANIFEST_FILES | python -c "
-          import sys
+            cat $MANIFEST_FILES | python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
+          import sys
+
           for line in sys.stdin:
               data = json.loads(line.strip())
-              if data.get('error') is not None or len(data.get('tags', [])) == 0:
-                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
-          " >> "$GITHUB_STEP_SUMMARY"
+              if data.get("error") or not data.get("tags"):
+                  base = data.get("base_image", "unknown")
+                  err = data.get("error") or "No tags generated"
+                  print(f"- `{base}`: {err}")
+          PY
+          fi
+
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "::error::Detected $FAILURES failed or missing agent-server images out of $TOTAL"
+            exit 1
           fi
 
       - name: Comment on tracker issue
