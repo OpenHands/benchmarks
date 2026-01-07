@@ -6,6 +6,7 @@ Buildx/BuildKit utilities for image build resets and pruning.
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -143,3 +144,81 @@ def maybe_reset_buildkit(
         reset_buildkit("partial", base_image, target_image)
     else:
         reset_buildkit("full", base_image, target_image)
+
+
+def buildkit_disk_usage(root: str | Path = "/var/lib/buildkit") -> tuple[int, int]:
+    """
+    Return (used_bytes, total_bytes) for the BuildKit root. Missing path -> (0, 0).
+    """
+    path = Path(root)
+    try:
+        usage = shutil.disk_usage(path)
+        return usage.used, usage.total
+    except FileNotFoundError:
+        logger.warning("BuildKit root %s not found when checking disk usage", path)
+    except Exception as e:
+        logger.warning("Unable to read disk usage for %s: %s", path, e)
+    return 0, 0
+
+
+def prune_buildkit_cache(
+    keep_storage_gb: int | None = None,
+    filters: list[str] | None = None,
+) -> None:
+    """
+    Run docker buildx prune to free space on the BuildKit cache.
+    keep_storage_gb: amount of cache to keep (pass None to keep default behavior).
+    filters: optional list of buildx prune --filter values.
+    """
+    cmd = ["docker", "buildx", "prune", "--all", "--force"]
+    if keep_storage_gb is not None and keep_storage_gb > 0:
+        cmd += ["--keep-storage", f"{keep_storage_gb}g"]
+    if filters:
+        for f in filters:
+            cmd += ["--filter", f]
+
+    logger.info("Pruning BuildKit cache: %s", " ".join(cmd))
+    proc = subprocess.run(cmd, text=True, capture_output=True)
+    if proc.stdout:
+        logger.info(proc.stdout.strip())
+    if proc.stderr:
+        logger.warning(proc.stderr.strip())
+    if proc.returncode != 0:
+        raise RuntimeError(
+            proc.stderr.strip()
+            or proc.stdout.strip()
+            or f"docker buildx prune failed with exit code {proc.returncode}"
+        )
+
+
+def maybe_prune_buildkit_cache(
+    keep_storage_gb: int,
+    threshold_pct: float,
+    filters: list[str] | None = None,
+    root: str | Path = "/var/lib/buildkit",
+) -> bool:
+    """
+    Prune cache if disk usage exceeds threshold_pct (0-100).
+    Returns True if a prune was attempted.
+    """
+    used, total = buildkit_disk_usage(root)
+    if total <= 0:
+        logger.warning("Skipping BuildKit prune; unable to determine disk usage.")
+        return False
+
+    usage_pct = (used / total) * 100
+    logger.info(
+        "BuildKit disk usage: %.2f%% (%0.2f GiB used / %0.2f GiB total)",
+        usage_pct,
+        used / (1 << 30),
+        total / (1 << 30),
+    )
+    if usage_pct < threshold_pct:
+        return False
+
+    try:
+        prune_buildkit_cache(keep_storage_gb=keep_storage_gb, filters=filters)
+        return True
+    except Exception as e:
+        logger.warning("Failed to prune BuildKit cache: %s", e)
+        return False

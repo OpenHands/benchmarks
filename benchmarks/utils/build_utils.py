@@ -20,9 +20,12 @@ from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.buildx_utils import maybe_reset_buildkit
+from benchmarks.utils.buildx_utils import (
+    buildkit_disk_usage,
+    maybe_prune_buildkit_cache,
+    maybe_reset_buildkit,
+)
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
-from benchmarks.utils.image_utils import image_exists
 from openhands.agent_server.docker.build import BuildOptions, TargetType, build
 from openhands.sdk import get_logger
 
@@ -293,11 +296,6 @@ def build_image(
         git_sha=git_sha,
         sdk_version=sdk_version,
     )
-    for t in opts.all_tags:
-        # Check if image exists or not
-        if image_exists(t):
-            logger.info("Image %s already exists. Skipping build.", t)
-            return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
@@ -443,8 +441,23 @@ def build_all_images(
 
     successes = 0
     failures = 0
-    in_progress: set[str] = set()
     mu = Lock()
+
+    # Fixed batch/prune settings (hardcoded to avoid extra CLI surface)
+    batch_size = 50
+    prune_keep_storage_gb = 450
+    prune_threshold_pct = 85.0
+    prune_filters: list[str] | None = ["unused-for=24h"]
+
+    def _chunks(seq: list[str], size: int):
+        if size <= 0:
+            yield seq
+            return
+        for i in range(0, len(seq), size):
+            yield seq[i : i + size]
+
+    batches = list(_chunks(base_images, batch_size or len(base_images)))
+    total_batches = len(batches)
 
     with (
         manifest_file.open("w") as writer,
@@ -454,70 +467,67 @@ def build_all_images(
     ):
         _update_pbar(pbar, successes, failures, 0, None, "Queueing")
 
-        # Single unified path: ProcessPoolExecutor( max_workers = args.max_workers ),
-        # even if it's 1. Using processes instead of threads ensures proper isolation
-        # of stdout/stderr and logging handlers, preventing output mixing between builds.
-        with ProcessPoolExecutor(max_workers=max_workers) as ex:
-            futures = {}
-            for base in base_images:
-                in_progress.add(base)
-                # Resolve custom tags before scheduling to avoid pickling issues with closures.
-                resolved_tag = (
-                    base_image_to_custom_tag_fn(base)
-                    if base_image_to_custom_tag_fn
-                    else ""
-                )
-                fut = ex.submit(
-                    _build_with_logging,
-                    log_dir=build_log_dir,
-                    base_image=base,
-                    target_image=image,
-                    custom_tag=resolved_tag,
-                    target=target,
-                    push=push,
-                    max_retries=max_retries,
-                    post_build_fn=post_build_fn,
-                )
-                futures[fut] = base
+        for batch_idx, batch in enumerate(batches, start=1):
+            if not batch:
+                continue
 
-            _update_pbar(
-                pbar,
-                successes,
-                failures,
-                len(in_progress),
-                next(iter(in_progress), None),
-                "Running",
+            logger.info(
+                "Starting batch %d/%d (%d images)", batch_idx, total_batches, len(batch)
             )
+            in_progress: set[str] = set()
 
-            for fut in as_completed(futures):
-                base = futures[fut]
-                try:
-                    result: BuildOutput = fut.result()
+            with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                futures = {}
+                for base in batch:
+                    in_progress.add(base)
+                    resolved_tag = (
+                        base_image_to_custom_tag_fn(base)
+                        if base_image_to_custom_tag_fn
+                        else ""
+                    )
+                    fut = ex.submit(
+                        _build_with_logging,
+                        log_dir=build_log_dir,
+                        base_image=base,
+                        target_image=image,
+                        custom_tag=resolved_tag,
+                        target=target,
+                        push=push,
+                        max_retries=max_retries,
+                        post_build_fn=post_build_fn,
+                    )
+                    futures[fut] = base
+
+                _update_pbar(
+                    pbar,
+                    successes,
+                    failures,
+                    len(in_progress),
+                    next(iter(in_progress), None),
+                    f"Batch {batch_idx}/{total_batches} running",
+                )
+
+                for fut in as_completed(futures):
+                    base = futures[fut]
+                    status = None
+                    try:
+                        result: BuildOutput = fut.result()
+                    except Exception as e:
+                        logger.error("Build failed for %s: %r", base, e)
+                        result = BuildOutput(base_image=base, tags=[], error=repr(e))
+
                     writer.write(result.model_dump_json() + "\n")
                     writer.flush()
+
                     with mu:
-                        successes += 1
-                    _update_pbar(
-                        pbar, successes, failures, len(in_progress), base, "✅ Done"
-                    )
-                except Exception as e:
-                    logger.error("Build failed for %s: %r", base, e)
-                    # Write a failure line to manifest; keep going.
-                    writer.write(
-                        BuildOutput(
-                            base_image=base, tags=[], error=repr(e)
-                        ).model_dump_json()
-                        + "\n"
-                    )
-                    writer.flush()
-                    with mu:
-                        failures += 1
-                    _update_pbar(
-                        pbar, successes, failures, len(in_progress), base, "❌ Failed"
-                    )
-                finally:
-                    with mu:
-                        in_progress.discard(base)
+                        if result.error or not result.tags:
+                            failures += 1
+                            status = "❌ Failed"
+                        else:
+                            successes += 1
+                            status = "✅ Done"
+
+                    in_progress.discard(base)
                     pbar.update(1)
                     _update_pbar(
                         pbar,
@@ -525,7 +535,40 @@ def build_all_images(
                         failures,
                         len(in_progress),
                         next(iter(in_progress), None),
-                        None,
+                        status,
+                    )
+
+            used, total = buildkit_disk_usage()
+            if total > 0:
+                logger.info(
+                    "BuildKit usage after batch %d/%d: %.2f%% (%0.2f GiB / %0.2f GiB)",
+                    batch_idx,
+                    total_batches,
+                    (used / total) * 100,
+                    used / (1 << 30),
+                    total / (1 << 30),
+                )
+
+            if prune_keep_storage_gb and prune_keep_storage_gb > 0:
+                pruned = maybe_prune_buildkit_cache(
+                    keep_storage_gb=prune_keep_storage_gb,
+                    threshold_pct=prune_threshold_pct,
+                    filters=prune_filters,
+                )
+                if pruned:
+                    logger.info(
+                        "Pruned BuildKit cache after batch %d/%d (keep=%d GiB, threshold=%.1f%%)",
+                        batch_idx,
+                        total_batches,
+                        prune_keep_storage_gb,
+                        prune_threshold_pct,
+                    )
+                else:
+                    logger.info(
+                        "No prune needed after batch %d/%d (threshold %.1f%%)",
+                        batch_idx,
+                        total_batches,
+                        prune_threshold_pct,
                     )
     logger.info(
         "Done. Built=%d  Failed=%d  Manifest=%s",
