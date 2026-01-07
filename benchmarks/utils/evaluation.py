@@ -18,7 +18,6 @@ from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
-from benchmarks.utils.exceptions import is_fatal_runtime_error
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.models import (
     EvalInstance,
@@ -464,12 +463,10 @@ class Evaluation(ABC, BaseModel):
                     retry_count += 1
 
                     # TODO(#277): add an exception classifier to decide when to bump resources
-                    fatal_error = is_fatal_runtime_error(e)
                     runtime_failure_count += 1
                     logger.warning(
-                        f"[child] Instance {instance.id}: "
-                        f"fatal_runtime_error={fatal_error}, "
-                        f"runtime_failure_count={runtime_failure_count}"
+                        f"[child] Instance {instance.id}: runtime_failure_count="
+                        f"{runtime_failure_count}"
                     )
 
                     if retry_count <= max_retries:
