@@ -218,7 +218,6 @@ class Commit0Evaluation(Evaluation):
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
-                resource_factor=self.metadata.runtime_resource_factor,
                 target_type="source" if "source" in build_target else "binary",
                 resource_factor=resource_factor,
             )
