@@ -6,6 +6,11 @@ During evaluation ``/workspace/benchmarks`` is on ``PYTHONPATH``, so placing
 this file at the repo root guarantees the patch runs before swebench is used.
 """
 
+import sys
+
+
+print("benchmarks sitecustomize imported", file=sys.stderr, flush=True)
+
 try:
     # Reuse the actual patch logic that lives alongside the benchmarks package.
     from benchmarks.utils.sitecustomize import _apply_modal_logging_patch
