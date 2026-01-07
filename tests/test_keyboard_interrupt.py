@@ -36,7 +36,9 @@ class TestEvaluation(Evaluation):
             for i in range(10)
         ]
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self, instance: EvalInstance, resource_factor: int = 1
+    ) -> RemoteWorkspace:
         mock_workspace = Mock(spec=RemoteWorkspace)
         mock_workspace.__enter__ = Mock(return_value=mock_workspace)
         mock_workspace.__exit__ = Mock(return_value=None)

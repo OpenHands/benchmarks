@@ -3,7 +3,6 @@ Evaluation orchestrator.
 """
 
 import base64
-import inspect
 import json
 import os
 import sys
@@ -449,12 +448,7 @@ class Evaluation(ABC, BaseModel):
                             f"resource_factor={resource_factor}"
                         )
 
-                    # Call prepare_workspace with resource_factor if supported
-                    sig = inspect.signature(self.prepare_workspace)
-                    if "resource_factor" in sig.parameters:
-                        workspace = self.prepare_workspace(instance, resource_factor)
-                    else:
-                        workspace = self.prepare_workspace(instance)
+                    workspace = self.prepare_workspace(instance, resource_factor)
                     out = self.evaluate_instance(instance, workspace)
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
