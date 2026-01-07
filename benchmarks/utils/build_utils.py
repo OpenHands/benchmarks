@@ -451,9 +451,10 @@ def build_all_images(
     mu = Lock()
 
     # Batch/prune settings (tunable via env to control disk usage on sticky runners)
-    batch_size = int(os.getenv("BUILD_BATCH_SIZE", "25"))
-    prune_keep_storage_gb = int(os.getenv("BUILDKIT_PRUNE_KEEP_GB", "120"))
-    prune_threshold_pct = float(os.getenv("BUILDKIT_PRUNE_THRESHOLD_PCT", "70"))
+    # Default to smaller batches and more aggressive pruning on shared runners.
+    batch_size = int(os.getenv("BUILD_BATCH_SIZE", "15"))
+    prune_keep_storage_gb = int(os.getenv("BUILDKIT_PRUNE_KEEP_GB", "60"))
+    prune_threshold_pct = float(os.getenv("BUILDKIT_PRUNE_THRESHOLD_PCT", "60"))
     prune_filters: list[str] | None = ["unused-for=12h"]
 
     def _chunks(seq: list[str], size: int):
