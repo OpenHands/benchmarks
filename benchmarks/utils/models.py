@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from benchmarks.utils.laminar import LaminarEvalMetadata
 from openhands.sdk import LLM, Event, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.llm import Metrics
@@ -18,6 +19,7 @@ class EvalMetadata(BaseModel):
     max_iterations: int
     runtime_resource_factor: int = Field(
         default=1,
+        ge=1,
         description=(
             "Resource multiplier for remote runtimes. "
             "Applies to APIRemoteWorkspace resource requests."
@@ -72,6 +74,10 @@ class EvalMetadata(BaseModel):
         ge=1,
         le=16,
         description="Maximum resource factor to use after retries.",
+    )
+    lmnr: LaminarEvalMetadata | None = Field(
+        default=None,
+        description="Laminar evaluation metadata",
     )
 
 

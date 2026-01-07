@@ -136,7 +136,10 @@ class SWTBenchEvaluation(Evaluation):
 
     # ---- Hook: prepare a workspace per instance ----------------------------------
     def prepare_workspace(
-        self, instance: EvalInstance, resource_factor: int = 1
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
         """
         Create workspace based on workspace_type (docker or remote).
@@ -146,6 +149,7 @@ class SWTBenchEvaluation(Evaluation):
             resource_factor: Resource factor for runtime allocation (default: 1).
                            Higher values allocate more CPU/memory resources.
                            Used by APIRemoteWorkspace for remote runtime allocation.
+            forward_env: Environment variables to forward into the workspace.
         """
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
@@ -176,11 +180,13 @@ class SWTBenchEvaluation(Evaluation):
                     base_image=official_docker_image,
                     working_dir="/workspace",
                     target=build_target,
+                    forward_env=forward_env or [],
                 )
             else:
                 workspace = DockerWorkspace(
                     server_image=agent_server_image,
                     working_dir="/workspace",
+                    forward_env=forward_env or [],
                 )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -209,6 +215,7 @@ class SWTBenchEvaluation(Evaluation):
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
+                forward_env=forward_env or [],
                 resource_factor=resource_factor,
             )
         else:

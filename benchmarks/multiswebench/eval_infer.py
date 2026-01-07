@@ -18,6 +18,7 @@ from benchmarks.multiswebench.download_dataset import download_and_concat_datase
 from benchmarks.multiswebench.scripts.eval.update_multi_swe_bench_config import (
     update_multi_swe_config,
 )
+from benchmarks.utils.laminar import LaminarService
 from openhands.sdk import get_logger
 
 
@@ -142,6 +143,11 @@ def main():
         output_report_path = args.input_file.with_suffix(".report.json")
         shutil.move(str(results_file), str(output_report_path))
         logger.info(f"Report moved to {output_report_path}")
+
+        # Update Laminar datapoints with evaluation scores
+        LaminarService.get().update_evaluation_scores(
+            str(args.input_file), str(output_report_path)
+        )
 
 
 if __name__ == "__main__":
