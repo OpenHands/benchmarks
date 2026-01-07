@@ -437,13 +437,10 @@ class Evaluation(ABC, BaseModel):
         Returns:
             The resource factor to use for this attempt.
         """
-        base_factor = max(
-            self.metadata.base_resource_factor, self.metadata.runtime_resource_factor
-        )
         if runtime_failure_count <= 0:
-            return base_factor
+            return self.metadata.base_resource_factor
 
-        factor = base_factor * (2**runtime_failure_count)
+        factor = self.metadata.base_resource_factor * (2**runtime_failure_count)
         return min(factor, self.metadata.max_resource_factor)
 
     # --- Worker-side method (executed in child processes) ---------------------------

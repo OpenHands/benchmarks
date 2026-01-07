@@ -621,7 +621,7 @@ def main() -> None:
         dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
-        details={"runtime_resource_factor": args.runtime_resource_factor},
+        details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=None,
@@ -630,7 +630,6 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
-        runtime_resource_factor=args.runtime_resource_factor,
     )
 
     evaluator = Commit0Evaluation(
