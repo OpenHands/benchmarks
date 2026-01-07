@@ -52,7 +52,10 @@ def test_workspace_cleanup_called_on_success():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(
+            self, instance: EvalInstance, forward_env: list[str] | None = None
+        ):
+            mock_workspace.forward_env = forward_env or []
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -61,7 +64,7 @@ def test_workspace_cleanup_called_on_success():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
     # Verify the workspace cleanup was called
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -102,7 +105,9 @@ def test_workspace_cleanup_called_on_failure():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(
+            self, instance: EvalInstance, forward_env: list[str] | None = None
+        ):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -111,7 +116,7 @@ def test_workspace_cleanup_called_on_failure():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
     # Verify the workspace cleanup was called even on failure
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -163,7 +168,9 @@ def test_workspace_cleanup_handles_cleanup_exception():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(
+            self, instance: EvalInstance, forward_env: list[str] | None = None
+        ):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -172,7 +179,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly - should not raise an exception
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
     # Verify the workspace cleanup was attempted
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -221,7 +228,9 @@ def test_workspace_cleanup_with_retries():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(
+            self, instance: EvalInstance, forward_env: list[str] | None = None
+        ):
             return create_mock_workspace()
 
         def evaluate_instance(self, instance, workspace):
@@ -241,7 +250,7 @@ def test_workspace_cleanup_with_retries():
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
     # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
     # Verify cleanup was called for all attempts (3 total: initial + 2 retries)
     assert len(workspaces_created) == 3, "Should create workspace for each attempt"
