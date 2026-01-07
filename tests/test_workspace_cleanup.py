@@ -52,7 +52,7 @@ def test_workspace_cleanup_called_on_success():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
+        def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -102,7 +102,7 @@ def test_workspace_cleanup_called_on_failure():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
+        def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -163,7 +163,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
+        def prepare_workspace(self, instance: EvalInstance):
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
@@ -221,7 +221,7 @@ def test_workspace_cleanup_with_retries():
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
+        def prepare_workspace(self, instance: EvalInstance):
             return create_mock_workspace()
 
         def evaluate_instance(self, instance, workspace):
@@ -247,87 +247,6 @@ def test_workspace_cleanup_with_retries():
     assert len(workspaces_created) == 3, "Should create workspace for each attempt"
     for workspace in workspaces_created:
         workspace.__exit__.assert_called_once_with(None, None, None)
-
-    # Final result should be successful
-    assert result_instance.id == "test_instance"
-    assert result_output.instance_id == "test_instance"
-    assert result_output.error is None
-
-
-def test_resource_factor_increases_on_runtime_failures():
-    """Test that resource factor increases exponentially on runtime failures."""
-    # Import here to avoid circular imports
-    from benchmarks.utils.evaluation import Evaluation
-    from benchmarks.utils.exceptions import AgentRuntimeDisconnectedError
-
-    # Track resource factors passed to prepare_workspace
-    resource_factors_used = []
-
-    def create_mock_workspace(resource_factor):
-        workspace = Mock()
-        workspace.__exit__ = Mock()
-        resource_factors_used.append(resource_factor)
-        return workspace
-
-    # Create test instance
-    test_instance = EvalInstance(id="test_instance", data={"test": "data"})
-
-    # Create evaluation metadata with retries
-    llm = LLM(model="test-model")
-    metadata = EvalMetadata(
-        llm=llm,
-        dataset="test",
-        dataset_split="test",
-        max_iterations=10,
-        eval_output_dir="/tmp/test",
-        details={},
-        eval_limit=1,
-        max_attempts=1,
-        max_retries=3,  # Allow 3 retries
-        base_resource_factor=1,
-        max_resource_factor=8,
-        critic=PassCritic(),
-    )
-
-    # Track evaluation attempts
-    attempt_count = 0
-
-    # Create a concrete evaluation class for testing with resource_factor support
-    class TestEvaluation(Evaluation):
-        def prepare_instances(self) -> List[EvalInstance]:
-            return [test_instance]
-
-        def prepare_workspace(self, instance: EvalInstance, resource_factor: int = 1):
-            return create_mock_workspace(resource_factor)
-
-        def evaluate_instance(self, instance, workspace):
-            nonlocal attempt_count
-            attempt_count += 1
-            if attempt_count <= 3:
-                # Simulate runtime crashes with fatal runtime error
-                raise AgentRuntimeDisconnectedError(
-                    f"Runtime disconnected on attempt {attempt_count}"
-                )
-            return EvalOutput(
-                instance_id=instance.id,
-                test_result={"success": True},
-                instruction="test instruction",
-                error=None,
-                history=[],
-                instance=instance.data,
-            )
-
-    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-
-    # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
-
-    # Verify resource factors increased exponentially: 1, 2, 4, 8
-    assert len(resource_factors_used) == 4, "Should have 4 attempts"
-    assert resource_factors_used[0] == 1, "First attempt should have factor 1"
-    assert resource_factors_used[1] == 2, "Second attempt should have factor 2"
-    assert resource_factors_used[2] == 4, "Third attempt should have factor 4"
-    assert resource_factors_used[3] == 8, "Fourth attempt should have factor 8"
 
     # Final result should be successful
     assert result_instance.id == "test_instance"

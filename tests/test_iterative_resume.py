@@ -25,9 +25,7 @@ class MockEvaluation(Evaluation):
         """Return pre-configured instances."""
         return object.__getattribute__(self, "_test_instances")
 
-    def prepare_workspace(
-        self, instance: EvalInstance, resource_factor: int = 1
-    ) -> RemoteWorkspace:
+    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
         """Return a mock workspace."""
         mock_workspace = Mock(spec=RemoteWorkspace)
         mock_workspace.__enter__ = Mock(return_value=mock_workspace)
