@@ -298,16 +298,16 @@ jobs:
             echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             cat $MANIFEST_FILES | python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-import json
-import sys
+          import json
+          import sys
 
-for line in sys.stdin:
-    data = json.loads(line.strip())
-    if data.get("error") or not data.get("tags"):
-        base = data.get("base_image", "unknown")
-        err = data.get("error") or "No tags generated"
-        print(f"- `{base}`: {err}")
-PY
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get("error") or not data.get("tags"):
+                  base = data.get("base_image", "unknown")
+                  err = data.get("error") or "No tags generated"
+                  print(f"- `{base}`: {err}")
+          PY
           fi
 
           if [ "$FAILURES" -gt 0 ]; then
