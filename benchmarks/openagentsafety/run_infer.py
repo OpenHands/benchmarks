@@ -359,8 +359,17 @@ class OpenAgentSafetyEvaluation(Evaluation):
         logger.info("Total instances to process: %d", len(instances))
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
-        """Create a fresh Docker workspace for this instance."""
+    def prepare_workspace(
+        self, instance: EvalInstance, resource_factor: int = 1
+    ) -> RemoteWorkspace:
+        """Create a fresh Docker workspace for this instance.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           Note: Currently only used by remote workspaces.
+        """
         server_image = build_workspace_image()
 
         workspace = DockerWorkspace(
