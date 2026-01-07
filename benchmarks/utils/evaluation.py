@@ -463,13 +463,14 @@ class Evaluation(ABC, BaseModel):
                     last_error = e
                     retry_count += 1
 
-                    # Check if this is a fatal runtime error (crash/disconnect)
-                    if is_fatal_runtime_error(e):
-                        runtime_failure_count += 1
-                        logger.warning(
-                            f"[child] Instance {instance.id}: fatal runtime error "
-                            f"detected (runtime_failure_count={runtime_failure_count})"
-                        )
+                    # TODO(#277): add an exception classifier to decide when to bump resources
+                    fatal_error = is_fatal_runtime_error(e)
+                    runtime_failure_count += 1
+                    logger.warning(
+                        f"[child] Instance {instance.id}: "
+                        f"fatal_runtime_error={fatal_error}, "
+                        f"runtime_failure_count={runtime_failure_count}"
+                    )
 
                     if retry_count <= max_retries:
                         logger.warning(
