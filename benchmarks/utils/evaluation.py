@@ -80,9 +80,18 @@ class Evaluation(ABC, BaseModel):
 
     @abstractmethod
     def prepare_workspace(
-        self, instance: EvalInstance, forward_env: list[str] | None = None
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
-        """Create and return a context-managed Workspace for the given instance."""
+        """Create and return a context-managed Workspace for the given instance.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+            forward_env: Environment variables to forward into the workspace.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -416,6 +425,24 @@ class Evaluation(ABC, BaseModel):
         # Shutdown the pool
         pool.shutdown(wait=wait, cancel_futures=True)
 
+    def _calculate_resource_factor(self, runtime_failure_count: int) -> int:
+        """Calculate the resource factor based on runtime failure count.
+
+        Uses exponential backoff: base_factor * 2^runtime_failure_count
+        Capped at max_resource_factor from metadata.
+
+        Args:
+            runtime_failure_count: Number of runtime failures encountered so far.
+
+        Returns:
+            The resource factor to use for this attempt.
+        """
+        if runtime_failure_count <= 0:
+            return self.metadata.base_resource_factor
+
+        factor = self.metadata.base_resource_factor * (2**runtime_failure_count)
+        return min(factor, self.metadata.max_resource_factor)
+
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
         self, instance: EvalInstance, eval_span_ctx: str | None
@@ -424,6 +451,7 @@ class Evaluation(ABC, BaseModel):
 
         - Creates workspace in the *child* process
         - Handles retries within the worker process
+        - Tracks runtime failures and increases resource_factor exponentially
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
@@ -439,6 +467,7 @@ class Evaluation(ABC, BaseModel):
             logger.info("[child] start id=%s", instance.id)
 
             retry_count = 0
+            runtime_failure_count = 0
             last_error = None
             max_retries = self.metadata.max_retries
 
@@ -458,8 +487,22 @@ class Evaluation(ABC, BaseModel):
                 os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
 
                 try:
+                    # Calculate resource factor based on runtime failures
+                    resource_factor = self._calculate_resource_factor(
+                        runtime_failure_count
+                    )
+                    if runtime_failure_count > 0:
+                        logger.warning(
+                            f"[child] Instance {instance.id}: "
+                            f"attempt {retry_count + 1}/{max_retries + 1}, "
+                            f"runtime_failure_count={runtime_failure_count}, "
+                            f"resource_factor={resource_factor}"
+                        )
+
                     workspace = self.prepare_workspace(
-                        instance, forward_env=LMNR_ENV_VARS
+                        instance,
+                        resource_factor=resource_factor,
+                        forward_env=LMNR_ENV_VARS,
                     )
                     out = self.evaluate_instance(instance, workspace)
                     logger.info("[child] done id=%s", instance.id)
@@ -468,6 +511,13 @@ class Evaluation(ABC, BaseModel):
                     last_error = e
                     retry_count += 1
                     lmnr_span.record_exception(e)
+
+                    # TODO(#277): add an exception classifier to decide when to bump resources
+                    runtime_failure_count += 1
+                    logger.warning(
+                        f"[child] Instance {instance.id}: runtime_failure_count="
+                        f"{runtime_failure_count}"
+                    )
 
                     if retry_count <= max_retries:
                         logger.warning(

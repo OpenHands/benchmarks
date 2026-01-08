@@ -170,19 +170,38 @@ def prune_buildkit_cache(
     keep_storage_gb: amount of cache to keep (pass None to keep default behavior).
     filters: optional list of buildx prune --filter values.
     """
-    cmd = ["docker", "buildx", "prune", "--all", "--force"]
+    base_cmd = ["docker", "buildx", "prune", "--all", "--force"]
+
+    def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        logger.info("Pruning BuildKit cache: %s", " ".join(cmd))
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        if proc.stdout:
+            logger.info(proc.stdout.strip())
+        if proc.stderr:
+            logger.warning(proc.stderr.strip())
+        return proc
+
+    # Prefer the newer --max-storage flag; fall back to --keep-storage if unsupported.
+    storage_flag: list[str] = []
+    fallback_flag: list[str] = []
     if keep_storage_gb is not None and keep_storage_gb > 0:
-        cmd += ["--keep-storage", f"{keep_storage_gb}g"]
+        storage_flag = ["--max-storage", f"{keep_storage_gb}g"]
+        fallback_flag = ["--keep-storage", f"{keep_storage_gb}g"]
+
+    filter_flags: list[str] = []
     if filters:
         for f in filters:
-            cmd += ["--filter", f]
+            filter_flags += ["--filter", f]
 
-    logger.info("Pruning BuildKit cache: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-    if proc.stdout:
-        logger.info(proc.stdout.strip())
-    if proc.stderr:
-        logger.warning(proc.stderr.strip())
+    proc = _run(base_cmd + storage_flag + filter_flags)
+    if (
+        proc.returncode != 0
+        and fallback_flag
+        and "--max-storage" in " ".join(storage_flag)
+    ):
+        if "unknown flag: --max-storage" in proc.stderr:
+            proc = _run(base_cmd + fallback_flag + filter_flags)
+
     if proc.returncode != 0:
         raise RuntimeError(
             proc.stderr.strip()

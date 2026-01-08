@@ -162,10 +162,20 @@ class Commit0Evaluation(Evaluation):
         return instances
 
     def prepare_workspace(
-        self, instance: EvalInstance, forward_env: list[str] | None = None
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
         """
         Create workspace and set up the commit0 repository.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           Used by APIRemoteWorkspace for remote runtime allocation.
+            forward_env: Environment variables to forward into the workspace.
         """
         repo_name = instance.data["repo"].split("/")[1]
         base_docker_image = get_base_docker_image(repo_name)
@@ -204,7 +214,8 @@ class Commit0Evaluation(Evaluation):
                 )
 
             logger.info(
-                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
+                f"Using remote workspace with image {agent_server_image} "
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
@@ -214,6 +225,7 @@ class Commit0Evaluation(Evaluation):
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
                 forward_env=forward_env or [],
+                resource_factor=resource_factor,
             )
         else:
             raise ValueError(

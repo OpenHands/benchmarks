@@ -174,10 +174,20 @@ class MultiSWEBenchEvaluation(Evaluation):
 
     # ---- Hook: prepare a workspace per instance ----------------------------------
     def prepare_workspace(
-        self, instance: EvalInstance, forward_env: list[str] | None = None
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
         """
         Use DockerWorkspace by default.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           Used by APIRemoteWorkspace for remote runtime allocation.
+            forward_env: Environment variables to forward into the workspace.
         """
         # Ensure instance.data has required fields for docker image naming
         if "version" not in instance.data and "number" in instance.data:
@@ -249,7 +259,8 @@ class MultiSWEBenchEvaluation(Evaluation):
                     "make sure to build, push it, and make it public accessible before using remote workspace."
                 )
             logger.info(
-                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
+                f"Using remote workspace with image {agent_server_image} "
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
@@ -259,6 +270,7 @@ class MultiSWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
                 forward_env=forward_env or [],
+                resource_factor=resource_factor,
             )
         else:
             raise ValueError(

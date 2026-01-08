@@ -26,13 +26,17 @@ class MockEvaluation(Evaluation):
         return object.__getattribute__(self, "_test_instances")
 
     def prepare_workspace(
-        self, instance: EvalInstance, forward_env: list[str] | None = None
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
         """Return a mock workspace."""
         mock_workspace = Mock(spec=RemoteWorkspace)
         mock_workspace.__enter__ = Mock(return_value=mock_workspace)
         mock_workspace.__exit__ = Mock(return_value=None)
         mock_workspace.forward_env = forward_env or []
+        mock_workspace.resource_factor = resource_factor
         return mock_workspace
 
     def evaluate_instance(

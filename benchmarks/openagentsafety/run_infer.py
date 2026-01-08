@@ -360,9 +360,18 @@ class OpenAgentSafetyEvaluation(Evaluation):
         return instances
 
     def prepare_workspace(
-        self, instance: EvalInstance, forward_env: list[str] | None = None
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
-        """Create a fresh Docker workspace for this instance."""
+        """Create a fresh Docker workspace for this instance.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+            forward_env: Environment variables to forward into the workspace.
+        """
         server_image = build_workspace_image()
 
         workspace = DockerWorkspace(
