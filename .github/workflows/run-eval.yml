@@ -13,6 +13,7 @@ on:
           - swebench
           - swtbench
           - commit0
+          - swebenchmultimodal
       sdk_ref:
         description: SDK commit/ref to evaluate
         required: true

@@ -1,0 +1,380 @@
+name: Build SWE-Bench Multimodal Images
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Multimodal)'
+        required: true
+        default: 'princeton-nlp/SWE-bench_Multimodal'
+        type: string
+      split:
+        description: 'Dataset split (e.g., test, dev)'
+        required: true
+        default: 'test'
+        type: string
+      max-workers:
+        description: 'Number of concurrent builds'
+        required: false
+        default: '12'
+        type: string
+      max-retries:
+        description: 'Retries per image build'
+        required: false
+        default: '5'
+        type: string
+      n-limit:
+        description: 'Limit number of images to build (for testing). Leave blank for no limit.'
+        required: false
+        default: ''
+        type: string
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        default: ''
+        type: string
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
+        required: false
+        default: ''
+        type: string
+      benchmarks-commit:
+        description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch. Useful for evaluating older SDK versions that are incompatible with current benchmarks code (e.g., SDK versions before the critic module was added in commit 79868ae5).'
+        required: false
+        default: ''
+        type: string
+
+# Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+env:
+  DATASET: princeton-nlp/SWE-bench_Multimodal
+  SPLIT: test
+  MAX_WORKERS: '12'
+  MAX_RETRIES: '5'
+  N_LIMIT: '500'
+  INSTANCE_IDS: ''
+  SELECT_FILE: ''
+  BUILD_BATCH_SIZE: '15'
+  BUILDKIT_PRUNE_KEEP_GB: '60'
+  BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
+
+concurrency:
+  group: build-swe-bench-multimodal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' &&
+       (github.event.label.name == 'build-swebenchmultimodal' ||
+        github.event.label.name == 'build-swebenchmultimodal-50' ||
+        github.event.label.name == 'build-swebenchmultimodal-200'))
+
+    runs-on:
+      labels: blacksmith-32vcpu-ubuntu-2204
+
+    # Allow pushing to GHCR and commenting on issues
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+
+    steps:
+      - name: Determine checkout ref
+        id: checkout-ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
+            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          else
+            # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            echo "Using default ref (the commit that triggered this workflow)"
+          fi
+      
+      - uses: actions/checkout@v6
+        with:
+          # When ref is empty, actions/checkout uses the commit that triggered the workflow
+          ref: ${{ steps.checkout-ref.outputs.ref }}
+          submodules: recursive
+
+      # If this was a manual dispatch, override defaults with provided inputs.
+      - name: Apply workflow_dispatch overrides (if any)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
+          # Empty string means "no limit"
+          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+
+      # Set N_LIMIT based on the label that triggered the workflow
+      - name: Set N_LIMIT based on label
+        if: ${{ github.event_name == 'pull_request_target' }}
+        run: |
+          LABEL_NAME="${{ github.event.label.name }}"
+          if [ "$LABEL_NAME" = "build-swebenchmultimodal-50" ]; then
+            echo "N_LIMIT=50" >> "$GITHUB_ENV"
+            echo "Building 50 images based on label: build-swebenchmultimodal-50"
+          elif [ "$LABEL_NAME" = "build-swebenchmultimodal-200" ]; then
+            echo "N_LIMIT=200" >> "$GITHUB_ENV"
+            echo "Building 200 images based on label: build-swebenchmultimodal-200"
+          elif [ "$LABEL_NAME" = "build-swebenchmultimodal" ]; then
+            echo "N_LIMIT=" >> "$GITHUB_ENV"
+            echo "Building all images based on label: build-swebenchmultimodal"
+          fi
+
+      - name: Build selected instances file
+        run: |
+          set -euo pipefail
+
+          if [ -z "${INSTANCE_IDS}" ]; then
+            echo "No instance IDs provided; skipping select file creation."
+            exit 0
+          fi
+
+          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
+          echo "Creating selected instances file at ${SELECT_FILE}"
+
+          echo "${INSTANCE_IDS}" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | sed '/^$/d' > "${SELECT_FILE}"
+
+          echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
+          # Skip n-limit when explicit instance IDs are provided to avoid double filtering
+          echo "N_LIMIT=" >> "$GITHUB_ENV"
+
+          echo "Selected instance IDs:"
+          cat "${SELECT_FILE}"
+
+      # Update SDK submodule to specific commit if provided
+      # Must run BEFORE install dependencies so git submodule update works correctly
+      - name: Update SDK submodule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        run: |
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          SDK_SHA=$(git rev-parse HEAD)
+          cd ../..
+          # Stage the submodule reference update so make build uses it
+          git add vendor/software-agent-sdk
+          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+
+      - name: Set up Docker Buildx with Blacksmith
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          make build
+
+      - name: "Preflight: prune cache and verify BuildKit disk"
+        run: |
+          set -euo pipefail
+          KEEP_GB=60
+          echo "Pruning BuildKit cache (target max-storage ${KEEP_GB} GiB, no filters)..."
+          # Prefer newer max-storage flag; fall back to keep-storage if not supported.
+          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g; then
+            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
+          fi
+
+          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
+            LINE=$(tail -n1 /tmp/buildkit_df)
+            TOTAL=$(echo "$LINE" | awk '{print $2}')
+            USED=$(echo "$LINE" | awk '{print $3}')
+            FREE=$(echo "$LINE" | awk '{print $4}')
+            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
+              PCT=$(( 100 * USED / TOTAL ))
+              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
+              MIN=$((75 * 1024 * 1024 * 1024))
+              if [ "$FREE" -lt "$MIN" ]; then
+                echo "::error::Not enough free space on /var/lib/buildkit (${FREE} bytes free, need >= ${MIN})"
+                exit 1
+              fi
+            else
+              echo "Warning: unable to parse df output for /var/lib/buildkit"
+            fi
+          else
+            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
+
+      - name: Build and push SWE-Bench Multimodal images
+        run: |
+          set -euo pipefail
+
+          CMD="uv run benchmarks/swebenchmultimodal/build_images.py \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
+            --image ghcr.io/openhands/eval-agent-server \
+            --push \
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
+
+          # Only include --n-limit if provided (non-empty)
+          if [ -n "${N_LIMIT}" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
+          fi
+          if [ -n "${SELECT_FILE}" ]; then
+            CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+
+          echo "Running: $CMD"
+          eval "$CMD"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          BUILDKIT_RESET_ON_FAILURE: 1
+
+      - name: Archive build logs
+        if: always()
+        run: |
+          if [ -d builds ]; then
+            # Create tar archive to avoid filename restrictions (colons, etc.)
+            tar -czf build-logs.tar.gz builds/
+            echo "Build logs archived successfully"
+          else
+            echo "No builds directory found"
+          fi
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-logs-${{ github.run_id }}
+          path: build-logs.tar.gz
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Display build summary
+        if: always()
+        run: |
+          # Find all manifest.jsonl files
+          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
+          
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "No manifest.jsonl files found"
+            exit 0
+          fi
+          
+          # Generate summary from manifest files
+          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          # Count successes and failures
+          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
+          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
+          import sys
+          import json
+          count = 0
+          for line in sys.stdin:
+              data = json.loads(line.strip())
+              if data.get('error') is None and len(data.get('tags', [])) > 0:
+                  count += 1
+          print(count)
+          ")
+          FAILURES=$((TOTAL - SUCCESSES))
+          
+          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat $MANIFEST_FILES 2>/dev/null | python -c "
+            import sys
+            import json
+            for line in sys.stdin:
+                data = json.loads(line.strip())
+                if data.get('error') is not None or len(data.get('tags', [])) == 0:
+                    instance_id = data.get('instance_id', 'unknown')
+                    error = data.get('error', 'No tags generated')
+                    print(f'- **{instance_id}**: {error}')
+            " >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comment on PR with build results
+        if: github.event_name == 'pull_request_target'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Find all manifest.jsonl files
+            const { execSync } = require('child_process');
+            let manifestFiles;
+            try {
+              manifestFiles = execSync('find builds -name "manifest.jsonl" -type f 2>/dev/null || true', { encoding: 'utf8' }).trim();
+            } catch (error) {
+              console.log('No manifest files found');
+              return;
+            }
+            
+            if (!manifestFiles) {
+              console.log('No manifest files found');
+              return;
+            }
+            
+            // Read and parse all manifest files
+            const manifests = [];
+            for (const file of manifestFiles.split('\n')) {
+              if (file) {
+                const content = fs.readFileSync(file, 'utf8');
+                for (const line of content.split('\n')) {
+                  if (line.trim()) {
+                    manifests.push(JSON.parse(line));
+                  }
+                }
+              }
+            }
+            
+            const total = manifests.length;
+            const successes = manifests.filter(m => !m.error && m.tags && m.tags.length > 0).length;
+            const failures = total - successes;
+            
+            let comment = `## 🏗️ SWE-Bench Multimodal Build Results\n\n`;
+            comment += `**Total Images:** ${total}\n`;
+            comment += `**Successful Builds:** ✅ ${successes}\n`;
+            comment += `**Failed Builds:** ❌ ${failures}\n\n`;
+            
+            if (failures > 0) {
+              comment += `### Failed Builds\n\n`;
+              const failed = manifests.filter(m => m.error || !m.tags || m.tags.length === 0);
+              for (const fail of failed.slice(0, 10)) { // Limit to first 10 failures
+                const instanceId = fail.instance_id || 'unknown';
+                const error = fail.error || 'No tags generated';
+                comment += `- **${instanceId}**: ${error}\n`;
+              }
+              if (failed.length > 10) {
+                comment += `- ... and ${failed.length - 10} more failures\n`;
+              }
+            }
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
