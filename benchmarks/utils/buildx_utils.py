@@ -194,7 +194,11 @@ def prune_buildkit_cache(
             filter_flags += ["--filter", f]
 
     proc = _run(base_cmd + storage_flag + filter_flags)
-    if proc.returncode != 0 and fallback_flag and "--max-storage" in " ".join(storage_flag):
+    if (
+        proc.returncode != 0
+        and fallback_flag
+        and "--max-storage" in " ".join(storage_flag)
+    ):
         if "unknown flag: --max-storage" in proc.stderr:
             proc = _run(base_cmd + fallback_flag + filter_flags)
 
