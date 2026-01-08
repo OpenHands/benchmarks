@@ -26,7 +26,7 @@ from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.critic import PassCritic
 from openhands.sdk.tool import Tool
-from openhands.sdk.workspace import LocalWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.file_editor import FileEditorTool
 from openhands.tools.glob import GlobTool
 from openhands.tools.grep import GrepTool
@@ -389,7 +389,12 @@ class AgenticCodeSearchEvaluation(Evaluation):
         logger.info("Total instances to process: %d", len(instances))
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance):
+    def prepare_workspace(
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
+    ) -> RemoteWorkspace | LocalWorkspace:
         runtime_type = (
             self.metadata.details.get("runtime", "local")
             if isinstance(self.metadata.details, dict)
@@ -410,7 +415,9 @@ class AgenticCodeSearchEvaluation(Evaluation):
                 pass
             # create repo_dir if it does not exist
             os.makedirs(repo_dir, exist_ok=True)
-            workspace = LocalWorkspace(working_dir=repo_dir)
+            workspace: RemoteWorkspace | LocalWorkspace = LocalWorkspace(
+                working_dir=repo_dir
+            )
         else:
             raise NotImplementedError(f"Unsupported runtime type: {runtime_type}")
 
@@ -439,7 +446,9 @@ class AgenticCodeSearchEvaluation(Evaluation):
         logger.info(f"Prepared workspace successfully for instance {instance.id}")
         return workspace
 
-    def evaluate_instance(self, instance, workspace):
+    def evaluate_instance(
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
+    ) -> EvalOutput:
         """
         Steps:
         1. Prepare the prompt using Jinja2 template

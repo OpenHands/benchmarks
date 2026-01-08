@@ -96,17 +96,32 @@ class GAIAEvaluation(Evaluation):
             )
             logger.info(f"Filtered out {len(completed_instances)} completed instances")
 
-        # Apply eval_limit if specified
-        if self.metadata.eval_limit and self.metadata.eval_limit > 0:
-            df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
-            logger.info(f"Limited to {len(df)} instances due to eval_limit")
-
-        # Filter by selected_instances_file if provided
+        # Filter by selected_instances_file if provided (before applying eval_limit)
         if self.metadata.selected_instances_file:
             with open(self.metadata.selected_instances_file, "r") as f:
                 selected_ids = set(line.strip() for line in f if line.strip())
+
+            before_selection = len(df)
             df = cast(pd.DataFrame, df[df["instance_id"].isin(list(selected_ids))])
-            logger.info(f"Filtered to {len(df)} selected instances from file")
+            logger.info(
+                "Filtered to %d selected instances from file (from %d)",
+                len(df),
+                before_selection,
+            )
+
+            if len(df) == 0:
+                logger.warning(
+                    "Selected instances file %s produced 0 matching instances",
+                    self.metadata.selected_instances_file,
+                )
+
+            # Keep all requested IDs; ignore eval_limit when selections are provided
+            self.metadata.eval_limit = len(df)
+
+        # Apply eval_limit if specified (only when no explicit selection)
+        elif self.metadata.eval_limit and self.metadata.eval_limit > 0:
+            df = cast(pd.DataFrame, df.head(self.metadata.eval_limit))
+            logger.info(f"Limited to {len(df)} instances due to eval_limit")
 
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
@@ -116,8 +131,19 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Total instances to process: {len(instances)}")
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
-        """Create workspace and copy necessary files."""
+    def prepare_workspace(
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
+    ) -> RemoteWorkspace:
+        """Create workspace and copy necessary files.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+            forward_env: Environment variables to forward into the workspace.
+        """
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
@@ -125,6 +151,7 @@ class GAIAEvaluation(Evaluation):
             workspace = DockerDevWorkspace(
                 base_image="nikolaik/python-nodejs:python3.12-nodejs22",
                 working_dir="/workspace",
+                forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image
@@ -150,7 +177,8 @@ class GAIAEvaluation(Evaluation):
                 )
 
             logger.info(
-                f"Using remote workspace with GAIA image {agent_server_image} (sdk sha: {sdk_short_sha})"
+                f"Using remote workspace with GAIA image {agent_server_image} "
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
@@ -159,6 +187,8 @@ class GAIAEvaluation(Evaluation):
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="binary",  # GAIA images use binary target
+                forward_env=forward_env or [],
+                resource_factor=resource_factor,
             )
         else:
             raise ValueError(

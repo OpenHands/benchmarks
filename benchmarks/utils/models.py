@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from benchmarks.utils.laminar import LaminarEvalMetadata
 from openhands.sdk import LLM, Event, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.llm import Metrics
@@ -49,6 +50,26 @@ class EvalMetadata(BaseModel):
     workspace_type: Literal["docker", "remote"] = Field(
         default="docker",
         description="Type of workspace to use, e.g., 'docker' or 'remote'",
+    )
+    base_resource_factor: int = Field(
+        default=1,
+        ge=1,
+        le=8,
+        description=(
+            "Base resource factor for runtime allocation. "
+            "When a runtime crashes, this will be exponentially increased "
+            "(2^runtime_failure_count) up to max_resource_factor."
+        ),
+    )
+    max_resource_factor: int = Field(
+        default=8,
+        ge=1,
+        le=16,
+        description="Maximum resource factor to use after retries.",
+    )
+    lmnr: LaminarEvalMetadata | None = Field(
+        default=None,
+        description="Laminar evaluation metadata",
     )
 
 

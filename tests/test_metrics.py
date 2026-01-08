@@ -23,7 +23,7 @@ from openhands.sdk.critic import PassCritic
 from openhands.sdk.event import MessageEvent
 from openhands.sdk.llm import Message, TextContent
 from openhands.sdk.llm.utils.metrics import Metrics, TokenUsage
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 
 
 def discover_benchmarks() -> list[tuple[str, type[Evaluation]]]:
@@ -447,6 +447,16 @@ def test_benchmark_metrics_collection(
     # Setup benchmark-specific mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
+    # Use LocalWorkspace mock for agentic_code_search
+    if benchmark_name == "agentic_code_search":
+        workspace_for_test = MagicMock(spec=LocalWorkspace)
+        workspace_for_test.working_dir = "/workspace"
+        workspace_for_test.execute_command = MagicMock(
+            return_value=MagicMock(exit_code=0, stdout="test output", stderr="")
+        )
+    else:
+        workspace_for_test = mock_workspace
+
     # Mock common dependencies to avoid actual LLM calls
     with (
         patch(
@@ -458,14 +468,14 @@ def test_benchmark_metrics_collection(
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
-        if benchmark_name == "swebench":
+        if benchmark_name in ("swebench", "agentic_code_search"):
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
             ):
-                result = evaluation.evaluate_instance(instance, mock_workspace)
+                result = evaluation.evaluate_instance(instance, workspace_for_test)
         else:
-            result = evaluation.evaluate_instance(instance, mock_workspace)
+            result = evaluation.evaluate_instance(instance, workspace_for_test)
 
     # Verify result is EvalOutput
     assert isinstance(result, EvalOutput), (
@@ -529,6 +539,16 @@ def test_metrics_with_zero_cost(mock_workspace):
     # Setup mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
+    # Use LocalWorkspace mock for agentic_code_search
+    if benchmark_name == "agentic_code_search":
+        workspace_for_test = MagicMock(spec=LocalWorkspace)
+        workspace_for_test.working_dir = "/workspace"
+        workspace_for_test.execute_command = MagicMock(
+            return_value=MagicMock(exit_code=0, stdout="test output", stderr="")
+        )
+    else:
+        workspace_for_test = mock_workspace
+
     with (
         patch(
             f"benchmarks.{benchmark_name}.run_infer.Conversation",
@@ -538,14 +558,14 @@ def test_metrics_with_zero_cost(mock_workspace):
         patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools"),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
-        if benchmark_name == "swebench":
+        if benchmark_name in ("swebench", "agentic_code_search"):
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
             ):
-                result = evaluation.evaluate_instance(instance, mock_workspace)
+                result = evaluation.evaluate_instance(instance, workspace_for_test)
         else:
-            result = evaluation.evaluate_instance(instance, mock_workspace)
+            result = evaluation.evaluate_instance(instance, workspace_for_test)
 
     # Verify metrics are collected even with zero cost
     assert result.metrics is not None
