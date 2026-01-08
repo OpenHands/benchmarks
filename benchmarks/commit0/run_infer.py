@@ -22,6 +22,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -304,10 +305,15 @@ class Commit0Evaluation(Evaluation):
         def _log_event(ev):
             logger.debug("Event: %s", ev)
 
+        persist_callback, conversation_file = build_event_persistence_callback(
+            workspace, instance.id
+        )
+        logger.debug("Persisting conversation events to %s", conversation_file)
+
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[_log_event],
+            callbacks=[persist_callback, _log_event],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 

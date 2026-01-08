@@ -18,6 +18,7 @@ from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -432,11 +433,16 @@ class OpenAgentSafetyEvaluation(Evaluation):
             if not isinstance(event, ConversationStateUpdateEvent):
                 received_events.append(event)
 
+        persist_callback, conversation_file = build_event_persistence_callback(
+            workspace, instance.id
+        )
+        logger.debug("Persisting conversation events to %s", conversation_file)
+
         # Create conversation
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[event_callback],
+            callbacks=[persist_callback, event_callback],
             max_iteration_per_run=self.metadata.max_iterations,
             stuck_detection=True,
         )
