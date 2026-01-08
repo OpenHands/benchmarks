@@ -192,8 +192,11 @@ jobs:
         run: |
           set -euo pipefail
           KEEP_GB=60
-          echo "Pruning BuildKit cache (keep ${KEEP_GB} GiB, filter unused-for=12h)..."
-          docker buildx prune --all --force --keep-storage ${KEEP_GB}g --filter unused-for=12h || true
+          echo "Pruning BuildKit cache (target max-storage ${KEEP_GB} GiB, no filters)..."
+          # Prefer newer max-storage flag; fall back to keep-storage if not supported.
+          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g; then
+            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
+          fi
 
           if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
             LINE=$(tail -n1 /tmp/buildkit_df)

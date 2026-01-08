@@ -449,7 +449,9 @@ def build_all_images(
     batch_size = int(os.getenv("BUILD_BATCH_SIZE", "15"))
     prune_keep_storage_gb = int(os.getenv("BUILDKIT_PRUNE_KEEP_GB", "60"))
     prune_threshold_pct = float(os.getenv("BUILDKIT_PRUNE_THRESHOLD_PCT", "60"))
-    prune_filters: list[str] | None = ["unused-for=12h"]
+    # Prune aggressively by default; filters like "unused-for=12h" prevented GC from
+    # reclaiming layers created during the current run, leading to disk exhaustion.
+    prune_filters: list[str] | None = None
 
     def _chunks(seq: list[str], size: int):
         if size <= 0:
