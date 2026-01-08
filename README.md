@@ -117,6 +117,10 @@ After setting up the environment and configuring your LLM, see the individual be
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
+### Runtime retries
+- Benchmarks accept `--max-retries` for instance-level failures (default: 3).
+- When launched via the cloud eval workflows, `MAX_RETRIES` is passed through Helm/workflow inputs and overrides the CLI default.
+
 ## Triggering Cloud Evals from This Repo
 
 This repo exposes a manual GitHub Actions workflow that dispatches the `run-eval.yml` workflow in the Software Agent SDK. It is useful when you want to launch evals from the benchmarks repo without switching to the SDK repo.
