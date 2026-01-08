@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-def read_jsonl_file(file_path: Path) -> List[Dict]:
+def read_jsonl_file(file_path: Path) -> List[Optional[Dict]]:
     """Read a JSONL file and return list of JSON objects."""
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -38,7 +38,7 @@ def read_jsonl_file(file_path: Path) -> List[Dict]:
         return []
 
 
-def extract_accumulated_cost(jsonl_data: List[Dict]) -> float:
+def extract_accumulated_cost(jsonl_data: List[Optional[Dict]]) -> float:
     """Sum the accumulated costs from each line in JSONL data."""
     if not jsonl_data:
         return 0.0
@@ -47,6 +47,9 @@ def extract_accumulated_cost(jsonl_data: List[Dict]) -> float:
 
     # Sum accumulated costs from each line
     for entry in jsonl_data:
+        # Skip None entries that can occur from null JSON values
+        if entry is None:
+            continue
         metrics = entry.get("metrics", {})
         accumulated_cost = metrics.get("accumulated_cost", 0.0)
         if accumulated_cost is not None:
@@ -62,8 +65,11 @@ def format_duration(seconds: float) -> str:
     return f"{minutes:02d}:{seconds_remainder:02d}"
 
 
-def calculate_line_duration(entry: Dict) -> Optional[float]:
+def calculate_line_duration(entry: Optional[Dict]) -> Optional[float]:
     """Calculate the duration for a single line (entry) in seconds."""
+    # Skip None entries that can occur from null JSON values
+    if entry is None:
+        return None
     history = entry.get("history", [])
     if not history:
         return None
@@ -90,7 +96,7 @@ def calculate_line_duration(entry: Dict) -> Optional[float]:
     return duration
 
 
-def calculate_time_statistics(jsonl_data: List[Dict]) -> Dict:
+def calculate_time_statistics(jsonl_data: List[Optional[Dict]]) -> Dict:
     """Calculate time statistics for all lines in JSONL data."""
     if not jsonl_data:
         return {
