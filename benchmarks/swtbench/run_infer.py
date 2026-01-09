@@ -268,6 +268,7 @@ class SWTBenchEvaluation(Evaluation):
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
             instance_id=instance.id,
+            attempt=self.current_attempt,
         )
 
         conversation = Conversation(
@@ -320,6 +321,7 @@ class SWTBenchEvaluation(Evaluation):
 
         out = EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result={
                 "git_patch": git_patch,
             },

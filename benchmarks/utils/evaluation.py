@@ -43,6 +43,7 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    current_attempt: int = Field(default=1, description="Current attempt number (1-indexed)")
 
     def model_post_init(self, __context) -> None:
         """Save metadata to output directory after initialization."""
@@ -271,6 +272,7 @@ class Evaluation(ABC, BaseModel):
         all_outputs: List[EvalOutput] = []
 
         for attempt in range(1, self.metadata.max_attempts + 1):
+            self.current_attempt = attempt
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
             instances_to_process = self._get_instances_for_attempt(

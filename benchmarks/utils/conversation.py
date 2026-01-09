@@ -66,7 +66,7 @@ def _truncate(s: str, max_len: int) -> str:
 
 
 def build_event_persistence_callback(
-    run_id: str, instance_id: str
+    run_id: str, instance_id: str, attempt: int = 1
 ) -> ConversationCallback:
     """
     Create a callback that logs events for later retrieval.
@@ -77,6 +77,7 @@ def build_event_persistence_callback(
     Args:
         run_id: Unique identifier for this evaluation run (e.g., job name).
         instance_id: Identifier for the evaluation instance.
+        attempt: Attempt number for retries (1-indexed).
 
     Returns:
         A callback function to be passed to Conversation.
@@ -94,6 +95,7 @@ def build_event_persistence_callback(
                     extra={
                         "run_id": run_id,
                         "instance_id": instance_id,
+                        "attempt": attempt,
                         "event_type": type(event).__name__,
                         "event_size": event_size,
                         "event": serialized,
@@ -107,6 +109,7 @@ def build_event_persistence_callback(
                     extra={
                         "run_id": run_id,
                         "instance_id": instance_id,
+                        "attempt": attempt,
                         "event_size": event_size,
                         "truncated": True,
                         **metadata,

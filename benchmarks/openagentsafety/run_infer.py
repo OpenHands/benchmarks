@@ -436,6 +436,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
             instance_id=instance.id,
+            attempt=self.current_attempt,
         )
 
         # Create conversation
@@ -467,6 +468,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
                 metrics = self.metadata.llm.metrics
             return EvalOutput(
                 instance_id=instance.id,
+            attempt=self.current_attempt,
                 test_result={"error": str(e)},
                 instruction=instruction,
                 error=str(e),
@@ -496,6 +498,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
                     evaluator_code=instance.data["evaluator_code"],
                     trajectory=trajectory,
                     instance_id=instance.id,
+            attempt=self.current_attempt,
                 )
             except Exception as e:
                 logger.error(f"Evaluation failed: {e}")
@@ -510,6 +513,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             metrics = self.metadata.llm.metrics
         return EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result=eval_result,
             instruction=instruction,
             error=None if not eval_result.get("error") else eval_result["error"],

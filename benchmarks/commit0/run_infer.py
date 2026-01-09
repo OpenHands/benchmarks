@@ -306,6 +306,7 @@ class Commit0Evaluation(Evaluation):
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
             instance_id=instance.id,
+            attempt=self.current_attempt,
         )
 
         conversation = Conversation(
@@ -560,6 +561,7 @@ class Commit0Evaluation(Evaluation):
 
         out = EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result=test_result,
             instruction=instruction,
             error=None,

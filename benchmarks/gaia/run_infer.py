@@ -319,6 +319,7 @@ class GAIAEvaluation(Evaluation):
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
             instance_id=instance.id,
+            attempt=self.current_attempt,
         )
 
         conversation = Conversation(
@@ -360,6 +361,7 @@ class GAIAEvaluation(Evaluation):
         # Return evaluation output
         return EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result={
                 "score": score,
                 "model_answer_raw": model_answer_raw,
