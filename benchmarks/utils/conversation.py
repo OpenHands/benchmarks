@@ -9,8 +9,8 @@ logger = get_logger(__name__)
 
 ConversationCallback = Callable[[Event], None]
 
-# Max size for full event logging (64KB). Larger events log metadata only.
-MAX_EVENT_SIZE_BYTES = 64 * 1024
+# Max size for full event logging (256KB). Larger events log metadata only.
+MAX_EVENT_SIZE_BYTES = 256 * 1024
 
 
 def _extract_event_metadata(event: Event) -> dict[str, Any]:
