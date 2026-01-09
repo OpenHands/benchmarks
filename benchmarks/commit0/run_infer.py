@@ -302,8 +302,6 @@ class Commit0Evaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        def _log_event(ev):
-            logger.debug("Event: %s", ev)
 
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
@@ -313,7 +311,7 @@ class Commit0Evaluation(Evaluation):
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[persist_callback, _log_event],
+            callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 

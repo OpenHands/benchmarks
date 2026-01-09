@@ -313,8 +313,6 @@ class MultiSWEBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        def _log_event(ev):  # keep it simple
-            logger.debug("Event: %s", ev)
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
@@ -327,7 +325,7 @@ class MultiSWEBenchEvaluation(Evaluation):
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[persist_callback, _log_event],
+            callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
