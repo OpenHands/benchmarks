@@ -13,6 +13,7 @@ from benchmarks.swebench.build_images import (
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -21,7 +22,6 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
