@@ -21,39 +21,39 @@ def _extract_event_metadata(event: Event) -> dict[str, Any]:
 
     # Extract common fields if present
     if hasattr(event, "id"):
-        metadata["id"] = event.id
+        metadata["id"] = getattr(event, "id")
     if hasattr(event, "timestamp"):
-        metadata["timestamp"] = str(event.timestamp)
+        metadata["timestamp"] = str(getattr(event, "timestamp"))
     if hasattr(event, "source"):
-        metadata["source"] = str(event.source)
+        metadata["source"] = str(getattr(event, "source"))
 
     # Extract tool-specific metadata
     if hasattr(event, "tool_name"):
-        metadata["tool_name"] = event.tool_name
+        metadata["tool_name"] = getattr(event, "tool_name")
     if hasattr(event, "tool_call_id"):
-        metadata["tool_call_id"] = event.tool_call_id
+        metadata["tool_call_id"] = getattr(event, "tool_call_id")
 
     # For observations, extract key fields without full content
     if hasattr(event, "observation"):
-        obs = event.observation
+        obs = getattr(event, "observation")
         if hasattr(obs, "command"):
-            metadata["command"] = _truncate(str(obs.command), 500)
+            metadata["command"] = _truncate(str(getattr(obs, "command")), 500)
         if hasattr(obs, "path"):
-            metadata["path"] = obs.path
+            metadata["path"] = getattr(obs, "path")
         if hasattr(obs, "exit_code"):
-            metadata["exit_code"] = obs.exit_code
+            metadata["exit_code"] = getattr(obs, "exit_code")
         if hasattr(obs, "is_error"):
-            metadata["is_error"] = obs.is_error
+            metadata["is_error"] = getattr(obs, "is_error")
 
     # For actions, extract key fields
     if hasattr(event, "action"):
-        action = event.action
+        action = getattr(event, "action")
         if hasattr(action, "command"):
-            metadata["command"] = _truncate(str(action.command), 500)
+            metadata["command"] = _truncate(str(getattr(action, "command")), 500)
         if hasattr(action, "path"):
-            metadata["path"] = action.path
+            metadata["path"] = getattr(action, "path")
         if hasattr(action, "thought"):
-            metadata["thought"] = _truncate(str(action.thought), 500)
+            metadata["thought"] = _truncate(str(getattr(action, "thought")), 500)
 
     return metadata
 
@@ -117,3 +117,5 @@ def build_event_persistence_callback(
             logger.debug(
                 "Failed to persist conversation event for %s: %s", instance_id, exc
             )
+
+    return _persist_event
