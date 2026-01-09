@@ -1,72 +1,119 @@
 from __future__ import annotations
 
-import base64
-from typing import Callable
+from typing import Any, Callable
 
 from openhands.sdk import Event, get_logger
-from openhands.sdk.workspace import RemoteWorkspace
 
 
 logger = get_logger(__name__)
 
 ConversationCallback = Callable[[Event], None]
 
+# Max size for full event logging (64KB). Larger events log metadata only.
+MAX_EVENT_SIZE_BYTES = 64 * 1024
+
+
+def _extract_event_metadata(event: Event) -> dict[str, Any]:
+    """Extract metadata from an event for logging without full content."""
+    metadata: dict[str, Any] = {
+        "event_type": type(event).__name__,
+    }
+
+    # Extract common fields if present
+    if hasattr(event, "id"):
+        metadata["id"] = event.id
+    if hasattr(event, "timestamp"):
+        metadata["timestamp"] = str(event.timestamp)
+    if hasattr(event, "source"):
+        metadata["source"] = str(event.source)
+
+    # Extract tool-specific metadata
+    if hasattr(event, "tool_name"):
+        metadata["tool_name"] = event.tool_name
+    if hasattr(event, "tool_call_id"):
+        metadata["tool_call_id"] = event.tool_call_id
+
+    # For observations, extract key fields without full content
+    if hasattr(event, "observation"):
+        obs = event.observation
+        if hasattr(obs, "command"):
+            metadata["command"] = _truncate(str(obs.command), 500)
+        if hasattr(obs, "path"):
+            metadata["path"] = obs.path
+        if hasattr(obs, "exit_code"):
+            metadata["exit_code"] = obs.exit_code
+        if hasattr(obs, "is_error"):
+            metadata["is_error"] = obs.is_error
+
+    # For actions, extract key fields
+    if hasattr(event, "action"):
+        action = event.action
+        if hasattr(action, "command"):
+            metadata["command"] = _truncate(str(action.command), 500)
+        if hasattr(action, "path"):
+            metadata["path"] = action.path
+        if hasattr(action, "thought"):
+            metadata["thought"] = _truncate(str(action.thought), 500)
+
+    return metadata
+
+
+def _truncate(s: str, max_len: int) -> str:
+    """Truncate string with ellipsis if too long."""
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
 
 def build_event_persistence_callback(
-    workspace: RemoteWorkspace, instance_id: str
-) -> tuple[ConversationCallback, str]:
+    run_id: str, instance_id: str
+) -> ConversationCallback:
     """
-    Create a callback that appends serialized events to a JSONL file in the runtime.
+    Create a callback that logs events for later retrieval.
+
+    Small events are logged in full; large events log metadata only to avoid
+    size limits and ensure logs persist beyond pod lifetime.
 
     Args:
-        workspace: Remote workspace backing the conversation.
+        run_id: Unique identifier for this evaluation run (e.g., job name).
         instance_id: Identifier for the evaluation instance.
 
     Returns:
-        A tuple of (callback, conversation_file_path).
+        A callback function to be passed to Conversation.
     """
-    workspace_dir_raw = getattr(workspace, "working_dir", None)
-    workspace_dir = (
-        str(workspace_dir_raw) if workspace_dir_raw else "/workspace"
-    ).rstrip("/") or "/workspace"
-    conversations_dir = f"{workspace_dir}/conversations"
-    conversation_file = f"{conversations_dir}/{instance_id}.jsonl"
 
     def _persist_event(event: Event) -> None:
         try:
             serialized = event.model_dump_json(exclude_none=True)
-        except Exception as exc:  # best-effort; never block the run
-            logger.debug(
-                "Skipping persistence for %s; serialization failed: %s",
-                instance_id,
-                exc,
-            )
-            return
+            event_size = len(serialized.encode("utf-8"))
 
-        try:
-            encoded = base64.b64encode(serialized.encode("utf-8")).decode("ascii")
-            command = (
-                "python - <<'PY'\n"
-                "import base64\n"
-                "from pathlib import Path\n"
-                f"path = Path('{conversation_file}')\n"
-                "path.parent.mkdir(parents=True, exist_ok=True)\n"
-                f"data = base64.b64decode('{encoded}')\n"
-                "with path.open('ab') as f:\n"
-                "    f.write(data + b'\\n')\n"
-                "PY"
-            )
-            result = workspace.execute_command(command)
-            if result.exit_code != 0:
-                logger.debug(
-                    "Event persistence command failed for %s (exit_code=%s): %s",
-                    instance_id,
-                    result.exit_code,
-                    result.stderr,
+            if event_size <= MAX_EVENT_SIZE_BYTES:
+                # Small event: log full content
+                logger.info(
+                    "conversation_event",
+                    extra={
+                        "run_id": run_id,
+                        "instance_id": instance_id,
+                        "event_type": type(event).__name__,
+                        "event_size": event_size,
+                        "event": serialized,
+                    },
+                )
+            else:
+                # Large event: log metadata only
+                metadata = _extract_event_metadata(event)
+                logger.info(
+                    "conversation_event_metadata",
+                    extra={
+                        "run_id": run_id,
+                        "instance_id": instance_id,
+                        "event_size": event_size,
+                        "truncated": True,
+                        **metadata,
+                    },
                 )
         except Exception as exc:
+            # Best-effort; never block the run
             logger.debug(
                 "Failed to persist conversation event for %s: %s", instance_id, exc
             )
-
-    return _persist_event, conversation_file

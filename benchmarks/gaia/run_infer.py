@@ -318,10 +318,10 @@ class GAIAEvaluation(Evaluation):
         def _log_event(ev):
             logger.debug("Event: %s", ev)
 
-        persist_callback, conversation_file = build_event_persistence_callback(
-            workspace, instance.id
+        persist_callback = build_event_persistence_callback(
+            run_id=self.metadata.eval_output_dir,
+            instance_id=instance.id,
         )
-        logger.debug("Persisting conversation events to %s", conversation_file)
 
         conversation = Conversation(
             agent=agent,
