@@ -596,6 +596,24 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
+    class ConversationEventFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+            msg = record.getMessage()
+            return msg in {"conversation_event", "conversation_event_metadata"}
+
+    # Datadog/console handler for conversation events (bypasses stdout redirection)
+    from pythonjsonlogger.json import JsonFormatter
+
+    dd_handler = logging.StreamHandler(sys.__stdout__)
+    dd_handler.setLevel(logging.INFO)
+    dd_handler.addFilter(ConversationEventFilter())
+    dd_handler.setFormatter(
+        JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
+        )
+    )
+    root_logger.addHandler(dd_handler)
+
     # Create console handler for initial message
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
