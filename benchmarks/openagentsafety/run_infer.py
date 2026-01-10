@@ -264,10 +264,14 @@ def generate_instruction(instance_data: dict, template_path: str | None = None) 
 
 
 def run_evaluation_in_container(
-    workspace, evaluator_code: str, trajectory: str, instance_id: str
+    workspace,
+    evaluator_code: str,
+    trajectory: str,
+    instance_id: str,
+    attempt: int = 1,
 ) -> dict:
     """Execute evaluator code in the Docker container and return results."""
-    logger.info(f"Running evaluation for {instance_id}")
+    logger.info(f"Running evaluation for {instance_id} (attempt {attempt})")
 
     # Write evaluator code
     evaluator_path = "/workspace/evaluator_temp.py"
@@ -468,7 +472,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
                 metrics = self.metadata.llm.metrics
             return EvalOutput(
                 instance_id=instance.id,
-            attempt=self.current_attempt,
+                attempt=self.current_attempt,
                 test_result={"error": str(e)},
                 instruction=instruction,
                 error=str(e),
@@ -498,7 +502,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
                     evaluator_code=instance.data["evaluator_code"],
                     trajectory=trajectory,
                     instance_id=instance.id,
-            attempt=self.current_attempt,
+                    attempt=self.current_attempt,
                 )
             except Exception as e:
                 logger.error(f"Evaluation failed: {e}")

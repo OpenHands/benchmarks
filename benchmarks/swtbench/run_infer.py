@@ -261,7 +261,6 @@ class SWTBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
 

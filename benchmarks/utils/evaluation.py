@@ -43,7 +43,9 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
-    current_attempt: int = Field(default=1, description="Current attempt number (1-indexed)")
+    current_attempt: int = Field(
+        default=1, description="Current attempt number (1-indexed)"
+    )
 
     def model_post_init(self, __context) -> None:
         """Save metadata to output directory after initialization."""

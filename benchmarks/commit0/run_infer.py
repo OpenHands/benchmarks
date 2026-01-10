@@ -302,7 +302,6 @@ class Commit0Evaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
             instance_id=instance.id,
