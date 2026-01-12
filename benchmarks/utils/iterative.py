@@ -17,6 +17,23 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
+def _get_output_rank(critic: CriticBase, output: EvalOutput) -> int:
+    """
+    Get the rank of an output for aggregation purposes.
+    Higher rank is better.
+
+    Ranks:
+    - 2: critic-successful (best)
+    - 1: non-error/critic-fail
+    - 0: error (worst)
+    """
+    if output.error:
+        return 0
+    if evaluate_output(critic, output):
+        return 2
+    return 1
+
+
 def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstanceID]:
     """
     Get the set of failed instance IDs from an output file.
@@ -104,24 +121,17 @@ def aggregate_results(
                         data = json.loads(line.strip())
                         output = EvalOutput.model_validate(data)
 
-                        # Use this result if:
-                        # 1. We haven't seen this instance yet, OR
-                        # 2. This attempt is the first one to succeed
                         instance_id = output.instance_id
-
-                        is_successful = evaluate_output(critic, output)
+                        output_rank = _get_output_rank(critic, output)
 
                         if instance_id not in best_results:
                             # First time seeing this instance
                             best_results[instance_id] = output
-                        elif is_successful:
-                            # This attempt succeeded, check if we should replace
+                        else:
+                            # Replace if this output has a higher rank
                             current_best = best_results[instance_id]
-                            current_is_successful = evaluate_output(
-                                critic, current_best
-                            )
-                            if not current_is_successful:
-                                # Replace failed result with successful one
+                            current_rank = _get_output_rank(critic, current_best)
+                            if output_rank > current_rank:
                                 best_results[instance_id] = output
 
                     except json.JSONDecodeError as e:
