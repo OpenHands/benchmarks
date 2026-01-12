@@ -15,6 +15,7 @@ from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
@@ -314,10 +315,17 @@ class GAIAEvaluation(Evaluation):
         )
 
         # Create conversation
+
+        persist_callback = build_event_persistence_callback(
+            run_id=self.metadata.eval_output_dir,
+            instance_id=instance.id,
+            attempt=self.current_attempt,
+        )
+
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[lambda ev: logger.debug("Event: %s", ev)],
+            callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
@@ -353,6 +361,7 @@ class GAIAEvaluation(Evaluation):
         # Return evaluation output
         return EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result={
                 "score": score,
                 "model_answer_raw": model_answer_raw,
