@@ -19,8 +19,9 @@ from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
@@ -540,12 +541,7 @@ def main() -> None:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
     # Load LLM config
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     # Construct output directory
