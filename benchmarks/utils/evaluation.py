@@ -22,7 +22,7 @@ from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
-from benchmarks.utils.conversation import conversation_event_logging_enabled
+from benchmarks.utils.conversation import CONVERSATION_EVENT_LOGGING_ENV_VAR
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -605,7 +605,7 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
             return msg in {"conversation_event", "conversation_event_metadata"}
 
     # Datadog/console handler for conversation events (bypasses stdout redirection)
-    if conversation_event_logging_enabled():
+    if bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, False)):
         from pythonjsonlogger.json import JsonFormatter
 
         dd_handler = logging.StreamHandler(sys.__stdout__)
