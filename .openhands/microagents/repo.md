@@ -101,3 +101,51 @@ When converting between OpenHands format and benchmark-specific formats:
 - Log conversion warnings for debugging
 - Validate output format before evaluation
 </BENCHMARK_SPECIFIC>
+
+<DEBUGGING_EVALUATION_RUNS>
+# Debugging Failed Evaluation Runs
+
+## Datadog Log Queries
+Evaluation jobs run in Kubernetes and logs are available in Datadog. Use these filters:
+
+**Base job filter** (all logs for a job):
+```
+kube_namespace:evaluation-jobs kube_job:eval-<JOB_ID>-<MODEL_NAME>
+```
+
+**Instance-specific filter** (logs for a specific benchmark instance):
+```
+kube_namespace:evaluation-jobs kube_job:eval-<JOB_ID>-<MODEL_NAME> @instance_id:<INSTANCE_ID>
+```
+
+**Error filter** (find errors across all instances):
+```
+kube_namespace:evaluation-jobs kube_job:eval-<JOB_ID>-<MODEL_NAME> (error OR ERROR OR exception OR 503 OR 404 OR failed)
+```
+
+## Analyzing Evaluation Output Files
+
+Evaluation outputs are stored in GCS: `gs://openhands-evaluation-results/`
+
+Key files in the output tarball:
+- `output.critic_attempt_N.jsonl` - Results after attempt N (before retry)
+- `output.jsonl` - Final merged results
+- `output_errors.jsonl` - Instances that failed with errors
+- `swebench_output.jsonl` - SWE-bench format output for evaluation
+
+### Inspecting Instance Results
+
+```python
+import json
+
+with open('output.critic_attempt_1.jsonl') as f:
+    for line in f:
+        data = json.loads(line)
+        instance_id = data.get('instance_id')
+        error = data.get('error')
+        history = data.get('history', [])
+        git_patch = data.get('test_result', {}).get('git_patch', '')
+        
+        print(f"{instance_id}: error={bool(error)}, history_len={len(history)}, has_patch={bool(git_patch)}")
+```
+</DEBUGGING_EVALUATION_RUNS>
