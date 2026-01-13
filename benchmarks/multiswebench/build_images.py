@@ -37,7 +37,8 @@ def get_official_docker_image(
 
     # For Multi-SWE-Bench, the image naming depends on the language
     repo = instance["repo"]
-    version = instance["version"]
+    # Multi-SWE-Bench dataset uses "number" instead of "version"
+    version = instance.get("version", str(instance.get("number", "")))
 
     if LANGUAGE == "python":
         # Use SWE-bench style naming for Python
