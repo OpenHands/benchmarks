@@ -9,7 +9,7 @@ import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 from uuid import UUID
@@ -478,6 +478,11 @@ class Evaluation(ABC, BaseModel):
             max_retries = self.metadata.max_retries
             runtime_runs: list[RemoteRuntimeAllocation] = []
 
+            def _attach_runtime_runs(result: EvalOutput) -> EvalOutput:
+                if runtime_runs:
+                    result.runtime_runs = runtime_runs
+                return result
+
             while retry_count <= max_retries:
                 workspace = None
 
@@ -514,28 +519,29 @@ class Evaluation(ABC, BaseModel):
 
                     # Record runtime/pod mapping only for remote runtimes
                     if isinstance(workspace, APIRemoteWorkspace):
+                        retry_number = retry_count + 1  # 1-indexed for readability
                         runtime_run = RemoteRuntimeAllocation(
                             runtime_id=getattr(workspace, "_runtime_id", None),
                             session_id=getattr(workspace, "session_id", None),
                             runtime_url=getattr(workspace, "_runtime_url", None),
                             resource_factor=resource_factor,
                             critic_attempt=critic_attempt,
-                            retry=retry_count + 1,
+                            retry=retry_number,
+                            started_at=datetime.now(timezone.utc),
                         )
                         runtime_runs.append(runtime_run)
                         logger.info(
                             "[child] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
                             instance.id,
                             critic_attempt,
-                            retry_count + 1,
+                            retry_number,
                             workspace.__class__.__name__,
                             runtime_run.runtime_id,
                             runtime_run.session_id,
                             runtime_run.resource_factor,
                         )
                     out = self.evaluate_instance(instance, workspace)
-                    if runtime_runs:
-                        out.runtime_runs = runtime_runs
+                    out = _attach_runtime_runs(out)
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
@@ -566,9 +572,7 @@ class Evaluation(ABC, BaseModel):
                         error_output = self._create_error_output(
                             instance, last_error, max_retries
                         )
-                        if runtime_runs:
-                            error_output.runtime_runs = runtime_runs
-                        return instance, error_output
+                        return instance, _attach_runtime_runs(error_output)
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure
                     if workspace is not None:
@@ -597,9 +601,7 @@ class Evaluation(ABC, BaseModel):
             error_output = self._create_error_output(
                 instance, Exception("Unexpected error: no attempts made"), max_retries
             )
-            if runtime_runs:
-                error_output.runtime_runs = runtime_runs
-            return instance, error_output
+            return instance, _attach_runtime_runs(error_output)
 
 
 # ---------- Multiprocessing logging helper ---------------------------------------
