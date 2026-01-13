@@ -84,8 +84,13 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
 
     for attempt in range(1, attempts + 1):
         try:
-            # Try with verification disabled to handle schema mismatches
-            dataset = load_dataset(dataset_name, split=split, verification_mode="no_checks")
+            # Try with verification disabled and trust remote code to handle schema mismatches
+            dataset = load_dataset(
+                dataset_name, 
+                split=split, 
+                verification_mode="no_checks",
+                trust_remote_code=True
+            )
             assert isinstance(dataset, Dataset)
             return dataset
         except Exception as exc:
@@ -117,7 +122,7 @@ def get_dataset(
     # Check if dataset_name is a local file path
     if os.path.isfile(dataset_name) and dataset_name.endswith(".jsonl"):
         # Load local JSONL file
-        dataset = load_dataset("json", data_files=dataset_name, split="train", verification_mode="no_checks")
+        dataset = load_dataset("json", data_files=dataset_name, split="train", verification_mode="no_checks", trust_remote_code=True)
         assert isinstance(dataset, Dataset)
         df = dataset.to_pandas()
         assert isinstance(df, pd.DataFrame)
