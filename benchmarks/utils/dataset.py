@@ -100,7 +100,6 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
                 from huggingface_hub import hf_hub_download
                 import json
                 import tempfile
-                import os
                 
                 # Download the raw data files manually
                 with tempfile.TemporaryDirectory() as temp_dir:
