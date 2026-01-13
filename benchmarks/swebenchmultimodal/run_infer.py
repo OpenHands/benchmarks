@@ -36,7 +36,7 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
@@ -209,7 +209,7 @@ class SWEBenchEvaluation(Evaluation):
 
     # ---- Hook: evaluate one instance ---------------------------------------------
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """
         Create conversation, run agent, collect history and git patch.

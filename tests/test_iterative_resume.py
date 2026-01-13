@@ -10,7 +10,7 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 
 
 class MockEvaluation(Evaluation):
@@ -30,7 +30,7 @@ class MockEvaluation(Evaluation):
         instance: EvalInstance,
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
-    ) -> RemoteWorkspace:
+    ) -> RemoteWorkspace | LocalWorkspace:
         """Return a mock workspace."""
         mock_workspace = Mock(spec=RemoteWorkspace)
         mock_workspace.__enter__ = Mock(return_value=mock_workspace)
@@ -40,7 +40,7 @@ class MockEvaluation(Evaluation):
         return mock_workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """Return a mock output."""
         return EvalOutput(

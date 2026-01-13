@@ -30,7 +30,7 @@ from benchmarks.utils.models import (
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -87,7 +87,7 @@ class Evaluation(ABC, BaseModel):
         instance: EvalInstance,
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
-    ) -> RemoteWorkspace:
+    ) -> RemoteWorkspace | LocalWorkspace:
         """Create and return a context-managed Workspace for the given instance.
 
         Args:
@@ -99,7 +99,7 @@ class Evaluation(ABC, BaseModel):
 
     @abstractmethod
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
@@ -121,7 +121,7 @@ class Evaluation(ABC, BaseModel):
 
     def _capture_conversation_archive(
         self,
-        workspace: RemoteWorkspace,
+        workspace: RemoteWorkspace | LocalWorkspace,
         instance: EvalInstance,
     ) -> None:
         """Capture conversation trajectory from the remote runtime.
@@ -136,6 +136,8 @@ class Evaluation(ABC, BaseModel):
             workspace: The remote workspace to capture from
             instance: The evaluation instance being processed
         """
+        if not isinstance(workspace, RemoteWorkspace):
+            return
         try:
             # Create command to tar and base64 encode the conversations directory
             conv_cmd = (

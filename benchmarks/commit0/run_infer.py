@@ -30,7 +30,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
@@ -285,7 +285,7 @@ class Commit0Evaluation(Evaluation):
         return workspace
 
     def evaluate_instance(
-        self, instance: EvalInstance, workspace: RemoteWorkspace
+        self, instance: EvalInstance, workspace: RemoteWorkspace | LocalWorkspace
     ) -> EvalOutput:
         """
         Run agent, collect history, git patch, and test results.

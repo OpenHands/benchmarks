@@ -1,0 +1,16 @@
+I have access to a python code repository in the directory {{ working_dir }} . Consider the following issue description:
+
+<issue_description>
+{{ problem_statement }}
+</issue_description>
+
+Act as a code search agent and localize the specific files, classes or functions of code that need modification to resolve the issue in <issue_description>.
+
+NOTE: You do not need to solve the issue, all you need to do is localize relevant code from the repository. Your output will be used to guide another agent to solve the issue.
+
+IMPORTANT: Your output MUST follow the below rules:
+1. The final output must be returned in the message parameter of the Finish tool wrapped within ```, and there should be NO text outside these triple backticks (```).
+2. The locations of the file path must be RELATIVE to the {{ working_dir }} directory WITHOUT any leading "./" in the output.
+3. For each localized code output, you MUST always include the file path and the function name. If the function is within a class you MUST also include the class name.
+4. Only include those locations in your output that need modification to resolve the issue in <issue_description>. Do NOT include any locations that do not need modification.
+
