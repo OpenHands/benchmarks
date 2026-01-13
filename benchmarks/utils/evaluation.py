@@ -9,7 +9,7 @@ import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 from uuid import UUID
@@ -27,10 +27,12 @@ from benchmarks.utils.models import (
     EvalInstanceID,
     EvalMetadata,
     EvalOutput,
+    RemoteRuntimeAllocation,
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -43,6 +45,9 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    current_attempt: int = Field(
+        default=1, description="Current attempt number (1-indexed)"
+    )
 
     def model_post_init(self, __context) -> None:
         """Save metadata to output directory after initialization."""
@@ -271,6 +276,7 @@ class Evaluation(ABC, BaseModel):
         all_outputs: List[EvalOutput] = []
 
         for attempt in range(1, self.metadata.max_attempts + 1):
+            self.current_attempt = attempt
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
             instances_to_process = self._get_instances_for_attempt(
@@ -333,7 +339,7 @@ class Evaluation(ABC, BaseModel):
                         lmnr_datapoints[inst.id] = datapoint_id
 
                     futures.append(
-                        pool.submit(self._process_one_mp, inst, lmnr_span_ctx)
+                        pool.submit(self._process_one_mp, inst, lmnr_span_ctx, attempt)
                     )
 
                 for fut in tqdm(
@@ -445,7 +451,7 @@ class Evaluation(ABC, BaseModel):
 
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance, eval_span_ctx: str | None
+        self, instance: EvalInstance, eval_span_ctx: str | None, critic_attempt: int
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
@@ -470,6 +476,7 @@ class Evaluation(ABC, BaseModel):
             runtime_failure_count = 0
             last_error = None
             max_retries = self.metadata.max_retries
+            runtime_runs: list[RemoteRuntimeAllocation] = []
 
             while retry_count <= max_retries:
                 workspace = None
@@ -504,13 +511,59 @@ class Evaluation(ABC, BaseModel):
                         resource_factor=resource_factor,
                         forward_env=LMNR_ENV_VARS,
                     )
+
+                    # Record runtime/pod mapping only for remote runtimes
+                    if isinstance(workspace, APIRemoteWorkspace):
+                        retry_number = retry_count + 1  # 1-indexed for readability
+                        runtime_run = RemoteRuntimeAllocation(
+                            runtime_id=getattr(workspace, "_runtime_id", None),
+                            session_id=getattr(workspace, "session_id", None),
+                            runtime_url=getattr(workspace, "_runtime_url", None),
+                            resource_factor=resource_factor,
+                            critic_attempt=critic_attempt,
+                            retry=retry_number,
+                            started_at=datetime.now(timezone.utc),
+                        )
+                        runtime_runs.append(runtime_run)
+                        logger.info(
+                            "[child] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
+                            instance.id,
+                            critic_attempt,
+                            retry_number,
+                            workspace.__class__.__name__,
+                            runtime_run.runtime_id,
+                            runtime_run.session_id,
+                            runtime_run.resource_factor,
+                        )
                     out = self.evaluate_instance(instance, workspace)
+                    if runtime_runs:
+                        out.runtime_runs = runtime_runs
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
                     last_error = e
                     retry_count += 1
                     lmnr_span.record_exception(e)
+
+                    # Log structured runtime allocation/init failures so we can trace instance -> runtime/pod
+                    runtime_id = (
+                        getattr(workspace, "_runtime_id", None) if workspace else None
+                    )
+                    session_id = (
+                        getattr(workspace, "session_id", None) if workspace else None
+                    )
+                    if isinstance(workspace, APIRemoteWorkspace) or (
+                        "Runtime not yet ready" in str(e)
+                    ):
+                        logger.warning(
+                            "[child] runtime init failure instance=%s attempt=%d retry=%d runtime_id=%s session_id=%s error=%s",
+                            instance.id,
+                            critic_attempt,
+                            retry_count,
+                            runtime_id,
+                            session_id,
+                            str(e),
+                        )
 
                     # TODO(#277): add an exception classifier to decide when to bump resources
                     runtime_failure_count += 1
@@ -535,6 +588,8 @@ class Evaluation(ABC, BaseModel):
                         error_output = self._create_error_output(
                             instance, last_error, max_retries
                         )
+                        if runtime_runs:
+                            error_output.runtime_runs = runtime_runs
                         return instance, error_output
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure
@@ -564,6 +619,8 @@ class Evaluation(ABC, BaseModel):
             error_output = self._create_error_output(
                 instance, Exception("Unexpected error: no attempts made"), max_retries
             )
+            if runtime_runs:
+                error_output.runtime_runs = runtime_runs
             return instance, error_output
 
 
@@ -593,6 +650,24 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
+
+    class ConversationEventFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+            msg = record.getMessage()
+            return msg in {"conversation_event", "conversation_event_metadata"}
+
+    # Datadog/console handler for conversation events (bypasses stdout redirection)
+    from pythonjsonlogger.json import JsonFormatter
+
+    dd_handler = logging.StreamHandler(sys.__stdout__)
+    dd_handler.setLevel(logging.INFO)
+    dd_handler.addFilter(ConversationEventFilter())
+    dd_handler.setFormatter(
+        JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
+        )
+    )
+    root_logger.addHandler(dd_handler)
 
     # Create console handler for initial message
     console_handler = logging.StreamHandler()
