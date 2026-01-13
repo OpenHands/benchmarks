@@ -1,6 +1,7 @@
+from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from benchmarks.utils.laminar import LaminarEvalMetadata
 from openhands.sdk import LLM, Event, get_logger
@@ -90,6 +91,45 @@ class EvalInstance(BaseModel):
     )
 
 
+class RemoteRuntimeAllocation(BaseModel):
+    """Mapping of instance → remote runtime (pod) for correlation/debugging.
+
+    Only populated for APIRemoteWorkspace allocations to capture the pod/runtime_id
+    used for an attempt/retry so logs can be tied back to instance runs even after
+    the pod is gone. Requires at least a runtime_id or session_id to avoid
+    meaningless records.
+    """
+
+    runtime_id: str | None = Field(
+        default=None, description="Runtime/pod identifier from the runtime API"
+    )
+    session_id: str | None = Field(
+        default=None, description="Session identifier used when creating the runtime"
+    )
+    runtime_url: str | None = Field(
+        default=None, description="Base URL for the runtime, if available"
+    )
+    resource_factor: int | None = Field(
+        default=None, description="Resource factor requested for the runtime"
+    )
+    critic_attempt: int | None = Field(
+        default=None, description="Outer critic attempt (1-indexed)"
+    )
+    retry: int | None = Field(
+        default=None, description="Inner retry within the critic attempt (1-indexed)"
+    )
+    started_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Timestamp when the runtime was allocated",
+    )
+
+    @model_validator(mode="after")
+    def _require_identifier(self):
+        if not self.runtime_id and not self.session_id:
+            raise ValueError("runtime_id or session_id is required for remote runtime")
+        return self
+
+
 class EvalOutput(OpenHandsModel):
     """
     Evaluation output model.
@@ -121,3 +161,9 @@ class EvalOutput(OpenHandsModel):
 
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
+    runtime_runs: list[RemoteRuntimeAllocation] | None = Field(
+        default=None,
+        description=(
+            "Remote runtime allocations (pod/session mapping) for this instance"
+        ),
+    )
