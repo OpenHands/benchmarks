@@ -43,6 +43,9 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    current_attempt: int = Field(
+        default=1, description="Current attempt number (1-indexed)"
+    )
 
     def model_post_init(self, __context) -> None:
         """Save metadata to output directory after initialization."""
@@ -271,6 +274,7 @@ class Evaluation(ABC, BaseModel):
         all_outputs: List[EvalOutput] = []
 
         for attempt in range(1, self.metadata.max_attempts + 1):
+            self.current_attempt = attempt
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
             instances_to_process = self._get_instances_for_attempt(
@@ -593,6 +597,24 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
+
+    class ConversationEventFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+            msg = record.getMessage()
+            return msg in {"conversation_event", "conversation_event_metadata"}
+
+    # Datadog/console handler for conversation events (bypasses stdout redirection)
+    from pythonjsonlogger.json import JsonFormatter
+
+    dd_handler = logging.StreamHandler(sys.__stdout__)
+    dd_handler.setLevel(logging.INFO)
+    dd_handler.addFilter(ConversationEventFilter())
+    dd_handler.setFormatter(
+        JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
+        )
+    )
+    root_logger.addHandler(dd_handler)
 
     # Create console handler for initial message
     console_handler = logging.StreamHandler()

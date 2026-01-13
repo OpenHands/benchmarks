@@ -102,6 +102,11 @@ class EvalOutput(OpenHandsModel):
 
     # NOTE: User-specified
     instance_id: str
+    attempt: int = Field(
+        default=1,
+        ge=1,
+        description="Attempt number for iterative runs (1-indexed)",
+    )
     # output of the evaluation
     # store anything that is needed for the score calculation
     test_result: dict[str, Any]

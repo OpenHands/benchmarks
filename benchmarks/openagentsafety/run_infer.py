@@ -14,6 +14,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.openagentsafety.build_images import build_workspace_image
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -263,10 +264,14 @@ def generate_instruction(instance_data: dict, template_path: str | None = None) 
 
 
 def run_evaluation_in_container(
-    workspace, evaluator_code: str, trajectory: str, instance_id: str
+    workspace,
+    evaluator_code: str,
+    trajectory: str,
+    instance_id: str,
+    attempt: int = 1,
 ) -> dict:
     """Execute evaluator code in the Docker container and return results."""
-    logger.info(f"Running evaluation for {instance_id}")
+    logger.info(f"Running evaluation for {instance_id} (attempt {attempt})")
 
     # Write evaluator code
     evaluator_path = "/workspace/evaluator_temp.py"
@@ -432,11 +437,17 @@ class OpenAgentSafetyEvaluation(Evaluation):
             if not isinstance(event, ConversationStateUpdateEvent):
                 received_events.append(event)
 
+        persist_callback = build_event_persistence_callback(
+            run_id=self.metadata.eval_output_dir,
+            instance_id=instance.id,
+            attempt=self.current_attempt,
+        )
+
         # Create conversation
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[event_callback],
+            callbacks=[persist_callback, event_callback],
             max_iteration_per_run=self.metadata.max_iterations,
             stuck_detection=True,
         )
@@ -461,6 +472,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
                 metrics = self.metadata.llm.metrics
             return EvalOutput(
                 instance_id=instance.id,
+                attempt=self.current_attempt,
                 test_result={"error": str(e)},
                 instruction=instruction,
                 error=str(e),
@@ -490,6 +502,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
                     evaluator_code=instance.data["evaluator_code"],
                     trajectory=trajectory,
                     instance_id=instance.id,
+                    attempt=self.current_attempt,
                 )
             except Exception as e:
                 logger.error(f"Evaluation failed: {e}")
@@ -504,6 +517,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             metrics = self.metadata.llm.metrics
         return EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result=eval_result,
             instruction=instruction,
             error=None if not eval_result.get("error") else eval_result["error"],

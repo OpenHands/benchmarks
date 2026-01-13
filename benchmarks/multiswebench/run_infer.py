@@ -16,6 +16,7 @@ from benchmarks.multiswebench.scripts.data.data_change import format_data_for_in
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import prepare_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -312,16 +313,19 @@ class MultiSWEBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        def _log_event(ev):  # keep it simple
-            logger.debug("Event: %s", ev)
-
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
+
+        persist_callback = build_event_persistence_callback(
+            run_id=self.metadata.eval_output_dir,
+            instance_id=instance.id,
+            attempt=self.current_attempt,
+        )
 
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[_log_event],
+            callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
@@ -391,6 +395,7 @@ class MultiSWEBenchEvaluation(Evaluation):
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result={
                 "git_patch": git_patch,
             },
