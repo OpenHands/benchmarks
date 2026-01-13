@@ -79,7 +79,7 @@ jobs:
           PAT_TOKEN: ${{ secrets.ALLHANDS_BOT_GITHUB_PAT }}
           SDK_REPO: OpenHands/software-agent-sdk
           SDK_WORKFLOW: run-eval.yml
-          SDK_WORKFLOW_REF: main
+          SDK_WORKFLOW_REF: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' && 'add-swebenchmultimodal-support' || 'main' }}
           BENCHMARK: ${{ github.event.inputs.benchmark }}
           SDK_REF: ${{ github.event.inputs.sdk_ref }}
           EVAL_LIMIT: ${{ github.event.inputs.eval_limit }}
