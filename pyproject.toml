@@ -107,7 +107,7 @@ openhands-sdk = { workspace = true }
 openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
-swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git" }
+swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git", rev = "5fdcd446ff05e248ecfffc19d560a210699f71f8" }
 
 [tool.uv.workspace]
 members = [
