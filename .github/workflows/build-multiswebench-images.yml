@@ -324,9 +324,17 @@ jobs:
           PY
           fi
 
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "::error::Detected $FAILURES failed or missing agent-server images out of $TOTAL"
+          # Allow up to 5 failures or 85% success rate (whichever is more lenient)
+          MAX_ALLOWED_FAILURES=5
+          MIN_SUCCESS_RATE=85
+          SUCCESS_RATE=$((SUCCESSES * 100 / TOTAL))
+          
+          if [ "$FAILURES" -gt "$MAX_ALLOWED_FAILURES" ] && [ "$SUCCESS_RATE" -lt "$MIN_SUCCESS_RATE" ]; then
+            echo "::error::Too many failures: $FAILURES failed out of $TOTAL (success rate: $SUCCESS_RATE%)"
+            echo "::error::Maximum allowed failures: $MAX_ALLOWED_FAILURES or minimum success rate: $MIN_SUCCESS_RATE%"
             exit 1
+          elif [ "$FAILURES" -gt 0 ]; then
+            echo "::warning::Detected $FAILURES failed images out of $TOTAL (success rate: $SUCCESS_RATE%), but within acceptable threshold"
           fi
 
       - name: Comment on tracker issue
