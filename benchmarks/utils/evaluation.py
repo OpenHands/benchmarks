@@ -9,15 +9,19 @@ import sys
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
+from uuid import UUID
 
+from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
+from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -39,6 +43,9 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    current_attempt: int = Field(
+        default=1, description="Current attempt number (1-indexed)"
+    )
 
     def model_post_init(self, __context) -> None:
         """Save metadata to output directory after initialization."""
@@ -75,8 +82,19 @@ class Evaluation(ABC, BaseModel):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
-        """Create and return a context-managed Workspace for the given instance."""
+    def prepare_workspace(
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
+    ) -> RemoteWorkspace:
+        """Create and return a context-managed Workspace for the given instance.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+            forward_env: Environment variables to forward into the workspace.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -232,6 +250,19 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation with support for single or multiple attempts."""
         all_instances = self.prepare_instances()
 
+        # Initialize Laminar
+        LaminarService.get().initialize()
+
+        # Create Laminar evaluation
+        now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.metadata.lmnr = LaminarEvalMetadata(
+            eval_id=LaminarService.get().create_evaluation(
+                name=f"{self.metadata.dataset} {self.metadata.dataset_split} {now}",
+                group_name=f"{self.metadata.dataset} {self.metadata.dataset_split}",
+                metadata=self.metadata.model_dump(mode="json"),
+            )
+        )
+
         total_instances = len(all_instances)
         logger.info("prepared %d instances for evaluation", total_instances)
 
@@ -243,6 +274,7 @@ class Evaluation(ABC, BaseModel):
         all_outputs: List[EvalOutput] = []
 
         for attempt in range(1, self.metadata.max_attempts + 1):
+            self.current_attempt = attempt
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
 
             instances_to_process = self._get_instances_for_attempt(
@@ -290,10 +322,23 @@ class Evaluation(ABC, BaseModel):
             pool = ProcessPoolExecutor(max_workers=self.num_workers)
             futures = []
             try:
-                futures = [
-                    pool.submit(self._process_one_mp, inst)
-                    for inst in instances_to_process
-                ]
+                futures = []
+                lmnr_datapoints: dict[str, UUID] = dict()
+                for index, inst in enumerate(instances_to_process):
+                    datapoint_id, lmnr_span_ctx = (
+                        LaminarService.get().create_evaluation_datapoint(
+                            self.metadata.lmnr.eval_id,
+                            inst.id,
+                            self.metadata.model_dump(mode="json"),
+                            index,
+                        )
+                    )
+                    if datapoint_id is not None:
+                        lmnr_datapoints[inst.id] = datapoint_id
+
+                    futures.append(
+                        pool.submit(self._process_one_mp, inst, lmnr_span_ctx)
+                    )
 
                 for fut in tqdm(
                     as_completed(futures),
@@ -303,6 +348,15 @@ class Evaluation(ABC, BaseModel):
                 ):
                     try:
                         instance, out = fut.result()
+
+                        # Add Laminar metadata to EvalOutput so we can use it in the evaluation process
+                        if out.metadata is None:
+                            out.metadata = self.metadata.model_copy(deep=True)
+                        out.metadata.lmnr = LaminarEvalMetadata(
+                            eval_id=self.metadata.lmnr.eval_id,
+                            datapoint_id=lmnr_datapoints.get(instance.id, None),
+                        )
+
                         attempt_on_result(instance, out)
                     except Exception as e:
                         logger.error(
@@ -375,14 +429,33 @@ class Evaluation(ABC, BaseModel):
         # Shutdown the pool
         pool.shutdown(wait=wait, cancel_futures=True)
 
+    def _calculate_resource_factor(self, runtime_failure_count: int) -> int:
+        """Calculate the resource factor based on runtime failure count.
+
+        Uses exponential backoff: base_factor * 2^runtime_failure_count
+        Capped at max_resource_factor from metadata.
+
+        Args:
+            runtime_failure_count: Number of runtime failures encountered so far.
+
+        Returns:
+            The resource factor to use for this attempt.
+        """
+        if runtime_failure_count <= 0:
+            return self.metadata.base_resource_factor
+
+        factor = self.metadata.base_resource_factor * (2**runtime_failure_count)
+        return min(factor, self.metadata.max_resource_factor)
+
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance
+        self, instance: EvalInstance, eval_span_ctx: str | None
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
         - Creates workspace in the *child* process
         - Handles retries within the worker process
+        - Tracks runtime failures and increases resource_factor exponentially
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
@@ -398,23 +471,57 @@ class Evaluation(ABC, BaseModel):
             logger.info("[child] start id=%s", instance.id)
 
             retry_count = 0
+            runtime_failure_count = 0
             last_error = None
             max_retries = self.metadata.max_retries
 
             while retry_count <= max_retries:
                 workspace = None
+
+                # Start Laminar execution span and inject context into os.environ so workspace can pick it up
+                # Escape the serialized context to safely pass as a cli argument
+                lmnr_span = Laminar.start_active_span(
+                    "Execution",
+                    span_type="EXECUTOR",  # type: ignore
+                    parent_span_context=Laminar.deserialize_span_context(eval_span_ctx)
+                    if eval_span_ctx
+                    else None,
+                )
+                exec_span_ctx = json.dumps(Laminar.serialize_span_context(lmnr_span))
+                os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
+
                 try:
-                    workspace = self.prepare_workspace(instance)
+                    # Calculate resource factor based on runtime failures
+                    resource_factor = self._calculate_resource_factor(
+                        runtime_failure_count
+                    )
+                    if runtime_failure_count > 0:
+                        logger.warning(
+                            f"[child] Instance {instance.id}: "
+                            f"attempt {retry_count + 1}/{max_retries + 1}, "
+                            f"runtime_failure_count={runtime_failure_count}, "
+                            f"resource_factor={resource_factor}"
+                        )
+
+                    workspace = self.prepare_workspace(
+                        instance,
+                        resource_factor=resource_factor,
+                        forward_env=LMNR_ENV_VARS,
+                    )
                     out = self.evaluate_instance(instance, workspace)
-
-                    # Capture conversation archive after successful evaluation
-                    self._capture_conversation_archive(workspace, instance)
-
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
                     last_error = e
                     retry_count += 1
+                    lmnr_span.record_exception(e)
+
+                    # TODO(#277): add an exception classifier to decide when to bump resources
+                    runtime_failure_count += 1
+                    logger.warning(
+                        f"[child] Instance {instance.id}: runtime_failure_count="
+                        f"{runtime_failure_count}"
+                    )
 
                     if retry_count <= max_retries:
                         logger.warning(
@@ -437,6 +544,14 @@ class Evaluation(ABC, BaseModel):
                     # Ensure workspace cleanup happens regardless of success or failure
                     if workspace is not None:
                         try:
+                            self._capture_conversation_archive(workspace, instance)
+                        except Exception as archive_error:
+                            logger.warning(
+                                "[child] Failed to capture conversation archive for %s: %s",
+                                instance.id,
+                                archive_error,
+                            )
+                        try:
                             # Use the context manager protocol for cleanup
                             workspace.__exit__(None, None, None)
                             logger.debug(
@@ -447,6 +562,7 @@ class Evaluation(ABC, BaseModel):
                                 f"[child] Failed to cleanup workspace for {instance.id}: "
                                 f"{str(cleanup_error)[:50]}"
                             )
+                    lmnr_span.end()
 
             # This should never be reached, but added for type safety
             error_output = self._create_error_output(
@@ -481,6 +597,24 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
+
+    class ConversationEventFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+            msg = record.getMessage()
+            return msg in {"conversation_event", "conversation_event_metadata"}
+
+    # Datadog/console handler for conversation events (bypasses stdout redirection)
+    from pythonjsonlogger.json import JsonFormatter
+
+    dd_handler = logging.StreamHandler(sys.__stdout__)
+    dd_handler.setLevel(logging.INFO)
+    dd_handler.addFilter(ConversationEventFilter())
+    dd_handler.setFormatter(
+        JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
+        )
+    )
+    root_logger.addHandler(dd_handler)
 
     # Create console handler for initial message
     console_handler = logging.StreamHandler()

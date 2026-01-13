@@ -1712,7 +1712,7 @@ wheels = [
 
 [[package]]
 name = "lmnr"
-version = "0.7.25"
+version = "0.7.27"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio", version = "1.67.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
@@ -1733,9 +1733,9 @@ dependencies = [
     { name = "tenacity" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/10/bd/a65219ca6f09199e35a14a55acb503e3ac896db15018d342076bd24401e1/lmnr-0.7.25.tar.gz", hash = "sha256:a3a0ba9a305243bbe97f2fcb8afc7d39d201dc11107b4633c257b64b838b2979", size = 203876, upload-time = "2025-12-18T17:31:24.507Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/5f/a17be521738630f674831d865abaf16df3286d7d5f461f2a8c5f985a8d15/lmnr-0.7.27.tar.gz", hash = "sha256:2f541b1d8d110f4edeba814e6bdde0e14ef8a07df1be696d0fdee0ba759c8f6d", size = 204415, upload-time = "2026-01-12T20:02:30.072Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/45/35/1f22e3fea98416d58dddbdbc63e18ddcfb2b8f850b8ec065652a90d99666/lmnr-0.7.25-py3-none-any.whl", hash = "sha256:c0539d5f8c8e59a2d5d0ab04e498a82351d51fde8cf04ef8b312424e0be537ac", size = 266040, upload-time = "2025-12-18T17:31:22.986Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/0b/0f9674fa37688265d8711d7607849e45d2e9b9421ce8c653d2f2de6733c0/lmnr-0.7.27-py3-none-any.whl", hash = "sha256:600f43265128c92003b72531f12d614568949688305a1841333912e2320f1026", size = 266573, upload-time = "2026-01-12T20:02:28.216Z" },
 ]
 
 [[package]]
@@ -2269,7 +2269,7 @@ wheels = [
 
 [[package]]
 name = "openhands-agent-server"
-version = "1.6.0"
+version = "1.7.2"
 source = { editable = "vendor/software-agent-sdk/openhands-agent-server" }
 dependencies = [
     { name = "aiosqlite" },
@@ -2368,7 +2368,7 @@ requires-dist = [
     { name = "huggingface-hub" },
     { name = "jinja2" },
     { name = "litellm", specifier = ">=1.77.7.dev9" },
-    { name = "lmnr", specifier = ">=0.7.20" },
+    { name = "lmnr", specifier = ">=0.7.24" },
     { name = "modal", specifier = ">=1.1.4" },
     { name = "multi-swe-bench", specifier = ">=1.1.1" },
     { name = "openhands-agent-server", editable = "vendor/software-agent-sdk/openhands-agent-server" },
@@ -2407,7 +2407,7 @@ dev = [
 
 [[package]]
 name = "openhands-sdk"
-version = "1.6.0"
+version = "1.7.2"
 source = { editable = "vendor/software-agent-sdk/openhands-sdk" }
 dependencies = [
     { name = "deprecation" },
@@ -2445,7 +2445,7 @@ provides-extras = ["boto3"]
 
 [[package]]
 name = "openhands-tools"
-version = "1.6.0"
+version = "1.7.2"
 source = { editable = "vendor/software-agent-sdk/openhands-tools" }
 dependencies = [
     { name = "bashlex" },
@@ -2474,15 +2474,17 @@ requires-dist = [
 
 [[package]]
 name = "openhands-workspace"
-version = "1.6.0"
+version = "1.7.2"
 source = { editable = "vendor/software-agent-sdk/openhands-workspace" }
 dependencies = [
+    { name = "openhands-agent-server" },
     { name = "openhands-sdk" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "openhands-agent-server", editable = "vendor/software-agent-sdk/openhands-agent-server" },
     { name = "openhands-sdk", editable = "vendor/software-agent-sdk/openhands-sdk" },
     { name = "pydantic", specifier = ">=2.11.7" },
 ]

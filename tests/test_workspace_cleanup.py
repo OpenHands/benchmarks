@@ -12,17 +12,12 @@ from openhands.sdk.critic import PassCritic
 
 def test_workspace_cleanup_called_on_success():
     """Test that workspace cleanup is called when evaluation succeeds."""
-    # Import here to avoid circular imports
     from benchmarks.utils.evaluation import Evaluation
 
-    # Create a mock workspace
     mock_workspace = Mock()
     mock_workspace.__exit__ = Mock()
 
-    # Create test instance
     test_instance = EvalInstance(id="test_instance", data={"test": "data"})
-
-    # Create test output
     test_output = EvalOutput(
         instance_id="test_instance",
         test_result={"success": True},
@@ -32,7 +27,6 @@ def test_workspace_cleanup_called_on_success():
         instance={"test": "data"},
     )
 
-    # Create evaluation metadata
     llm = LLM(model="test-model")
     metadata = EvalMetadata(
         llm=llm,
@@ -47,23 +41,26 @@ def test_workspace_cleanup_called_on_success():
         critic=PassCritic(),
     )
 
-    # Create a concrete evaluation class for testing
     class TestEvaluation(Evaluation):
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(
+            self,
+            instance: EvalInstance,
+            resource_factor: int = 1,
+            forward_env: list[str] | None = None,
+        ):
+            mock_workspace.forward_env = forward_env or []
+            mock_workspace.resource_factor = resource_factor
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
-    # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
-
-    # Verify the workspace cleanup was called
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
     assert result_instance.id == "test_instance"
     assert result_output.instance_id == "test_instance"
@@ -72,17 +69,13 @@ def test_workspace_cleanup_called_on_success():
 
 def test_workspace_cleanup_called_on_failure():
     """Test that workspace cleanup is called when evaluation fails."""
-    # Import here to avoid circular imports
     from benchmarks.utils.evaluation import Evaluation
 
-    # Create a mock workspace
     mock_workspace = Mock()
     mock_workspace.__exit__ = Mock()
 
-    # Create test instance
     test_instance = EvalInstance(id="test_instance", data={"test": "data"})
 
-    # Create evaluation metadata
     llm = LLM(model="test-model")
     metadata = EvalMetadata(
         llm=llm,
@@ -97,23 +90,26 @@ def test_workspace_cleanup_called_on_failure():
         critic=PassCritic(),
     )
 
-    # Create a concrete evaluation class for testing
     class TestEvaluation(Evaluation):
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(
+            self,
+            instance: EvalInstance,
+            resource_factor: int = 1,
+            forward_env: list[str] | None = None,
+        ):
+            mock_workspace.forward_env = forward_env or []
+            mock_workspace.resource_factor = resource_factor
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
             raise RuntimeError("Test evaluation failure")
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
-    # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
-
-    # Verify the workspace cleanup was called even on failure
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
     assert result_instance.id == "test_instance"
     assert result_output.instance_id == "test_instance"
@@ -123,17 +119,12 @@ def test_workspace_cleanup_called_on_failure():
 
 def test_workspace_cleanup_handles_cleanup_exception():
     """Test that evaluation continues even if workspace cleanup fails."""
-    # Import here to avoid circular imports
     from benchmarks.utils.evaluation import Evaluation
 
-    # Create a mock workspace that fails on cleanup
     mock_workspace = Mock()
     mock_workspace.__exit__ = Mock(side_effect=RuntimeError("Cleanup failed"))
 
-    # Create test instance
     test_instance = EvalInstance(id="test_instance", data={"test": "data"})
-
-    # Create test output
     test_output = EvalOutput(
         instance_id="test_instance",
         test_result={"success": True},
@@ -143,7 +134,6 @@ def test_workspace_cleanup_handles_cleanup_exception():
         instance={"test": "data"},
     )
 
-    # Create evaluation metadata
     llm = LLM(model="test-model")
     metadata = EvalMetadata(
         llm=llm,
@@ -158,35 +148,36 @@ def test_workspace_cleanup_handles_cleanup_exception():
         critic=PassCritic(),
     )
 
-    # Create a concrete evaluation class for testing
     class TestEvaluation(Evaluation):
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
+        def prepare_workspace(
+            self,
+            instance: EvalInstance,
+            resource_factor: int = 1,
+            forward_env: list[str] | None = None,
+        ):
+            mock_workspace.forward_env = forward_env or []
+            mock_workspace.resource_factor = resource_factor
             return mock_workspace
 
         def evaluate_instance(self, instance, workspace):
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
-    # Call the method directly - should not raise an exception
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
-
-    # Verify the workspace cleanup was attempted
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
     assert result_instance.id == "test_instance"
     assert result_output.instance_id == "test_instance"
-    assert result_output.error is None  # Main evaluation should still succeed
+    assert result_output.error is None
 
 
 def test_workspace_cleanup_with_retries():
     """Test that workspace cleanup is called for each retry attempt."""
-    # Import here to avoid circular imports
     from benchmarks.utils.evaluation import Evaluation
 
-    # Track all workspaces created
     workspaces_created = []
 
     def create_mock_workspace():
@@ -195,10 +186,8 @@ def test_workspace_cleanup_with_retries():
         workspaces_created.append(workspace)
         return workspace
 
-    # Create test instance
     test_instance = EvalInstance(id="test_instance", data={"test": "data"})
 
-    # Create evaluation metadata with retries
     llm = LLM(model="test-model")
     metadata = EvalMetadata(
         llm=llm,
@@ -209,20 +198,26 @@ def test_workspace_cleanup_with_retries():
         details={},
         eval_limit=1,
         max_attempts=1,
-        max_retries=2,  # Allow 2 retries
+        max_retries=2,
         critic=PassCritic(),
     )
 
-    # Track evaluation attempts
     attempt_count = 0
 
-    # Create a concrete evaluation class for testing
     class TestEvaluation(Evaluation):
         def prepare_instances(self) -> List[EvalInstance]:
             return [test_instance]
 
-        def prepare_workspace(self, instance: EvalInstance):
-            return create_mock_workspace()
+        def prepare_workspace(
+            self,
+            instance: EvalInstance,
+            resource_factor: int = 1,
+            forward_env: list[str] | None = None,
+        ):
+            workspace = create_mock_workspace()
+            workspace.forward_env = forward_env or []
+            workspace.resource_factor = resource_factor
+            return workspace
 
         def evaluate_instance(self, instance, workspace):
             nonlocal attempt_count
@@ -239,16 +234,12 @@ def test_workspace_cleanup_with_retries():
             )
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+    result_instance, result_output = evaluator._process_one_mp(test_instance, None)
 
-    # Call the method directly
-    result_instance, result_output = evaluator._process_one_mp(test_instance)
-
-    # Verify cleanup was called for all attempts (3 total: initial + 2 retries)
-    assert len(workspaces_created) == 3, "Should create workspace for each attempt"
+    assert len(workspaces_created) == 3
     for workspace in workspaces_created:
         workspace.__exit__.assert_called_once_with(None, None, None)
 
-    # Final result should be successful
     assert result_instance.id == "test_instance"
     assert result_output.instance_id == "test_instance"
     assert result_output.error is None
