@@ -209,9 +209,7 @@ class SWTBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(
-                os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600")
-            )
+            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
