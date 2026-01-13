@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 FakeUserResponseFn = Callable[["BaseConversation"], str]
 
 
-def codeact_user_response(
+def fake_user_response(
     conversation: "BaseConversation",
     encapsulate_solution: bool = False,
 ) -> str:
@@ -134,12 +134,12 @@ def run_conversation_with_fake_user_response(
     Args:
         conversation: The conversation instance to run.
         fake_user_response_fn: A function that generates fake user responses.
-            If None, uses the default codeact_user_response function.
+            If None, uses the default fake_user_response function.
         max_fake_responses: Maximum number of fake responses to send before
             stopping. This prevents infinite loops.
     """
     if fake_user_response_fn is None:
-        fake_user_response_fn = codeact_user_response
+        fake_user_response_fn = fake_user_response
 
     fake_response_count = 0
 
