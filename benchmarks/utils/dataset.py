@@ -94,53 +94,60 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
             assert isinstance(dataset, Dataset)
             return dataset
         except Exception as schema_exc:
-            # If schema validation fails, try loading as raw data and creating dataset manually
-            logger.warning(f"Schema validation failed, trying manual dataset creation: {schema_exc}")
+            # If schema validation fails, try loading parquet files directly
+            logger.warning(f"Schema validation failed, trying direct parquet loading: {schema_exc}")
             
             try:
-                from huggingface_hub import hf_hub_download
-                import json
-                import tempfile
+                from huggingface_hub import hf_hub_download, list_repo_files
+                import pandas as pd
                 
-                # Download the raw data files manually
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    # Get the dataset info to find the data files
-                    from datasets import get_dataset_config_names, get_dataset_split_names
+                # List all parquet files in the repository
+                try:
+                    repo_files = list_repo_files(dataset_name)
+                    parquet_files = [f for f in repo_files if f.startswith("data/") and f.endswith(".parquet")]
                     
-                    # Download data files manually and create dataset from raw data
-                    dataset_files = []
-                    for i in range(10):  # Try to download multiple data files
+                    if not parquet_files:
+                        raise ValueError(f"No parquet files found in {dataset_name}")
+                    
+                    logger.info(f"Found {len(parquet_files)} parquet files, downloading and loading them")
+                    
+                    # Download and load all parquet files
+                    dfs = []
+                    for parquet_file in parquet_files:
                         try:
-                            filename = f"data/train-{i:05d}-of-00040.parquet"
                             file_path = hf_hub_download(
                                 repo_id=dataset_name,
-                                filename=filename,
-                                cache_dir=temp_dir
+                                filename=parquet_file,
+                                repo_type="dataset"
                             )
-                            dataset_files.append(file_path)
-                        except Exception:
-                            break
-                    
-                    if dataset_files:
-                        # Load from parquet files directly
-                        import pandas as pd
-                        dfs = []
-                        for file_path in dataset_files:
                             df = pd.read_parquet(file_path)
                             dfs.append(df)
-                        
-                        combined_df = pd.concat(dfs, ignore_index=True)
-                        
-                        # Filter by split if needed
-                        if split and split != "train" and "split" in combined_df.columns:
-                            combined_df = combined_df[combined_df["split"] == split]
-                        
-                        # Create dataset from pandas DataFrame
-                        dataset = Dataset.from_pandas(combined_df)
-                        return dataset
+                        except Exception as file_exc:
+                            logger.warning(f"Failed to download/load {parquet_file}: {file_exc}")
+                            continue
+                    
+                    if not dfs:
+                        raise ValueError("Failed to load any parquet files")
+                    
+                    # Combine all dataframes
+                    combined_df = pd.concat(dfs, ignore_index=True)
+                    
+                    # Filter by split if needed
+                    if split and split != "train" and "split" in combined_df.columns:
+                        combined_df = combined_df[combined_df["split"] == split]
+                    
+                    logger.info(f"Successfully loaded {len(combined_df)} rows from parquet files")
+                    
+                    # Create dataset from pandas DataFrame without schema validation
+                    dataset = Dataset.from_pandas(combined_df, preserve_index=False)
+                    return dataset
+                    
+                except Exception as list_exc:
+                    logger.warning(f"Failed to list or load parquet files: {list_exc}")
+                    raise schema_exc
                         
             except Exception as download_exc:
-                logger.warning(f"Manual download failed: {download_exc}")
+                logger.warning(f"Manual parquet loading failed: {download_exc}")
             
             # Manual loading failed, store the exception for retry logic
             last_exc = schema_exc
