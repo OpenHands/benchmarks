@@ -74,6 +74,13 @@ jobs:
       contents: read
 
     steps:
+      - name: Debug conditional logic
+        run: |
+          echo "Benchmark: ${{ github.event.inputs.benchmark }}"
+          echo "Is swebenchmultimodal: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' }}"
+          echo "Eval branch conditional: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' && 'add-swebenchmultimodal-support' || 'main' }}"
+          echo "Benchmarks branch conditional: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' && 'add-swebenchmultimodal-support' || 'main' }}"
+      
       - name: Dispatch run-eval workflow in software-agent-sdk
         env:
           PAT_TOKEN: ${{ secrets.ALLHANDS_BOT_GITHUB_PAT }}
