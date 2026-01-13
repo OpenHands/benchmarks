@@ -235,7 +235,8 @@ jobs:
             --image ghcr.io/openhands/eval-agent-server \
             --push \
             --max-workers '${MAX_WORKERS}' \
-            --max-retries '${MAX_RETRIES}'"
+            --max-retries '${MAX_RETRIES}' \
+            --output-dir builds"
 
           # Only include --n-limit if provided (non-empty)
           if [ -n "${N_LIMIT}" ]; then
