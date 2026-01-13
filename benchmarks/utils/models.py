@@ -91,20 +91,22 @@ class EvalInstance(BaseModel):
     )
 
 
-class RuntimeRun(BaseModel):
-    """Metadata for a single runtime allocation attempt."""
+class RemoteRuntimeAllocation(BaseModel):
+    """Mapping of instance → remote runtime (pod) for correlation/debugging.
+
+    Only populated for APIRemoteWorkspace allocations to capture the pod/runtime_id
+    used for an attempt/retry so logs can be tied back to instance runs even after
+    the pod is gone.
+    """
 
     runtime_id: str | None = Field(
-        default=None, description="Runtime/pod identifier (if remote workspace)"
+        default=None, description="Runtime/pod identifier from the runtime API"
     )
     session_id: str | None = Field(
         default=None, description="Session identifier used when creating the runtime"
     )
     runtime_url: str | None = Field(
         default=None, description="Base URL for the runtime, if available"
-    )
-    workspace_type: str | None = Field(
-        default=None, description="Workspace implementation used for this run"
     )
     resource_factor: int | None = Field(
         default=None, description="Resource factor requested for the runtime"
@@ -152,9 +154,9 @@ class EvalOutput(OpenHandsModel):
 
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
-    runtime_runs: list[RuntimeRun] | None = Field(
+    runtime_runs: list[RemoteRuntimeAllocation] | None = Field(
         default=None,
         description=(
-            "Runtime allocation attempts (pod/session mapping) for this instance"
+            "Remote runtime allocations (pod/session mapping) for this instance"
         ),
     )

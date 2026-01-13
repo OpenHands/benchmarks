@@ -27,7 +27,7 @@ from benchmarks.utils.models import (
     EvalInstanceID,
     EvalMetadata,
     EvalOutput,
-    RuntimeRun,
+    RemoteRuntimeAllocation,
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
@@ -476,7 +476,7 @@ class Evaluation(ABC, BaseModel):
             runtime_failure_count = 0
             last_error = None
             max_retries = self.metadata.max_retries
-            runtime_runs: list[RuntimeRun] = []
+            runtime_runs: list[RemoteRuntimeAllocation] = []
 
             while retry_count <= max_retries:
                 workspace = None
@@ -514,11 +514,10 @@ class Evaluation(ABC, BaseModel):
 
                     # Record runtime/pod mapping only for remote runtimes
                     if isinstance(workspace, APIRemoteWorkspace):
-                        runtime_run = RuntimeRun(
+                        runtime_run = RemoteRuntimeAllocation(
                             runtime_id=getattr(workspace, "_runtime_id", None),
                             session_id=getattr(workspace, "session_id", None),
                             runtime_url=getattr(workspace, "_runtime_url", None),
-                            workspace_type=workspace.__class__.__name__,
                             resource_factor=resource_factor,
                             critic_attempt=critic_attempt,
                             retry=retry_count + 1,
@@ -529,7 +528,7 @@ class Evaluation(ABC, BaseModel):
                             instance.id,
                             critic_attempt,
                             retry_count + 1,
-                            runtime_run.workspace_type,
+                            workspace.__class__.__name__,
                             runtime_run.runtime_id,
                             runtime_run.session_id,
                             runtime_run.resource_factor,
