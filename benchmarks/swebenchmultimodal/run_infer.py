@@ -20,6 +20,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
@@ -311,7 +312,8 @@ class SWEBenchEvaluation(Evaluation):
         else:
             logger.info("No image_assets found, sending text-only instruction")
             conversation.send_message(instruction)
-        conversation.run()
+        # Run conversation with fake user responses to handle agent messages
+        run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
