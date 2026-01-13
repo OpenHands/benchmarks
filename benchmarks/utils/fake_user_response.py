@@ -117,7 +117,7 @@ def _agent_sent_message(events: list[Event]) -> bool:
 
 def run_conversation_with_fake_user_response(
     conversation: "BaseConversation",
-    fake_user_response_fn: FakeUserResponseFn | None = None,
+    fake_user_response_fn: FakeUserResponseFn = fake_user_response,
     max_fake_responses: int = 10,
 ) -> None:
     """Run a conversation with automatic fake user responses.
@@ -134,12 +134,10 @@ def run_conversation_with_fake_user_response(
     Args:
         conversation: The conversation instance to run.
         fake_user_response_fn: A function that generates fake user responses.
-            If None, uses the default fake_user_response function.
+            Defaults to fake_user_response.
         max_fake_responses: Maximum number of fake responses to send before
             stopping. This prevents infinite loops.
     """
-    if fake_user_response_fn is None:
-        fake_user_response_fn = fake_user_response
 
     fake_response_count = 0
 
