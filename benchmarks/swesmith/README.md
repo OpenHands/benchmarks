@@ -13,7 +13,7 @@ This directory contains implementation for building custom agent server Docker i
 
 ### Build Docker Images
 
-You need to build Docker images for the SWE-Smith instances. Each instance requires a specific environment setup based on the repository and issue. **Note that this will consume atleast 150-200GB of disk space. Considering setting `--n-limit` to a smaller value if required**
+You need to build Docker images for the SWE-Smith instances. Each instance requires a specific environment setup based on the repository and issue. **Note that this will consume atleast 150-200GB of disk space. Considering setting `--n-limit` to a smaller value if required.**
 
 ```bash
 uv run python -m benchmarks.swesmith.build_images \
