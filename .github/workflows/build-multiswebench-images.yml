@@ -253,6 +253,7 @@ jobs:
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
           LANGUAGE: ${{ env.LANGUAGE }}
+          PYTHONUNBUFFERED: 1
 
       - name: Archive build logs
         if: always()

@@ -468,6 +468,14 @@ def build_all_images(
 
     batches = list(_chunks(base_images, batch_size or len(base_images)))
     total_batches = len(batches)
+    
+    logger.info(
+        "Building %d images in %d batches (batch_size=%d, max_workers=%d)",
+        len(base_images),
+        total_batches,
+        batch_size,
+        max_workers,
+    )
 
     with (
         manifest_file.open("w") as writer,
@@ -533,9 +541,25 @@ def build_all_images(
                         if result.error or not result.tags:
                             failures += 1
                             status = "❌ Failed"
+                            logger.info(
+                                "Build failed for %s (%d/%d complete, %d success, %d failed)",
+                                base,
+                                successes + failures,
+                                len(base_images),
+                                successes,
+                                failures,
+                            )
                         else:
                             successes += 1
                             status = "✅ Done"
+                            logger.info(
+                                "Build succeeded for %s (%d/%d complete, %d success, %d failed)",
+                                base,
+                                successes + failures,
+                                len(base_images),
+                                successes,
+                                failures,
+                            )
 
                     in_progress.discard(base)
                     pbar.update(1)
