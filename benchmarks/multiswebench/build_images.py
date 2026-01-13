@@ -78,9 +78,19 @@ def extract_custom_tag(base_image: str) -> str:
     return name
 
 
-def get_base_images_from_dataset(dataset_name: str, split: str) -> list[str]:
+def get_base_images_from_dataset(
+    dataset_name: str,
+    split: str,
+    n_limit: int | None = None,
+    selected_instances_file: str | None = None,
+) -> list[str]:
     """Get all unique base images from the dataset."""
-    dataset = get_dataset(dataset_name, split)
+    dataset = get_dataset(
+        dataset_name,
+        split,
+        eval_limit=n_limit if n_limit else None,
+        selected_instances_file=selected_instances_file,
+    )
     base_images = set()
 
     for _, row in dataset.iterrows():
@@ -96,7 +106,12 @@ def main():
     args = parser.parse_args()
 
     # Get base images from dataset
-    base_images = get_base_images_from_dataset(args.dataset, args.split)
+    base_images = get_base_images_from_dataset(
+        args.dataset,
+        args.split,
+        n_limit=args.n_limit if args.n_limit > 0 else None,
+        selected_instances_file=args.select,
+    )
 
     logger.info(f"Found {len(base_images)} unique base images")
 
