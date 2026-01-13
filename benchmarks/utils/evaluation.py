@@ -534,15 +534,6 @@ class Evaluation(ABC, BaseModel):
                             runtime_run.session_id,
                             runtime_run.resource_factor,
                         )
-                    else:
-                        logger.info(
-                            "[child] workspace prepared instance=%s attempt=%d retry=%d workspace=%s resource_factor=%s",
-                            instance.id,
-                            critic_attempt,
-                            retry_count + 1,
-                            workspace.__class__.__name__,
-                            resource_factor,
-                        )
                     out = self.evaluate_instance(instance, workspace)
                     if runtime_runs:
                         out.runtime_runs = runtime_runs
