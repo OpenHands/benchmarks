@@ -85,8 +85,8 @@ jobs:
           EVAL_LIMIT: ${{ github.event.inputs.eval_limit }}
           MODEL_IDS: ${{ github.event.inputs.model_ids }}
           REASON: ${{ github.event.inputs.reason }}
-          EVAL_BRANCH: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' && 'add-swebenchmultimodal-support' || github.event.inputs.eval_branch }}
-          BENCHMARKS_BRANCH: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' && 'add-swebenchmultimodal-support' || github.event.inputs.benchmarks_branch }}
+          EVAL_BRANCH: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' && 'add-swebenchmultimodal-support' || 'main' }}
+          BENCHMARKS_BRANCH: ${{ github.event.inputs.benchmark == 'swebenchmultimodal' && 'add-swebenchmultimodal-support' || 'main' }}
           INSTANCE_IDS: ${{ github.event.inputs.instance_ids }}
           NUM_INFER_WORKERS: ${{ github.event.inputs.num_infer_workers }}
           NUM_EVAL_WORKERS: ${{ github.event.inputs.num_eval_workers }}
