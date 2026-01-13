@@ -512,29 +512,24 @@ class Evaluation(ABC, BaseModel):
                         forward_env=LMNR_ENV_VARS,
                     )
 
-                    # Record runtime/pod mapping for this attempt+retry
-                    def _safe_str(val: object) -> str | None:
-                        return val if isinstance(val, str) else None
+                    # Record runtime/pod mapping only for remote runtimes
+                    if isinstance(workspace, APIRemoteWorkspace):
 
-                    runtime_run = RuntimeRun(
-                        runtime_id=(
-                            getattr(workspace, "_runtime_id", None)
-                            if isinstance(workspace, APIRemoteWorkspace)
-                            else None
-                        ),
-                        session_id=_safe_str(getattr(workspace, "session_id", None)),
-                        runtime_url=(
-                            getattr(workspace, "_runtime_url", None)
-                            if isinstance(workspace, APIRemoteWorkspace)
-                            else None
-                        ),
-                        workspace_type=workspace.__class__.__name__,
-                        resource_factor=resource_factor,
-                        critic_attempt=critic_attempt,
-                        retry=retry_count + 1,
-                    )
-                    runtime_runs.append(runtime_run)
-                    if runtime_run.runtime_id:
+                        def _safe_str(val: object) -> str | None:
+                            return val if isinstance(val, str) else None
+
+                        runtime_run = RuntimeRun(
+                            runtime_id=getattr(workspace, "_runtime_id", None),
+                            session_id=_safe_str(
+                                getattr(workspace, "session_id", None)
+                            ),
+                            runtime_url=getattr(workspace, "_runtime_url", None),
+                            workspace_type=workspace.__class__.__name__,
+                            resource_factor=resource_factor,
+                            critic_attempt=critic_attempt,
+                            retry=retry_count + 1,
+                        )
+                        runtime_runs.append(runtime_run)
                         logger.info(
                             "[child] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
                             instance.id,
@@ -551,8 +546,8 @@ class Evaluation(ABC, BaseModel):
                             instance.id,
                             critic_attempt,
                             retry_count + 1,
-                            runtime_run.workspace_type,
-                            runtime_run.resource_factor,
+                            workspace.__class__.__name__,
+                            resource_factor,
                         )
                     out = self.evaluate_instance(instance, workspace)
                     if runtime_runs:
