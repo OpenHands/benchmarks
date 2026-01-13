@@ -545,6 +545,26 @@ class Evaluation(ABC, BaseModel):
                     retry_count += 1
                     lmnr_span.record_exception(e)
 
+                    # Log structured runtime allocation/init failures so we can trace instance -> runtime/pod
+                    runtime_id = (
+                        getattr(workspace, "_runtime_id", None) if workspace else None
+                    )
+                    session_id = (
+                        getattr(workspace, "session_id", None) if workspace else None
+                    )
+                    if isinstance(workspace, APIRemoteWorkspace) or (
+                        "Runtime not yet ready" in str(e)
+                    ):
+                        logger.warning(
+                            "[child] runtime init failure instance=%s attempt=%d retry=%d runtime_id=%s session_id=%s error=%s",
+                            instance.id,
+                            critic_attempt,
+                            retry_count,
+                            runtime_id,
+                            session_id,
+                            str(e),
+                        )
+
                     # TODO(#277): add an exception classifier to decide when to bump resources
                     runtime_failure_count += 1
                     logger.warning(
