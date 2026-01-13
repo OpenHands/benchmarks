@@ -19,6 +19,7 @@ from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -456,11 +457,11 @@ class OpenAgentSafetyEvaluation(Evaluation):
         instruction = generate_instruction(instance.data)
         conversation.send_message(instruction)
 
-        # Run conversation with error handling
+        # Run conversation with error handling and fake user responses
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning)
-                conversation.run()
+                run_conversation_with_fake_user_response(conversation)
             logger.info(f"Conversation completed for {instance.id}")
         except ValidationError as e:
             logger.warning(f"Validation error from custom events (continuing): {e}")

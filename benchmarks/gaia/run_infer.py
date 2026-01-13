@@ -23,6 +23,7 @@ from benchmarks.utils.evaluation_utils import (
     generate_error_logs_summary,
     get_default_on_result_writer,
 )
+from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
@@ -344,7 +345,8 @@ class GAIAEvaluation(Evaluation):
             conversation.send_message(msg)
         else:
             conversation.send_message(instruction)
-        conversation.run()
+        # Run conversation with fake user responses to handle agent messages
+        run_conversation_with_fake_user_response(conversation)
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)
