@@ -94,8 +94,8 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
             assert isinstance(dataset, Dataset)
             return dataset
         except Exception as schema_exc:
-            # If schema validation fails, try loading with json format which has less strict schema
-            logger.warning(f"Schema validation failed, trying JSON format loading: {schema_exc}")
+            # If schema validation fails, try loading with streaming dataset
+            logger.warning(f"Schema validation failed, trying streaming dataset: {schema_exc}")
             
             try:
                 # Try loading as streaming dataset to avoid schema validation
@@ -127,8 +127,37 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
                 dataset = Dataset.from_pandas(df, preserve_index=False)
                 return dataset
                         
-            except Exception as download_exc:
-                logger.warning(f"Streaming dataset loading failed: {download_exc}")
+            except Exception as streaming_exc:
+                # If split doesn't exist, try 'train' as fallback
+                if "Bad split" in str(streaming_exc) and split != "train":
+                    logger.warning(f"Split '{split}' not found, falling back to 'train' split")
+                    try:
+                        dataset_stream = load_dataset_streaming(
+                            dataset_name,
+                            split="train",
+                            streaming=True,
+                            verification_mode="no_checks",
+                            trust_remote_code=True
+                        )
+                        
+                        import pandas as pd
+                        rows = []
+                        for i, row in enumerate(dataset_stream):
+                            rows.append(row)
+                        
+                        if not rows:
+                            raise ValueError("No rows loaded from streaming dataset")
+                        
+                        df = pd.DataFrame(rows)
+                        logger.info(f"Successfully loaded {len(df)} rows from 'train' split")
+                        
+                        # Create dataset from pandas DataFrame without schema validation
+                        dataset = Dataset.from_pandas(df, preserve_index=False)
+                        return dataset
+                    except Exception as train_exc:
+                        logger.warning(f"Train split fallback failed: {train_exc}")
+                
+                logger.warning(f"Streaming dataset loading failed: {streaming_exc}")
             
             # Manual loading failed, store the exception for retry logic
             last_exc = schema_exc
