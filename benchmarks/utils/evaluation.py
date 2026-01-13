@@ -514,15 +514,9 @@ class Evaluation(ABC, BaseModel):
 
                     # Record runtime/pod mapping only for remote runtimes
                     if isinstance(workspace, APIRemoteWorkspace):
-
-                        def _safe_str(val: object) -> str | None:
-                            return val if isinstance(val, str) else None
-
                         runtime_run = RuntimeRun(
                             runtime_id=getattr(workspace, "_runtime_id", None),
-                            session_id=_safe_str(
-                                getattr(workspace, "session_id", None)
-                            ),
+                            session_id=getattr(workspace, "session_id", None),
                             runtime_url=getattr(workspace, "_runtime_url", None),
                             workspace_type=workspace.__class__.__name__,
                             resource_factor=resource_factor,
