@@ -53,7 +53,7 @@ def get_official_docker_image(
         else:
             org = instance.get("org", repo)
             repo_name = repo
-        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:base"
+        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:base".lower()
 
     logger.debug(f"Multi-SWE-Bench image: {official_image_name}")
     return official_image_name
