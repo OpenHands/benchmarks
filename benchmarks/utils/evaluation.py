@@ -478,11 +478,6 @@ class Evaluation(ABC, BaseModel):
             max_retries = self.metadata.max_retries
             runtime_runs: list[RemoteRuntimeAllocation] = []
 
-            def _attach_runtime_runs(result: EvalOutput) -> EvalOutput:
-                if runtime_runs:
-                    result.runtime_runs = runtime_runs
-                return result
-
             while retry_count <= max_retries:
                 workspace = None
 
@@ -541,7 +536,8 @@ class Evaluation(ABC, BaseModel):
                             runtime_run.resource_factor,
                         )
                     out = self.evaluate_instance(instance, workspace)
-                    out = _attach_runtime_runs(out)
+                    if runtime_runs:
+                        out.runtime_runs = runtime_runs
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
@@ -572,7 +568,9 @@ class Evaluation(ABC, BaseModel):
                         error_output = self._create_error_output(
                             instance, last_error, max_retries
                         )
-                        return instance, _attach_runtime_runs(error_output)
+                        if runtime_runs:
+                            error_output.runtime_runs = runtime_runs
+                        return instance, error_output
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure
                     if workspace is not None:
@@ -601,7 +599,9 @@ class Evaluation(ABC, BaseModel):
             error_output = self._create_error_output(
                 instance, Exception("Unexpected error: no attempts made"), max_retries
             )
-            return instance, _attach_runtime_runs(error_output)
+            if runtime_runs:
+                error_output.runtime_runs = runtime_runs
+            return instance, error_output
 
 
 # ---------- Multiprocessing logging helper ---------------------------------------
