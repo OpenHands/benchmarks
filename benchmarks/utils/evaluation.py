@@ -511,14 +511,18 @@ class Evaluation(ABC, BaseModel):
                         resource_factor=resource_factor,
                         forward_env=LMNR_ENV_VARS,
                     )
+
                     # Record runtime/pod mapping for this attempt+retry
+                    def _safe_str(val: object) -> str | None:
+                        return val if isinstance(val, str) else None
+
                     runtime_run = RuntimeRun(
                         runtime_id=(
                             getattr(workspace, "_runtime_id", None)
                             if isinstance(workspace, APIRemoteWorkspace)
                             else None
                         ),
-                        session_id=getattr(workspace, "session_id", None),
+                        session_id=_safe_str(getattr(workspace, "session_id", None)),
                         runtime_url=(
                             getattr(workspace, "_runtime_url", None)
                             if isinstance(workspace, APIRemoteWorkspace)
