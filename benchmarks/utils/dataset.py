@@ -93,6 +93,62 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
             )
             assert isinstance(dataset, Dataset)
             return dataset
+        except Exception as schema_exc:
+            # If schema validation fails, try loading as raw data and creating dataset manually
+            logger.warning(f"Schema validation failed, trying manual dataset creation: {schema_exc}")
+            try:
+                from huggingface_hub import hf_hub_download
+                import json
+                import tempfile
+                import os
+                
+                # Download the raw data files manually
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Try to download the dataset files manually
+                    try:
+                        # Get the dataset info to find the data files
+                        from datasets import get_dataset_config_names, get_dataset_split_names
+                        
+                        # Download data files manually and create dataset from raw data
+                        dataset_files = []
+                        for i in range(10):  # Try to download multiple data files
+                            try:
+                                filename = f"data/train-{i:05d}-of-00040.parquet"
+                                file_path = hf_hub_download(
+                                    repo_id=dataset_name,
+                                    filename=filename,
+                                    cache_dir=temp_dir
+                                )
+                                dataset_files.append(file_path)
+                            except Exception:
+                                break
+                        
+                        if dataset_files:
+                            # Load from parquet files directly
+                            import pandas as pd
+                            dfs = []
+                            for file_path in dataset_files:
+                                df = pd.read_parquet(file_path)
+                                dfs.append(df)
+                            
+                            combined_df = pd.concat(dfs, ignore_index=True)
+                            
+                            # Filter by split if needed
+                            if split and split != "train" and "split" in combined_df.columns:
+                                combined_df = combined_df[combined_df["split"] == split]
+                            
+                            # Create dataset from pandas DataFrame
+                            dataset = Dataset.from_pandas(combined_df)
+                            return dataset
+                            
+                    except Exception as download_exc:
+                        logger.warning(f"Manual download failed: {download_exc}")
+                        # Re-raise the original schema exception
+                        raise schema_exc
+                        
+            except Exception:
+                # Re-raise the original schema exception
+                raise schema_exc
         except Exception as exc:
             last_exc = exc
             if attempt == attempts:
