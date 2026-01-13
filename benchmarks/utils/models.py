@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -90,6 +91,36 @@ class EvalInstance(BaseModel):
     )
 
 
+class RuntimeRun(BaseModel):
+    """Metadata for a single runtime allocation attempt."""
+
+    runtime_id: str | None = Field(
+        default=None, description="Runtime/pod identifier (if remote workspace)"
+    )
+    session_id: str | None = Field(
+        default=None, description="Session identifier used when creating the runtime"
+    )
+    runtime_url: str | None = Field(
+        default=None, description="Base URL for the runtime, if available"
+    )
+    workspace_type: str | None = Field(
+        default=None, description="Workspace implementation used for this run"
+    )
+    resource_factor: int | None = Field(
+        default=None, description="Resource factor requested for the runtime"
+    )
+    critic_attempt: int | None = Field(
+        default=None, description="Outer critic attempt (1-indexed)"
+    )
+    retry: int | None = Field(
+        default=None, description="Inner retry within the critic attempt (1-indexed)"
+    )
+    started_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Timestamp when the runtime was allocated",
+    )
+
+
 class EvalOutput(OpenHandsModel):
     """
     Evaluation output model.
@@ -121,3 +152,9 @@ class EvalOutput(OpenHandsModel):
 
     # Optionally save the input test instance
     instance: dict[str, Any] | None = None
+    runtime_runs: list[RuntimeRun] | None = Field(
+        default=None,
+        description=(
+            "Runtime allocation attempts (pod/session mapping) for this instance"
+        ),
+    )

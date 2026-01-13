@@ -27,10 +27,12 @@ from benchmarks.utils.models import (
     EvalInstanceID,
     EvalMetadata,
     EvalOutput,
+    RuntimeRun,
 )
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -337,7 +339,7 @@ class Evaluation(ABC, BaseModel):
                         lmnr_datapoints[inst.id] = datapoint_id
 
                     futures.append(
-                        pool.submit(self._process_one_mp, inst, lmnr_span_ctx)
+                        pool.submit(self._process_one_mp, inst, lmnr_span_ctx, attempt)
                     )
 
                 for fut in tqdm(
@@ -449,7 +451,7 @@ class Evaluation(ABC, BaseModel):
 
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance, eval_span_ctx: str | None
+        self, instance: EvalInstance, eval_span_ctx: str | None, critic_attempt: int
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
@@ -474,6 +476,7 @@ class Evaluation(ABC, BaseModel):
             runtime_failure_count = 0
             last_error = None
             max_retries = self.metadata.max_retries
+            runtime_runs: list[RuntimeRun] = []
 
             while retry_count <= max_retries:
                 workspace = None
@@ -508,7 +511,48 @@ class Evaluation(ABC, BaseModel):
                         resource_factor=resource_factor,
                         forward_env=LMNR_ENV_VARS,
                     )
+                    # Record runtime/pod mapping for this attempt+retry
+                    runtime_run = RuntimeRun(
+                        runtime_id=(
+                            getattr(workspace, "_runtime_id", None)
+                            if isinstance(workspace, APIRemoteWorkspace)
+                            else None
+                        ),
+                        session_id=getattr(workspace, "session_id", None),
+                        runtime_url=(
+                            getattr(workspace, "_runtime_url", None)
+                            if isinstance(workspace, APIRemoteWorkspace)
+                            else None
+                        ),
+                        workspace_type=workspace.__class__.__name__,
+                        resource_factor=resource_factor,
+                        critic_attempt=critic_attempt,
+                        retry=retry_count + 1,
+                    )
+                    runtime_runs.append(runtime_run)
+                    if runtime_run.runtime_id:
+                        logger.info(
+                            "[child] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
+                            instance.id,
+                            critic_attempt,
+                            retry_count + 1,
+                            runtime_run.workspace_type,
+                            runtime_run.runtime_id,
+                            runtime_run.session_id,
+                            runtime_run.resource_factor,
+                        )
+                    else:
+                        logger.info(
+                            "[child] workspace prepared instance=%s attempt=%d retry=%d workspace=%s resource_factor=%s",
+                            instance.id,
+                            critic_attempt,
+                            retry_count + 1,
+                            runtime_run.workspace_type,
+                            runtime_run.resource_factor,
+                        )
                     out = self.evaluate_instance(instance, workspace)
+                    if runtime_runs:
+                        out.runtime_runs = runtime_runs
                     logger.info("[child] done id=%s", instance.id)
                     return instance, out
                 except Exception as e:
@@ -539,6 +583,8 @@ class Evaluation(ABC, BaseModel):
                         error_output = self._create_error_output(
                             instance, last_error, max_retries
                         )
+                        if runtime_runs:
+                            error_output.runtime_runs = runtime_runs
                         return instance, error_output
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure
@@ -568,6 +614,8 @@ class Evaluation(ABC, BaseModel):
             error_output = self._create_error_output(
                 instance, Exception("Unexpected error: no attempts made"), max_retries
             )
+            if runtime_runs:
+                error_output.runtime_runs = runtime_runs
             return instance, error_output
 
 
