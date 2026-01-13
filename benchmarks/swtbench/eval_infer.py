@@ -26,6 +26,49 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
+def patch_swt_bench_for_mamba(swt_bench_dir: Path) -> None:
+    """
+    Ensure the cached swt-bench checkout uses mamba for env creation.
+    Applies small, idempotent text replacements to the upstream sources.
+    """
+    dockerfiles_path = swt_bench_dir / "src" / "dockerfiles.py"
+    exec_spec_path = swt_bench_dir / "src" / "exec_spec.py"
+
+    if not dockerfiles_path.exists() or not exec_spec_path.exists():
+        logger.warning(
+            "swt-bench sources missing expected files; skipping mamba patch "
+            f"(dockerfiles: {dockerfiles_path.exists()}, exec_spec: {exec_spec_path.exists()})"
+        )
+        return
+
+    dockerfiles_text = dockerfiles_path.read_text()
+    dockerfiles_updated = dockerfiles_text.replace(
+        "RUN conda config --append channels conda-forge\n\nRUN adduser",
+        "RUN conda config --append channels conda-forge\n"
+        "# Use mamba for faster solver performance during env builds\n"
+        "RUN conda install -n base -c conda-forge -y mamba\n\n"
+        "RUN adduser",
+    )
+
+    exec_spec_text = exec_spec_path.read_text()
+    replacements = {
+        "conda create -n ": "mamba create -n ",
+        "conda create -c conda-forge -n ": "mamba create -c conda-forge -n ",
+        "conda env create --file": "mamba env create --file",
+        "conda env update -f": "mamba env update -f",
+        "conda install python=": "mamba install python=",
+    }
+    for old, new in replacements.items():
+        exec_spec_text = exec_spec_text.replace(old, new)
+
+    if dockerfiles_text != dockerfiles_updated:
+        dockerfiles_path.write_text(dockerfiles_updated)
+        logger.info("Patched swt-bench Dockerfile template to install mamba.")
+    if exec_spec_path.read_text() != exec_spec_text:
+        exec_spec_path.write_text(exec_spec_text)
+        logger.info("Patched swt-bench exec_spec to create/update envs with mamba.")
+
+
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
     instance_ids: list[str] = []
     seen = set()
@@ -214,6 +257,8 @@ def run_swtbench_evaluation(
                 raise subprocess.CalledProcessError(result.returncode, clone_cmd)
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
+
+        patch_swt_bench_for_mamba(swt_bench_dir)
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
