@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from time import monotonic
 
@@ -69,6 +70,63 @@ def patch_swt_bench_for_mamba(swt_bench_dir: Path) -> None:
         exec_spec_path.write_text(exec_spec_text)
         logger.info("Patched swt-bench exec_spec to create/update envs with mamba.")
 
+
+def _write_profile_sitecustomize(swt_bench_dir: Path, profile_output: Path) -> None:
+    """
+    Drop a sitecustomize.py into the swt-bench checkout to capture internal timings.
+
+    This script is picked up automatically by Python when running swt-bench's
+    src/main.py. It records coarse phases (docker builds, run_instances, per-instance
+    execution) and writes them to SWTBench profile JSON.
+    """
+    site_path = swt_bench_dir / "sitecustomize.py"
+    template_path = Path(__file__).parent / "swtbench_sitecustomize.py"
+    site_path.write_text(template_path.read_text())
+
+
+def _patch_swtbench_circular_import(swt_bench_dir: Path) -> None:
+    """
+    Remove the src.main import from swt-bench/src/__init__.py to avoid the
+    circular import that breaks src/main.py when run as a script.
+    """
+    init_file = swt_bench_dir / "src" / "__init__.py"
+    if not init_file.exists():
+        logger.warning("swt-bench src/__init__.py not found; skipping patch")
+        return
+
+    original = init_file.read_text()
+    lines = original.splitlines()
+
+    patched: list[str] = []
+    skipping_block = False
+    paren_balance = 0
+    removed = False
+
+    for line in lines:
+        if skipping_block:
+            paren_balance += line.count("(") - line.count(")")
+            if paren_balance <= 0:
+                skipping_block = False
+            continue
+
+        if "from src.main import" in line:
+            removed = True
+            paren_balance = line.count("(") - line.count(")")
+            if paren_balance > 0:
+                skipping_block = True
+            continue
+
+        patched.append(line)
+
+    if not removed:
+        logger.info("No src.main re-export found in %s; no patch needed", init_file)
+        return
+
+    trailing_newline = "\n" if original.endswith("\n") else ""
+    init_file.write_text("\n".join(patched) + trailing_newline)
+    logger.info(
+        "Removed src.main re-export from %s to avoid circular import", init_file
+    )
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
     instance_ids: list[str] = []
@@ -236,6 +294,29 @@ def run_swtbench_evaluation(
     """
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
+    timeline: list[dict[str, object]] = []
+    eval_start_ns = time.perf_counter_ns()
+    success = False
+    predictions_path = Path(predictions_file).resolve()
+    profile_output = predictions_path.parent / (
+        predictions_path.stem + ".swtbench_harness.profile.json"
+    )
+    timeline_file = predictions_path.parent / (
+        predictions_path.stem + ".swtbench_eval.timeline.json"
+    )
+
+    def record(phase: str, start_ns: int, extra: dict[str, object] | None = None):
+        end_ns = time.perf_counter_ns()
+        entry: dict[str, object] = {
+            "phase": phase,
+            "start_ns": start_ns,
+            "end_ns": end_ns,
+            "duration_ms": (end_ns - start_ns) / 1_000_000,
+        }
+        if extra:
+            entry.update(extra)
+        timeline.append(entry)
+
     try:
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
@@ -243,6 +324,7 @@ def run_swtbench_evaluation(
 
         # Clone SWT-Bench repository if it doesn't exist
         if not swt_bench_dir.exists():
+            clone_start = time.perf_counter_ns()
             logger.info("Setting up SWT-Bench source in global cache...")
             cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -258,6 +340,9 @@ def run_swtbench_evaluation(
                 raise subprocess.CalledProcessError(result.returncode, clone_cmd)
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
+            record("clone_swt_bench", clone_start)
+        else:
+            record("reuse_swt_bench_cache", time.perf_counter_ns())
 
         patch_swt_bench_for_mamba(swt_bench_dir)
 
@@ -266,14 +351,22 @@ def run_swtbench_evaluation(
         predictions_filename = predictions_path.name
 
         # Copy predictions file to swt-bench directory
+        copy_start = time.perf_counter_ns()
         swt_predictions_file = swt_bench_dir / predictions_filename
         shutil.copy2(predictions_file, swt_predictions_file)
+        record("copy_predictions", copy_start)
+
+        # Install a profiling sitecustomize so we can capture harness timings
+        _write_profile_sitecustomize(swt_bench_dir, profile_output)
+        # Patch upstream circular import (src/__init__.py -> src.main -> run_evaluation)
+        _patch_swtbench_circular_import(swt_bench_dir)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
         # but using the uv environment's python executable which has all dependencies
         benchmarks_dir = Path(__file__).parent.parent.parent
 
         # Get the python executable from the uv environment
+        python_start = time.perf_counter_ns()
         python_executable = subprocess.run(
             [
                 "uv",
@@ -288,10 +381,16 @@ def run_swtbench_evaluation(
             text=True,
             cwd=benchmarks_dir,
         ).stdout.strip()
+        record("resolve_python_executable", python_start)
 
         # Set up environment with PYTHONPATH to include swt-bench directory
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(swt_bench_dir)
+        env["PYTHONPATH"] = (
+            f"{swt_bench_dir}:{env['PYTHONPATH']}"
+            if env.get("PYTHONPATH")
+            else str(swt_bench_dir)
+        )
+        env["SWTBENCH_PROFILE_JSON"] = str(profile_output)
 
         cmd = [
             python_executable,
@@ -316,8 +415,14 @@ def run_swtbench_evaluation(
 
         eval_start = monotonic()
         # Stream output directly to console, running from swt-bench directory
+        harness_start = time.perf_counter_ns()
         result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
         eval_end = monotonic()
+        record(
+            "swtbench_harness",
+            harness_start,
+            {"returncode": result.returncode, "cmd": cmd},
+        )
 
         print("-" * 80)
         if result.returncode == 0:
@@ -332,7 +437,12 @@ def run_swtbench_evaluation(
                 eval_end - eval_start,
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
-
+        record(
+            "swtbench_eval_total",
+            eval_start_ns,
+            {"events_recorded": len(timeline)},
+        )
+        success = True
     except FileNotFoundError:
         logger.error(
             "SWT-Bench evaluation command not found. "
@@ -342,6 +452,27 @@ def run_swtbench_evaluation(
     except Exception as e:
         logger.error(f"Error running SWT-Bench evaluation: {e}")
         raise
+    finally:
+        if not success:
+            record(
+                "swtbench_eval_total",
+                eval_start_ns,
+                {"events_recorded": len(timeline), "status": "error"},
+            )
+        timeline_payload = {
+            "predictions_file": str(predictions_file),
+            "dataset": dataset,
+            "workers": workers,
+            "started_ns": eval_start_ns,
+            "ended_ns": time.perf_counter_ns(),
+            "status": "ok" if success else "error",
+            "events": timeline,
+        }
+        try:
+            timeline_file.write_text(json.dumps(timeline_payload, indent=2))
+            logger.info("Wrote timeline to %s", timeline_file)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to write SWTBench timeline: %s", e)
 
 
 def main() -> None:
