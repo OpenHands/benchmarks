@@ -34,6 +34,24 @@ on:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
+      build-eval-env:
+        description: 'Also build prebaked SWT-bench eval env images (default: false)'
+        required: false
+        default: 'false'
+        type: string
+      eval-image-prefix:
+        description: 'Registry prefix for prebaked eval images'
+        required: false
+        default: 'ghcr.io/openhands/swtbench-eval'
+        type: string
+      eval-arch:
+        description: 'Architecture for prebaked eval images'
+        required: false
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - arm64
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -157,6 +175,33 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+
+      - name: Build prebaked eval env images
+        if: ${{ inputs.build-eval-env == 'true' }}
+        run: |
+          set -euo pipefail
+
+          DATASET="${{ inputs.dataset || 'princeton-nlp/SWE-bench_Verified' }}"
+          SPLIT="${{ inputs.split || 'test' }}"
+          N_LIMIT="${{ inputs.n-limit || '0' }}"
+          INSTANCE_IDS="${{ inputs.instance-ids }}"
+          IMAGE_PREFIX="${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}"
+          EVAL_ARCH="${{ inputs.eval-arch || 'x86_64' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          BUILD_MODE="${{ inputs.build-mode || 'api' }}"
+
+          ARGS=(--dataset "${DATASET}" --split "${SPLIT}" --image-prefix "${IMAGE_PREFIX}" --max-workers "${MAX_WORKERS}" --build-mode "${BUILD_MODE}")
+          if [ -n "${INSTANCE_IDS}" ]; then
+            ARGS+=(--instance-ids "${INSTANCE_IDS}")
+          else
+            ARGS+=(--eval-limit "${N_LIMIT}")
+          fi
+          if [ -n "${EVAL_ARCH}" ]; then
+            ARGS+=(--arch "${EVAL_ARCH}")
+          fi
+
+          echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"
+          uv run swtbench-build-eval-images "${ARGS[@]}"
 
       - name: Archive build logs
         if: always()
