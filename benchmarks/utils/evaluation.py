@@ -19,10 +19,10 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
+from benchmarks.utils.conversation import CONVERSATION_EVENT_LOGGING_ENV_VAR
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
-from benchmarks.utils.conversation import CONVERSATION_EVENT_LOGGING_ENV_VAR
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
