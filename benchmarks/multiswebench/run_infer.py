@@ -117,18 +117,48 @@ class MultiSWEBenchEvaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up Multi-SWE-bench evaluation data")
 
-        # Use the standard dataset loading utility
-        from benchmarks.utils.dataset import get_dataset
-        
         metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
-        logger.info(f"Loading dataset {metadata.dataset}")
+        dataset_path = metadata.dataset
         
-        df = get_dataset(
-            dataset_name=metadata.dataset,
-            split=metadata.dataset_split,
-            eval_limit=self.metadata.eval_limit if self.metadata.eval_limit > 0 else None,
-            selected_instances_file=metadata.selected_instances_file,
-        )
+        # Check if this is a Multi-SWE-bench dataset that needs language filtering
+        if "Multi-SWE-bench" in dataset_path or "Multi-SWE-Bench" in dataset_path:
+            logger.info(
+                f"Downloading Multi-SWE-bench dataset for language: {metadata.lang}"
+            )
+            downloaded_path = download_and_concat_dataset(dataset_path, metadata.lang)
+
+            # Create a temporary formatted file
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".jsonl", delete=False
+            ) as temp_file:
+                formatted_path = temp_file.name
+
+            format_data_for_inference(downloaded_path, formatted_path)
+            dataset_path = formatted_path
+            logger.info(f"Using formatted dataset: {dataset_path}")
+        else:
+            # For non-Multi-SWE-bench datasets (e.g., local files), use get_dataset
+            from benchmarks.utils.dataset import get_dataset
+            logger.info(f"Loading dataset {metadata.dataset}")
+            
+            df = get_dataset(
+                dataset_name=metadata.dataset,
+                split=metadata.dataset_split,
+                eval_limit=self.metadata.eval_limit if self.metadata.eval_limit > 0 else None,
+                selected_instances_file=metadata.selected_instances_file,
+            )
+
+        # Load dataset from the local file (for Multi-SWE-bench path)
+        if "Multi-SWE-bench" in metadata.dataset or "Multi-SWE-Bench" in metadata.dataset:
+            logger.info(f"Loading dataset {dataset_path}")
+            data = []
+            with open(dataset_path, "r") as f:
+                for line in f:
+                    data.append(json.loads(line))
+
+            df = pd.DataFrame(data)
 
         # Filter out instances with NaN instance_id before applying limits
         original_count = len(df)
