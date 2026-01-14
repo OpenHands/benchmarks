@@ -163,6 +163,12 @@ def main() -> None:
         help="Registry prefix for pushed images",
     )
     parser.add_argument(
+        "--arch",
+        choices=["x86_64", "arm64", ""],
+        default="",
+        help="Force architecture for built images (defaults to host arch)",
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=4,
@@ -202,6 +208,10 @@ def main() -> None:
     exec_specs = load_exec_specs(
         swt_bench_dir, args.dataset, args.split, target_ids, filter_swt=True
     )
+    if args.arch:
+        for spec in exec_specs:
+            spec.arch = args.arch
+        logger.info("Overrode ExecSpec architecture to %s", args.arch)
 
     build_env_images(
         exec_specs, max_workers=args.max_workers, build_mode=args.build_mode
@@ -222,6 +232,7 @@ def main() -> None:
         "base_images": sorted(base_images),
         "env_images": sorted(env_images),
         "image_prefix": args.image_prefix,
+        "arch": args.arch or "host",
     }
     print(json.dumps(manifest, indent=2))
 
