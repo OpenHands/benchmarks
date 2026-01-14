@@ -115,6 +115,11 @@ def get_base_images_from_dataset(
                 data.append(json.loads(line))
 
         dataset = pd.DataFrame(data)
+        
+        # Apply n_limit if specified
+        if n_limit:
+            logger.info(f"Limiting dataset to first {n_limit} instances")
+            dataset = dataset.head(n_limit)
     else:
         # For non-Multi-SWE-bench datasets, use get_dataset
         dataset = get_dataset(
