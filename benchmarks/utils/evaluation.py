@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
+from benchmarks.utils.conversation import CONVERSATION_EVENT_LOGGING_ENV_VAR
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
@@ -657,17 +658,18 @@ def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
             return msg in {"conversation_event", "conversation_event_metadata"}
 
     # Datadog/console handler for conversation events (bypasses stdout redirection)
-    from pythonjsonlogger.json import JsonFormatter
+    if bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, False)):
+        from pythonjsonlogger.json import JsonFormatter
 
-    dd_handler = logging.StreamHandler(sys.__stdout__)
-    dd_handler.setLevel(logging.INFO)
-    dd_handler.addFilter(ConversationEventFilter())
-    dd_handler.setFormatter(
-        JsonFormatter(
-            fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
+        dd_handler = logging.StreamHandler(sys.__stdout__)
+        dd_handler.setLevel(logging.INFO)
+        dd_handler.addFilter(ConversationEventFilter())
+        dd_handler.setFormatter(
+            JsonFormatter(
+                fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
+            )
         )
-    )
-    root_logger.addHandler(dd_handler)
+        root_logger.addHandler(dd_handler)
 
     # Create console handler for initial message
     console_handler = logging.StreamHandler()

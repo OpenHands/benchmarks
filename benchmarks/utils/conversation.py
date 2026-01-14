@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 
 from openhands.sdk import Event, get_logger
@@ -11,6 +12,7 @@ ConversationCallback = Callable[[Event], None]
 
 # Max size for full event logging (256KB). Larger events log metadata only.
 MAX_EVENT_SIZE_BYTES = 256 * 1024
+CONVERSATION_EVENT_LOGGING_ENV_VAR = "ENABLE_CONVERSATION_EVENT_LOGGING"
 
 
 def _extract_event_metadata(event: Event) -> dict[str, Any]:
@@ -73,6 +75,7 @@ def build_event_persistence_callback(
 
     Small events are logged in full; large events log metadata only to avoid
     size limits and ensure logs persist beyond pod lifetime.
+    Logging is disabled unless ENABLE_CONVERSATION_EVENT_LOGGING is set.
 
     Args:
         run_id: Unique identifier for this evaluation run (e.g., job name).
@@ -82,6 +85,8 @@ def build_event_persistence_callback(
     Returns:
         A callback function to be passed to Conversation.
     """
+    if not bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, False)):
+        return lambda event: None
 
     def _persist_event(event: Event) -> None:
         try:
