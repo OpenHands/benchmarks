@@ -22,7 +22,7 @@ from benchmarks.utils.build_utils import (
     default_build_output_dir,
     get_build_parser,
 )
-from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.dataset import get_dataset, prepare_dataset
 from openhands.sdk import get_logger
 
 
@@ -116,10 +116,12 @@ def get_base_images_from_dataset(
 
         dataset = pd.DataFrame(data)
         
-        # Apply n_limit if specified
-        if n_limit:
-            logger.info(f"Limiting dataset to first {n_limit} instances")
-            dataset = dataset.head(n_limit)
+        # Apply n_limit using prepare_dataset for consistency with evaluation
+        dataset = prepare_dataset(
+            dataset,
+            n_limit=n_limit,
+            selected_instances_file=selected_instances_file,
+        )
     else:
         # For non-Multi-SWE-bench datasets, use get_dataset
         dataset = get_dataset(
