@@ -216,12 +216,6 @@ def run_swtbench_evaluation(
     timeline_file = predictions_path.parent / (
         predictions_path.stem + ".swtbench_eval.timeline.json"
     )
-    profile_env_enabled = os.environ.get("PROFILE_SWTBENCH", "1").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-
     def record(phase: str, start_ns: int, extra: dict[str, object] | None = None):
         end_ns = time.perf_counter_ns()
         entry: dict[str, object] = {
@@ -277,8 +271,7 @@ def run_swtbench_evaluation(
             "true",
             "yes",
         )
-        if profile_env_enabled:
-            _write_profile_sitecustomize(swt_bench_dir, profile_output)
+        _write_profile_sitecustomize(swt_bench_dir, profile_output)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
         # but using the uv environment's python executable which has all dependencies
@@ -309,8 +302,7 @@ def run_swtbench_evaluation(
             if env.get("PYTHONPATH")
             else str(swt_bench_dir)
         )
-        if profile_env_enabled:
-            env["SWTBENCH_PROFILE_JSON"] = str(profile_output)
+        env["SWTBENCH_PROFILE_JSON"] = str(profile_output)
 
         cmd = [
             python_executable,
