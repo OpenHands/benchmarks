@@ -27,17 +27,18 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def patch_swt_bench_for_mamba(swt_bench_dir: Path) -> None:
+def patch_swt_bench_for_micromamba(swt_bench_dir: Path) -> None:
     """
-    Ensure the cached swt-bench checkout uses mamba for env creation.
+    Ensure the cached swt-bench checkout uses micromamba for env creation.
     Applies small, idempotent text replacements to the upstream sources.
     """
+    solver_timeout_s = 1800
     dockerfiles_path = swt_bench_dir / "src" / "dockerfiles.py"
     exec_spec_path = swt_bench_dir / "src" / "exec_spec.py"
 
     if not dockerfiles_path.exists() or not exec_spec_path.exists():
         logger.warning(
-            "swt-bench sources missing expected files; skipping mamba patch "
+            "swt-bench sources missing expected files; skipping micromamba patch "
             f"(dockerfiles: {dockerfiles_path.exists()}, exec_spec: {exec_spec_path.exists()})"
         )
         return
@@ -46,28 +47,35 @@ def patch_swt_bench_for_mamba(swt_bench_dir: Path) -> None:
     dockerfiles_updated = dockerfiles_text.replace(
         "RUN conda config --append channels conda-forge\n\nRUN adduser",
         "RUN conda config --append channels conda-forge\n"
-        "# Use mamba for faster solver performance during env builds\n"
-        "RUN conda install -n base -c conda-forge -y mamba\n\n"
+        "# Use micromamba for faster solver performance during env builds\n"
+        "RUN conda install -n base -c conda-forge -y micromamba \\\n"
+        " && ln -s /opt/miniconda3/bin/micromamba /usr/local/bin/micromamba\n"
+        "ENV MAMBA_ROOT_PREFIX=/opt/miniconda3\n"
+        "ENV MAMBA_EXE=/opt/miniconda3/bin/micromamba\n\n"
         "RUN adduser",
     )
 
     exec_spec_text = exec_spec_path.read_text()
     replacements = {
-        "conda create -n ": "mamba create -n ",
-        "conda create -c conda-forge -n ": "mamba create -c conda-forge -n ",
-        "conda env create --file": "mamba env create --file",
-        "conda env update -f": "mamba env update -f",
-        "conda install python=": "mamba install python=",
+        "conda create -n ": f"timeout {solver_timeout_s}s micromamba create -n ",
+        "conda create -c conda-forge -n ": f"timeout {solver_timeout_s}s micromamba create -c conda-forge -n ",
+        "conda env create --file": f"timeout {solver_timeout_s}s micromamba env create --file",
+        "conda env update -f": f"timeout {solver_timeout_s}s micromamba env update -f",
+        "conda install python=": f"timeout {solver_timeout_s}s micromamba install python=",
     }
     for old, new in replacements.items():
         exec_spec_text = exec_spec_text.replace(old, new)
 
     if dockerfiles_text != dockerfiles_updated:
         dockerfiles_path.write_text(dockerfiles_updated)
-        logger.info("Patched swt-bench Dockerfile template to install mamba.")
+        logger.info("Patched swt-bench Dockerfile template to install micromamba.")
     if exec_spec_path.read_text() != exec_spec_text:
         exec_spec_path.write_text(exec_spec_text)
-        logger.info("Patched swt-bench exec_spec to create/update envs with mamba.")
+        logger.info(
+            "Patched swt-bench exec_spec to create/update envs with micromamba "
+            "and a %ss timeout on solver calls.",
+            solver_timeout_s,
+        )
 
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
@@ -259,7 +267,7 @@ def run_swtbench_evaluation(
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
 
-        patch_swt_bench_for_mamba(swt_bench_dir)
+        patch_swt_bench_for_micromamba(swt_bench_dir)
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
