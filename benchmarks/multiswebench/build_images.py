@@ -162,6 +162,8 @@ def main():
             args.output_dir or default_build_output_dir(args.dataset, args.split)
         ),
         max_workers=args.num_workers,
+        push=args.push,
+        base_image_to_custom_tag_fn=extract_custom_tag,
         dry_run=False,
     )
 
