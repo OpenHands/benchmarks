@@ -216,6 +216,7 @@ def run_swtbench_evaluation(
     timeline_file = predictions_path.parent / (
         predictions_path.stem + ".swtbench_eval.timeline.json"
     )
+
     def record(phase: str, start_ns: int, extra: dict[str, object] | None = None):
         end_ns = time.perf_counter_ns()
         entry: dict[str, object] = {
@@ -266,11 +267,6 @@ def run_swtbench_evaluation(
         record("copy_predictions", copy_start)
 
         # Install a profiling sitecustomize so we can capture harness timings
-        profile_env_enabled = os.environ.get("PROFILE_SWTBENCH", "1").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
         _write_profile_sitecustomize(swt_bench_dir, profile_output)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
