@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
-from benchmarks.multiswebench.format_dataset import format_data_for_inference
+from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
