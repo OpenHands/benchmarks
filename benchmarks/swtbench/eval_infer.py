@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from time import monotonic
 
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
@@ -24,6 +25,49 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def patch_swt_bench_for_mamba(swt_bench_dir: Path) -> None:
+    """
+    Ensure the cached swt-bench checkout uses mamba for env creation.
+    Applies small, idempotent text replacements to the upstream sources.
+    """
+    dockerfiles_path = swt_bench_dir / "src" / "dockerfiles.py"
+    exec_spec_path = swt_bench_dir / "src" / "exec_spec.py"
+
+    if not dockerfiles_path.exists() or not exec_spec_path.exists():
+        logger.warning(
+            "swt-bench sources missing expected files; skipping mamba patch "
+            f"(dockerfiles: {dockerfiles_path.exists()}, exec_spec: {exec_spec_path.exists()})"
+        )
+        return
+
+    dockerfiles_text = dockerfiles_path.read_text()
+    dockerfiles_updated = dockerfiles_text.replace(
+        "RUN conda config --append channels conda-forge\n\nRUN adduser",
+        "RUN conda config --append channels conda-forge\n"
+        "# Use mamba for faster solver performance during env builds\n"
+        "RUN conda install -n base -c conda-forge -y mamba\n\n"
+        "RUN adduser",
+    )
+
+    exec_spec_text = exec_spec_path.read_text()
+    replacements = {
+        "conda create -n ": "mamba create -n ",
+        "conda create -c conda-forge -n ": "mamba create -c conda-forge -n ",
+        "conda env create --file": "mamba env create --file",
+        "conda env update -f": "mamba env update -f",
+        "conda install python=": "mamba install python=",
+    }
+    for old, new in replacements.items():
+        exec_spec_text = exec_spec_text.replace(old, new)
+
+    if dockerfiles_text != dockerfiles_updated:
+        dockerfiles_path.write_text(dockerfiles_updated)
+        logger.info("Patched swt-bench Dockerfile template to install mamba.")
+    if exec_spec_path.read_text() != exec_spec_text:
+        exec_spec_path.write_text(exec_spec_text)
+        logger.info("Patched swt-bench exec_spec to create/update envs with mamba.")
 
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
@@ -215,6 +259,8 @@ def run_swtbench_evaluation(
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
 
+        patch_swt_bench_for_mamba(swt_bench_dir)
+
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
@@ -268,15 +314,22 @@ def run_swtbench_evaluation(
         logger.info("SWT-Bench evaluation output:")
         print("-" * 80)
 
+        eval_start = monotonic()
         # Stream output directly to console, running from swt-bench directory
         result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
+        eval_end = monotonic()
 
         print("-" * 80)
         if result.returncode == 0:
-            logger.info("SWT-Bench evaluation completed successfully")
+            logger.info(
+                "SWT-Bench evaluation completed successfully in %.2fs",
+                eval_end - eval_start,
+            )
         else:
             logger.error(
-                f"SWT-Bench evaluation failed with return code {result.returncode}"
+                "SWT-Bench evaluation failed with return code %s after %.2fs",
+                result.returncode,
+                eval_end - eval_start,
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
 
@@ -364,9 +417,12 @@ Examples:
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
         if not args.skip_evaluation:
+            eval_phase_start = monotonic()
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
+            eval_phase_end = monotonic()
 
+            cleanup_phase_start = monotonic()
             # Move SWT-Bench evaluation report to same folder as output.jsonl
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
@@ -384,6 +440,13 @@ Examples:
             # Update Laminar datapoints with evaluation scores
             LaminarService.get().update_evaluation_scores(
                 str(input_file), str(target_file)
+            )
+            cleanup_phase_end = monotonic()
+
+            logger.info(
+                "Timing summary: swtbench_eval=%.2fs, report_move_and_metrics=%.2fs",
+                eval_phase_end - eval_phase_start,
+                cleanup_phase_end - cleanup_phase_start,
             )
 
         # Generate cost report as final step
