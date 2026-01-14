@@ -126,7 +126,7 @@ class MultiSWEBenchEvaluation(Evaluation):
         df = get_dataset(
             dataset_name=metadata.dataset,
             split=metadata.dataset_split,
-            eval_limit=self.metadata.eval_n_limit if self.metadata.eval_n_limit > 0 else None,
+            eval_limit=self.metadata.eval_limit if self.metadata.eval_limit > 0 else None,
             selected_instances_file=metadata.selected_instances_file,
         )
 
