@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 from uuid import UUID
 
+import numpy as np
 from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
@@ -300,6 +301,17 @@ class Evaluation(ABC, BaseModel):
             # Create attempt-specific output callback
             attempt_outputs: List[EvalOutput] = []
 
+            def _make_json_safe(value: object) -> object:
+                if isinstance(value, np.ndarray):
+                    return value.tolist()
+                if isinstance(value, np.generic):
+                    return value.item()
+                if isinstance(value, dict):
+                    return {k: _make_json_safe(v) for k, v in value.items()}
+                if isinstance(value, (list, tuple)):
+                    return [_make_json_safe(v) for v in value]
+                return value
+
             def attempt_on_result(instance: EvalInstance, out: EvalOutput) -> None:
                 attempt_outputs.append(out)
                 # Write to attempt-specific file
@@ -308,8 +320,9 @@ class Evaluation(ABC, BaseModel):
                     f"output.critic_attempt_{attempt}.jsonl",
                 )
                 try:
-                    with open(attempt_file, "a") as f:
-                        f.write(out.model_dump_json() + "\n")
+                    payload = _make_json_safe(out.model_dump(mode="json"))
+                    with open(attempt_file, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(payload) + "\n")
                 except Exception as e:
                     logger.warning(
                         f"Failed to write to attempt file {attempt_file}: {e}"
