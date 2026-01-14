@@ -17,6 +17,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.swtbench.image_utils import (
+    ensure_swt_bench_repo,
+    patch_swt_bench_for_micromamba,
+)
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -193,27 +197,8 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
-        # Use a global cache directory for SWT-Bench source
-        cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
-        swt_bench_dir = cache_dir / "swt-bench"
-
-        # Clone SWT-Bench repository if it doesn't exist
-        if not swt_bench_dir.exists():
-            logger.info("Setting up SWT-Bench source in global cache...")
-            cache_dir.mkdir(parents=True, exist_ok=True)
-
-            logger.info("Cloning SWT-Bench repository...")
-            clone_cmd = [
-                "git",
-                "clone",
-                "https://github.com/logic-star-ai/swt-bench.git",
-                str(swt_bench_dir),
-            ]
-            result = subprocess.run(clone_cmd, text=True)
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, clone_cmd)
-
-            logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
+        swt_bench_dir = ensure_swt_bench_repo()
+        patch_swt_bench_for_micromamba(swt_bench_dir)
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
