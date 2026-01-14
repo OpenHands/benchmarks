@@ -209,29 +209,35 @@ def run_swtbench_evaluation(
     timeline: list[dict[str, object]] = []
     eval_start_ns = time.perf_counter_ns()
     success = False
+    predictions_path = Path(predictions_file).resolve()
+    profile_output = predictions_path.parent / (
+        predictions_path.stem + ".swtbench_harness.profile.json"
+    )
+    timeline_file = predictions_path.parent / (
+        predictions_path.stem + ".swtbench_eval.timeline.json"
+    )
+    profile_env_enabled = os.environ.get("PROFILE_SWTBENCH", "1").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+    def record(phase: str, start_ns: int, extra: dict[str, object] | None = None):
+        end_ns = time.perf_counter_ns()
+        entry: dict[str, object] = {
+            "phase": phase,
+            "start_ns": start_ns,
+            "end_ns": end_ns,
+            "duration_ms": (end_ns - start_ns) / 1_000_000,
+        }
+        if extra:
+            entry.update(extra)
+        timeline.append(entry)
+
     try:
-
-        def record(phase: str, start_ns: int, extra: dict[str, object] | None = None):
-            end_ns = time.perf_counter_ns()
-            entry: dict[str, object] = {
-                "phase": phase,
-                "start_ns": start_ns,
-                "end_ns": end_ns,
-                "duration_ms": (end_ns - start_ns) / 1_000_000,
-            }
-            if extra:
-                entry.update(extra)
-            timeline.append(entry)
-
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
-        profile_output = Path(predictions_file).resolve().parent / (
-            Path(predictions_file).stem + ".swtbench_harness.profile.json"
-        )
-        timeline_file = Path(predictions_file).resolve().parent / (
-            Path(predictions_file).stem + ".swtbench_eval.timeline.json"
-        )
 
         # Clone SWT-Bench repository if it doesn't exist
         if not swt_bench_dir.exists():

@@ -492,7 +492,7 @@ class Evaluation(ABC, BaseModel):
                 attempt_start_ns = time.perf_counter_ns()
                 attempt_start_ts = datetime.now(timezone.utc).isoformat()
                 attempt_status = "error"
-                phases: list[dict[str, object]] = []
+                phases: list[dict[str, int | str]] = []
                 resource_factor = self.metadata.base_resource_factor
 
                 # Start Laminar execution span and inject context into os.environ so workspace can pick it up
@@ -529,8 +529,8 @@ class Evaluation(ABC, BaseModel):
                     phases.append(
                         {
                             "name": "prepare_workspace",
-                            "start_ns": ws_start,
-                            "end_ns": time.perf_counter_ns(),
+                            "start_ns": int(ws_start),
+                            "end_ns": int(time.perf_counter_ns()),
                         }
                     )
 
@@ -562,8 +562,8 @@ class Evaluation(ABC, BaseModel):
                     phases.append(
                         {
                             "name": "evaluate_instance",
-                            "start_ns": eval_start,
-                            "end_ns": time.perf_counter_ns(),
+                            "start_ns": int(eval_start),
+                            "end_ns": int(time.perf_counter_ns()),
                         }
                     )
                     if runtime_runs:
@@ -649,8 +649,8 @@ class Evaluation(ABC, BaseModel):
                     phases.append(
                         {
                             "name": "cleanup",
-                            "start_ns": cleanup_start,
-                            "end_ns": time.perf_counter_ns(),
+                            "start_ns": int(cleanup_start),
+                            "end_ns": int(time.perf_counter_ns()),
                         }
                     )
                     attempt_end_ns = time.perf_counter_ns()
@@ -660,7 +660,9 @@ class Evaluation(ABC, BaseModel):
                             "attempt": attempt_index,
                             "critic_attempt": critic_attempt,
                             "status": attempt_status,
-                            "error": (str(last_error) if attempt_status != "ok" else None),
+                            "error": (
+                                str(last_error) if attempt_status != "ok" else None
+                            ),
                             "start_ts": attempt_start_ts,
                             "end_ts": datetime.now(timezone.utc).isoformat(),
                             "duration_ms": (attempt_end_ns - attempt_start_ns)
@@ -671,10 +673,11 @@ class Evaluation(ABC, BaseModel):
                                 {
                                     "name": p["name"],
                                     "duration_ms": (
-                                        (p["end_ns"] - p["start_ns"]) / 1_000_000
+                                        (int(p["end_ns"]) - int(p["start_ns"]))
+                                        / 1_000_000
                                     ),
-                                    "start_ns": p["start_ns"],
-                                    "end_ns": p["end_ns"],
+                                    "start_ns": int(p["start_ns"]),
+                                    "end_ns": int(p["end_ns"]),
                                 }
                                 for p in phases
                             ],

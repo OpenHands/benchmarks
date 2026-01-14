@@ -7,12 +7,14 @@ only when PROFILE_SWTBENCH/SWTBENCH_PROFILE_JSON are set by the caller.
 """
 
 import atexit
+import importlib
 import json
 import os
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
+
 
 PROFILE_PATH = os.environ.get("SWTBENCH_PROFILE_JSON", "swtbench_profile.json")
 _events: list[Dict[str, Any]] = []
@@ -53,7 +55,7 @@ def _safe_patch(module, attr: str, wrapper):
 
 # Patch swt-bench functions if available
 try:
-    import run_evaluation  # noqa: WPS433
+    run_evaluation = importlib.import_module("run_evaluation")  # type: ignore[assignment]
 
     def _wrap_run_instances(original):
         def _inner(predictions, instances, *args, **kwargs):
@@ -87,7 +89,7 @@ except Exception:
     pass
 
 try:
-    import src.docker_build as docker_build  # noqa: WPS433
+    docker_build = importlib.import_module("src.docker_build")  # type: ignore[assignment]
 
     def _wrap_build_image(original):
         def _inner(image_name, *args, **kwargs):
