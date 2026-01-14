@@ -8,9 +8,15 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+import json
 import os
+import tempfile
 from pathlib import Path
 
+import pandas as pd
+
+from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
+from benchmarks.multiswebench.format_dataset import format_data_for_inference
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -85,12 +91,39 @@ def get_base_images_from_dataset(
     selected_instances_file: str | None = None,
 ) -> list[str]:
     """Get all unique base images from the dataset."""
-    dataset = get_dataset(
-        dataset_name,
-        split,
-        eval_limit=n_limit if n_limit else None,
-        selected_instances_file=selected_instances_file,
-    )
+    # Check if this is a Multi-SWE-bench dataset that needs language filtering
+    if "Multi-SWE-bench" in dataset_name or "Multi-SWE-Bench" in dataset_name:
+        logger.info(
+            f"Downloading Multi-SWE-bench dataset for language: {LANGUAGE}"
+        )
+        downloaded_path = download_and_concat_dataset(dataset_name, LANGUAGE)
+
+        # Create a temporary formatted file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        ) as temp_file:
+            formatted_path = temp_file.name
+
+        format_data_for_inference(downloaded_path, formatted_path)
+        logger.info(f"Using formatted dataset: {formatted_path}")
+        
+        # Load dataset from the local file
+        logger.info(f"Loading dataset {formatted_path}")
+        data = []
+        with open(formatted_path, "r") as f:
+            for line in f:
+                data.append(json.loads(line))
+
+        dataset = pd.DataFrame(data)
+    else:
+        # For non-Multi-SWE-bench datasets, use get_dataset
+        dataset = get_dataset(
+            dataset_name,
+            split,
+            eval_limit=n_limit if n_limit else None,
+            selected_instances_file=selected_instances_file,
+        )
+    
     base_images = set()
 
     for _, row in dataset.iterrows():
