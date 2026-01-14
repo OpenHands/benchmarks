@@ -161,8 +161,12 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
         run: |
           cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
-          git checkout FETCH_HEAD
+          # Fetch from origin (handles both branch names and commit SHAs)
+          git fetch origin
+          # Try to fetch the specific ref (works for branches/tags)
+          git fetch origin ${{ inputs.sdk-commit }} 2>/dev/null || true
+          # Checkout the commit/ref (works for both branches and commit SHAs)
+          git checkout ${{ inputs.sdk-commit }}
           SDK_SHA=$(git rev-parse HEAD)
           cd ../..
           # Stage the submodule reference update so make build uses it
