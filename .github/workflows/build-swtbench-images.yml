@@ -244,6 +244,23 @@ jobs:
           echo "**Successful:** $SUCCESS_COUNT ✅" >> "$GITHUB_STEP_SUMMARY"
           echo "**Failed:** $FAIL_COUNT ❌" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Make prebaked eval image package public (best-effort)
+        if: ${{ inputs.build-eval-env == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_PREFIX: ${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}
+        run: |
+          set -euo pipefail
+          NAME=$(echo "${IMAGE_PREFIX}" | awk -F/ '{print $NF}')
+          if [ -z "$NAME" ]; then
+            echo "No package name derived from IMAGE_PREFIX=${IMAGE_PREFIX}, skipping visibility update"
+            exit 0
+          fi
+          gh api -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            /orgs/OpenHands/packages/container/${NAME}/visibility \
+            -f visibility=public || echo "Warning: failed to set package visibility"
+
       - name: Comment on tracker issue
         if: success()
         run: |
