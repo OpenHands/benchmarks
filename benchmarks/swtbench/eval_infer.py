@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from benchmarks.utils.laminar import LaminarService
@@ -24,6 +25,133 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def _write_profile_sitecustomize(swt_bench_dir: Path, profile_output: Path) -> None:
+    """
+    Drop a sitecustomize.py into the swt-bench checkout to capture internal timings.
+
+    This script is picked up automatically by Python when running swt-bench's
+    src/main.py. It records coarse phases (docker builds, run_instances, per-instance
+    execution) and writes them to SWTBench profile JSON.
+    """
+    site_path = swt_bench_dir / "sitecustomize.py"
+    script = f"""\
+import atexit
+import json
+import os
+import threading
+import time
+from pathlib import Path
+
+PROFILE_PATH = os.environ.get("SWTBENCH_PROFILE_JSON") or "{profile_output}"
+if not PROFILE_PATH:
+    PROFILE_PATH = "swtbench_profile.json"
+
+_events = []
+_lock = threading.Lock()
+_start_ns = time.perf_counter_ns()
+
+
+def _record(name: str, extra: dict | None = None):
+    start_ns = time.perf_counter_ns()
+
+    def _end(status: str = "ok", extra_end: dict | None = None):
+        end_ns = time.perf_counter_ns()
+        payload = {{
+            "name": name,
+            "status": status,
+            "start_ns": start_ns,
+            "end_ns": end_ns,
+            "duration_ms": (end_ns - start_ns) / 1_000_000,
+        }}
+        if extra:
+            payload.update(extra)
+        if extra_end:
+            payload.update(extra_end)
+        with _lock:
+            _events.append(payload)
+
+    return _end
+
+
+def _safe_patch(module, attr, wrapper):
+    try:
+        original = getattr(module, attr)
+        setattr(module, attr, wrapper(original))
+    except Exception:
+        pass
+
+
+try:
+    import run_evaluation  # noqa: WPS433
+
+    def _wrap_run_instances(original):
+        def _inner(predictions, instances, *args, **kwargs):
+            done = _record(
+                "run_instances",
+                {{"instance_count": len(instances) if instances is not None else None}},
+            )
+            try:
+                return original(predictions, instances, *args, **kwargs)
+            finally:
+                done()
+
+        return _inner
+
+    def _wrap_run_eval_exec_spec(original):
+        def _inner(exec_spec, model_patch, *args, **kwargs):
+            done = _record(
+                "run_eval_exec_spec",
+                {{"instance_id": getattr(exec_spec, "instance_id", None)}},
+            )
+            try:
+                return original(exec_spec, model_patch, *args, **kwargs)
+            finally:
+                done()
+
+        return _inner
+
+    _safe_patch(run_evaluation, "run_instances", _wrap_run_instances)
+    _safe_patch(run_evaluation, "run_eval_exec_spec", _wrap_run_eval_exec_spec)
+except Exception:
+    pass
+
+try:
+    import src.docker_build as docker_build  # noqa: WPS433
+
+    def _wrap_build_image(original):
+        def _inner(image_name, *args, **kwargs):
+            done = _record("docker_build", {{"image_name": image_name}})
+            try:
+                return original(image_name, *args, **kwargs)
+            finally:
+                done()
+
+        return _inner
+
+    _safe_patch(docker_build, "build_image", _wrap_build_image)
+except Exception:
+    pass
+
+
+def _flush():
+    end_ns = time.perf_counter_ns()
+    payload = {{
+        "started_ns": _start_ns,
+        "ended_ns": end_ns,
+        "duration_ms": (end_ns - _start_ns) / 1_000_000,
+        "events": _events,
+    }}
+    try:
+        Path(PROFILE_PATH).write_text(json.dumps(payload, indent=2))
+    except Exception:
+        pass
+
+
+atexit.register(_flush)
+"""
+    site_path.write_text(script)
 
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
@@ -192,13 +320,36 @@ def run_swtbench_evaluation(
     """
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
+    timeline: list[dict[str, object]] = []
+    eval_start_ns = time.perf_counter_ns()
+    success = False
     try:
+
+        def record(phase: str, start_ns: int, extra: dict[str, object] | None = None):
+            end_ns = time.perf_counter_ns()
+            entry: dict[str, object] = {
+                "phase": phase,
+                "start_ns": start_ns,
+                "end_ns": end_ns,
+                "duration_ms": (end_ns - start_ns) / 1_000_000,
+            }
+            if extra:
+                entry.update(extra)
+            timeline.append(entry)
+
         # Use a global cache directory for SWT-Bench source
         cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
         swt_bench_dir = cache_dir / "swt-bench"
+        profile_output = Path(predictions_file).resolve().parent / (
+            Path(predictions_file).stem + ".swtbench_harness.profile.json"
+        )
+        timeline_file = Path(predictions_file).resolve().parent / (
+            Path(predictions_file).stem + ".swtbench_eval.timeline.json"
+        )
 
         # Clone SWT-Bench repository if it doesn't exist
         if not swt_bench_dir.exists():
+            clone_start = time.perf_counter_ns()
             logger.info("Setting up SWT-Bench source in global cache...")
             cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -214,20 +365,35 @@ def run_swtbench_evaluation(
                 raise subprocess.CalledProcessError(result.returncode, clone_cmd)
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
+            record("clone_swt_bench", clone_start)
+        else:
+            record("reuse_swt_bench_cache", time.perf_counter_ns())
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
 
         # Copy predictions file to swt-bench directory
+        copy_start = time.perf_counter_ns()
         swt_predictions_file = swt_bench_dir / predictions_filename
         shutil.copy2(predictions_file, swt_predictions_file)
+        record("copy_predictions", copy_start)
+
+        # Install a profiling sitecustomize so we can capture harness timings
+        profile_env_enabled = os.environ.get("PROFILE_SWTBENCH", "1").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if profile_env_enabled:
+            _write_profile_sitecustomize(swt_bench_dir, profile_output)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
         # but using the uv environment's python executable which has all dependencies
         benchmarks_dir = Path(__file__).parent.parent.parent
 
         # Get the python executable from the uv environment
+        python_start = time.perf_counter_ns()
         python_executable = subprocess.run(
             [
                 "uv",
@@ -242,10 +408,17 @@ def run_swtbench_evaluation(
             text=True,
             cwd=benchmarks_dir,
         ).stdout.strip()
+        record("resolve_python_executable", python_start)
 
         # Set up environment with PYTHONPATH to include swt-bench directory
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(swt_bench_dir)
+        env["PYTHONPATH"] = (
+            f"{swt_bench_dir}:{env['PYTHONPATH']}"
+            if env.get("PYTHONPATH")
+            else str(swt_bench_dir)
+        )
+        if profile_env_enabled:
+            env["SWTBENCH_PROFILE_JSON"] = str(profile_output)
 
         cmd = [
             python_executable,
@@ -269,7 +442,13 @@ def run_swtbench_evaluation(
         print("-" * 80)
 
         # Stream output directly to console, running from swt-bench directory
+        harness_start = time.perf_counter_ns()
         result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
+        record(
+            "swtbench_harness",
+            harness_start,
+            {"returncode": result.returncode, "cmd": cmd},
+        )
 
         print("-" * 80)
         if result.returncode == 0:
@@ -279,7 +458,12 @@ def run_swtbench_evaluation(
                 f"SWT-Bench evaluation failed with return code {result.returncode}"
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
-
+        record(
+            "swtbench_eval_total",
+            eval_start_ns,
+            {"events_recorded": len(timeline)},
+        )
+        success = True
     except FileNotFoundError:
         logger.error(
             "SWT-Bench evaluation command not found. "
@@ -289,6 +473,27 @@ def run_swtbench_evaluation(
     except Exception as e:
         logger.error(f"Error running SWT-Bench evaluation: {e}")
         raise
+    finally:
+        if not success:
+            record(
+                "swtbench_eval_total",
+                eval_start_ns,
+                {"events_recorded": len(timeline), "status": "error"},
+            )
+        timeline_payload = {
+            "predictions_file": str(predictions_file),
+            "dataset": dataset,
+            "workers": workers,
+            "started_ns": eval_start_ns,
+            "ended_ns": time.perf_counter_ns(),
+            "status": "ok" if success else "error",
+            "events": timeline,
+        }
+        try:
+            timeline_file.write_text(json.dumps(timeline_payload, indent=2))
+            logger.info("Wrote timeline to %s", timeline_file)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to write SWTBench timeline: %s", e)
 
 
 def main() -> None:

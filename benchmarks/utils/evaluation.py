@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import sys
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -461,6 +462,21 @@ class Evaluation(ABC, BaseModel):
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the parent can stream results
         """
+        timeline_dir = Path(self.metadata.eval_output_dir) / "timelines"
+        timeline_dir.mkdir(parents=True, exist_ok=True)
+
+        def write_timeline(entry: dict[str, object]) -> None:
+            path = timeline_dir / f"{instance.id}.attempt{entry.get('attempt', 0)}.json"
+            try:
+                path.write_text(json.dumps(entry, indent=2))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "[child] Failed to write timeline for %s attempt %s: %s",
+                    instance.id,
+                    entry.get("attempt"),
+                    e,
+                )
+
         # Set up instance-specific logging
         log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
         reset_logger_for_multiprocessing(log_dir, instance.id)
@@ -480,6 +496,12 @@ class Evaluation(ABC, BaseModel):
 
             while retry_count <= max_retries:
                 workspace = None
+                attempt_index = retry_count + 1
+                attempt_start_ns = time.perf_counter_ns()
+                attempt_start_ts = datetime.now(timezone.utc).isoformat()
+                attempt_status = "error"
+                phases: list[dict[str, object]] = []
+                resource_factor = self.metadata.base_resource_factor
 
                 # Start Laminar execution span and inject context into os.environ so workspace can pick it up
                 # Escape the serialized context to safely pass as a cli argument
@@ -506,10 +528,18 @@ class Evaluation(ABC, BaseModel):
                             f"resource_factor={resource_factor}"
                         )
 
+                    ws_start = time.perf_counter_ns()
                     workspace = self.prepare_workspace(
                         instance,
                         resource_factor=resource_factor,
                         forward_env=LMNR_ENV_VARS,
+                    )
+                    phases.append(
+                        {
+                            "name": "prepare_workspace",
+                            "start_ns": ws_start,
+                            "end_ns": time.perf_counter_ns(),
+                        }
                     )
 
                     # Record runtime/pod mapping only for remote runtimes
@@ -535,10 +565,19 @@ class Evaluation(ABC, BaseModel):
                             runtime_run.session_id,
                             runtime_run.resource_factor,
                         )
+                    eval_start = time.perf_counter_ns()
                     out = self.evaluate_instance(instance, workspace)
+                    phases.append(
+                        {
+                            "name": "evaluate_instance",
+                            "start_ns": eval_start,
+                            "end_ns": time.perf_counter_ns(),
+                        }
+                    )
                     if runtime_runs:
                         out.runtime_runs = runtime_runs
                     logger.info("[child] done id=%s", instance.id)
+                    attempt_status = "ok"
                     return instance, out
                 except Exception as e:
                     last_error = e
@@ -593,6 +632,7 @@ class Evaluation(ABC, BaseModel):
                         return instance, error_output
                 finally:
                     # Ensure workspace cleanup happens regardless of success or failure
+                    cleanup_start = time.perf_counter_ns()
                     if workspace is not None:
                         try:
                             self._capture_conversation_archive(workspace, instance)
@@ -614,6 +654,40 @@ class Evaluation(ABC, BaseModel):
                                 f"{str(cleanup_error)[:50]}"
                             )
                     lmnr_span.end()
+                    phases.append(
+                        {
+                            "name": "cleanup",
+                            "start_ns": cleanup_start,
+                            "end_ns": time.perf_counter_ns(),
+                        }
+                    )
+                    attempt_end_ns = time.perf_counter_ns()
+                    write_timeline(
+                        {
+                            "instance_id": instance.id,
+                            "attempt": attempt_index,
+                            "critic_attempt": critic_attempt,
+                            "status": attempt_status,
+                            "error": (str(last_error) if attempt_status != "ok" else None),
+                            "start_ts": attempt_start_ts,
+                            "end_ts": datetime.now(timezone.utc).isoformat(),
+                            "duration_ms": (attempt_end_ns - attempt_start_ns)
+                            / 1_000_000,
+                            "resource_factor": resource_factor,
+                            "runtime_failure_count": runtime_failure_count,
+                            "phases": [
+                                {
+                                    "name": p["name"],
+                                    "duration_ms": (
+                                        (p["end_ns"] - p["start_ns"]) / 1_000_000
+                                    ),
+                                    "start_ns": p["start_ns"],
+                                    "end_ns": p["end_ns"],
+                                }
+                                for p in phases
+                            ],
+                        }
+                    )
 
             # This should never be reached, but added for type safety
             error_output = self._create_error_output(
