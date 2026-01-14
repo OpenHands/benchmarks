@@ -467,15 +467,7 @@ class Evaluation(ABC, BaseModel):
 
         def write_timeline(entry: dict[str, object]) -> None:
             path = timeline_dir / f"{instance.id}.attempt{entry.get('attempt', 0)}.json"
-            try:
-                path.write_text(json.dumps(entry, indent=2))
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "[child] Failed to write timeline for %s attempt %s: %s",
-                    instance.id,
-                    entry.get("attempt"),
-                    e,
-                )
+            path.write_text(json.dumps(entry, indent=2))
 
         # Set up instance-specific logging
         log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
