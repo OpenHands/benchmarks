@@ -145,10 +145,6 @@ def build_env_images(
                     continue
             continue
 
-        if ensure_local(key):
-            base_to_push.add(key)
-            continue
-
         base_to_build_keys.add(key)
 
     missing_base_specs = [base_spec_by_key[k] for k in base_to_build_keys]
@@ -178,11 +174,6 @@ def build_env_images(
 
         if remote_tag and remote_image_exists(remote_tag):
             logger.info("Env image %s already in registry; skipping build", remote_tag)
-            continue
-
-        if ensure_local(key):
-            logger.info("Env image %s already present locally; reusing", key)
-            env_to_push.add(key)
             continue
 
         missing_env_specs.append(spec)
