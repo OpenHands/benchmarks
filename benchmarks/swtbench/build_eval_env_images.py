@@ -174,7 +174,7 @@ def main() -> None:
     parser.add_argument(
         "--build-mode",
         choices=["api", "cli"],
-        default="api",
+        default="cli",
         help="swt-bench build mode",
     )
     parser.add_argument(

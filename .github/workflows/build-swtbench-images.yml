@@ -194,7 +194,29 @@ jobs:
           IMAGE_PREFIX="${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}"
           EVAL_ARCH="${{ inputs.eval-arch || 'x86_64' }}"
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
-          BUILD_MODE="${{ inputs.build-mode || 'api' }}"
+          BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
+          # Map to docker platform string
+          if [ "${EVAL_ARCH}" = "x86_64" ]; then
+            DOCKER_PLATFORM="linux/amd64"
+          else
+            DOCKER_PLATFORM="linux/${EVAL_ARCH}"
+          fi
+
+          # Basic BuildKit disk guard similar to SWE-bench
+          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
+            LINE=$(tail -n1 /tmp/buildkit_df)
+            TOTAL=$(echo "$LINE" | awk '{print $2}')
+            USED=$(echo "$LINE" | awk '{print $3}')
+            FREE=$(echo "$LINE" | awk '{print $4}')
+            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
+              PCT=$(( 100 * USED / TOTAL ))
+              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
+            else
+              echo "Warning: unable to parse df output for /var/lib/buildkit"
+            fi
+          else
+            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
 
           ARGS=(--dataset "${DATASET}" --split "${SPLIT}" --image-prefix "${IMAGE_PREFIX}" --max-workers "${MAX_WORKERS}" --build-mode "${BUILD_MODE}")
           if [ -n "${INSTANCE_IDS}" ]; then
@@ -207,6 +229,10 @@ jobs:
           fi
 
           echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"
+          DOCKER_DEFAULT_PLATFORM="${DOCKER_PLATFORM}" \
+          DOCKER_BUILDKIT=1 \
+          BUILDKIT_PROGRESS=plain \
+          BUILDKIT_RESET_ON_FAILURE=1 \
           PYTHONUNBUFFERED=1 uv run swtbench-build-eval-images "${ARGS[@]}" | tee build_eval_env.log
 
           echo "Completed prebaked eval env image build at $(date -u)"
