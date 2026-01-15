@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator, List, Sequence
 
 import docker
 
@@ -81,11 +81,18 @@ def load_exec_specs(
     return specs
 
 
-def build_env_images(exec_specs: list, max_workers: int, build_mode: str) -> None:
+def build_env_images(
+    exec_specs: list,
+    max_workers: int,
+    build_mode: str,
+    max_retries: int,
+    batch_size: int,
+) -> None:
     """
     Build base + environment images required by the provided ExecSpecs.
     """
     from src.docker_build import (  # type: ignore[import-not-found]
+        BuildImageError,
         build_base_images,
         build_env_images as build_envs,
     )
@@ -99,13 +106,49 @@ def build_env_images(exec_specs: list, max_workers: int, build_mode: str) -> Non
         max_workers,
     )
     build_base_images(client, exec_specs, force_rebuild=False, build_mode=build_mode)
-    build_envs(
-        client,
-        exec_specs,
-        force_rebuild=False,
-        max_workers=max_workers,
-        build_mode=build_mode,
+    batches = list(chunked(exec_specs, max(1, batch_size)))
+    logger.info(
+        "Building env images in %s batches (batch_size=%s)", len(batches), batch_size
     )
+    for idx, batch in enumerate(batches, start=1):
+        attempt = 0
+        while True:
+            try:
+                logger.info(
+                    "Batch %s/%s: building %s env images", idx, len(batches), len(batch)
+                )
+                build_envs(
+                    client,
+                    batch,
+                    force_rebuild=False,
+                    max_workers=max_workers,
+                    build_mode=build_mode,
+                )
+                break
+            except BuildImageError as exc:
+                attempt += 1
+                if attempt > max_retries:
+                    logger.error(
+                        "Batch %s/%s failed after %s attempts: %s",
+                        idx,
+                        len(batches),
+                        max_retries,
+                        exc,
+                    )
+                    raise
+                logger.warning(
+                    "Batch %s/%s failed (attempt %s/%s): %s; retrying",
+                    idx,
+                    len(batches),
+                    attempt,
+                    max_retries,
+                    exc,
+                )
+
+
+def chunked(seq: Sequence, size: int) -> Iterator[List]:
+    for i in range(0, len(seq), size):
+        yield list(seq[i : i + size])
 
 
 def tag_and_push(images: Iterable[str], prefix: str) -> list[str]:
@@ -172,6 +215,18 @@ def main() -> None:
         help="Parallel builds for env images",
     )
     parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=2,
+        help="Retries per batch for env image builds",
+    )
+    parser.add_argument(
+        "--build-batch-size",
+        type=int,
+        default=10,
+        help="Number of env images to build per batch",
+    )
+    parser.add_argument(
         "--build-mode",
         choices=["api", "cli"],
         default="cli",
@@ -210,7 +265,11 @@ def main() -> None:
         logger.info("Overrode ExecSpec architecture to %s", args.arch)
 
     build_env_images(
-        exec_specs, max_workers=args.max_workers, build_mode=args.build_mode
+        exec_specs,
+        max_workers=args.max_workers,
+        build_mode=args.build_mode,
+        max_retries=args.max_retries,
+        batch_size=args.build_batch_size,
     )
 
     base_images = {spec.base_image_key for spec in exec_specs}

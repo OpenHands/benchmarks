@@ -52,6 +52,16 @@ on:
         options:
           - x86_64
           - arm64
+      max-retries:
+        description: 'Retries per batch for eval env builds'
+        required: false
+        default: '2'
+        type: string
+      build-batch-size:
+        description: 'Env images per batch for eval env builds'
+        required: false
+        default: '10'
+        type: string
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -195,6 +205,12 @@ jobs:
           EVAL_ARCH="${{ inputs.eval-arch || 'x86_64' }}"
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
+          MAX_RETRIES="${{ inputs.max-retries || '2' }}"
+          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '10' }}"
+
+          echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
+          echo "MAX_RETRIES=${MAX_RETRIES}" >> "$GITHUB_ENV"
+          echo "BUILD_BATCH_SIZE=${BUILD_BATCH_SIZE}" >> "$GITHUB_ENV"
           # Map to docker platform string
           if [ "${EVAL_ARCH}" = "x86_64" ]; then
             DOCKER_PLATFORM="linux/amd64"
@@ -218,7 +234,7 @@ jobs:
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
           fi
 
-          ARGS=(--dataset "${DATASET}" --split "${SPLIT}" --image-prefix "${IMAGE_PREFIX}" --max-workers "${MAX_WORKERS}" --build-mode "${BUILD_MODE}")
+          ARGS=(--dataset "${DATASET}" --split "${SPLIT}" --image-prefix "${IMAGE_PREFIX}" --max-workers "${MAX_WORKERS}" --build-mode "${BUILD_MODE}" --max-retries "${MAX_RETRIES}" --build-batch-size "${BUILD_BATCH_SIZE}")
           if [ -n "${INSTANCE_IDS}" ]; then
             ARGS+=(--instance-ids "${INSTANCE_IDS}")
           else
