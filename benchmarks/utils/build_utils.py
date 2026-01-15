@@ -275,6 +275,68 @@ def get_build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@contextlib.contextmanager
+def _patch_dockerfile_for_apt_repository_changes():
+    """
+    HACK: Temporarily patch the SDK Dockerfile to allow apt repository metadata changes.
+    
+    Why this hack exists:
+    - Multi-SWE-Bench base images include third-party apt repositories (e.g., Azul Zulu JDK)
+    - These repositories sometimes change their metadata (Origin, Label, etc.)
+    - apt-get's security check rejects such changes by default to prevent repo hijacking
+    - The error: "Repository 'X' changed its 'Origin' value from 'Y' to 'Z'"
+    
+    Why we don't fix this in the SDK:
+    - This is a Multi-SWE-Bench-specific problem caused by their choice of base images
+    - The SDK is general-purpose infrastructure used by many consumers
+    - We shouldn't pollute shared infrastructure with downstream-specific workarounds
+    - Keeping this hack here makes it clear where the problem originates
+    
+    Alternative approaches considered:
+    - Fix Multi-SWE-Bench base images (proper solution, but requires rebuilding all images)
+    - Add build arg to SDK (compromise, but still carries the workaround in SDK code)
+    - On-the-fly patching (current approach - keeps the smell with the problem)
+    
+    This patches all apt-get update commands in the SDK Dockerfile to use
+    --allow-releaseinfo-change flag, then reverts the changes after the build.
+    """
+    sdk_root = Path(__file__).resolve().parents[2] / "vendor" / "software-agent-sdk"
+    dockerfile_path = (
+        sdk_root
+        / "openhands-agent-server"
+        / "openhands"
+        / "agent_server"
+        / "docker"
+        / "Dockerfile"
+    )
+    
+    if not dockerfile_path.exists():
+        # If Dockerfile doesn't exist, just proceed without patching
+        # (submodule might not be initialized in some environments)
+        logger.warning(f"SDK Dockerfile not found at {dockerfile_path}, skipping patch")
+        yield
+        return
+    
+    # Read original content
+    original_content = dockerfile_path.read_text()
+    
+    # Patch: add --allow-releaseinfo-change to all apt-get update commands
+    patched_content = original_content.replace(
+        "apt-get update;",
+        "apt-get update --allow-releaseinfo-change;"
+    )
+    
+    try:
+        # Write patched version
+        dockerfile_path.write_text(patched_content)
+        logger.info("Applied apt-get repository change workaround to SDK Dockerfile")
+        yield
+    finally:
+        # Always restore original content, even if build fails
+        dockerfile_path.write_text(original_content)
+        logger.info("Restored original SDK Dockerfile")
+
+
 def build_image(
     base_image: str,
     target_image: str,
@@ -303,7 +365,11 @@ def build_image(
         if image_exists(t):
             logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
-    tags = build(opts)
+    
+    # Apply Multi-SWE-Bench-specific apt repository workaround
+    with _patch_dockerfile_for_apt_repository_changes():
+        tags = build(opts)
+    
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
 
