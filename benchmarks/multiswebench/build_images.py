@@ -163,10 +163,11 @@ def main():
         build_dir=Path(
             args.output_dir or default_build_output_dir(args.dataset, args.split)
         ),
-        max_workers=args.num_workers,
+        max_workers=args.max_workers,
         push=args.push,
+        max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
-        dry_run=False,
+        dry_run=args.dry_run,
     )
 
 
