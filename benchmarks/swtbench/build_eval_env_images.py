@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Iterable, Iterator, List, Sequence
@@ -11,6 +12,7 @@ from docker.errors import ImageNotFound
 
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.image_utils import image_exists as remote_image_exists
 from openhands.sdk import get_logger
 
 
@@ -58,9 +60,14 @@ def load_exec_specs(
     from src.dataset import load_swebench_dataset  # type: ignore[import-not-found]
     from src.exec_spec import make_exec_spec  # type: ignore[import-not-found]
 
-    dataset_entries = load_swebench_dataset(
-        name=dataset, split=split, is_swt=False, filter_swt=filter_swt
-    )
+    cwd = os.getcwd()
+    try:
+        os.chdir(swt_bench_dir)
+        dataset_entries = load_swebench_dataset(
+            name=dataset, split=split, is_swt=False, filter_swt=filter_swt
+        )
+    finally:
+        os.chdir(cwd)
     by_id = {entry["instance_id"]: entry for entry in dataset_entries}
 
     specs = []
@@ -88,7 +95,8 @@ def build_env_images(
     build_mode: str,
     max_retries: int,
     batch_size: int,
-) -> None:
+    image_prefix: str | None,
+) -> tuple[set[str], set[str]]:
     """
     Build base + environment images required by the provided ExecSpecs.
     """
@@ -101,14 +109,50 @@ def build_env_images(
     client = docker.from_env()
     total_base = len({spec.base_image_key for spec in exec_specs})
     total_env = len({spec.env_image_key for spec in exec_specs})
+    remote_prefix = image_prefix.rstrip("/") if image_prefix else None
 
-    base_missing: dict[str, bool] = {}
+    base_to_push: set[str] = set()
+    base_to_build_keys: set[str] = set()
+
+    def prefixed(tag: str) -> str | None:
+        return f"{remote_prefix}/{tag}" if remote_prefix else None
+
+    def ensure_local(tag: str) -> bool:
+        try:
+            client.images.get(tag)
+            return True
+        except ImageNotFound:
+            return False
+
+    base_spec_by_key = {}
     for spec in exec_specs:
         key = spec.base_image_key
-        if key not in base_missing:
-            base_missing[key] = not image_exists(client, key)
-    missing_base_specs = [spec for spec in exec_specs if base_missing[spec.base_image_key]]
-    skipped_base = total_base - len({spec.base_image_key for spec in missing_base_specs})
+        base_spec_by_key.setdefault(key, spec)
+        remote_tag = prefixed(key)
+
+        if remote_tag and remote_image_exists(remote_tag):
+            logger.info("Base image %s already in registry; reusing", remote_tag)
+            if not ensure_local(key):
+                try:
+                    img = client.images.pull(remote_tag)
+                    if remote_tag != key:
+                        img.tag(key)
+                except Exception as exc:  # pragma: no cover - best effort
+                    logger.warning(
+                        "Failed to pull %s (%s); will rebuild locally", remote_tag, exc
+                    )
+                    base_to_build_keys.add(key)
+                    continue
+            continue
+
+        if ensure_local(key):
+            base_to_push.add(key)
+            continue
+
+        base_to_build_keys.add(key)
+
+    missing_base_specs = [base_spec_by_key[k] for k in base_to_build_keys]
+    skipped_base = total_base - len(base_to_build_keys)
 
     if missing_base_specs:
         logger.info(
@@ -120,18 +164,32 @@ def build_env_images(
         build_base_images(
             client, missing_base_specs, force_rebuild=False, build_mode=build_mode
         )
+        base_built = {spec.base_image_key for spec in missing_base_specs}
+        base_to_push.update(base_built)
     else:
         logger.info("All %s base images already exist; skipping base builds", total_base)
 
-    env_missing: dict[str, bool] = {}
+    env_to_push: set[str] = set()
+    missing_env_specs: list = []
+
     for spec in exec_specs:
         key = spec.env_image_key
-        if key not in env_missing:
-            env_missing[key] = not image_exists(client, key)
-    missing_env_specs = [spec for spec in exec_specs if env_missing[spec.env_image_key]]
+        remote_tag = prefixed(key)
+
+        if remote_tag and remote_image_exists(remote_tag):
+            logger.info("Env image %s already in registry; skipping build", remote_tag)
+            continue
+
+        if ensure_local(key):
+            logger.info("Env image %s already present locally; reusing", key)
+            env_to_push.add(key)
+            continue
+
+        missing_env_specs.append(spec)
+
     if not missing_env_specs:
         logger.info("All %s env images already exist; skipping env builds", total_env)
-        return
+        return base_to_push, env_to_push
 
     batches = list(chunked(missing_env_specs, max(1, batch_size)))
     logger.info(
@@ -175,19 +233,14 @@ def build_env_images(
                     max_retries,
                     exc,
                 )
+    env_to_push.update({spec.env_image_key for spec in missing_env_specs})
+
+    return base_to_push, env_to_push
 
 
 def chunked(seq: Sequence, size: int) -> Iterator[List]:
     for i in range(0, len(seq), size):
         yield list(seq[i : i + size])
-
-
-def image_exists(client: docker.DockerClient, tag: str) -> bool:
-    try:
-        client.images.get(tag)
-        return True
-    except ImageNotFound:
-        return False
 
 
 def tag_and_push(images: Iterable[str], prefix: str) -> list[str]:
@@ -303,12 +356,13 @@ def main() -> None:
             spec.arch = args.arch
         logger.info("Overrode ExecSpec architecture to %s", args.arch)
 
-    build_env_images(
+    base_to_push, env_to_push = build_env_images(
         exec_specs,
         max_workers=args.max_workers,
         build_mode=args.build_mode,
         max_retries=args.max_retries,
         batch_size=args.build_batch_size,
+        image_prefix=None if args.no_push else args.image_prefix,
     )
 
     base_images = {spec.base_image_key for spec in exec_specs}
@@ -316,8 +370,12 @@ def main() -> None:
     logger.info("Built images: %s base, %s env", len(base_images), len(env_images))
 
     if not args.no_push:
-        pushed = tag_and_push(base_images | env_images, args.image_prefix)
-        logger.info("Pushed %s images", len(pushed))
+        to_push = base_to_push | env_to_push
+        if to_push:
+            pushed = tag_and_push(to_push, args.image_prefix)
+            logger.info("Pushed %s images", len(pushed))
+        else:
+            logger.info("No images need pushing; all present in registry")
 
     manifest = {
         "dataset": args.dataset,
