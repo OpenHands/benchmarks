@@ -181,6 +181,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Starting prebaked eval env image build at $(date -u)"
+          echo "Runner: $(uname -a)"
+          df -h
+          docker system df || true
+          docker info || true
+
           DATASET="${{ inputs.dataset || 'princeton-nlp/SWE-bench_Verified' }}"
           SPLIT="${{ inputs.split || 'test' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
@@ -201,7 +207,11 @@ jobs:
           fi
 
           echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"
-          uv run swtbench-build-eval-images "${ARGS[@]}"
+          PYTHONUNBUFFERED=1 uv run swtbench-build-eval-images "${ARGS[@]}" | tee build_eval_env.log
+
+          echo "Completed prebaked eval env image build at $(date -u)"
+          docker ps -a || true
+          docker system df || true
 
       - name: Archive build logs
         if: always()
