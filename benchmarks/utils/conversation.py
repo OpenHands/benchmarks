@@ -76,7 +76,7 @@ def build_event_persistence_callback(
     Small events are logged in full; large events log metadata only to avoid
     size limits and ensure logs persist beyond pod lifetime.
     Logging is enabled by default; set ENABLE_CONVERSATION_EVENT_LOGGING to a
-    falsy value to disable.
+    falsey value to disable.
 
     Args:
         run_id: Unique identifier for this evaluation run (e.g., job name).
@@ -86,14 +86,7 @@ def build_event_persistence_callback(
     Returns:
         A callback function to be passed to Conversation.
     """
-    env_value = os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR)
-    logging_enabled = (
-        True
-        if env_value is None
-        else env_value.strip().lower() not in {"0", "false", "no", "off", ""}
-    )
-
-    if not logging_enabled:
+    if not bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, True)):
         return lambda event: None
 
     def _persist_event(event: Event) -> None:
