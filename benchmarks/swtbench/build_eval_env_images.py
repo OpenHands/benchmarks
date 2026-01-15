@@ -154,7 +154,9 @@ def build_env_images(
         base_built = {spec.base_image_key for spec in missing_base_specs}
         base_to_push.update(base_built)
     else:
-        logger.info("All %s base images already exist; skipping base builds", total_base)
+        logger.info(
+            "All %s base images already exist; skipping base builds", total_base
+        )
 
     env_to_push: set[str] = set()
     missing_env_specs: list = []
