@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Callable
 
 from openhands.sdk import Event, get_logger
@@ -86,8 +85,9 @@ def build_event_persistence_callback(
     Returns:
         A callback function to be passed to Conversation.
     """
-    if not bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, True)):
-        return lambda event: None
+    # if not bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, True)):
+    #     return lambda event: None
+    # TODO: Re-enable the above once we have debugged runtime issues
 
     def _persist_event(event: Event) -> None:
         try:
