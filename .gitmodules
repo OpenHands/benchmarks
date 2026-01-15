@@ -1,3 +1,3 @@
 [submodule "vendor/software-agent-sdk"]
 	path = vendor/software-agent-sdk
-	url = https://github.com/OpenHands/software-agent-sdk.git
+	url = https://github.com/supermodeltools/software-agent-sdk.git
