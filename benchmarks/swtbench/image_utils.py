@@ -44,59 +44,6 @@ def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
     return swt_bench_dir
 
 
-def patch_swt_bench_for_micromamba(
-    swt_bench_dir: Path, solver_timeout_s: int = 300
-) -> None:
-    """
-    Patch the cached swt-bench checkout to use micromamba with timeouts when
-    building environments. Idempotent: safe to call multiple times.
-    """
-    dockerfiles_path = swt_bench_dir / "src" / "dockerfiles.py"
-    exec_spec_path = swt_bench_dir / "src" / "exec_spec.py"
-
-    if not dockerfiles_path.exists() or not exec_spec_path.exists():
-        logger.warning(
-            "swt-bench sources missing expected files; skipping micromamba patch "
-            "(dockerfiles: %s, exec_spec: %s)",
-            dockerfiles_path.exists(),
-            exec_spec_path.exists(),
-        )
-        return
-
-    dockerfiles_text = dockerfiles_path.read_text()
-    dockerfiles_updated = dockerfiles_text.replace(
-        "RUN conda config --append channels conda-forge\n\nRUN adduser",
-        "RUN conda config --append channels conda-forge\n"
-        "# Use micromamba for faster solver performance during env builds\n"
-        "RUN conda install -n base -c conda-forge -y micromamba \\\n"
-        " && ln -s /opt/miniconda3/bin/micromamba /usr/local/bin/micromamba\n"
-        "ENV MAMBA_ROOT_PREFIX=/opt/miniconda3\n"
-        "ENV MAMBA_EXE=/opt/miniconda3/bin/micromamba\n\n"
-        "RUN adduser",
-    )
-
-    exec_spec_text = exec_spec_path.read_text()
-    replacements = {
-        "conda create -n ": f"timeout {solver_timeout_s}s micromamba create -n ",
-        "conda create -c conda-forge -n ": f"timeout {solver_timeout_s}s micromamba create -c conda-forge -n ",
-        "conda env create --file": f"timeout {solver_timeout_s}s micromamba env create --file",
-        "conda env update -f": f"timeout {solver_timeout_s}s micromamba env update -f",
-        "conda install python=": f"timeout {solver_timeout_s}s micromamba install python=",
-    }
-    for old, new in replacements.items():
-        exec_spec_text = exec_spec_text.replace(old, new)
-
-    if dockerfiles_text != dockerfiles_updated:
-        dockerfiles_path.write_text(dockerfiles_updated)
-        logger.info("Patched swt-bench Dockerfile template to install micromamba.")
-    if exec_spec_path.read_text() != exec_spec_text:
-        exec_spec_path.write_text(exec_spec_text)
-        logger.info(
-            "Patched swt-bench exec_spec to use micromamba with a %ss timeout.",
-            solver_timeout_s,
-        )
-
-
 def _load_instance_ids(output_jsonl: Path) -> list[str]:
     instance_ids: list[str] = []
     seen = set()

@@ -17,10 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from benchmarks.swtbench.image_utils import (
-    ensure_swt_bench_repo,
-    patch_swt_bench_for_micromamba,
-)
+from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -198,7 +195,6 @@ def run_swtbench_evaluation(
 
     try:
         swt_bench_dir = ensure_swt_bench_repo()
-        patch_swt_bench_for_micromamba(swt_bench_dir)
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
