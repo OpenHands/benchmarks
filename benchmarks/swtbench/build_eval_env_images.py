@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Iterable, Iterator, List, Sequence
 
 import docker
-from docker.errors import ImageNotFound
 
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.dataset import get_dataset
@@ -117,13 +116,6 @@ def build_env_images(
     def prefixed(tag: str) -> str | None:
         return f"{remote_prefix}/{tag}" if remote_prefix else None
 
-    def ensure_local(tag: str) -> bool:
-        try:
-            client.images.get(tag)
-            return True
-        except ImageNotFound:
-            return False
-
     base_spec_by_key = {}
     for spec in exec_specs:
         key = spec.base_image_key
@@ -132,17 +124,16 @@ def build_env_images(
 
         if remote_tag and remote_image_exists(remote_tag):
             logger.info("Base image %s already in registry; reusing", remote_tag)
-            if not ensure_local(key):
-                try:
-                    img = client.images.pull(remote_tag)
-                    if remote_tag != key:
-                        img.tag(key)
-                except Exception as exc:  # pragma: no cover - best effort
-                    logger.warning(
-                        "Failed to pull %s (%s); will rebuild locally", remote_tag, exc
-                    )
-                    base_to_build_keys.add(key)
-                    continue
+            try:
+                img = client.images.pull(remote_tag)
+                if remote_tag != key:
+                    img.tag(key)
+            except Exception as exc:  # pragma: no cover - best effort
+                logger.warning(
+                    "Failed to pull %s (%s); will rebuild locally", remote_tag, exc
+                )
+                base_to_build_keys.add(key)
+                continue
             continue
 
         base_to_build_keys.add(key)
