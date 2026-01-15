@@ -211,12 +211,6 @@ jobs:
           echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
           echo "MAX_RETRIES=${MAX_RETRIES}" >> "$GITHUB_ENV"
           echo "BUILD_BATCH_SIZE=${BUILD_BATCH_SIZE}" >> "$GITHUB_ENV"
-          # Map to docker platform string
-          if [ "${EVAL_ARCH}" = "x86_64" ]; then
-            DOCKER_PLATFORM="linux/amd64"
-          else
-            DOCKER_PLATFORM="linux/${EVAL_ARCH}"
-          fi
 
           # Basic BuildKit disk guard similar to SWE-bench
           if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
@@ -245,7 +239,6 @@ jobs:
           fi
 
           echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"
-          DOCKER_DEFAULT_PLATFORM="${DOCKER_PLATFORM}" \
           DOCKER_BUILDKIT=1 \
           BUILDKIT_PROGRESS=plain \
           BUILDKIT_RESET_ON_FAILURE=1 \
