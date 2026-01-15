@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, List, Sequence
 
 import docker
+from docker.errors import ImageNotFound
 
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.dataset import get_dataset
@@ -98,17 +99,47 @@ def build_env_images(
     )
 
     client = docker.from_env()
+    total_base = len({spec.base_image_key for spec in exec_specs})
+    total_env = len({spec.env_image_key for spec in exec_specs})
+
+    base_missing: dict[str, bool] = {}
+    for spec in exec_specs:
+        key = spec.base_image_key
+        if key not in base_missing:
+            base_missing[key] = not image_exists(client, key)
+    missing_base_specs = [spec for spec in exec_specs if base_missing[spec.base_image_key]]
+    skipped_base = total_base - len({spec.base_image_key for spec in missing_base_specs})
+
+    if missing_base_specs:
+        logger.info(
+            "Building %s/%s base images (skipping %s already present)",
+            len({spec.base_image_key for spec in missing_base_specs}),
+            total_base,
+            skipped_base,
+        )
+        build_base_images(
+            client, missing_base_specs, force_rebuild=False, build_mode=build_mode
+        )
+    else:
+        logger.info("All %s base images already exist; skipping base builds", total_base)
+
+    env_missing: dict[str, bool] = {}
+    for spec in exec_specs:
+        key = spec.env_image_key
+        if key not in env_missing:
+            env_missing[key] = not image_exists(client, key)
+    missing_env_specs = [spec for spec in exec_specs if env_missing[spec.env_image_key]]
+    if not missing_env_specs:
+        logger.info("All %s env images already exist; skipping env builds", total_env)
+        return
+
+    batches = list(chunked(missing_env_specs, max(1, batch_size)))
     logger.info(
-        "Building %s base images and %s env images (mode=%s, workers=%s)",
-        len({spec.base_image_key for spec in exec_specs}),
-        len({spec.env_image_key for spec in exec_specs}),
-        build_mode,
-        max_workers,
-    )
-    build_base_images(client, exec_specs, force_rebuild=False, build_mode=build_mode)
-    batches = list(chunked(exec_specs, max(1, batch_size)))
-    logger.info(
-        "Building env images in %s batches (batch_size=%s)", len(batches), batch_size
+        "Building %s/%s env images in %s batches (batch_size=%s)",
+        len({spec.env_image_key for spec in missing_env_specs}),
+        total_env,
+        len(batches),
+        batch_size,
     )
     for idx, batch in enumerate(batches, start=1):
         attempt = 0
@@ -149,6 +180,14 @@ def build_env_images(
 def chunked(seq: Sequence, size: int) -> Iterator[List]:
     for i in range(0, len(seq), size):
         yield list(seq[i : i + size])
+
+
+def image_exists(client: docker.DockerClient, tag: str) -> bool:
+    try:
+        client.images.get(tag)
+        return True
+    except ImageNotFound:
+        return False
 
 
 def tag_and_push(images: Iterable[str], prefix: str) -> list[str]:
