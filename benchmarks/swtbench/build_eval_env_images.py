@@ -95,9 +95,12 @@ def build_env_images(
     max_retries: int,
     batch_size: int,
     image_prefix: str | None,
-) -> tuple[set[str], set[str]]:
+) -> None:
     """
     Build base + environment images required by the provided ExecSpecs.
+
+    Images are pushed immediately after each successful build when image_prefix is set,
+    so partial progress is kept if the workflow fails mid-run.
     """
     from src.docker_build import (  # type: ignore[import-not-found]
         BuildImageError,
@@ -110,7 +113,6 @@ def build_env_images(
     total_env = len({spec.env_image_key for spec in exec_specs})
     remote_prefix = image_prefix.rstrip("/") if image_prefix else None
 
-    base_to_push: set[str] = set()
     base_to_build_keys: set[str] = set()
 
     def prefixed(tag: str) -> str | None:
@@ -152,13 +154,13 @@ def build_env_images(
             client, missing_base_specs, force_rebuild=False, build_mode=build_mode
         )
         base_built = {spec.base_image_key for spec in missing_base_specs}
-        base_to_push.update(base_built)
+        if image_prefix:
+            tag_and_push(base_built, image_prefix)
     else:
         logger.info(
             "All %s base images already exist; skipping base builds", total_base
         )
 
-    env_to_push: set[str] = set()
     missing_env_specs: list = []
 
     for spec in exec_specs:
@@ -173,7 +175,7 @@ def build_env_images(
 
     if not missing_env_specs:
         logger.info("All %s env images already exist; skipping env builds", total_env)
-        return base_to_push, env_to_push
+        return
 
     batches = list(chunked(missing_env_specs, max(1, batch_size)))
     logger.info(
@@ -197,6 +199,8 @@ def build_env_images(
                     max_workers=max_workers,
                     build_mode=build_mode,
                 )
+                if image_prefix:
+                    tag_and_push({spec.env_image_key for spec in batch}, image_prefix)
                 break
             except BuildImageError as exc:
                 attempt += 1
@@ -217,9 +221,7 @@ def build_env_images(
                     max_retries,
                     exc,
                 )
-    env_to_push.update({spec.env_image_key for spec in missing_env_specs})
-
-    return base_to_push, env_to_push
+    return
 
 
 def chunked(seq: Sequence, size: int) -> Iterator[List]:
@@ -340,7 +342,7 @@ def main() -> None:
             spec.arch = args.arch
         logger.info("Overrode ExecSpec architecture to %s", args.arch)
 
-    base_to_push, env_to_push = build_env_images(
+    build_env_images(
         exec_specs,
         max_workers=args.max_workers,
         build_mode=args.build_mode,
@@ -352,14 +354,6 @@ def main() -> None:
     base_images = {spec.base_image_key for spec in exec_specs}
     env_images = {spec.env_image_key for spec in exec_specs}
     logger.info("Built images: %s base, %s env", len(base_images), len(env_images))
-
-    if not args.no_push:
-        to_push = base_to_push | env_to_push
-        if to_push:
-            pushed = tag_and_push(to_push, args.image_prefix)
-            logger.info("Pushed %s images", len(pushed))
-        else:
-            logger.info("No images need pushing; all present in registry")
 
     manifest = {
         "dataset": args.dataset,
