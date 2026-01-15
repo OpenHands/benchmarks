@@ -182,12 +182,6 @@ def main() -> None:
         action="store_true",
         help="Build images locally without pushing to the registry",
     )
-    parser.add_argument(
-        "--use-micromamba",
-        action="store_true",
-        help="Patch swt-bench to use micromamba when building images "
-        "(changes env hash; off by default)",
-    )
     args = parser.parse_args()
 
     instance_ids = (
@@ -199,10 +193,6 @@ def main() -> None:
     selected_file = args.selected_instances_file or None
 
     swt_bench_dir = ensure_swt_bench_repo()
-    if args.use_micromamba:
-        from benchmarks.swtbench.image_utils import patch_swt_bench_for_micromamba
-
-        patch_swt_bench_for_micromamba(swt_bench_dir)
 
     target_ids = select_instance_ids(
         dataset=args.dataset,
