@@ -32,7 +32,7 @@ def patch_swt_bench_for_micromamba(swt_bench_dir: Path) -> None:
     Ensure the cached swt-bench checkout uses micromamba for env creation.
     Applies small, idempotent text replacements to the upstream sources.
     """
-    solver_timeout_s = 300
+    solver_timeout_s = 600
     dockerfiles_path = swt_bench_dir / "src" / "dockerfiles.py"
     exec_spec_path = swt_bench_dir / "src" / "exec_spec.py"
 
