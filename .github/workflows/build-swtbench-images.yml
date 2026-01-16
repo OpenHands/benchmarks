@@ -62,6 +62,11 @@ on:
         required: false
         default: '10'
         type: string
+      image-timeout:
+        description: 'Timeout in minutes for each individual image build (default: 20)'
+        required: false
+        default: '20'
+        type: string
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -76,6 +81,8 @@ jobs:
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
+
+    timeout-minutes: 720  # 12 hours max
 
     permissions:
       contents: read
@@ -207,10 +214,12 @@ jobs:
           BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
           MAX_RETRIES="${{ inputs.max-retries || '2' }}"
           BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '10' }}"
+          IMAGE_TIMEOUT="${{ inputs.image-timeout || '20' }}"
 
           echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
           echo "MAX_RETRIES=${MAX_RETRIES}" >> "$GITHUB_ENV"
           echo "BUILD_BATCH_SIZE=${BUILD_BATCH_SIZE}" >> "$GITHUB_ENV"
+          echo "IMAGE_TIMEOUT=${IMAGE_TIMEOUT}" >> "$GITHUB_ENV"
 
           # Basic BuildKit disk guard similar to SWE-bench
           if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
@@ -228,7 +237,7 @@ jobs:
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
           fi
 
-          ARGS=(--dataset "${DATASET}" --split "${SPLIT}" --image-prefix "${IMAGE_PREFIX}" --max-workers "${MAX_WORKERS}" --build-mode "${BUILD_MODE}" --max-retries "${MAX_RETRIES}" --build-batch-size "${BUILD_BATCH_SIZE}")
+          ARGS=(--dataset "${DATASET}" --split "${SPLIT}" --image-prefix "${IMAGE_PREFIX}" --max-workers "${MAX_WORKERS}" --build-mode "${BUILD_MODE}" --max-retries "${MAX_RETRIES}" --build-batch-size "${BUILD_BATCH_SIZE}" --image-timeout "${IMAGE_TIMEOUT}")
           if [ -n "${INSTANCE_IDS}" ]; then
             ARGS+=(--instance-ids "${INSTANCE_IDS}")
           else
