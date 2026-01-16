@@ -68,9 +68,9 @@ on:
         default: '10'
         type: string
       image-timeout:
-        description: 'Timeout in minutes for each individual image build (default: 10)'
+        description: 'Timeout in minutes for each individual image build (default: 4)'
         required: false
-        default: '10'
+        default: '4'
         type: string
 
 concurrency:
