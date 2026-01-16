@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import signal
 import sys
 import time
 from pathlib import Path
@@ -18,14 +17,6 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-
-# Default timeout for individual image builds (in seconds)
-DEFAULT_IMAGE_BUILD_TIMEOUT = 4 * 60  # 4 minutes
-
-
-class ImageBuildTimeout(Exception):
-    """Raised when an image build exceeds the timeout."""
-    pass
 
 
 def select_instance_ids(
@@ -98,77 +89,6 @@ def load_exec_specs(
     return specs
 
 
-def _build_single_env_image_with_timeout(
-    client,
-    spec,
-    build_mode: str,
-    timeout_seconds: int,
-) -> bool:
-    """
-    Build a single env image with a timeout.
-    
-    Returns True if successful, False if timed out or failed.
-    """
-    from src.docker_build import (  # type: ignore[import-not-found]
-        BuildImageError,
-        build_env_images as build_envs,
-    )
-    import multiprocessing
-    
-    def _build_worker(spec, build_mode, result_queue):
-        """Worker function that builds the image."""
-        try:
-            worker_client = docker.from_env()
-            build_envs(
-                worker_client,
-                [spec],
-                force_rebuild=False,
-                max_workers=1,
-                build_mode=build_mode,
-            )
-            result_queue.put(("success", None))
-        except Exception as e:
-            result_queue.put(("error", str(e)))
-    
-    result_queue = multiprocessing.Queue()
-    process = multiprocessing.Process(
-        target=_build_worker, 
-        args=(spec, build_mode, result_queue)
-    )
-    
-    start_time = time.time()
-    process.start()
-    process.join(timeout=timeout_seconds)
-    
-    if process.is_alive():
-        # Timeout occurred
-        elapsed = time.time() - start_time
-        logger.warning(
-            "⏰ TIMEOUT: Image %s exceeded %d minute timeout (elapsed: %.1f min). Skipping.",
-            spec.env_image_key,
-            timeout_seconds // 60,
-            elapsed / 60,
-        )
-        process.terminate()
-        process.join(timeout=10)
-        if process.is_alive():
-            process.kill()
-            process.join()
-        return False
-    
-    # Process completed - check result
-    if not result_queue.empty():
-        status, error = result_queue.get()
-        if status == "success":
-            return True
-        else:
-            logger.error("Image %s build failed: %s", spec.env_image_key, error)
-            return False
-    
-    # No result in queue - assume failure
-    return False
-
-
 def build_env_images(
     exec_specs: list,
     max_workers: int,
@@ -176,17 +96,12 @@ def build_env_images(
     max_retries: int,
     batch_size: int,
     image_prefix: str | None,
-    image_timeout: int = DEFAULT_IMAGE_BUILD_TIMEOUT,
 ) -> None:
     """
     Build base + environment images required by the provided ExecSpecs.
 
     Images are pushed immediately after each successful build when image_prefix is set,
     so partial progress is kept if the workflow fails mid-run.
-    
-    Args:
-        image_timeout: Maximum time in seconds for each individual image build.
-                      Images exceeding this timeout will be skipped with a warning.
     """
     from src.docker_build import (  # type: ignore[import-not-found]
         BuildImageError,
@@ -263,15 +178,13 @@ def build_env_images(
         logger.info("All %s env images already exist; skipping env builds", total_env)
         return
 
-    # Track skipped images due to timeout
-    skipped_images: list[str] = []
     successful_images: list[str] = []
+    failed_images: list[str] = []
     
     logger.info(
-        "Building %s/%s env images with %d minute timeout per image",
+        "Building %s/%s env images (no timeout)",
         len({spec.env_image_key for spec in missing_env_specs}),
         total_env,
-        image_timeout // 60,
     )
     
     for idx, spec in enumerate(missing_env_specs, start=1):
@@ -284,12 +197,15 @@ def build_env_images(
         )
         
         start_time = time.time()
-        success = _build_single_env_image_with_timeout(
-            client, spec, build_mode, image_timeout
-        )
-        elapsed = time.time() - start_time
-        
-        if success:
+        try:
+            build_envs(
+                client,
+                [spec],
+                force_rebuild=False,
+                max_workers=1,
+                build_mode=build_mode,
+            )
+            elapsed = time.time() - start_time
             logger.info(
                 "✅ Successfully built %s in %.1f min",
                 env_key,
@@ -299,25 +215,27 @@ def build_env_images(
             # Push immediately after successful build
             if image_prefix:
                 tag_and_push([env_key], image_prefix)
-        else:
-            skipped_images.append(env_key)
-            logger.warning(
-                "⚠️ SKIPPED image %s (will retry in next run)",
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(
+                "❌ Failed to build %s after %.1f min: %s",
                 env_key,
+                elapsed / 60,
+                str(e),
             )
+            failed_images.append(env_key)
     
     # Summary
     logger.info(
-        "Build summary: %d successful, %d skipped due to timeout/error",
+        "Build summary: %d successful, %d failed",
         len(successful_images),
-        len(skipped_images),
+        len(failed_images),
     )
     
-    if skipped_images:
+    if failed_images:
         logger.warning(
-            "Skipped images (exceeded %d min timeout): %s",
-            image_timeout // 60,
-            ", ".join(skipped_images),
+            "Failed images: %s",
+            ", ".join(failed_images),
         )
     
     return
@@ -414,11 +332,12 @@ def main() -> None:
         action="store_true",
         help="Build images locally without pushing to the registry",
     )
+    # Keep --image-timeout for backward compatibility but ignore it
     parser.add_argument(
         "--image-timeout",
         type=int,
-        default=DEFAULT_IMAGE_BUILD_TIMEOUT // 60,
-        help="Timeout in minutes for each individual image build (default: 20)",
+        default=0,
+        help="DEPRECATED: Timeout has been removed. Images build without timeout.",
     )
     args = parser.parse_args()
 
@@ -447,9 +366,6 @@ def main() -> None:
             spec.arch = args.arch
         logger.info("Overrode ExecSpec architecture to %s", args.arch)
 
-    # Convert timeout from minutes to seconds
-    image_timeout_seconds = args.image_timeout * 60
-
     build_env_images(
         exec_specs,
         max_workers=args.max_workers,
@@ -457,7 +373,6 @@ def main() -> None:
         max_retries=args.max_retries,
         batch_size=args.build_batch_size,
         image_prefix=None if args.no_push else args.image_prefix,
-        image_timeout=image_timeout_seconds,
     )
 
     base_images = {spec.base_image_key for spec in exec_specs}
