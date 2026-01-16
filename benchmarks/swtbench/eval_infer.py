@@ -7,6 +7,7 @@ and runs the SWT-Bench evaluation.
 
 Usage:
     uv run swtbench-eval <path_to_output.jsonl>
+    uv run swtbench-eval <path_to_output.jsonl> --use-docker-images  # Use official Docker Hub images
 """
 
 import argparse
@@ -25,6 +26,82 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+# Official SWE-bench Docker Hub image prefix
+SWEBENCH_DOCKER_IMAGE_PREFIX = "docker.io/swebench/"
+
+
+def patch_swt_bench_for_docker_images(swt_bench_dir: Path) -> None:
+    """
+    Patch swt-bench to use official pre-built Docker images from Docker Hub
+    instead of building environments from scratch with mamba/conda.
+
+    This dramatically speeds up evaluation by using the official SWE-bench
+    evaluation images (docker.io/swebench/sweb.eval.x86_64.*) which already
+    have all dependencies installed.
+    """
+    exec_spec_path = swt_bench_dir / "src" / "exec_spec.py"
+
+    if not exec_spec_path.exists():
+        logger.warning(
+            "swt-bench exec_spec.py not found; skipping Docker image patch"
+        )
+        return
+
+    exec_spec_text = exec_spec_path.read_text()
+
+    # Check if already patched
+    if "USE_OFFICIAL_DOCKER_IMAGES" in exec_spec_text:
+        logger.info("swt-bench already patched to use official Docker images.")
+        return
+
+    # Find the env_image_key property and modify it to use official Docker images
+    # The official image format is: docker.io/swebench/sweb.eval.x86_64.<repo>_1776_<issue>:latest
+    new_env_image_key_property = '''
+    @property
+    def env_image_key(self) -> str:
+        """
+        The key for the environment image.
+        
+        When USE_OFFICIAL_DOCKER_IMAGES is set, use official pre-built images
+        from Docker Hub instead of building from scratch.
+        """
+        import os
+        if os.environ.get("USE_OFFICIAL_DOCKER_IMAGES", "").lower() in ("1", "true", "yes"):
+            # Use official SWE-bench Docker Hub image
+            # Format: docker.io/swebench/sweb.eval.x86_64.<repo>_1776_<issue>:latest
+            repo_underscore = self.repo.replace("/", "_").replace("-", "_")
+            instance_name = self.instance_id.split("__")[-1]
+            return f"docker.io/swebench/sweb.eval.{self.arch}.{repo_underscore}_1776_{instance_name}:latest"
+        
+        # Original behavior: build from scratch
+        return f"exec.env.{self.arch}.{self.env_hash}:latest"
+'''
+
+    # Replace the existing env_image_key property
+    old_property_pattern = '''    @property
+    def env_image_key(self) -> str:
+        """
+        The key for the environment image is based on the hash of the environment script list.
+        If the environment script list changes, the image will be rebuilt automatically.
+
+        Note that old images are not automatically deleted, so consider cleaning up old images periodically.
+        """
+
+        return f"exec.env.{self.arch}.{self.env_hash}:latest"'''
+
+    if old_property_pattern in exec_spec_text:
+        exec_spec_text = exec_spec_text.replace(old_property_pattern, new_env_image_key_property)
+        exec_spec_path.write_text(exec_spec_text)
+        logger.info(
+            "Patched swt-bench exec_spec to support official Docker images via "
+            "USE_OFFICIAL_DOCKER_IMAGES environment variable."
+        )
+    else:
+        logger.warning(
+            "Could not find env_image_key property to patch. "
+            "The swt-bench version may have changed."
+        )
 
 
 def patch_swt_bench_for_micromamba(swt_bench_dir: Path) -> None:
@@ -228,6 +305,7 @@ def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
     workers: str = "12",
+    use_docker_images: bool = False,
 ) -> None:
     """
     Run SWT-Bench evaluation on the predictions file.
@@ -241,8 +319,16 @@ def run_swtbench_evaluation(
         predictions_file: Path to the SWT-Bench format predictions file
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
+        use_docker_images: If True, use official pre-built Docker images from
+            Docker Hub (docker.io/swebench/sweb.eval.*) instead of building
+            environments from scratch with mamba/conda. This is much faster.
     """
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
+    if use_docker_images:
+        logger.info(
+            "Using official Docker Hub images (docker.io/swebench/sweb.eval.*) "
+            "instead of building environments from scratch."
+        )
 
     try:
         # Use a global cache directory for SWT-Bench source
@@ -267,7 +353,11 @@ def run_swtbench_evaluation(
 
             logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
 
-        patch_swt_bench_for_micromamba(swt_bench_dir)
+        # Apply patches based on configuration
+        if use_docker_images:
+            patch_swt_bench_for_docker_images(swt_bench_dir)
+        else:
+            patch_swt_bench_for_micromamba(swt_bench_dir)
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
@@ -301,6 +391,10 @@ def run_swtbench_evaluation(
         env = os.environ.copy()
         env["PYTHONPATH"] = str(swt_bench_dir)
 
+        # Set environment variable to enable official Docker images if requested
+        if use_docker_images:
+            env["USE_OFFICIAL_DOCKER_IMAGES"] = "1"
+
         cmd = [
             python_executable,
             "src/main.py",  # Run as script instead of module
@@ -319,6 +413,8 @@ def run_swtbench_evaluation(
         logger.info(f"Running command: {' '.join(cmd)}")
         logger.info(f"Working directory: {swt_bench_dir}")
         logger.info(f"PYTHONPATH: {env['PYTHONPATH']}")
+        if use_docker_images:
+            logger.info("USE_OFFICIAL_DOCKER_IMAGES=1 (using pre-built Docker Hub images)")
         logger.info("SWT-Bench evaluation output:")
         print("-" * 80)
 
@@ -362,6 +458,7 @@ Examples:
     uv run swtbench-eval output.jsonl
     uv run swtbench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
     uv run swtbench-eval output.jsonl --model-name "MyModel-v1.0"
+    uv run swtbench-eval output.jsonl --use-docker-images  # Use official Docker Hub images (faster)
         """,
     )
 
@@ -398,6 +495,15 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
+    parser.add_argument(
+        "--use-docker-images",
+        action="store_true",
+        help="Use official pre-built Docker images from Docker Hub "
+        "(docker.io/swebench/sweb.eval.*) instead of building environments "
+        "from scratch with mamba/conda. This is much faster but requires "
+        "the images to exist on Docker Hub for the evaluated instances.",
+    )
+
     args = parser.parse_args()
 
     # Validate input file
@@ -419,6 +525,7 @@ Examples:
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
     logger.info(f"Model name: {args.model_name}")
+    logger.info(f"Use Docker images: {args.use_docker_images}")
 
     try:
         # Convert format
@@ -427,7 +534,12 @@ Examples:
         if not args.skip_evaluation:
             eval_phase_start = monotonic()
             # Run evaluation
-            run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
+            run_swtbench_evaluation(
+                str(output_file),
+                args.dataset,
+                args.workers,
+                use_docker_images=args.use_docker_images,
+            )
             eval_phase_end = monotonic()
 
             cleanup_phase_start = monotonic()
