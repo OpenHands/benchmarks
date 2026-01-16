@@ -20,7 +20,7 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 # Default timeout for individual image builds (in seconds)
-DEFAULT_IMAGE_BUILD_TIMEOUT = 20 * 60  # 20 minutes
+DEFAULT_IMAGE_BUILD_TIMEOUT = 4 * 60  # 4 minutes
 
 
 class ImageBuildTimeout(Exception):
