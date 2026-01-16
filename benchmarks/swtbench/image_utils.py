@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable
 
-from benchmarks.utils.image_utils import image_exists
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-DEFAULT_EVAL_IMAGE_PREFIX = "ghcr.io/openhands/swtbench-eval"
 
 
 def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
@@ -127,100 +124,6 @@ def compute_required_images(
 
 def format_images_plain(images: Iterable[str]) -> str:
     return "\n".join(sorted(images))
-
-
-def _run_docker(cmd: list[str]) -> tuple[bool, str]:
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        return False, (result.stderr or result.stdout or "").strip()
-    return True, (result.stdout or "").strip()
-
-
-def pull_prebaked_eval_images(
-    predictions_file: Path,
-    dataset: str,
-    split: str,
-    *,
-    image_prefix: str | None = None,
-    gh_username: str | None = None,
-    gh_pat: str | None = None,
-) -> tuple[bool, dict]:
-    """
-    Attempt to pull prebaked SWT-bench eval base/env images from a registry.
-
-    Returns (all_available, details_dict).
-    """
-    prefix = (
-        image_prefix
-        or os.getenv("SWT_BENCH_EVAL_IMAGE_PREFIX")
-        or DEFAULT_EVAL_IMAGE_PREFIX
-    ).rstrip("/")
-    details: dict = {
-        "prefix": prefix,
-        "dataset": dataset,
-        "split": split,
-    }
-
-    if not prefix:
-        details["error"] = "empty_prefix"
-        return False, details
-
-    try:
-        base_images, env_images = compute_required_images(
-            predictions_file, dataset, split
-        )
-    except Exception as exc:  # pragma: no cover - network/FS issues
-        details["error"] = f"compute_failed: {exc}"
-        return False, details
-
-    required = sorted(base_images | env_images)
-    details["required_count"] = len(required)
-    if not required:
-        details["error"] = "no_required_images"
-        return False, details
-
-    gh_user = gh_username or os.getenv("GHCR_USERNAME") or os.getenv("GITHUB_ACTOR")
-    gh_token = gh_pat or os.getenv("GHCR_PAT")
-
-    missing: list[dict] = []
-    pulled: list[str] = []
-    pull_errors: list[dict] = []
-
-    for tag in required:
-        remote_tag = f"{prefix}/{tag}"
-        exists = image_exists(remote_tag, gh_username=gh_user, gh_pat=gh_token)
-        if not exists:
-            missing.append({"remote": remote_tag, "tag": tag, "reason": "not_found"})
-            continue
-
-        ok, err = _run_docker(["docker", "pull", remote_tag])
-        if not ok:
-            pull_errors.append(
-                {
-                    "remote": remote_tag,
-                    "tag": tag,
-                    "reason": "pull_failed",
-                    "error": err,
-                }
-            )
-            missing.append({"remote": remote_tag, "tag": tag, "reason": "pull_failed"})
-            continue
-
-        ok, err = _run_docker(["docker", "tag", remote_tag, tag])
-        if not ok:
-            pull_errors.append(
-                {"remote": remote_tag, "tag": tag, "reason": "tag_failed", "error": err}
-            )
-            missing.append({"remote": remote_tag, "tag": tag, "reason": "tag_failed"})
-            continue
-
-        pulled.append(tag)
-
-    details["missing"] = missing
-    details["pulled"] = pulled
-    details["pull_errors"] = pull_errors
-    details["used_auth"] = bool(gh_user and gh_token)
-    return len(missing) == 0, details
 
 
 def main() -> None:
