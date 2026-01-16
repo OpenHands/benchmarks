@@ -44,14 +44,6 @@ on:
         required: false
         default: 'ghcr.io/openhands/swtbench-eval'
         type: string
-      eval-arch:
-        description: 'Architecture for prebaked eval images'
-        required: false
-        default: 'x86_64'
-        type: choice
-        options:
-          - x86_64
-          - arm64
       max-retries:
         description: 'Retries per batch for eval env builds'
         required: false
@@ -202,7 +194,6 @@ jobs:
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
           IMAGE_PREFIX="${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}"
-          EVAL_ARCH="${{ inputs.eval-arch || 'x86_64' }}"
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
           MAX_RETRIES="${{ inputs.max-retries || '2' }}"
@@ -233,9 +224,6 @@ jobs:
             ARGS+=(--instance-ids "${INSTANCE_IDS}")
           else
             ARGS+=(--eval-limit "${N_LIMIT}")
-          fi
-          if [ -n "${EVAL_ARCH}" ]; then
-            ARGS+=(--arch "${EVAL_ARCH}")
           fi
 
           echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"
