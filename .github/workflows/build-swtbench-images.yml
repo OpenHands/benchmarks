@@ -34,6 +34,11 @@ on:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
+      skip-base-images:
+        description: 'Skip building base SWT-Bench images (default: false)'
+        required: false
+        default: 'false'
+        type: string
       build-eval-env:
         description: 'Also build prebaked SWT-bench eval env images (default: false)'
         required: false
@@ -146,6 +151,7 @@ jobs:
           make build
 
       - name: Build and push SWT-Bench images
+        if: ${{ inputs.skip-base-images != 'true' }}
         run: |
           set -euo pipefail
 
