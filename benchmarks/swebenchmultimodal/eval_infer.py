@@ -279,6 +279,17 @@ Examples:
                 str(output_file), args.dataset, args.split, args.workers, args.run_id
             )
 
+            # Copy report.json to output.report.json for consistency with other benchmarks
+            # SWE-Bench Multimodal creates report.json in the same directory as the predictions file
+            report_path = output_file.parent / "report.json"
+            dest_report_path = input_file.with_suffix(".report.json")
+            
+            if report_path.exists():
+                shutil.copy(str(report_path), str(dest_report_path))
+                logger.info(f"Copied report file to: {dest_report_path}")
+            else:
+                logger.warning(f"Report file not found at expected location: {report_path}")
+
         # Generate cost report as final step
         generate_cost_report(str(input_file))
 
