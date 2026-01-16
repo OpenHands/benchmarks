@@ -31,7 +31,7 @@ python -m benchmarks.swtbench.run_infer \
     --max-iterations 30 \
     --select instances.txt \
     --eval-output-dir ./evaluation_results \
-    --max-attempts 3 \
+    --n-critic-runs 3 \
     --critic finish_with_patch
 ```
 
