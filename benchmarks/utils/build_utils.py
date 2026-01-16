@@ -5,6 +5,7 @@ Shared utilities for batch building agent-server images.
 
 import argparse
 import contextlib
+import fcntl
 import io
 import os
 import subprocess
@@ -299,6 +300,9 @@ def _patch_dockerfile_for_apt_repository_changes():
     
     This patches all apt-get update commands in the SDK Dockerfile to use
     --allow-releaseinfo-change flag, then reverts the changes after the build.
+    
+    Thread-safe: Uses file locking to prevent race conditions when multiple workers
+    try to patch the same Dockerfile simultaneously.
     """
     sdk_root = Path(__file__).resolve().parents[2] / "vendor" / "software-agent-sdk"
     dockerfile_path = (
@@ -317,24 +321,44 @@ def _patch_dockerfile_for_apt_repository_changes():
         yield
         return
     
-    # Read original content
-    original_content = dockerfile_path.read_text()
-    
-    # Patch: add --allow-releaseinfo-change to all apt-get update commands
-    patched_content = original_content.replace(
-        "apt-get update;",
-        "apt-get update --allow-releaseinfo-change;"
-    )
+    # Use a lock file to coordinate between parallel workers (prevents race condition)
+    lock_path = dockerfile_path.with_suffix('.lock')
+    lock_fd = None
     
     try:
+        # Open lock file and acquire exclusive lock
+        lock_fd = open(lock_path, 'w')
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        
+        # Read original content
+        original_content = dockerfile_path.read_text()
+        
+        # Patch: add --allow-releaseinfo-change to all apt-get update commands
+        patched_content = original_content.replace(
+            "apt-get update;",
+            "apt-get update --allow-releaseinfo-change;"
+        )
+        
         # Write patched version
         dockerfile_path.write_text(patched_content)
         logger.info("Applied apt-get repository change workaround to SDK Dockerfile")
-        yield
+        
+        try:
+            yield
+        finally:
+            # Always restore original content, even if build fails
+            dockerfile_path.write_text(original_content)
+            logger.info("Restored original SDK Dockerfile")
     finally:
-        # Always restore original content, even if build fails
-        dockerfile_path.write_text(original_content)
-        logger.info("Restored original SDK Dockerfile")
+        # Release lock and close lock file
+        if lock_fd:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+            lock_fd.close()
+        # Clean up lock file
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def build_image(
