@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Callable
 
 from openhands.sdk import Event, get_logger
@@ -75,7 +74,8 @@ def build_event_persistence_callback(
 
     Small events are logged in full; large events log metadata only to avoid
     size limits and ensure logs persist beyond pod lifetime.
-    Logging is disabled unless ENABLE_CONVERSATION_EVENT_LOGGING is set.
+    Logging is enabled by default; set ENABLE_CONVERSATION_EVENT_LOGGING to a
+    falsey value to disable.
 
     Args:
         run_id: Unique identifier for this evaluation run (e.g., job name).
@@ -85,8 +85,9 @@ def build_event_persistence_callback(
     Returns:
         A callback function to be passed to Conversation.
     """
-    if not bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, False)):
-        return lambda event: None
+    # if not bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, True)):
+    #     return lambda event: None
+    # TODO: Re-enable the above once we have debugged runtime issues
 
     def _persist_event(event: Event) -> None:
         try:

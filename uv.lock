@@ -2333,6 +2333,7 @@ dependencies = [
     { name = "python-json-logger" },
     { name = "requests" },
     { name = "swebench" },
+    { name = "swt-bench" },
     { name = "tenacity" },
     { name = "toml" },
     { name = "tqdm" },
@@ -2384,6 +2385,7 @@ requires-dist = [
     { name = "python-json-logger", specifier = ">=3.3.0" },
     { name = "requests" },
     { name = "swebench", specifier = "==4.1.0" },
+    { name = "swt-bench", git = "https://github.com/logic-star-ai/swt-bench.git?rev=5fdcd446ff05e248ecfffc19d560a210699f71f8" },
     { name = "tenacity", specifier = ">=9.1.2" },
     { name = "toml" },
     { name = "tqdm" },
@@ -6632,6 +6634,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/24/e1/c997299ad7bf088876d30398203aa1eed7dec897670dc1aa35b1d748ffcc/swebench-4.1.0.tar.gz", hash = "sha256:5aaa6a92c2db1aa64892d28a47483ca46a45a15cf1d2df673d7744f71811dc9a", size = 134341, upload-time = "2025-09-11T02:58:00.447Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/36/67/981d8b642ac3eac7c8a7b7832ff8b2fb74f96b28b5fcd9a8979879e5c46d/swebench-4.1.0-py3-none-any.whl", hash = "sha256:1243776f720047cc9e20a427f7a52b75c13a07abda6154fb60fe77f82ec8af57", size = 157231, upload-time = "2025-09-11T02:57:58.953Z" },
+]
+
+[[package]]
+name = "swt-bench"
+version = "1.0.1"
+source = { git = "https://github.com/logic-star-ai/swt-bench.git?rev=5fdcd446ff05e248ecfffc19d560a210699f71f8#5fdcd446ff05e248ecfffc19d560a210699f71f8" }
+dependencies = [
+    { name = "datasets" },
+    { name = "docker" },
+    { name = "editdistance" },
+    { name = "fire" },
+    { name = "gitpython" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "tqdm" },
+    { name = "unidiff" },
 ]
 
 [[package]]
