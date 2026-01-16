@@ -23,6 +23,7 @@ from benchmarks.utils.evaluation_utils import (
     generate_error_logs_summary,
     get_default_on_result_writer,
 )
+from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
@@ -181,12 +182,15 @@ class GAIAEvaluation(Evaluation):
                 f"Using remote workspace with GAIA image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
+            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
+                init_timeout=startup_timeout,
+                startup_wait_timeout=startup_timeout,
                 target_type="binary",  # GAIA images use binary target
                 forward_env=forward_env or [],
                 resource_factor=resource_factor,
@@ -341,7 +345,8 @@ class GAIAEvaluation(Evaluation):
             conversation.send_message(msg)
         else:
             conversation.send_message(instruction)
-        conversation.run()
+        # Run conversation with fake user responses to handle agent messages
+        run_conversation_with_fake_user_response(conversation)
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)
