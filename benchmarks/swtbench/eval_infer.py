@@ -18,7 +18,10 @@ import sys
 from pathlib import Path
 from time import monotonic
 
-from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
+from benchmarks.swtbench.image_utils import (
+    ensure_swt_bench_repo,
+    pull_prebaked_eval_images,
+)
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -246,13 +249,51 @@ def run_swtbench_evaluation(
     logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
 
     try:
-        swt_bench_dir = ensure_swt_bench_repo()
-
-        patch_swt_bench_for_micromamba(swt_bench_dir)
-
-        # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
         predictions_filename = predictions_path.name
+
+        swt_bench_dir = ensure_swt_bench_repo()
+
+        prebaked_ok, prebaked_details = pull_prebaked_eval_images(
+            predictions_path, dataset, split=os.getenv("SWT_BENCH_SPLIT", "test")
+        )
+        if prebaked_ok:
+            logger.info(
+                "Using prebaked SWT-Bench eval images from %s (%s pulled).",
+                prebaked_details.get("prefix"),
+                len(prebaked_details.get("pulled", [])),
+            )
+        else:
+            missing = prebaked_details.get("missing", [])
+            sample_missing = ", ".join(
+                (m.get("remote") or m.get("tag", ""))
+                + (f" [{m.get('reason')}]" if m.get("reason") else "")
+                for m in missing[:5]
+            )
+            logger.warning(
+                "Prebaked SWT-Bench eval images unavailable; falling back to micromamba builds. "
+                "prefix=%s dataset=%s split=%s required=%s missing=%s sample_missing=%s auth=%s detail=%s",
+                prebaked_details.get("prefix"),
+                dataset,
+                prebaked_details.get("split"),
+                prebaked_details.get("required_count"),
+                len(missing),
+                sample_missing or "n/a",
+                "yes" if prebaked_details.get("used_auth") else "no",
+                prebaked_details.get("error") or "missing images",
+            )
+            pull_errors = prebaked_details.get("pull_errors") or []
+            if pull_errors:
+                logger.info(
+                    "Pull/tag issues (truncated): %s",
+                    "; ".join(
+                        f"{err.get('remote')}: {err.get('reason')}"
+                        + (f" ({err.get('error')})" if err.get("error") else "")
+                        for err in pull_errors[:3]
+                    ),
+                )
+
+            patch_swt_bench_for_micromamba(swt_bench_dir)
 
         # Copy predictions file to swt-bench directory
         swt_predictions_file = swt_bench_dir / predictions_filename
