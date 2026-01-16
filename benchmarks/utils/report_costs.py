@@ -101,9 +101,6 @@ def calculate_time_statistics(jsonl_data: List[Optional[Dict]]) -> Dict:
     if not jsonl_data:
         return {
             "average_duration": 0.0,
-            "max_duration": 0.0,
-            "min_duration": 0.0,
-            "mean_duration": 0.0,
             "total_duration": 0.0,
             "total_lines": 0,
             "lines_with_duration": 0,
@@ -118,9 +115,6 @@ def calculate_time_statistics(jsonl_data: List[Optional[Dict]]) -> Dict:
     if not durations:
         return {
             "average_duration": 0.0,
-            "max_duration": 0.0,
-            "min_duration": 0.0,
-            "mean_duration": 0.0,
             "total_duration": 0.0,
             "total_lines": len(jsonl_data),
             "lines_with_duration": 0,
@@ -128,9 +122,6 @@ def calculate_time_statistics(jsonl_data: List[Optional[Dict]]) -> Dict:
 
     return {
         "average_duration": sum(durations) / len(durations),
-        "max_duration": max(durations),
-        "min_duration": min(durations),
-        "mean_duration": sum(durations) / len(durations),  # Same as average
         "total_duration": sum(durations),
         "total_lines": len(jsonl_data),
         "lines_with_duration": len(durations),
@@ -205,8 +196,6 @@ def calculate_costs(directory_path: str) -> None:
         print(
             f"      Average Duration: {format_duration(time_stats['average_duration'])}"
         )
-        print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
-        print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
         print(
             f"      Lines with Duration: {time_stats['lines_with_duration']}/{time_stats['total_lines']}"
         )
@@ -240,8 +229,6 @@ def calculate_costs(directory_path: str) -> None:
             print(
                 f"      Average Duration: {format_duration(time_stats['average_duration'])}"
             )
-            print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
-            print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
             print(
                 f"      Lines with Duration: {time_stats['lines_with_duration']}/{time_stats['total_lines']}"
             )
