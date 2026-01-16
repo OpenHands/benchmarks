@@ -20,7 +20,10 @@ from time import monotonic
 
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.patch_utils import (
+    remove_files_from_patch,
+    remove_top_level_files_from_patch,
+)
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -146,6 +149,7 @@ def convert_to_swtbench_format(
                 # postprocess git_patch
                 setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
                 git_patch = remove_files_from_patch(git_patch, setup_files)
+                git_patch = remove_top_level_files_from_patch(git_patch)
 
                 # Create SWT-Bench format entry
                 swtbench_entry = {
