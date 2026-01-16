@@ -178,11 +178,14 @@ def build_env_images(
         logger.info("All %s env images already exist; skipping env builds", total_env)
         return
 
+    # Process in reverse order to parallelize with another job processing forward
+    missing_env_specs = list(reversed(missing_env_specs))
+    
     successful_images: list[str] = []
     failed_images: list[str] = []
     
     logger.info(
-        "Building %s/%s env images (no timeout)",
+        "Building %s/%s env images (no timeout, REVERSE order)",
         len({spec.env_image_key for spec in missing_env_specs}),
         total_env,
     )
