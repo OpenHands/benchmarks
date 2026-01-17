@@ -69,6 +69,47 @@ def remove_files_from_patch(git_patch, files):
     return result
 
 
+def remove_top_level_files_from_patch(git_patch: str) -> str:
+    """
+    Remove diffs that touch top-level files (e.g., reproduction.py).
+
+    A top-level file has no directory component in the diff header
+    (e.g., diff --git a/foo.py b/foo.py). This mirrors the behavior
+    used in OpenHands' SWT-Bench converter to avoid sending helper
+    scripts to the evaluation harness.
+    """
+    if not git_patch:
+        return git_patch
+
+    diff_pattern = r"diff --git [^\n]*\n"
+    diff_matches = list(re.finditer(diff_pattern, git_patch))
+    if not diff_matches:
+        return git_patch
+
+    file_diffs = []
+    for i, match in enumerate(diff_matches):
+        start = match.start()
+        end = (
+            diff_matches[i + 1].start() if i + 1 < len(diff_matches) else len(git_patch)
+        )
+        file_diffs.append(git_patch[start:end])
+
+    filtered_diffs = []
+    for diff in file_diffs:
+        header = diff.split("\n", 1)[0]
+        match = re.match(r"diff --git a/(.+) b/(.+)", header)
+        if not match:
+            filtered_diffs.append(diff)
+            continue
+        file_a, file_b = match.groups()
+        # Top-level files have no '/' in the path
+        if "/" not in file_a and "/" not in file_b:
+            continue
+        filtered_diffs.append(diff)
+
+    return "".join(filtered_diffs)
+
+
 def remove_binary_diffs(patch_text):
     """
     Remove binary file diffs from a git patch.
