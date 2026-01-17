@@ -253,9 +253,7 @@ def run_swtbench_evaluation(
     """
     use_legacy = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in ("1", "true", "yes")
     mode = "legacy-conda" if use_legacy else "prebaked-images"
-    logger.info(
-        "Running SWT-Bench evaluation on %s (mode=%s)", predictions_file, mode
-    )
+    logger.info("Running SWT-Bench evaluation on %s (mode=%s)", predictions_file, mode)
 
     try:
         swt_bench_dir = ensure_swt_bench_repo()
@@ -416,7 +414,11 @@ Examples:
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
         # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
-        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in ("1", "true", "yes")
+        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
         if use_prebaked:
             try_pull_prebaked_images(
                 output_file,
