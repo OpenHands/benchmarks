@@ -417,15 +417,10 @@ Examples:
 
         # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
         use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in ("1", "true", "yes")
-        prebaked_registry = PREBAKED_REGISTRY
-        prebaked_split = "test"
-
         if use_prebaked:
             try_pull_prebaked_images(
                 output_file,
                 args.dataset,
-                split=prebaked_split,
-                registry=prebaked_registry,
             )
         else:
             logger.info(
