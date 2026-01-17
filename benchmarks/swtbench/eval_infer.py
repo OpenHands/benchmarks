@@ -242,7 +242,6 @@ def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
     workers: str = "12",
-    use_legacy: bool = False,
 ) -> None:
     """
     Run SWT-Bench evaluation on the predictions file.
@@ -257,6 +256,7 @@ def run_swtbench_evaluation(
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
     """
+    use_legacy = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in ("1", "true", "yes")
     mode = "legacy-conda" if use_legacy else "prebaked-images"
     logger.info(
         "Running SWT-Bench evaluation on %s (mode=%s)", predictions_file, mode
@@ -442,12 +442,7 @@ Examples:
         if not args.skip_evaluation:
             eval_phase_start = monotonic()
             # Run evaluation
-            run_swtbench_evaluation(
-                str(output_file),
-                args.dataset,
-                args.workers,
-                use_legacy=not use_prebaked,
-            )
+            run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
             eval_phase_end = monotonic()
 
             cleanup_phase_start = monotonic()
