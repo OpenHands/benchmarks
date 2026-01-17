@@ -50,7 +50,7 @@ def extract_accumulated_cost(jsonl_data: List[Optional[Dict]]) -> float:
         # Skip None entries that can occur from null JSON values
         if entry is None:
             continue
-        metrics = entry.get("metrics", {})
+        metrics = entry.get("metrics") or {}
         accumulated_cost = metrics.get("accumulated_cost", 0.0)
         if accumulated_cost is not None:
             total_cost += float(accumulated_cost)
@@ -70,7 +70,7 @@ def calculate_line_duration(entry: Optional[Dict]) -> Optional[float]:
     # Skip None entries that can occur from null JSON values
     if entry is None:
         return None
-    history = entry.get("history", [])
+    history = entry.get("history") or []
     if not history:
         return None
 
