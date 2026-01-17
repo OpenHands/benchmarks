@@ -71,7 +71,6 @@ def compute_required_images(
     split: str,
     *,
     filter_swt: bool = True,
-    is_swt: bool = False,
 ) -> tuple[set[str], set[str]]:
     """
     Compute the base/env image tags required to evaluate the given predictions file.
@@ -91,7 +90,7 @@ def compute_required_images(
     from src.exec_spec import make_exec_spec  # type: ignore[import-not-found]
 
     dataset_entries = load_swebench_dataset(
-        name=dataset, split=split, is_swt=is_swt, filter_swt=filter_swt
+        name=dataset, split=split, is_swt=True, filter_swt=filter_swt
     )
     entries_by_id = {entry["instance_id"]: entry for entry in dataset_entries}
 
