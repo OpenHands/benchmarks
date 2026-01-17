@@ -420,13 +420,12 @@ Examples:
         # Convert format
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
-        # Default: attempt to use prebaked images; allow opting out via env.
-        force_conda = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in (
+        # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
+        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
             "1",
             "true",
             "yes",
         )
-        use_prebaked = not force_conda
         prebaked_registry = os.getenv("SWTBENCH_PREBAKED_REGISTRY", PREBAKED_REGISTRY)
         prebaked_split = os.getenv("SWTBENCH_DATASET_SPLIT", "test")
 
@@ -451,7 +450,7 @@ Examples:
                 str(output_file),
                 args.dataset,
                 args.workers,
-                use_legacy=force_conda,
+                use_legacy=not use_prebaked,
             )
             eval_phase_end = monotonic()
 
