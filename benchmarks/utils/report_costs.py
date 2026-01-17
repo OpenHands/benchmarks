@@ -267,7 +267,18 @@ def calculate_costs(directory_path: str) -> None:
         print(f"  Sum Critic Files (all attempts): ${critic_total_cost:.6f}")
     print(f"  Total Cost (no double-count): ${total_cost:.6f}")
 
-    summary = {"total_cost": total_cost, "total_duration": total_duration}
+    # Calculate average_duration from the main or critic files
+    # This is for backwards compatibility with older evaluation code
+    average_duration = 0.0
+    if output_file:
+        main_time_stats = calculate_time_statistics(read_jsonl_file(output_file))
+        average_duration = main_time_stats.get("average_duration", 0.0)
+    
+    summary = {
+        "total_cost": total_cost, 
+        "total_duration": total_duration,
+        "average_duration": average_duration
+    }
 
     if main_cost is not None:
         summary["only_main_output_cost"] = main_cost
