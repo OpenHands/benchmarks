@@ -69,9 +69,6 @@ def try_pull_prebaked_images(
     dataset: str,
     split: str = "test",
     registry: str = PREBAKED_REGISTRY,
-    *,
-    filter_swt: bool = True,
-    is_swt: bool = True,
 ) -> None:
     """
     Best-effort pull of prebaked base/env images; no-op on failure.
@@ -81,8 +78,6 @@ def try_pull_prebaked_images(
             predictions_file,
             dataset,
             split,
-            filter_swt=filter_swt,
-            is_swt=is_swt,
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Skipping prebaked image pull (compute failed): %s", exc)
@@ -431,7 +426,6 @@ Examples:
                 args.dataset,
                 split=prebaked_split,
                 registry=prebaked_registry,
-                is_swt=True,
             )
         else:
             logger.info(
