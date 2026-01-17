@@ -366,8 +366,22 @@ class MultiSWEBenchEvaluation(Evaluation):
             f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
         )
 
-        # git reset
-        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
+        # Get base_commit first - handle both SWE-Bench and Multi-SWE-Bench data formats
+        if "base" in instance.data and isinstance(instance.data["base"], dict):
+            # SWE-Bench format: {"base": {"sha": "..."}}
+            base_commit = instance.data["base"]["sha"]
+        elif "base_commit" in instance.data:
+            # Multi-SWE-Bench format: {"base_commit": "..."}
+            base_commit = instance.data["base_commit"]
+        else:
+            raise ValueError(
+                f"No base commit found in instance data. Available keys: {list(instance.data.keys())}"
+            )
+        
+        logger.info("base_commit: %s", base_commit)
+
+        # git reset to base_commit (not just --hard which stays on current commit)
+        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard {base_commit}")
         assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
         metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
@@ -391,17 +405,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             "git commit -m 'patch'"
         )
 
-        # Get git patch - handle both SWE-Bench and Multi-SWE-Bench data formats
-        if "base" in instance.data and isinstance(instance.data["base"], dict):
-            # SWE-Bench format: {"base": {"sha": "..."}}
-            base_commit = instance.data["base"]["sha"]
-        elif "base_commit" in instance.data:
-            # Multi-SWE-Bench format: {"base_commit": "..."}
-            base_commit = instance.data["base_commit"]
-        else:
-            raise ValueError(
-                f"No base commit found in instance data. Available keys: {list(instance.data.keys())}"
-            )
+        # Get git patch (base_commit already extracted earlier)
         git_patch_result = workspace.execute_command(
             (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
         )
