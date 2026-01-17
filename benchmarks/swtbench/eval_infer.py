@@ -421,13 +421,9 @@ Examples:
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
         # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
-        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
-            "1",
-            "true",
-            "yes",
-        )
-        prebaked_registry = os.getenv("SWTBENCH_PREBAKED_REGISTRY", PREBAKED_REGISTRY)
-        prebaked_split = os.getenv("SWTBENCH_DATASET_SPLIT", "test")
+        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in ("1", "true", "yes")
+        prebaked_registry = PREBAKED_REGISTRY
+        prebaked_split = "test"
 
         if use_prebaked:
             try_pull_prebaked_images(
