@@ -369,12 +369,6 @@ Examples:
     )
 
     parser.add_argument(
-        "--dataset-split",
-        default="test",
-        help="Dataset split to use when computing prebaked images (default: test)",
-    )
-
-    parser.add_argument(
         "--output-file",
         help="Output file for SWT-Bench format "
         "(default: input_file with .swtbench.jsonl extension)",
@@ -398,19 +392,6 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
-    parser.add_argument(
-        "--no-prebaked-pull",
-        action="store_true",
-        help="Skip pulling prebaked GHCR SWT-Bench images before evaluation",
-    )
-
-    parser.add_argument(
-        "--prebaked-registry",
-        default=PREBAKED_REGISTRY,
-        help="Registry prefix for prebaked SWT-Bench images "
-        f"(default: {PREBAKED_REGISTRY})",
-    )
-
     args = parser.parse_args()
 
     # Validate input file
@@ -431,21 +412,31 @@ Examples:
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
-    logger.info(f"Dataset split: {args.dataset_split}")
     logger.info(f"Model name: {args.model_name}")
 
     try:
         # Convert format
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
-        if not args.no_prebaked_pull:
+        # Default: attempt to use prebaked images; allow opting out via env.
+        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
+        prebaked_registry = os.getenv("SWTBENCH_PREBAKED_REGISTRY", PREBAKED_REGISTRY)
+        prebaked_split = os.getenv("SWTBENCH_DATASET_SPLIT", "test")
+
+        if use_prebaked:
             try_pull_prebaked_images(
                 output_file,
                 args.dataset,
-                split=args.dataset_split,
-                registry=args.prebaked_registry,
+                split=prebaked_split,
+                registry=prebaked_registry,
                 is_swt=True,
             )
+        else:
+            logger.info("SWTBENCH_FORCE_CONDA set; skipping prebaked image pull")
 
         if not args.skip_evaluation:
             eval_phase_start = monotonic()
