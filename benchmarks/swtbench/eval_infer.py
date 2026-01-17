@@ -242,6 +242,7 @@ def run_swtbench_evaluation(
     predictions_file: str,
     dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
     workers: str = "12",
+    use_legacy: bool = False,
 ) -> None:
     """
     Run SWT-Bench evaluation on the predictions file.
@@ -256,7 +257,10 @@ def run_swtbench_evaluation(
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
     """
-    logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
+    mode = "legacy-conda" if use_legacy else "prebaked-images"
+    logger.info(
+        "Running SWT-Bench evaluation on %s (mode=%s)", predictions_file, mode
+    )
 
     try:
         swt_bench_dir = ensure_swt_bench_repo()
@@ -292,8 +296,6 @@ def run_swtbench_evaluation(
         # Set up environment with PYTHONPATH to include swt-bench directory
         env = os.environ.copy()
         env["PYTHONPATH"] = str(swt_bench_dir)
-        # Force classic conda solver (avoid libmamba plugin issues)
-        env.setdefault("CONDA_SOLVER", "classic")
 
         cmd = [
             python_executable,
@@ -419,11 +421,12 @@ Examples:
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
         # Default: attempt to use prebaked images; allow opting out via env.
-        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
+        force_conda = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in (
             "1",
             "true",
             "yes",
         )
+        use_prebaked = not force_conda
         prebaked_registry = os.getenv("SWTBENCH_PREBAKED_REGISTRY", PREBAKED_REGISTRY)
         prebaked_split = os.getenv("SWTBENCH_DATASET_SPLIT", "test")
 
@@ -436,12 +439,20 @@ Examples:
                 is_swt=True,
             )
         else:
-            logger.info("SWTBENCH_FORCE_CONDA set; skipping prebaked image pull")
+            logger.info(
+                "SWTBENCH_FORCE_CONDA set; skipping prebaked image pull "
+                "and using legacy (pre-mamba) evaluation flow"
+            )
 
         if not args.skip_evaluation:
             eval_phase_start = monotonic()
             # Run evaluation
-            run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
+            run_swtbench_evaluation(
+                str(output_file),
+                args.dataset,
+                args.workers,
+                use_legacy=force_conda,
+            )
             eval_phase_end = monotonic()
 
             cleanup_phase_start = monotonic()
