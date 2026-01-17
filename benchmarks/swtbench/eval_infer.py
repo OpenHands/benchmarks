@@ -23,7 +23,12 @@ from benchmarks.swtbench.image_utils import (
     ensure_swt_bench_repo,
 )
 from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.patch_utils import (
+    filter_patch_by_predicate,
+    looks_like_test_file,
+    remove_files_from_patch,
+    remove_top_level_files,
+)
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -174,6 +179,8 @@ def convert_to_swtbench_format(
 
     converted_count = 0
     error_count = 0
+    skipped_no_tests = 0
+    skipped_top_level_only = 0
 
     with open(input_file, "r") as infile, open(output_file, "w") as outfile:
         for line_num, line in enumerate(infile, 1):
@@ -202,9 +209,36 @@ def convert_to_swtbench_format(
                     # Still create entry with empty patch
                     git_patch = ""
 
-                # postprocess git_patch
+                # postprocess git_patch: drop setup/config files
                 setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
                 git_patch = remove_files_from_patch(git_patch, setup_files)
+
+                # Drop top-level files (e.g., reproduction.py, helper scripts)
+                git_patch, kept_after_top, dropped_top = remove_top_level_files(
+                    git_patch
+                )
+                if kept_after_top == 0:
+                    skipped_top_level_only += 1
+                    logger.warning(
+                        "Skipping %s: only top-level diffs present (dropped %s files)",
+                        instance_id,
+                        dropped_top,
+                    )
+                    continue
+
+                # Keep only test-like files to avoid running helper/build files as tests.
+                git_patch, kept, dropped = filter_patch_by_predicate(
+                    git_patch,
+                    lambda a, b: looks_like_test_file(a) or looks_like_test_file(b),
+                )
+                if kept == 0:
+                    skipped_no_tests += 1
+                    logger.warning(
+                        "Skipping %s: no test-like diffs after filtering (dropped %s files)",
+                        instance_id,
+                        dropped,
+                    )
+                    continue
 
                 # Create SWT-Bench format entry
                 swtbench_entry = {
@@ -225,8 +259,11 @@ def convert_to_swtbench_format(
                 error_count += 1
 
     logger.info(
-        f"Conversion complete: {converted_count} entries converted, "
-        f"{error_count} errors"
+        "Conversion complete: %s entries converted, %s skipped (top-level only), %s skipped (no tests), %s errors",
+        converted_count,
+        skipped_top_level_only,
+        skipped_no_tests,
+        error_count,
     )
 
     if converted_count == 0:

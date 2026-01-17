@@ -2,7 +2,11 @@
 Utilities for handling patch generation in SWE-bench evaluation.
 """
 
+from __future__ import annotations
+
+import os
 import re
+from typing import Callable, List, Tuple
 
 
 def remove_files_from_patch(git_patch, files):
@@ -114,3 +118,103 @@ def remove_binary_files_from_git():
         fi
     done
     """.strip()
+
+
+def _iter_file_diffs(git_patch: str) -> List[Tuple[str, str, str]]:
+    """
+    Split a git patch into per-file chunks.
+
+    Returns a list of tuples: (diff_text, file_a, file_b).
+    """
+    if not git_patch:
+        return []
+
+    diff_pattern = r"diff --git [^\n]*\n"
+    diff_matches = list(re.finditer(diff_pattern, git_patch))
+    if not diff_matches:
+        return []
+
+    file_diffs: List[Tuple[str, str, str]] = []
+    for i, match in enumerate(diff_matches):
+        start = match.start()
+        end = (
+            diff_matches[i + 1].start() if i + 1 < len(diff_matches) else len(git_patch)
+        )
+        diff = git_patch[start:end]
+        header = diff.split("\n", 1)[0]
+        file_a = file_b = ""
+        m = re.match(r"diff --git a/(.+) b/(.+)", header)
+        if m:
+            file_a, file_b = m.groups()
+        file_diffs.append((diff, file_a, file_b))
+    return file_diffs
+
+
+def filter_patch_by_predicate(
+    git_patch: str, predicate: Callable[[str, str], bool]
+) -> Tuple[str, int, int]:
+    """
+    Keep only file diffs that satisfy the predicate.
+
+    Returns: (filtered_patch, kept_count, dropped_count).
+    """
+    file_diffs = _iter_file_diffs(git_patch)
+    kept: List[str] = []
+    dropped = 0
+    for diff, file_a, file_b in file_diffs:
+        if predicate(file_a, file_b):
+            kept.append(diff)
+        else:
+            dropped += 1
+    return ("".join(kept), len(kept), dropped)
+
+
+def looks_like_test_file(path: str) -> bool:
+    """
+    Heuristic to decide whether a path represents a test file.
+    """
+    norm = path.lstrip("./")
+    if not norm:
+        return False
+
+    blocked_prefixes = (
+        "build/",
+        "dist/",
+        ".venv/",
+        "venv/",
+        "env/",
+        ".tox/",
+    )
+    if norm.startswith(blocked_prefixes) or "/build/" in norm or "/dist/" in norm:
+        return False
+
+    name = os.path.basename(norm)
+    if not name.endswith(".py"):
+        return False
+
+    if name in {"conftest.py", "tests.py"}:
+        return True
+
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return True
+
+    if norm.startswith("tests/") or "/tests/" in norm:
+        return True
+
+    return False
+
+
+def is_top_level(path: str) -> bool:
+    """Return True if the path has no directory component (e.g., reproduction.py)."""
+    norm = path.lstrip("./")
+    return norm != "" and "/" not in norm
+
+
+def remove_top_level_files(git_patch: str) -> Tuple[str, int, int]:
+    """
+    Drop diffs that touch top-level files.
+    """
+    return filter_patch_by_predicate(
+        git_patch,
+        lambda a, b: not (is_top_level(a) or is_top_level(b)),
+    )
