@@ -267,10 +267,7 @@ def calculate_costs(directory_path: str) -> None:
         print(f"  Sum Critic Files (all attempts): ${critic_total_cost:.6f}")
     print(f"  Total Cost (no double-count): ${total_cost:.6f}")
 
-    summary = {
-        "total_cost": total_cost, 
-        "total_duration": total_duration
-    }
+    summary = {"total_cost": total_cost, "total_duration": total_duration}
 
     if main_cost is not None:
         summary["only_main_output_cost"] = main_cost
