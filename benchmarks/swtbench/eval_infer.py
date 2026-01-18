@@ -235,7 +235,8 @@ def convert_to_swtbench_format(
 
 def run_swtbench_evaluation(
     predictions_file: str,
-    dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
+    # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
+    dataset: str = "princeton-nlp/SWE-bench_Verified",
     workers: str = "12",
 ) -> None:
     """
@@ -297,7 +298,6 @@ def run_swtbench_evaluation(
             dataset,
             "--predictions_path",
             predictions_filename,
-            "--filter_swt",
             "--max_workers",
             str(workers),
             "--run_id",
@@ -356,11 +356,12 @@ Examples:
 
     parser.add_argument("input_file", help="Path to the OpenHands output.jsonl file")
 
+    # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     parser.add_argument(
         "--dataset",
-        default="eth-sri/SWT-bench_Verified_bm25_27k_zsp",
+        default="princeton-nlp/SWE-bench_Verified",
         help="SWT-Bench dataset to evaluate against "
-        "(default: eth-sri/SWT-bench_Verified_bm25_27k_zsp)",
+        "(default: princeton-nlp/SWE-bench_Verified)",
     )
 
     parser.add_argument(
