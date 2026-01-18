@@ -50,15 +50,16 @@ def process_commit0_results(
 
     Report format (similar to SWE-Bench):
     {
-        "total_instances": 16,
+        "total_instances": 16,              # Number of repositories
         "submitted_instances": 16,
         "completed_instances": 16,
-        "resolved_instances": 5,
+        "resolved_instances": 5,            # Repos with all tests passed
         "unresolved_instances": 11,
         "empty_patch_instances": 0,
         "error_instances": 0,
-        "total_tests": 500,
-        "total_passed_tests": 400,
+        "total_tests": 500,                 # Sum of num_tests
+        "total_passed_tests": 400,          # Sum of num_passed
+        "sum_num_passed": 400,              # For accuracy: sum_num_passed / 3628
         "completed_ids": [...],
         "resolved_ids": [...],
         "unresolved_ids": [...]
@@ -123,7 +124,7 @@ def process_commit0_results(
     # Generate report
     report = {
         "model_name_or_path": model_name,
-        "total_instances": 3628,  # Total number of tests across all instances
+        "total_instances": 16,  # Number of repositories in the benchmark
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
         "resolved_instances": len(resolved_ids),
@@ -132,6 +133,7 @@ def process_commit0_results(
         "error_instances": 0,  # Always 0 as per requirement
         "total_tests": total_tests,
         "total_passed_tests": total_passed_tests,
+        "sum_num_passed": total_passed_tests,  # Sum of num_passed across all instances (for accuracy calculation)
         "completed_ids": completed_ids,
         "resolved_ids": resolved_ids,
         "unresolved_ids": unresolved_ids,
@@ -142,20 +144,13 @@ def process_commit0_results(
         json.dump(report, outfile, indent=4)
 
     logger.info("Report generated successfully:")
-    logger.info(f"  Total instances (tests): {report['total_instances']}")
+    logger.info(f"  Total instances (repositories): {report['total_instances']}")
     logger.info(f"  Completed instances: {report['completed_instances']}")
-    logger.info(f"  Resolved instances: {report['resolved_instances']}")
+    logger.info(f"  Resolved instances (all tests passed): {report['resolved_instances']}")
     logger.info(f"  Unresolved instances: {report['unresolved_instances']}")
-    logger.info(f"  Total tests: {report['total_tests']}")
-    logger.info(f"  Total passed tests: {report['total_passed_tests']}")
-    if report["total_instances"]:
-        success_rate = (
-            report["total_passed_tests"] / report["total_instances"] * 100
-        )
-        success_rate_display = f"{success_rate:.1f}%"
-    else:
-        success_rate_display = "N/A"
-    logger.info(f"  Success rate (passed tests / total tests): {success_rate_display}")
+    logger.info(f"  Total tests across all instances: {report['total_tests']}")
+    logger.info(f"  Sum of passed tests (sum_num_passed): {report['sum_num_passed']}")
+    logger.info(f"  Note: Final accuracy will be calculated as sum_num_passed / 3628 total tests")
 
 
 def main() -> None:
