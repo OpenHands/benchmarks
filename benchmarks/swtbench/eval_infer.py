@@ -312,10 +312,6 @@ def run_swtbench_evaluation(
             str(workers),
             "--run_id",
             f"eval_{predictions_path.stem}",
-            "--patch_types",
-            "vanilla",
-            "--build_mode",
-            "api",
         ]
 
         logger.info(f"Using Python executable: {python_executable}")
