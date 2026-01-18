@@ -272,7 +272,7 @@ def convert_to_swtbench_format(
 
 def run_swtbench_evaluation(
     predictions_file: str,
-    dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
+    dataset: str = "princeton-nlp/SWE-bench_Verified",
     workers: str = "12",
 ) -> None:
     """
@@ -285,7 +285,7 @@ def run_swtbench_evaluation(
 
     Args:
         predictions_file: Path to the SWT-Bench format predictions file
-        dataset: SWT-Bench dataset to evaluate against
+        dataset: Dataset to evaluate against (SWE-bench by default for v0 parity)
         workers: Number of workers to use for evaluation
     """
     use_legacy = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in ("1", "true", "yes")
@@ -327,6 +327,7 @@ def run_swtbench_evaluation(
         env = os.environ.copy()
         env["PYTHONPATH"] = str(swt_bench_dir)
 
+        is_swt_dataset = "swt-bench" in dataset.lower()
         cmd = [
             python_executable,
             "src/main.py",  # Run as script instead of module
@@ -334,12 +335,13 @@ def run_swtbench_evaluation(
             dataset,
             "--predictions_path",
             predictions_filename,
-            "--filter_swt",
             "--max_workers",
             str(workers),
             "--run_id",
             f"eval_{predictions_path.stem}",
         ]
+        if is_swt_dataset:
+            cmd.append("--filter_swt")
 
         logger.info(f"Using Python executable: {python_executable}")
         logger.info(f"Running command: {' '.join(cmd)}")
@@ -395,9 +397,9 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="eth-sri/SWT-bench_Verified_bm25_27k_zsp",
-        help="SWT-Bench dataset to evaluate against "
-        "(default: eth-sri/SWT-bench_Verified_bm25_27k_zsp)",
+        default="princeton-nlp/SWE-bench_Verified",
+        help="Dataset to evaluate against "
+        "(default: princeton-nlp/SWE-bench_Verified; set to an SWT-Bench dataset to use filter_swt)",
     )
 
     parser.add_argument(
