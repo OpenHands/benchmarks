@@ -48,7 +48,7 @@ def run_multi_swebench_evaluation(
     if dataset_name is None:
         dataset_name = "bytedance-research/Multi-SWE-Bench"
     if split is None:
-        split = "test"
+        split = "train"
 
     try:
         if input_file is None:
@@ -113,7 +113,7 @@ def main():
     parser.add_argument(
         "--dataset", default="bytedance-research/Multi-SWE-Bench", help="Dataset name"
     )
-    parser.add_argument("--split", default="test", help="Dataset split")
+    parser.add_argument("--split", default="train", help="Dataset split")
     parser.add_argument(
         "--lang", default="java", help="Language for Multi-SWE-bench dataset"
     )
