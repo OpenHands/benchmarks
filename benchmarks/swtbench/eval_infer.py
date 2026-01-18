@@ -19,7 +19,7 @@ from pathlib import Path
 from time import monotonic
 
 from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.patch_utils import keep_only_test_files_in_patch
+from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -193,9 +193,9 @@ def convert_to_swtbench_format(
                     # Still create entry with empty patch
                     git_patch = ""
 
-                # For SWT-Bench, we only want test files in the model_patch
-                # Filter out reproduction scripts, pytest.ini changes, setup files, etc.
-                git_patch = keep_only_test_files_in_patch(git_patch)
+                # postprocess git_patch
+                setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
+                git_patch = remove_files_from_patch(git_patch, setup_files)
 
                 # Create SWT-Bench format entry
                 swtbench_entry = {
