@@ -114,3 +114,70 @@ def remove_binary_files_from_git():
         fi
     done
     """.strip()
+
+
+def keep_only_test_files_in_patch(git_patch):
+    """
+    Extract only test files from a git patch.
+
+    This is used for SWT-Bench evaluation where we only want to include
+    test files in the model_patch, excluding helper scripts, config changes, etc.
+
+    Args:
+        git_patch (str): The original git patch string
+    Returns:
+        str: The git patch containing only test file modifications
+    """
+    if not git_patch:
+        return git_patch
+
+    # Split patch into individual file diffs
+    diff_pattern = r"diff --git [^\n]*\n"
+    diff_matches = list(re.finditer(diff_pattern, git_patch))
+
+    if not diff_matches:
+        return git_patch
+
+    # Extract individual file diffs
+    file_diffs = []
+    for i, match in enumerate(diff_matches):
+        start = match.start()
+        end = (
+            diff_matches[i + 1].start() if i + 1 < len(diff_matches) else len(git_patch)
+        )
+        file_diff = git_patch[start:end]
+        file_diffs.append(file_diff)
+
+    # Keep only test files
+    test_diffs = []
+    for diff in file_diffs:
+        if "diff --git" in diff:
+            first_line = diff.split("\n")[0]
+            match = re.match(r"diff --git a/(.+) b/(.+)", first_line)
+            if match:
+                file_a, file_b = match.groups()
+                # Check if file is a test file
+                # Common patterns: /test/, /tests/, test_*.py, *_test.py
+                is_test = False
+                for filepath in [file_a, file_b]:
+                    if (
+                        "/test/" in filepath
+                        or "/tests/" in filepath
+                        or filepath.startswith("test_")
+                        or filepath.startswith("tests/")
+                        or filepath.startswith("test/")
+                        or "_test.py" in filepath
+                        or filepath.endswith("_test.py")
+                        or "test_" in filepath.split("/")[-1]
+                    ):
+                        is_test = True
+                        break
+
+                if is_test:
+                    test_diffs.append(diff)
+
+    # Rejoin the test diffs
+    if not test_diffs:
+        return ""
+
+    return "".join(test_diffs)
