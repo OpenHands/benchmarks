@@ -123,7 +123,7 @@ def process_commit0_results(
     # Generate report
     report = {
         "model_name_or_path": model_name,
-        "total_instances": 16,  # Fixed as per requirement
+        "total_instances": 3628,  # Total number of tests across all instances
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
         "resolved_instances": len(resolved_ids),
@@ -142,20 +142,20 @@ def process_commit0_results(
         json.dump(report, outfile, indent=4)
 
     logger.info("Report generated successfully:")
-    logger.info(f"  Total instances: {report['total_instances']}")
+    logger.info(f"  Total instances (tests): {report['total_instances']}")
     logger.info(f"  Completed instances: {report['completed_instances']}")
     logger.info(f"  Resolved instances: {report['resolved_instances']}")
     logger.info(f"  Unresolved instances: {report['unresolved_instances']}")
     logger.info(f"  Total tests: {report['total_tests']}")
     logger.info(f"  Total passed tests: {report['total_passed_tests']}")
-    if report["completed_instances"]:
+    if report["total_instances"]:
         success_rate = (
-            report["resolved_instances"] / report["completed_instances"] * 100
+            report["total_passed_tests"] / report["total_instances"] * 100
         )
         success_rate_display = f"{success_rate:.1f}%"
     else:
         success_rate_display = "N/A"
-    logger.info(f"  Success rate: {success_rate_display}")
+    logger.info(f"  Success rate (passed tests / total tests): {success_rate_display}")
 
 
 def main() -> None:
