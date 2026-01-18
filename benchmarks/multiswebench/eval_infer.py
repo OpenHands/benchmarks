@@ -55,6 +55,22 @@ def run_multi_swebench_evaluation(
             raise ValueError("input_file cannot be None")
         input_path = Path(input_file)
         work_dir = input_path.parent
+        original_work_dir = work_dir  # Save original for copying back results
+
+        # Check if running in K8s with Docker-in-Docker shared volume
+        shared_dir = Path("/shared")
+        using_shared = False
+        if shared_dir.exists() and shared_dir.is_dir():
+            logger.info("Detected /shared volume (Docker-in-Docker), copying eval outputs...")
+            # Copy work_dir to /shared so DinD can access it
+            shared_work_dir = shared_dir / work_dir.name
+            if shared_work_dir.exists():
+                shutil.rmtree(shared_work_dir)
+            shutil.copytree(work_dir, shared_work_dir, symlinks=True)
+            work_dir = shared_work_dir
+            input_file = str(shared_work_dir / input_path.name)
+            using_shared = True
+            logger.info(f"Using shared work_dir: {work_dir}")
 
         # Create config file for Multi-SWE-Bench
         config_file = work_dir / "config.json"
@@ -91,6 +107,18 @@ def run_multi_swebench_evaluation(
         result = subprocess.run(cmd, cwd=work_dir)
 
         logger.info(f"Return code: {result.returncode}")
+
+        # Copy results back from /shared to original location
+        if using_shared:
+            logger.info(f"Copying results back from {work_dir} to {original_work_dir}")
+            # Only copy back the eval_files directory (contains results)
+            eval_files_src = work_dir / "eval_files"
+            eval_files_dst = original_work_dir / "eval_files"
+            if eval_files_src.exists():
+                if eval_files_dst.exists():
+                    shutil.rmtree(eval_files_dst)
+                shutil.copytree(eval_files_src, eval_files_dst, symlinks=True)
+                logger.info("Results copied back successfully")
 
         if result.returncode != 0:
             error_msg = f"Evaluation failed with return code {result.returncode}"
