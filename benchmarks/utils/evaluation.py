@@ -29,7 +29,6 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
-from benchmarks.utils.resource_mapping import get_instance_resource_factor
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace

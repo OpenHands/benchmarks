@@ -6,10 +6,10 @@ This module provides utilities to track per-instance resource requirements.
 """
 
 import json
-import os
 from pathlib import Path
 
 from openhands.sdk import get_logger
+
 
 logger = get_logger(__name__)
 
@@ -56,9 +56,7 @@ def get_resource_mapping(
                 f"with {len(_global_resource_mapping[cache_key])} entries"
             )
         except Exception as e:
-            logger.warning(
-                f"Failed to load resource mapping from {mapping_file}: {e}"
-            )
+            logger.warning(f"Failed to load resource mapping from {mapping_file}: {e}")
             _global_resource_mapping[cache_key] = {}
             return None
 
