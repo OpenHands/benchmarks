@@ -33,6 +33,44 @@ logger = get_logger(__name__)
 PREBAKED_REGISTRY = "ghcr.io/openhands/swtbench-eval"
 
 
+def _fix_swt_dataset_mapping(swt_bench_dir: Path) -> None:
+    """
+    Patch swt-bench's dataset loader so SWT datasets map fields correctly.
+
+    SWT datasets store the golden *test* patch in `patch` (with <patch> tags),
+    and the golden *code* patch in `test_patch`. The harness expects
+    golden_code_patch to be the code patch and golden_test_patch to be the test
+    patch. Swap the assignments accordingly.
+    """
+    dataset_path = swt_bench_dir / "src" / "dataset.py"
+    if not dataset_path.exists():
+        logger.warning(
+            "swt-bench dataset.py not found at %s; skipping mapping fix", dataset_path
+        )
+        return
+
+    text = dataset_path.read_text()
+    old_code_line = 'dataset_instance["golden_code_patch"] = dataset_instance.pop("patch")[len("<patch>\\n"):-len("\\n</patch>")]'
+    old_test_line = (
+        'dataset_instance["golden_test_patch"] = dataset_instance.pop("test_patch")'
+    )
+    if old_code_line in text and old_test_line in text:
+        new_text = text.replace(
+            old_code_line,
+            'dataset_instance["golden_test_patch"] = dataset_instance.pop("patch")[len("<patch>\\n"):-len("\\n</patch>")]',
+        )
+        new_text = new_text.replace(
+            old_test_line,
+            'dataset_instance["golden_code_patch"] = dataset_instance.pop("test_patch")',
+        )
+        dataset_path.write_text(new_text)
+        logger.info("Patched swt_to_swt_instance mapping in %s", dataset_path)
+    else:
+        logger.info(
+            "swt_to_swt_instance already adjusted or unexpected format; leaving as-is"
+        )
+
+
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
     instance_ids: list[str] = []
     seen = set()
@@ -258,6 +296,7 @@ def run_swtbench_evaluation(
 
     try:
         swt_bench_dir = ensure_swt_bench_repo()
+        _fix_swt_dataset_mapping(swt_bench_dir)
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
@@ -303,6 +342,9 @@ def run_swtbench_evaluation(
             "--run_id",
             f"eval_{predictions_path.stem}",
         ]
+        if "swt-bench" in dataset.lower():
+            cmd.append("--is_swt")
+            cmd.append("--filter_swt")
 
         logger.info(f"Using Python executable: {python_executable}")
         logger.info(f"Running command: {' '.join(cmd)}")
