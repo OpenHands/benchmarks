@@ -78,7 +78,7 @@ jobs:
         github.event.label.name == 'build-multiswebench-50' ||
         github.event.label.name == 'build-multiswebench-200'))
 
-    runs-on: ubuntu-latest-16-cores
+    runs-on: ubuntu-latest-8-cores
 
     # Allow pushing to GHCR and commenting on issues
     permissions:
