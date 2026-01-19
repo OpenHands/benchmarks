@@ -29,6 +29,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
+from benchmarks.utils.resource_mapping import get_instance_resource_factor
 from openhands.sdk import get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
@@ -105,6 +106,21 @@ class Evaluation(ABC, BaseModel):
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
+
+    def get_instance_base_resource_factor(self, instance: EvalInstance) -> int:
+        """Get the base resource factor for a specific instance.
+
+        This method can be overridden by subclasses to provide benchmark-specific
+        per-instance resource factors. By default, returns the global base_resource_factor
+        from metadata.
+
+        Args:
+            instance: The evaluation instance.
+
+        Returns:
+            Base resource factor for the instance (used as starting point before retries).
+        """
+        return self.metadata.base_resource_factor
 
     def _create_error_output(
         self, instance: EvalInstance, error: Exception, retry_count: int
@@ -431,7 +447,9 @@ class Evaluation(ABC, BaseModel):
         # Shutdown the pool
         pool.shutdown(wait=wait, cancel_futures=True)
 
-    def _calculate_resource_factor(self, runtime_failure_count: int) -> int:
+    def _calculate_resource_factor(
+        self, runtime_failure_count: int, base_resource_factor: int
+    ) -> int:
         """Calculate the resource factor based on runtime failure count.
 
         Uses exponential backoff: base_factor * 2^runtime_failure_count
@@ -439,14 +457,15 @@ class Evaluation(ABC, BaseModel):
 
         Args:
             runtime_failure_count: Number of runtime failures encountered so far.
+            base_resource_factor: Base resource factor for this instance.
 
         Returns:
             The resource factor to use for this attempt.
         """
         if runtime_failure_count <= 0:
-            return self.metadata.base_resource_factor
+            return base_resource_factor
 
-        factor = self.metadata.base_resource_factor * (2**runtime_failure_count)
+        factor = base_resource_factor * (2**runtime_failure_count)
         return min(factor, self.metadata.max_resource_factor)
 
     # --- Worker-side method (executed in child processes) ---------------------------
@@ -472,6 +491,14 @@ class Evaluation(ABC, BaseModel):
         with redirect_stdout_stderr(log_file):
             logger.info("[child] start id=%s", instance.id)
 
+            # Get per-instance base resource factor
+            base_resource_factor = self.get_instance_base_resource_factor(instance)
+            if base_resource_factor != self.metadata.base_resource_factor:
+                logger.info(
+                    f"[child] Instance {instance.id} has custom base_resource_factor={base_resource_factor} "
+                    f"(global default: {self.metadata.base_resource_factor})"
+                )
+
             retry_count = 0
             runtime_failure_count = 0
             last_error = None
@@ -496,13 +523,14 @@ class Evaluation(ABC, BaseModel):
                 try:
                     # Calculate resource factor based on runtime failures
                     resource_factor = self._calculate_resource_factor(
-                        runtime_failure_count
+                        runtime_failure_count, base_resource_factor
                     )
                     if runtime_failure_count > 0:
                         logger.warning(
                             f"[child] Instance {instance.id}: "
                             f"attempt {retry_count + 1}/{max_retries + 1}, "
                             f"runtime_failure_count={runtime_failure_count}, "
+                            f"base_resource_factor={base_resource_factor}, "
                             f"resource_factor={resource_factor}"
                         )
 

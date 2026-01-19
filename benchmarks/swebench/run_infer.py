@@ -28,6 +28,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.resource_mapping import get_instance_resource_factor
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -96,6 +97,25 @@ class SWEBenchEvaluation(Evaluation):
 
         logger.info("Total instances to process: %d", len(instances))
         return instances
+
+    def get_instance_base_resource_factor(self, instance: EvalInstance) -> int:
+        """Get the base resource factor for a specific SWE-bench instance.
+
+        Uses per-instance resource mapping if available, otherwise falls back to
+        the global base_resource_factor from metadata.
+
+        Args:
+            instance: The evaluation instance.
+
+        Returns:
+            Base resource factor for the instance.
+        """
+        return get_instance_resource_factor(
+            benchmark_name="swebench",
+            dataset_name=self.metadata.dataset,
+            instance_id=instance.id,
+            default_factor=self.metadata.base_resource_factor,
+        )
 
     # ---- Hook: prepare a workspace per instance ----------------------------------
     def prepare_workspace(
