@@ -343,7 +343,7 @@ def run_swtbench_evaluation(
             f"eval_{predictions_path.stem}",
         ]
         if "swt-bench" in dataset.lower():
-            cmd.append("--is_swt")
+            cmd.extend(["--is_swt", "true"])
             cmd.append("--filter_swt")
 
         logger.info(f"Using Python executable: {python_executable}")
