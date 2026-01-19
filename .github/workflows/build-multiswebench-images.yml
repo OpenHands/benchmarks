@@ -78,8 +78,7 @@ jobs:
         github.event.label.name == 'build-multiswebench-50' ||
         github.event.label.name == 'build-multiswebench-200'))
 
-    runs-on:
-      labels: blacksmith-32vcpu-ubuntu-2204
+    runs-on: ubuntu-latest-16-cores
 
     # Allow pushing to GHCR and commenting on issues
     permissions:
