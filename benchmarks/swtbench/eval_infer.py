@@ -380,6 +380,7 @@ def run_swtbench_evaluation(
             f"eval_{predictions_path.stem}",
         ]
         if is_swt_dataset:
+            cmd.append("--is_swt")
             cmd.append("--filter_swt")
 
         logger.info(f"Using Python executable: {python_executable}")
