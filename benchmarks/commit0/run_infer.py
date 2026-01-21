@@ -219,6 +219,16 @@ class Commit0Evaluation(Evaluation):
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            # Startup probe configuration for Kubernetes pods
+            # These values allow for slower container startup times
+            startup_probe_initial_delay = int(
+                os.getenv("STARTUP_PROBE_INITIAL_DELAY_SECONDS", "10")
+            )
+            startup_probe_period = int(os.getenv("STARTUP_PROBE_PERIOD_SECONDS", "10"))
+            startup_probe_failure_threshold = int(
+                os.getenv("STARTUP_PROBE_FAILURE_THRESHOLD", "60")
+            )
+            startup_probe_timeout = int(os.getenv("STARTUP_PROBE_TIMEOUT_SECONDS", "5"))
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
@@ -230,6 +240,10 @@ class Commit0Evaluation(Evaluation):
                 resource_factor=resource_factor,
                 init_timeout=startup_timeout,
                 startup_wait_timeout=startup_timeout,
+                startup_probe_initial_delay_seconds=startup_probe_initial_delay,
+                startup_probe_period_seconds=startup_probe_period,
+                startup_probe_failure_threshold=startup_probe_failure_threshold,
+                startup_probe_timeout_seconds=startup_probe_timeout,
             )
         else:
             raise ValueError(
