@@ -318,6 +318,18 @@ class SWEBenchEvaluation(Evaluation):
         # Run conversation with fake user responses to handle agent messages
         run_conversation_with_fake_user_response(conversation)
 
+        # Check if there are stashed changes and pop them
+        stash_list_result = workspace.execute_command(
+            f"cd {repo_path} ; git stash list"
+        )
+        if stash_list_result.exit_code == 0 and stash_list_result.stdout.strip():
+            logger.info("Detected stashed changes, popping stash...")
+            pop_result = workspace.execute_command(f"cd {repo_path} ; git stash pop")
+            if pop_result.exit_code != 0:
+                logger.warning(f"git stash pop failed: {pop_result.stderr}")
+            else:
+                logger.info("Successfully popped stashed changes")
+
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
