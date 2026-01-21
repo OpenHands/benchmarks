@@ -348,8 +348,21 @@ class Commit0Evaluation(Evaluation):
             )
             if patch_result.exit_code == 0:
                 git_patch = patch_result.stdout.strip()
+                logger.info(
+                    f"Git patch retrieved for {instance.id}: {len(git_patch)} bytes"
+                )
+                if not git_patch:
+                    logger.warning(
+                        f"Empty git patch for {instance.id}. Checking git status..."
+                    )
+                    status_result = workspace.execute_command(
+                        f"cd {repo_path} && git status",
+                        timeout=60,
+                    )
+                    logger.info(f"Git status output: {status_result.stdout}")
                 break
-            logger.info("Failed to get git diff, retrying...")
+            logger.info(f"Failed to get git diff (retry {retry + 1}/5), retrying...")
+            logger.info(f"Error: {patch_result.stderr}")
 
         if git_patch is None:
             raise RuntimeError("Failed to get git patch after 5 retries")
