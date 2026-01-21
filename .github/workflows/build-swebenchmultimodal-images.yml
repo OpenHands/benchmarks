@@ -1,5 +1,9 @@
 name: Build SWE-Bench Multimodal Images
 
+run-name: >-
+  Build SWE-Bench Multimodal Images
+  ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' && format('(SDK: {0})', inputs.sdk-commit) || '' }}
+
 on:
   pull_request_target:
     types: [labeled]
