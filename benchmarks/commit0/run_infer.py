@@ -329,13 +329,21 @@ class Commit0Evaluation(Evaluation):
         history = list(conversation.state.events)
 
         # Complete runtime: git add, commit, diff, run tests
-        workspace.execute_command(f"cd {repo_path} && git add .", timeout=600)
-        workspace.execute_command(
+        add_result = workspace.execute_command(
+            f"cd {repo_path} && git add .", timeout=600
+        )
+        logger.info(f"Git add result for {instance.id}: exit_code={add_result.exit_code}")
+        
+        commit_result = workspace.execute_command(
             f"cd {repo_path} && "
             'git config --global user.email "evaluation@openhands.dev" && '
             'git config --global user.name "OpenHands Evaluation" && '
-            'git commit -m "openhands edits"',
+            'git commit -m "openhands edits" || echo "Nothing to commit"',
             timeout=600,
+        )
+        logger.info(
+            f"Git commit result for {instance.id}: exit_code={commit_result.exit_code}, "
+            f"output={commit_result.stdout[:200]}"
         )
 
         # Get git patch
