@@ -12,8 +12,18 @@ from benchmarks.commit0.build_images import (
     extract_custom_tag,
     get_base_docker_image,
 )
+from benchmarks.commit0.constants import (
+    COMMIT0_DATASET,
+    COMMIT0_DEFAULT_SPLIT,
+    DEFAULT_BUILD_TARGET,
+    DEFAULT_REPO_SPLIT,
+)
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.constants import (
+    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    DEFAULT_RUNTIME_API_URL,
+    EVAL_AGENT_SERVER_IMAGE,
+)
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import prepare_dataset
@@ -110,9 +120,9 @@ class Commit0Evaluation(Evaluation):
         self,
         metadata: EvalMetadata,
         num_workers: int = 1,
-        repo_split: str = "lite",
-        dataset_name: str = "wentingzhao/commit0_combined",
-        dataset_split: str = "test",
+        repo_split: str = DEFAULT_REPO_SPLIT,
+        dataset_name: str = COMMIT0_DATASET,
+        dataset_split: str = COMMIT0_DEFAULT_SPLIT,
     ):
         super().__init__(metadata=metadata, num_workers=num_workers)
         # Store additional parameters in metadata.details for access in methods
@@ -130,9 +140,9 @@ class Commit0Evaluation(Evaluation):
         logger.info("Setting up Commit0 evaluation data")
 
         details = self.metadata.details or {}
-        dataset_name = details.get("dataset_name", "wentingzhao/commit0_combined")
-        dataset_split = details.get("dataset_split", "test")
-        repo_split = details.get("repo_split", "lite")
+        dataset_name = details.get("dataset_name", COMMIT0_DATASET)
+        dataset_split = details.get("dataset_split", COMMIT0_DEFAULT_SPLIT)
+        repo_split = details.get("repo_split", DEFAULT_REPO_SPLIT)
 
         dataset = load_dataset(dataset_name, split=dataset_split)
         df = commit0_setup(dataset, repo_split)
@@ -180,7 +190,7 @@ class Commit0Evaluation(Evaluation):
         """
         repo_name = instance.data["repo"].split("/")[1]
         base_docker_image = get_base_docker_image(repo_name)
-        build_target = "source-minimal"
+        build_target = DEFAULT_BUILD_TARGET
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
@@ -218,11 +228,14 @@ class Commit0Evaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv("RUNTIME_API_URL", DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
@@ -592,11 +605,11 @@ def main() -> None:
     parser.add_argument(
         "--repo-split",
         type=str,
-        default="lite",
+        default=DEFAULT_REPO_SPLIT,
         help="all, lite, or each repo name",
     )
     # Override the default dataset for commit0
-    parser.set_defaults(dataset="wentingzhao/commit0_combined")
+    parser.set_defaults(dataset=COMMIT0_DATASET)
     args = parser.parse_args()
 
     # Validate max_attempts

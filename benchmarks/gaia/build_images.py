@@ -13,6 +13,7 @@ Example:
 import sys
 from pathlib import Path
 
+from benchmarks.gaia.constants import GAIA_BASE_IMAGE, GAIA_DEFAULT_SPLIT
 from benchmarks.utils.build_utils import (
     BuildOutput,
     _get_sdk_submodule_info,
@@ -26,8 +27,6 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 
-# GAIA base image: Python 3.12 + Node.js 22 (default for agent server)
-GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
 # MCP layer Dockerfile
 MCP_DOCKERFILE = Path(__file__).with_name("Dockerfile.gaia")
 
@@ -74,7 +73,7 @@ def main(argv: list[str]) -> int:
         return f"gaia-{args.target}"
 
     # Build base GAIA image
-    build_dir = default_build_output_dir("gaia", "validation")
+    build_dir = default_build_output_dir("gaia", GAIA_DEFAULT_SPLIT)
     exit_code = build_all_images(
         base_images=base_images,
         target=args.target,

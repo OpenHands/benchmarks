@@ -12,6 +12,10 @@ Example:
 import sys
 from pathlib import Path
 
+from benchmarks.swebench.constants import (
+    SWEBENCH_DOCKER_IMAGE_PREFIX,
+    WRAPPED_REPOS,
+)
 from benchmarks.utils.build_utils import (
     BuildOutput,
     build_all_images,
@@ -26,13 +30,11 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
-# Repos that require the docutils/roman wrapper layer
-WRAPPED_REPOS = {"sphinx-doc"}
 
 
 def get_official_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
+    docker_image_prefix: str = SWEBENCH_DOCKER_IMAGE_PREFIX,
 ) -> str:
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1

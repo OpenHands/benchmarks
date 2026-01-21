@@ -11,11 +11,24 @@ from benchmarks.multiswebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.multiswebench.constants import (
+    DEFAULT_BUILD_TARGET,
+    DEFAULT_LANG,
+    DOCKER_IMAGE_PREFIX,
+    MULTISWEBENCH_DATASET,
+    RUN_WITH_BROWSING,
+    USE_HINT_TEXT,
+)
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
-from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.constants import (
+    DEFAULT_ENV_SETUP_COMMANDS,
+    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    DEFAULT_RUNTIME_API_URL,
+    EVAL_AGENT_SERVER_IMAGE,
+)
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import prepare_dataset
@@ -42,18 +55,11 @@ class MultiSWEBenchEvalMetadata(EvalMetadata):
     """Extended metadata for Multi-SWE-bench evaluation with language support."""
 
     lang: str = Field(
-        default="java", description="Language for Multi-SWE-bench dataset"
+        default=DEFAULT_LANG, description="Language for Multi-SWE-bench dataset"
     )
 
 
 logger = get_logger(__name__)
-
-# Environment variables for Multi-SWE-Bench configuration
-USE_HINT_TEXT = os.environ.get("USE_HINT_TEXT", "false").lower() == "true"
-USE_INSTANCE_IMAGE = os.environ.get("USE_INSTANCE_IMAGE", "true").lower() == "true"
-RUN_WITH_BROWSING = os.environ.get("RUN_WITH_BROWSING", "false").lower() == "true"
-# For Multi-SWE-Bench, force mswebench prefix instead of the general SWE-Bench prefix
-DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
 
 logger.info(f"Using docker image prefix: {DOCKER_IMAGE_PREFIX}")
 
@@ -120,7 +126,7 @@ class MultiSWEBenchEvaluation(Evaluation):
 
         # Check if this is a ByteDance-Seed/Multi-SWE-bench dataset that needs downloading
         dataset_path = self.metadata.dataset
-        if dataset_path.startswith("ByteDance-Seed/Multi-SWE-bench"):
+        if dataset_path.startswith(MULTISWEBENCH_DATASET):
             metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
             logger.info(
                 f"Downloading Multi-SWE-bench dataset for language: {metadata.lang}"
@@ -200,7 +206,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             instance.data, docker_image_prefix=DOCKER_IMAGE_PREFIX
         )
         logger.info(f"Using official docker image: {official_docker_image}")
-        build_target = "source-minimal"
+        build_target = DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
@@ -264,11 +270,14 @@ class MultiSWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv("RUNTIME_API_URL", DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 init_timeout=startup_timeout,
@@ -474,7 +483,7 @@ def main() -> None:
         details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
-        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        env_setup_commands=DEFAULT_ENV_SETUP_COMMANDS,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,

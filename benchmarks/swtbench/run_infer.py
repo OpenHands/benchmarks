@@ -4,8 +4,17 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swtbench.constants import (
+    DEFAULT_BUILD_TARGET,
+    SWTBENCH_DOCKER_IMAGE_PREFIX,
+)
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.constants import (
+    DEFAULT_ENV_SETUP_COMMANDS,
+    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    DEFAULT_RUNTIME_API_URL,
+    EVAL_AGENT_SERVER_IMAGE,
+)
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -34,7 +43,7 @@ logger = get_logger(__name__)
 
 def get_official_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
+    docker_image_prefix: str = SWTBENCH_DOCKER_IMAGE_PREFIX,
 ) -> str:
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
@@ -47,8 +56,8 @@ def get_official_docker_image(
 
 def get_agent_server_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swtbench/",
-    target: str = "source-minimal",
+    docker_image_prefix: str = SWTBENCH_DOCKER_IMAGE_PREFIX,
+    target: str = DEFAULT_BUILD_TARGET,
 ) -> str:
     """Get the agent server Docker image for an instance."""
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
@@ -154,7 +163,7 @@ class SWTBenchEvaluation(Evaluation):
             forward_env: Environment variables to forward into the workspace.
         """
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = DEFAULT_BUILD_TARGET
 
         # Create a custom tag for the image
         name_tag = official_docker_image.split("/")[-1]
@@ -210,11 +219,14 @@ class SWTBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv("RUNTIME_API_URL", DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
@@ -391,7 +403,7 @@ def main() -> None:
         details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
-        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        env_setup_commands=DEFAULT_ENV_SETUP_COMMANDS,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,

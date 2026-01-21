@@ -9,9 +9,19 @@ from benchmarks.swebenchmultimodal.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.swebenchmultimodal.constants import (
+    DEFAULT_BUILD_TARGET,
+    SWEBENCH_MULTIMODAL_DATASET,
+    SWEBENCH_MULTIMODAL_DEFAULT_SPLIT,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
-from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.constants import (
+    DEFAULT_ENV_SETUP_COMMANDS,
+    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    DEFAULT_RUNTIME_API_URL,
+    EVAL_AGENT_SERVER_IMAGE,
+)
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -123,7 +133,7 @@ class SWEBenchEvaluation(Evaluation):
         """
         # Use multimodal image
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
@@ -184,11 +194,14 @@ class SWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv("RUNTIME_API_URL", DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 init_timeout=startup_timeout,
@@ -389,7 +402,9 @@ def main() -> None:
         help="Path to prompt template file",
     )
     # Override the default dataset and split for multimodal
-    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Multimodal", split="dev")
+    parser.set_defaults(
+        dataset=SWEBENCH_MULTIMODAL_DATASET, split=SWEBENCH_MULTIMODAL_DEFAULT_SPLIT
+    )
     args = parser.parse_args()
 
     # Validate max_attempts
@@ -429,7 +444,7 @@ def main() -> None:
         details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
-        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        env_setup_commands=DEFAULT_ENV_SETUP_COMMANDS,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,

@@ -3,7 +3,6 @@ import re
 import tempfile
 import time
 import zipfile
-from pathlib import Path
 from typing import List, Sequence, cast
 
 import huggingface_hub
@@ -11,10 +10,19 @@ import pandas as pd
 from datasets import DatasetDict, load_dataset
 from PIL import Image
 
+from benchmarks.gaia.constants import (
+    DATASET_CACHE_DIR,
+    GAIA_DATA_YEAR,
+    GAIA_DATASET,
+)
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.constants import (
+    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    DEFAULT_RUNTIME_API_URL,
+    EVAL_AGENT_SERVER_IMAGE,
+)
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation import Evaluation
@@ -45,9 +53,6 @@ from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 logger = get_logger(__name__)
 
-# Cache directory for GAIA dataset files
-DATASET_CACHE_DIR = Path(__file__).parent / "data"
-
 
 class GAIAEvaluation(Evaluation):
     """
@@ -75,13 +80,13 @@ class GAIAEvaluation(Evaluation):
         logger.info(
             f"Loading GAIA dataset: {level}, split: {self.metadata.dataset_split}"
         )
-        dataset = cast(DatasetDict, load_dataset("gaia-benchmark/GAIA", level))
+        dataset = cast(DatasetDict, load_dataset(GAIA_DATASET, level))
 
         # Download dataset files
         logger.info(f"Downloading GAIA dataset files to {DATASET_CACHE_DIR}")
         DATASET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         huggingface_hub.snapshot_download(
-            "gaia-benchmark/GAIA",
+            GAIA_DATASET,
             repo_type="dataset",
             local_dir=str(DATASET_CACHE_DIR),
         )
@@ -182,11 +187,14 @@ class GAIAEvaluation(Evaluation):
                 f"Using remote workspace with GAIA image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv("RUNTIME_API_URL", DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 init_timeout=startup_timeout,
@@ -211,7 +219,10 @@ class GAIAEvaluation(Evaluation):
 
             # Construct source file path
             src_file = (
-                DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
+                DATASET_CACHE_DIR
+                / GAIA_DATA_YEAR
+                / self.metadata.dataset_split
+                / file_name
             )
 
             if not src_file.exists():
@@ -289,7 +300,10 @@ class GAIAEvaluation(Evaluation):
                 # Load image and encode as base64
                 assert self.metadata.details is not None
                 src_file = (
-                    DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
+                    DATASET_CACHE_DIR
+                    / GAIA_DATA_YEAR
+                    / self.metadata.dataset_split
+                    / file_name
                 )
                 if src_file.exists():
                     image = Image.open(src_file)
@@ -400,7 +414,10 @@ Here is the task:
             if extension_name == "zip":
                 # List files from zip
                 src_file = (
-                    DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
+                    DATASET_CACHE_DIR
+                    / GAIA_DATA_YEAR
+                    / self.metadata.dataset_split
+                    / file_name
                 )
                 if src_file.exists():
                     with zipfile.ZipFile(src_file, "r") as zip_ref:
@@ -585,7 +602,7 @@ def main() -> None:
     # Create metadata
     metadata = EvalMetadata(
         llm=llm,
-        dataset="gaia-benchmark/GAIA",
+        dataset=GAIA_DATASET,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
