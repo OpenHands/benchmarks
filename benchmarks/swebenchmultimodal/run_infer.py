@@ -254,34 +254,18 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         logger.info("repo_path: %s", repo_path)
-        # For multimodal datasets, we don't copy from testbed since it doesn't exist
-        # The repo should already be available in the workspace
-        logger.info("Skipping testbed copy for multimodal dataset")
-
-        # Create repo directory if it doesn't exist
-        mkdir_result = workspace.execute_command(f"mkdir -p {repo_path}")
-        if mkdir_result.exit_code != 0:
-            logger.warning(f"mkdir failed: {mkdir_result.stderr}")
-
-        # Initialize git repo if it doesn't exist, or reset if it does
-        git_init_result = workspace.execute_command(f"cd {repo_path} ; git init")
-        if git_init_result.exit_code != 0:
-            logger.warning(f"git init failed: {git_init_result.stderr}")
-
-        # Configure git user globally in the workspace
-        workspace.execute_command(
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation'"
+        # Copy testbed repo to workspace (same as regular swebench)
+        # The multimodal benchmark uses regular SWE-bench images which have /testbed
+        cp_testbed_repo = workspace.execute_command(
+            f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}"
+        )
+        assert cp_testbed_repo.exit_code == 0, (
+            f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"
         )
 
-        # Create an empty initial commit to establish HEAD
-        initial_commit_result = workspace.execute_command(
-            f"cd {repo_path} ; git commit --allow-empty -m 'Initial empty commit'"
-        )
-        if initial_commit_result.exit_code != 0:
-            logger.warning(
-                f"Initial empty commit failed: {initial_commit_result.stderr}"
-            )
+        # git reset to clean state
+        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
+        assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
         instruction = get_instruction(
             instance=instance.data,
