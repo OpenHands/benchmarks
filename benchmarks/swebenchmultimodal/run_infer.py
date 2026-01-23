@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import List
 
+import requests
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebenchmultimodal.build_images import (
@@ -43,6 +44,34 @@ from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
+
+
+def is_valid_image_url(url: str, allowed_types: list | None = None) -> bool:
+    """
+    Check if a URL points to a valid image by examining the HTTP response content type.
+
+    Args:
+        url: The URL to check
+        allowed_types: List of allowed MIME types. If None, defaults to common image types.
+
+    Returns:
+        True if URL points to a valid image type, False otherwise
+    """
+    if allowed_types is None:
+        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+
+    try:
+        # Send a HEAD request first to check headers without downloading the entire file
+        response = requests.head(url, allow_redirects=True, timeout=5)
+        response.raise_for_status()
+
+        # Get the content type from the response headers
+        content_type = response.headers.get("Content-Type", "")
+
+        # Check if the content type is in the allowed types
+        return any(content_type.startswith(t) for t in allowed_types)
+    except Exception:
+        return False
 
 
 def get_instruction(
@@ -295,17 +324,55 @@ class SWEBenchEvaluation(Evaluation):
                 assets = json.loads(instance.data["image_assets"])
                 if "problem_statement" in assets and assets["problem_statement"]:
                     image_urls = assets["problem_statement"]
-                    logger.info(f"Sending instruction with {len(image_urls)} images")
 
-                    # Create message with both text and images
-                    message = Message(
-                        role="user",
-                        content=[
-                            TextContent(text=instruction),
-                            ImageContent(image_urls=image_urls),
-                        ],
-                    )
-                    conversation.send_message(message)
+                    # Filter and validate image URLs
+                    valid_urls = []
+                    index_dict = {}
+                    for url in image_urls:
+                        if is_valid_image_url(url):
+                            if url in instruction:
+                                valid_urls.append(url)
+                                idx = instruction.find(url)
+                                index_dict[url] = idx
+                            else:
+                                logger.warning(
+                                    f"Image URL {url} not found in instruction, skipping"
+                                )
+                        else:
+                            logger.info(
+                                f"Image URL {url} is invalid or inaccessible, skipping"
+                            )
+
+                    if valid_urls:
+                        # Sort URLs by their position in the instruction
+                        sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
+                        sorted_urls = [item[0] for item in sorted_urls]
+
+                        # Add image numbering to instruction
+                        modified_instruction = instruction
+                        for idx, url in enumerate(sorted_urls):
+                            modified_instruction = modified_instruction.replace(
+                                url, f"{url} (Image: {idx + 1})"
+                            )
+
+                        logger.info(
+                            f"Sending instruction with {len(sorted_urls)} valid images"
+                        )
+
+                        # Create message with both text and images
+                        message = Message(
+                            role="user",
+                            content=[
+                                TextContent(text=modified_instruction),
+                                ImageContent(image_urls=sorted_urls),
+                            ],
+                        )
+                        conversation.send_message(message)
+                    else:
+                        logger.info(
+                            "No valid image URLs found, sending text-only instruction"
+                        )
+                        conversation.send_message(instruction)
                 else:
                     logger.info("No problem_statement images found in image_assets")
                     conversation.send_message(instruction)
