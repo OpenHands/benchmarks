@@ -50,28 +50,58 @@ def process_commit0_results(
 
     Report format (similar to SWE-Bench):
     {
-        "total_instances": 16,              # Number of repositories
-        "submitted_instances": 16,
-        "completed_instances": 16,
+        "total_instances": 10,              # Number of REFERENCE repositories (not all 16!)
+        "submitted_instances": 10,
+        "completed_instances": 10,
         "resolved_instances": 5,            # Repos with all tests passed
-        "unresolved_instances": 11,
+        "unresolved_instances": 5,
         "empty_patch_instances": 0,
         "error_instances": 0,
-        "total_tests": 500,                 # Sum of num_tests
-        "total_passed_tests": 400,          # Sum of num_passed
-        "sum_num_passed": 400,              # For accuracy: sum_num_passed / 3628
+        "total_tests": 3273,                # Sum of num_tests (REFERENCE REPOS ONLY)
+        "total_passed_tests": 2977,         # Sum of num_passed (REFERENCE REPOS ONLY)
+        "sum_num_passed": 2977,             # For accuracy calculation
         "completed_ids": [...],
         "resolved_ids": [...],
         "unresolved_ids": [...]
     }
+    
+    Note:
+        The commit0-lite benchmark contains 16 instances total, but only 10 are used
+        as reference (gold) instances for accuracy calculation on the leaderboard.
+        
+        Issue: PR #351 showed 100.7% accuracy because we were including all 16 repos
+        instead of just the 10 reference repos, leading to incorrect test totals.
+        
+        References:
+        - Leaderboard: https://commit-0.github.io/analysis/
+        - Breakdown: https://commit-0.github.io/analysis_commit0-lite-plain_fillin/
+        
+        The 10 reference repos are: simpy, tinydb, marshmallow, wcwidth, imapclient,
+        voluptuous, jinja, deprecated, cookiecutter, cachetools
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
+
+    # The 10 reference (gold) repos used for leaderboard scoring
+    # See: https://commit-0.github.io/analysis_commit0-lite-plain_fillin/
+    REFERENCE_REPOS = {
+        "simpy",
+        "tinydb",
+        "marshmallow",
+        "wcwidth",
+        "imapclient",
+        "voluptuous",
+        "jinja",
+        "deprecated",
+        "cookiecutter",
+        "cachetools",
+    }
 
     completed_ids = []
     resolved_ids = []
     unresolved_ids = []
     total_tests = 0
     total_passed_tests = 0
+    skipped_non_reference = []
 
     with open(input_file, "r") as infile:
         for line_num, line in enumerate(infile, 1):
@@ -86,6 +116,14 @@ def process_commit0_results(
                 instance_id = data.get("instance_id")
                 if not instance_id:
                     logger.warning(f"Line {line_num}: Missing instance_id")
+                    continue
+
+                # Skip non-reference repos (only count the 10 reference repos)
+                if instance_id not in REFERENCE_REPOS:
+                    skipped_non_reference.append(instance_id)
+                    logger.debug(
+                        f"Skipping non-reference instance: {instance_id} (not in reference set)"
+                    )
                     continue
 
                 # Extract eval_result from test_result
@@ -121,10 +159,16 @@ def process_commit0_results(
             except Exception as e:
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
+    # Log skipped non-reference instances
+    if skipped_non_reference:
+        logger.info(
+            f"Skipped {len(skipped_non_reference)} non-reference instances: {sorted(set(skipped_non_reference))}"
+        )
+
     # Generate report
     report = {
         "model_name_or_path": model_name,
-        "total_instances": 16,  # Number of repositories in the benchmark
+        "total_instances": 10,  # Number of REFERENCE repositories (not all 16!)
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
         "resolved_instances": len(resolved_ids),
@@ -144,7 +188,7 @@ def process_commit0_results(
         json.dump(report, outfile, indent=4)
 
     logger.info("Report generated successfully:")
-    logger.info(f"  Total instances (repositories): {report['total_instances']}")
+    logger.info(f"  Total instances (REFERENCE repos): {report['total_instances']}")
     logger.info(f"  Completed instances: {report['completed_instances']}")
     logger.info(f"  Resolved instances (all tests passed): {report['resolved_instances']}")
     logger.info(f"  Unresolved instances: {report['unresolved_instances']}")

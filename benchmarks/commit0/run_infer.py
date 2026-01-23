@@ -72,8 +72,37 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
 
     Returns:
         Filtered dataset based on split type
+    
+    Note:
+        The commit0-lite benchmark contains 16 instances total, but only 10 are used
+        as reference (gold) instances for accuracy calculation on the leaderboard.
+        
+        Issue: PR #351 showed 100.7% accuracy because we were including all 16 repos
+        instead of just the 10 reference repos, leading to incorrect test totals.
+        
+        References:
+        - Leaderboard: https://commit-0.github.io/analysis/
+        - Breakdown: https://commit-0.github.io/analysis_commit0-lite-plain_fillin/
+        
+        The 10 reference repos are: simpy, tinydb, marshmallow, wcwidth, imapclient,
+        voluptuous, jinja, deprecated, cookiecutter, cachetools
     """
     import pandas as pd
+
+    # The 10 reference (gold) repos used for leaderboard scoring
+    # See: https://commit-0.github.io/analysis_commit0-lite-plain_fillin/
+    REFERENCE_REPOS = {
+        "simpy",
+        "tinydb",
+        "marshmallow",
+        "wcwidth",
+        "imapclient",
+        "voluptuous",
+        "jinja",
+        "deprecated",
+        "cookiecutter",
+        "cachetools",
+    }
 
     if not isinstance(df, pd.DataFrame):
         df = df.to_pandas()
@@ -90,6 +119,16 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
 
     filtered_dataset["instance_id"] = (
         pd.Series(filtered_dataset["repo"]).str.split("/").str[1]
+    )
+
+    # Filter to only reference repos for accuracy calculation
+    # This prevents including non-reference repos like chardet, pyjwt, etc.
+    filtered_dataset = filtered_dataset[
+        filtered_dataset["instance_id"].isin(REFERENCE_REPOS)
+    ]
+    
+    logger.info(
+        f"Filtered to {len(filtered_dataset)} reference instances from {len(REFERENCE_REPOS)} reference repos"
     )
 
     return filtered_dataset
