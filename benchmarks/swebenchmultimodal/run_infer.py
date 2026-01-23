@@ -305,41 +305,23 @@ class SWEBenchEvaluation(Evaluation):
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
-        # Check if there are any changes to commit
-        status_result = workspace.execute_command(
-            f"cd {repo_path} ; git status --porcelain"
+        # git commit (same as regular swebench - includes git config)
+        workspace.execute_command(
+            f"cd {repo_path} && "
+            "git config --global user.email 'evaluation@openhands.dev' && "
+            "git config --global user.name 'OpenHands Evaluation' && "
+            "git commit -m 'patch'"
         )
 
-        if status_result.exit_code == 0 and status_result.stdout.strip():
-            # There are changes to commit
-            commit_result = workspace.execute_command(
-                f"cd {repo_path} ; git commit -m 'patch'"
-            )
-            if commit_result.exit_code != 0:
-                logger.warning(f"git commit failed: {commit_result.stderr}")
-                git_patch = ""
-            else:
-                # Get git patch - diff between the initial commit and the current commit
-                git_patch_result = workspace.execute_command(
-                    (f"cd {repo_path} ; git --no-pager diff --no-color HEAD~1 HEAD")
-                )
-                if git_patch_result.exit_code != 0:
-                    logger.warning(f"git diff HEAD~1 failed: {git_patch_result.stderr}")
-                    # Try to get the last commit as a patch
-                    git_patch_result = workspace.execute_command(
-                        (f"cd {repo_path} ; git --no-pager show --no-color HEAD")
-                    )
-                    if git_patch_result.exit_code != 0:
-                        logger.warning("git show HEAD also failed, using empty patch")
-                        git_patch = ""
-                    else:
-                        git_patch = git_patch_result.stdout
-                else:
-                    git_patch = git_patch_result.stdout
-        else:
-            # No changes to commit
-            logger.warning("No changes detected, using empty patch")
-            git_patch = ""
+        # Get git patch (same as regular swebench - use base_commit)
+        base_commit = instance.data["base_commit"]
+        git_patch_result = workspace.execute_command(
+            f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD"
+        )
+        assert git_patch_result.exit_code == 0, (
+            f"git diff failed: {git_patch_result.stderr}"
+        )
+        git_patch = git_patch_result.stdout
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
