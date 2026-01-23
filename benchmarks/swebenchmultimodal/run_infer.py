@@ -336,14 +336,23 @@ class SWEBenchEvaluation(Evaluation):
                 git_patch = ""
             else:
                 # Get git patch - diff between the initial commit and the current commit
+                # Exclude lock files and AGENTS.md which can cause huge diffs
+                exclude_patterns = [
+                    "':(exclude)package-lock.json'",
+                    "':(exclude)yarn.lock'",
+                    "':(exclude)pnpm-lock.yaml'",
+                    "':(exclude)AGENTS.md'",
+                    "':(exclude).openhands/'",
+                ]
+                excludes = " -- . " + " ".join(exclude_patterns)
                 git_patch_result = workspace.execute_command(
-                    (f"cd {repo_path} ; git --no-pager diff --no-color HEAD~1 HEAD")
+                    f"cd {repo_path} ; git --no-pager diff --no-color HEAD~1 HEAD{excludes}"
                 )
                 if git_patch_result.exit_code != 0:
                     logger.warning(f"git diff HEAD~1 failed: {git_patch_result.stderr}")
                     # Try to get the last commit as a patch
                     git_patch_result = workspace.execute_command(
-                        (f"cd {repo_path} ; git --no-pager show --no-color HEAD")
+                        f"cd {repo_path} ; git --no-pager show --no-color HEAD{excludes}"
                     )
                     if git_patch_result.exit_code != 0:
                         logger.warning("git show HEAD also failed, using empty patch")
