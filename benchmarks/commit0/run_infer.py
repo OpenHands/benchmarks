@@ -82,7 +82,7 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
         
         References:
         - Leaderboard: https://commit-0.github.io/analysis/
-        - Breakdown: https://commit-0.github.io/analysis_commit0-lite-plain_fillin/
+        - Breakdown: https://commit-0.github.io/analysis_commit0_lite_reference/
         
         The 10 reference repos are: simpy, tinydb, marshmallow, wcwidth, imapclient,
         voluptuous, jinja, deprecated, cookiecutter, cachetools
@@ -90,7 +90,7 @@ def commit0_setup(df: Any, repo_split: str) -> Any:
     import pandas as pd
 
     # The 10 reference (gold) repos used for leaderboard scoring
-    # See: https://commit-0.github.io/analysis_commit0-lite-plain_fillin/
+    # See: https://commit-0.github.io/analysis_commit0_lite_reference/
     REFERENCE_REPOS = {
         "simpy",
         "tinydb",
