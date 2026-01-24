@@ -220,8 +220,8 @@ class SWEBenchEvaluation(Evaluation):
         Do not write files here; just return EvalOutput.
         """
         tools = get_default_tools(
-            # Disable browser tools in CLI mode
-            enable_browser=False,
+            # Enable browser tools for frontend development tasks
+            enable_browser=True,
         )
         agent = Agent(
             llm=self.metadata.llm,
