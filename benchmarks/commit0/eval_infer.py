@@ -15,15 +15,27 @@ import logging
 import sys
 from pathlib import Path
 
-from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.report_costs import generate_cost_report
-
-
-# Set up logging
+# Set up logging early so it's available for import warnings
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Optional imports for Laminar tracing and cost reporting
+# These may not be available in minimal environments (e.g., push-to-index jobs)
+try:
+    from benchmarks.utils.laminar import LaminarService
+    LAMINAR_AVAILABLE = True
+except ImportError:
+    LAMINAR_AVAILABLE = False
+    logger.warning("LaminarService not available - skipping Laminar integration")
+
+try:
+    from benchmarks.utils.report_costs import generate_cost_report
+    COST_REPORT_AVAILABLE = True
+except ImportError:
+    COST_REPORT_AVAILABLE = False
+    logger.warning("Cost reporting not available - skipping cost report generation")
 
 
 def process_commit0_results(
@@ -239,11 +251,17 @@ Examples:
         # Process results and generate report
         process_commit0_results(str(input_file), str(output_file), args.model_name)
 
-        # Update Laminar datapoints with evaluation scores
-        LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
+        # Update Laminar datapoints with evaluation scores (if available)
+        if LAMINAR_AVAILABLE:
+            LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
+        else:
+            logger.info("Skipping Laminar update (not available)")
 
-        # Generate cost report as final step
-        generate_cost_report(str(input_file))
+        # Generate cost report as final step (if available)
+        if COST_REPORT_AVAILABLE:
+            generate_cost_report(str(input_file))
+        else:
+            logger.info("Skipping cost report generation (not available)")
 
         logger.info("Script completed successfully!")
 
