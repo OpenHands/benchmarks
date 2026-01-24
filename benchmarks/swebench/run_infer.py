@@ -277,11 +277,12 @@ class SWEBenchEvaluation(Evaluation):
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
             "git config --global user.email 'evaluation@openhands.dev' && "
             "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+            "git commit --no-verify -m 'patch'"
         )
 
         # Get git patch
