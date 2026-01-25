@@ -1,0 +1,843 @@
+{
+  "metadata": {
+    "dataset": "SWE-bench/SWE-bench_Multimodal",
+    "split": "dev",
+    "total_instances": 102,
+    "statistics": {
+      "total": 102,
+      "by_keyword": {
+        "SOLVEABLE": 65,
+        "HIDDEN_FUNCTIONAL_REQUIREMENT": 13,
+        "VISUAL_OUTPUT_MISMATCH": 16,
+        "CHANGE_SCOPE_EXCESSIVE": 1,
+        "UNRELATED_TESTS": 8
+      },
+      "by_repo": {
+        "Automattic/wp-calypso": 37,
+        "chartjs/Chart.js": 24,
+        "diegomura/react-pdf": 11,
+        "markedjs/marked": 14,
+        "processing/p5.js": 16
+      }
+    }
+  },
+  "annotations": {
+    "Automattic__wp-calypso-21409": {
+      "instance_id": "Automattic__wp-calypso-21409",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Selector tests for countries with states list."
+    },
+    "Automattic__wp-calypso-21492": {
+      "instance_id": "Automattic__wp-calypso-21492",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Utility test for extracting role from OAuth scope."
+    },
+    "Automattic__wp-calypso-21635": {
+      "instance_id": "Automattic__wp-calypso-21635",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Validation test for Brazilian tax ID (CPF) format."
+    },
+    "Automattic__wp-calypso-21648": {
+      "instance_id": "Automattic__wp-calypso-21648",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Standard HTML entity decoding issue - when displaying placeholders, entities should be decoded. Unit tests verify the correct behavior of settings handling."
+    },
+    "Automattic__wp-calypso-21769": {
+      "instance_id": "Automattic__wp-calypso-21769",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Selector test for help site ID fallback logic."
+    },
+    "Automattic__wp-calypso-21964": {
+      "instance_id": "Automattic__wp-calypso-21964",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "URL encoding test for OAuth2 login."
+    },
+    "Automattic__wp-calypso-21977": {
+      "instance_id": "Automattic__wp-calypso-21977",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "The tests clearly specify the state management requirements: 1. Track when OAuth connects/completes 2. Track when account creation completes 3. Provide action to clear completion notification Standard Redux pattern with selectors, reducers, and actions."
+    },
+    "Automattic__wp-calypso-22026": {
+      "instance_id": "Automattic__wp-calypso-22026",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Selector tests for shipping country settings."
+    },
+    "Automattic__wp-calypso-22242": {
+      "instance_id": "Automattic__wp-calypso-22242",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Unit test for URL cleaning utility. Clear functional test."
+    },
+    "Automattic__wp-calypso-22621": {
+      "instance_id": "Automattic__wp-calypso-22621",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Selector tests for Jetpack onboarding steps state."
+    },
+    "Automattic__wp-calypso-22709": {
+      "instance_id": "Automattic__wp-calypso-22709",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Selector test for Jetpack onboarding contact form step."
+    },
+    "Automattic__wp-calypso-22782": {
+      "instance_id": "Automattic__wp-calypso-22782",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Unit test for credit card number masking. Clear format expectations."
+    },
+    "Automattic__wp-calypso-23017": {
+      "instance_id": "Automattic__wp-calypso-23017",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Utility test for checking subscription date."
+    },
+    "Automattic__wp-calypso-23377": {
+      "instance_id": "Automattic__wp-calypso-23377",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "The tests verify notice dispatch behavior. The issue is about proper notice handling when post status changes to trash. Unit tests provide clear expectations for the middleware behavior."
+    },
+    "Automattic__wp-calypso-23915": {
+      "instance_id": "Automattic__wp-calypso-23915",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Simple utility function test - when post type is not supplied, default to 'post'. The test provides clear expected behavior for the URL generation function."
+    },
+    "Automattic__wp-calypso-23991": {
+      "instance_id": "Automattic__wp-calypso-23991",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Reducer and selector tests for post featured image edits."
+    },
+    "Automattic__wp-calypso-25160": {
+      "instance_id": "Automattic__wp-calypso-25160",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Utility tests for normalizing posts and media actions."
+    },
+    "Automattic__wp-calypso-25257": {
+      "instance_id": "Automattic__wp-calypso-25257",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Redux handler test for product category fetch success."
+    },
+    "Automattic__wp-calypso-25725": {
+      "instance_id": "Automattic__wp-calypso-25725",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Handler test for transfer success notice action."
+    },
+    "Automattic__wp-calypso-25778": {
+      "instance_id": "Automattic__wp-calypso-25778",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "API handler test for comment error notice dispatch."
+    },
+    "Automattic__wp-calypso-26008": {
+      "instance_id": "Automattic__wp-calypso-26008",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Content detection test for embedded Polldaddy surveys."
+    },
+    "Automattic__wp-calypso-26286": {
+      "instance_id": "Automattic__wp-calypso-26286",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Selector test for activity log page section detection."
+    },
+    "Automattic__wp-calypso-26335": {
+      "instance_id": "Automattic__wp-calypso-26335",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Redux action tests for post save success/failure."
+    },
+    "Automattic__wp-calypso-26816": {
+      "instance_id": "Automattic__wp-calypso-26816",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Reducer and selector tests for Gutenberg opt-in dialog."
+    },
+    "Automattic__wp-calypso-27090": {
+      "instance_id": "Automattic__wp-calypso-27090",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Selector and reducer tests for post views."
+    },
+    "Automattic__wp-calypso-29804": {
+      "instance_id": "Automattic__wp-calypso-29804",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "Tests for plan descriptions require knowing exact plan naming conventions."
+    },
+    "Automattic__wp-calypso-30240": {
+      "instance_id": "Automattic__wp-calypso-30240",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "Snapshot tests compare against stored expected output. Without access to the exact expected snapshot, an agent cannot produce matching output for CSS styling changes."
+    },
+    "Automattic__wp-calypso-31830": {
+      "instance_id": "Automattic__wp-calypso-31830",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Unit test for mobile app detection utilities."
+    },
+    "Automattic__wp-calypso-32764": {
+      "instance_id": "Automattic__wp-calypso-32764",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "The tests verify specific component wrapper combinations (`Connect(Localized(PurchasesHeader))`) that indicate implementation choices about component composition. These HOC wrapping details cannot be inferred from the UI reorganization request."
+    },
+    "Automattic__wp-calypso-33245": {
+      "instance_id": "Automattic__wp-calypso-33245",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "The test verifies specific CSS class names (`happiness-support__text` changed to something else). The exact class naming convention for the layout fix cannot be inferred from the visual consistency request."
+    },
+    "Automattic__wp-calypso-33752": {
+      "instance_id": "Automattic__wp-calypso-33752",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "Tests verify specific CSS class changes."
+    },
+    "Automattic__wp-calypso-33948": {
+      "instance_id": "Automattic__wp-calypso-33948",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "Tests for persist-redux initial state with specific structure."
+    },
+    "Automattic__wp-calypso-34435": {
+      "instance_id": "Automattic__wp-calypso-34435",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Utility tests for signup flow resume logic."
+    },
+    "Automattic__wp-calypso-34519": {
+      "instance_id": "Automattic__wp-calypso-34519",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "Snapshot test for AppsBadge rendering."
+    },
+    "Automattic__wp-calypso-34597": {
+      "instance_id": "Automattic__wp-calypso-34597",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Component visibility test based on user permissions."
+    },
+    "Automattic__wp-calypso-34820": {
+      "instance_id": "Automattic__wp-calypso-34820",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Unit tests for user utils and cart store transformations."
+    },
+    "Automattic__wp-calypso-35531": {
+      "instance_id": "Automattic__wp-calypso-35531",
+      "repo": "Automattic/wp-calypso",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "Component visibility test for contributor role."
+    },
+    "chartjs__Chart.js-10157": {
+      "instance_id": "chartjs__Chart.js-10157",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "The problem statement describes a visual bug where `borderRadius` is ignored for the bottom corners of 0-value bars when `borderSkipped` and `minBarLength` are set. The expected behavior is that bars should render as circles with all corners respecting `borderRadius`.\n\nThe FAIL_TO_PASS tests are vis"
+    },
+    "chartjs__Chart.js-10301": {
+      "instance_id": "chartjs__Chart.js-10301",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "The problem statement clearly describes:\n1. The expected behavior: `onLeave` event should be called when the mouse exits the chart/legend\n2. The current buggy behavior: `onLeave` is not always called when the cursor moves outside\n3. A possible solution hint: \"I played around with attaching a mouseou"
+    },
+    "chartjs__Chart.js-10806": {
+      "instance_id": "chartjs__Chart.js-10806",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "1. **Visual PNG comparison tests**: The tests require matching pixel-perfect PNG baselines 2. **Complex rendering algorithm**: The fix involves refactoring arc drawing logic with mathematical changes that cannot be inferred from the problem description 3. **Specific magic number**: The bug relates to a specific value (385/405 degrees circumference) that creates edge cases in arc rendering An agent cannot generate the expected PNG outputs and cannot determine the exact rendering algorithm changes"
+    },
+    "chartjs__Chart.js-11116": {
+      "instance_id": "chartjs__Chart.js-11116",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem description**: Ticks generated beyond user-defined max 2. **User-provided solution**: The issue includes a proposed fix (linked commit) 3. **Simple unit test**: Verifies last tick value \u2264 max 4. **Straightforward fix**: Add bounds checking in tick generation loop The problem clearly describes the issue, the user even provides a solution direction, and the test has a simple numerical assertion. A developer examining the `generateTicks` function would see the loop generates tick"
+    },
+    "chartjs__Chart.js-11352": {
+      "instance_id": "chartjs__Chart.js-11352",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "Visual PNG comparison test requiring pixel-perfect matching of baseline image."
+    },
+    "chartjs__Chart.js-7951": {
+      "instance_id": "chartjs__Chart.js-7951",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "Visual PNG comparison tests require matching pixel-perfect baselines that cannot be generated without access to the expected output images."
+    },
+    "chartjs__Chart.js-8162": {
+      "instance_id": "chartjs__Chart.js-8162",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear symptom**: Double rendering of plugins (legend/title) 2. **Unit test with explicit expectation**: Plugin `start` should only be called once 3. **Logical fix**: Guard against multiple invalidations in a single update cycle 4. **Common pattern**: Using a null check to prevent redundant operations is standard A developer investigating \"plugins running twice\" would examine the plugin lifecycle in `core.plugins.js` and notice that `invalidate()` could be called multiple times, losing the `"
+    },
+    "chartjs__Chart.js-8567": {
+      "instance_id": "chartjs__Chart.js-8567",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "1. **Visual PNG comparison tests**: Tests require matching pixel-perfect PNG baselines 2. **Layout algorithm complexity**: The fix involves understanding the box layout system and fullSize box handling 3. **Unclear requirements**: The problem says \"labels overlapping\" but doesn't specify exact spacing requirements that the test verifies An agent cannot generate the expected PNG outputs and cannot determine the precise layout algorithm changes without seeing the expected visual result."
+    },
+    "chartjs__Chart.js-8593": {
+      "instance_id": "chartjs__Chart.js-8593",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "The problem description only asks for rotation support in Radar charts. However, the tests reveal several non-obvious requirements: 1. **Configuration API change**: The `startAngle` must be accessed via `scales.r.startAngle` (scale-level) rather than `options.startAngle` (chart-level) 2. **Default value**: Must have `startAngle: 0` as default in the radial linear scale config 3. **Multiple chart types affected**: Both Radar and PolarArea charts are affected by this change"
+    },
+    "chartjs__Chart.js-8650": {
+      "instance_id": "chartjs__Chart.js-8650",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH",
+        "CHANGE_SCOPE_EXCESSIVE"
+      ],
+      "explanation": "1. **VISUAL_OUTPUT_MISMATCH**: The tests require matching 70+ PNG baseline images and specific pixel coordinates. An agent cannot generate the exact expected PNG outputs or know the precise pixel values without access to the test baselines. 2. **CHANGE_SCOPE_EXCESSIVE**: The simple problem description (\"rightmost point gets cut off\") belies a solution that requires: - Creating a new architectural concept (`minPadding`)"
+    },
+    "chartjs__Chart.js-8705": {
+      "instance_id": "chartjs__Chart.js-8705",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear error message**: `Cannot read property 'value' of undefined` points directly to array access issue 2. **Explicit test cases**: The test specifies exactly which edge cases must work (empty array, 1 item, 2 items) 3. **Standard fix pattern**: Array bounds checking is a common defensive programming pattern 4. **Easy to trace**: Examining `formatters.numeric` code reveals the unsafe array accesses"
+    },
+    "chartjs__Chart.js-8710": {
+      "instance_id": "chartjs__Chart.js-8710",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear error message**: `RangeError: minimumFractionDigits value is out of range` points to locale/number formatting issue 2. **Unit test with clear expectation**: Verifies locale-formatted output (`'7,07'` with German locale) 3. **Obvious fix**: The code was reading `this.options.locale` (scale options) instead of `this.chart.options.locale` (chart options) 4. **Simple change**: Two lines changed across two files"
+    },
+    "chartjs__Chart.js-8867": {
+      "instance_id": "chartjs__Chart.js-8867",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "1. **Visual PNG comparison tests**: Tests require matching pixel-perfect PNG baselines 2. **Multiple rendering changes**: The fix involves changes to size calculation, drawing position, and text alignment 3. **Feature implementation details**: The problem describes desired behavior but not the exact visual appearance that tests verify An agent cannot generate the expected PNG outputs showing correct mirrored tick placement without access to the baseline images."
+    },
+    "chartjs__Chart.js-8868": {
+      "instance_id": "chartjs__Chart.js-8868",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "Visual PNG comparison test requiring pixel-perfect matching of baseline image for axis positioning."
+    },
+    "chartjs__Chart.js-9027": {
+      "instance_id": "chartjs__Chart.js-9027",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear error**: `RangeError` from NaN/negative dimensions 2. **Unit test**: Tests that chart creation doesn't throw 3. **Simple fix**: `Math.max(..., 0)` to ensure non-negative values 4. **Common pattern**: Clamping values to 0 is standard defensive programming The error trace points to number formatting with invalid values, which a developer would trace back to negative dimensions being used in calculations."
+    },
+    "chartjs__Chart.js-9101": {
+      "instance_id": "chartjs__Chart.js-9101",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem description**: The issue clearly describes that shift() causes wrong colors, pointing to a caching issue 2. **Logical fix**: Examining `getContext()` reveals that `parsed` and `raw` are updated for cached contexts, but `index` is not - a clear oversight 3. **Unit test verification**: The test is a straightforward unit test checking object properties, not requiring visual output matching"
+    },
+    "chartjs__Chart.js-9199": {
+      "instance_id": "chartjs__Chart.js-9199",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "Visual PNG comparison tests requiring pixel-perfect matching of baseline images for legend text alignment in RTL mode."
+    },
+    "chartjs__Chart.js-9367": {
+      "instance_id": "chartjs__Chart.js-9367",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear symptom**: Crash with specific screen sizes/scaling 2. **Unit test**: Tests the edge case directly without visual output 3. **Standard fix pattern**: Array bounds checking with `Math.min()` 4. **Investigation leads to code**: Following the stack trace would reveal the LTTB algorithm accessing out-of-bounds indices The bug is a classic off-by-one/bounds error in a mathematical algorithm."
+    },
+    "chartjs__Chart.js-9399": {
+      "instance_id": "chartjs__Chart.js-9399",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "All failing tests are visual PNG comparison tests requiring pixel-perfect matching of baseline images. An agent cannot generate the expected visual outputs."
+    },
+    "chartjs__Chart.js-9613": {
+      "instance_id": "chartjs__Chart.js-9613",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "1. **Dependency version change**: The actual fix is in `chartjs-test-utils`, not in Chart.js source code 2. **Event normalization**: The test reveals that pointer events are normalized to mouse events (pointerleave \u2192 mouseout), which isn't obvious from the problem description 3. **Plugin event filtering**: The issue is about how plugin event filters handle normalized event types, which is a subtle internal mechanism"
+    },
+    "chartjs__Chart.js-9678": {
+      "instance_id": "chartjs__Chart.js-9678",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "All failing tests are visual PNG comparison tests requiring pixel-perfect matching. An agent cannot generate the expected visual outputs without access to baseline images."
+    },
+    "chartjs__Chart.js-9764": {
+      "instance_id": "chartjs__Chart.js-9764",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "While the problem statement clearly explains the expected behavior, the tests verify the fix through pixel-perfect PNG comparison. An agent cannot: 1. Generate the exact expected PNG baseline images 2. Know the precise pixel-level rendering that would pass the visual comparison tests Even if an agent implements the correct logic, it cannot verify its solution matches the expected visual output without access to the baseline PNG files."
+    },
+    "chartjs__Chart.js-9766": {
+      "instance_id": "chartjs__Chart.js-9766",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "While the unit test provides clear expectations for `getMinMax()` behavior, the instance also requires passing a **PNG visual comparison test** (`bounds-data.png`). An agent could potentially implement the correct logic based on: 1. The problem description (stacked charts should use stacked values for range) 2. The unit test assertions (exact expected min/max values) However, the agent cannot verify that its implementation produces pixel-identical output matching the updated PNG baseline. The vi"
+    },
+    "chartjs__Chart.js-9871": {
+      "instance_id": "chartjs__Chart.js-9871",
+      "repo": "chartjs/Chart.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem description**: Single element arc not responding to clicks/hover 2. **Unit test with explicit expectations**: Tests exactly what coordinates should be in/out of range 3. **Logical fix**: Examining `inRange()` reveals that `circumference` could be undefined for full circles, making the TAU comparison fail 4. **Discoverable pattern**: The use of `valueOrDefault()` is common throughout Chart.js for handling optional properties"
+    },
+    "diegomura__react-pdf-1178": {
+      "instance_id": "diegomura__react-pdf-1178",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem**: Margin auto not working 2. **Unit tests with explicit assertions**: Tests check that 'auto' value is preserved 3. **Simple fix**: Early return for 'auto' value in the processor 4. **Logical debugging path**: Looking at how margins are processed would reveal 'auto' being converted incorrectly"
+    },
+    "diegomura__react-pdf-1280": {
+      "instance_id": "diegomura__react-pdf-1280",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem**: flexBasis percent values not working 2. **Unit tests with simple assertions**: Tests verify percent values are preserved 3. **Simple fix**: Return original value when split/match fails 4. **Debugging path**: Following how flexBasis values are processed reveals the issue"
+    },
+    "diegomura__react-pdf-1285": {
+      "instance_id": "diegomura__react-pdf-1285",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "1. **Problem vs Solution mismatch**: The problem describes Buffer() deprecation, but the test is about glyph indices resolution 2. **Fork/dependency update**: The fix involves updating an upstream fork (`fontkit`) rather than fixing code directly 3. **Test refactoring**: The tests are significantly restructured, not just adding simple assertions 4. **Implementation details unknown**: Cannot infer the internal changes to fontkit that fix the Buffer issue from the problem description"
+    },
+    "diegomura__react-pdf-1306": {
+      "instance_id": "diegomura__react-pdf-1306",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem**: Types don't match documented behavior for async sources 2. **Unit tests with simple assertions**: Tests verify source values are handled correctly 3. **Straightforward refactoring**: Extract async resolution to a separate function 4. **Type-driven development**: TypeScript error guides the fix direction"
+    },
+    "diegomura__react-pdf-1341": {
+      "instance_id": "diegomura__react-pdf-1341",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear error message**: `value.split is not a function` indicates calling split() on a number 2. **Unit tests with explicit expectations**: Tests pass both number and string values 3. **Obvious fix**: Convert to string with template literal before calling split() 4. **Standard pattern**: Template literal string conversion is common"
+    },
+    "diegomura__react-pdf-1363": {
+      "instance_id": "diegomura__react-pdf-1363",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem**: RGBA colors not working 2. **Unit tests with clear expectations**: Tests specify exact color parsing behavior 3. **Targeted fix**: Color parsing utility and its usage in text fragments 4. **Standard color parsing pattern**: Extract RGB and opacity separately"
+    },
+    "diegomura__react-pdf-1541": {
+      "instance_id": "diegomura__react-pdf-1541",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "1. **New comprehensive test file**: Tests many layout scenarios not described in the issue 2. **Internal layout logic**: Tests verify specific box dimensions that aren't specified in the problem 3. **Edge case coverage**: Tests check multiple combinations of flex properties 4. **Implementation-specific assertions**: Tests verify exact numeric dimensions An agent cannot infer the specific dimension calculations expected from the general problem description."
+    },
+    "diegomura__react-pdf-1552": {
+      "instance_id": "diegomura__react-pdf-1552",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear error message**: \"Cannot read property '0' of undefined\" points to accessing array index on undefined 2. **User-provided suggestion**: \"Maybe add an extra check `node.lines?.[0]` or provide default array\" 3. **Defensive programming pattern**: Standard null/undefined checks 4. **Simple fix scope**: Single function modification The user even suggests the fix approach in the issue description."
+    },
+    "diegomura__react-pdf-2400": {
+      "instance_id": "diegomura__react-pdf-2400",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "1. **Extensive new test suite**: 433+ lines of tests covering many scenarios not described in the issue 2. **Implementation rework**: The fix involves deleting and recreating pagination logic 3. **Multiple edge cases**: Tests cover scenarios beyond the single case described (fixed + minPresenceAhead) 4. **Architectural changes**: Reworking the entire minPresenceAhead detection mechanism An agent cannot infer the comprehensive break logic requirements from the simple problem description."
+    },
+    "diegomura__react-pdf-433": {
+      "instance_id": "diegomura__react-pdf-433",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "1. **Internal API expectation**: Tests verify which internal canvas drawing method is called (rect vs roundedRect), which isn't inferrable from the visual bug report 2. **Rendering implementation details**: The fix changes how borders interact with rounded corners at the drawing primitive level 3. **Test implementation specificity**: The tests mock internal drawing methods, and the fix requires knowing the expected behavior of those mocks"
+    },
+    "diegomura__react-pdf-471": {
+      "instance_id": "diegomura__react-pdf-471",
+      "repo": "diegomura/react-pdf",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem**: Nested style arrays not being flattened 2. **Simple unit test**: Tests array flattening with nested arrays 3. **Standard recursive pattern**: Flatten nested arrays recursively 4. **Debugging path**: Following style resolution leads to the flatten function"
+    },
+    "markedjs__marked-1262": {
+      "instance_id": "markedjs__marked-1262",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear reproduction**: Demo link shows the exact rendering issue 2. **Spec tests**: Multiple examples test pipe escaping in table cells 3. **Focused fix**: Only affects `splitCells` function 4. **Standard escaping logic**: Check for backslash before pipe character"
+    },
+    "markedjs__marked-1435": {
+      "instance_id": "markedjs__marked-1435",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear reproduction**: The sample.txt shows exact failing case 2. **Spec test with expected output**: Test defines what correct behavior looks like 3. **Focused fix**: Link parsing bracket matching 4. **Standard algorithm**: Proper bracket matching in URLs is well-defined"
+    },
+    "markedjs__marked-1535": {
+      "instance_id": "markedjs__marked-1535",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem**: Checkbox rendering differs in loose vs tight lists 2. **Spec test with expected output**: The test shows exact HTML expected 3. **Focused fix**: Only modifies checkbox handling in loose list context 4. **Logical debugging**: Following the list parsing code reveals the checkbox placement issue"
+    },
+    "markedjs__marked-1674": {
+      "instance_id": "markedjs__marked-1674",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear error**: \"Cannot read property 'type' of undefined\" points to array access on empty array 2. **Spec test**: Adds the empty checkbox case to existing test 3. **Standard fix pattern**: Array bounds checking before access 4. **User suggestion**: Problem description indicates the issue is accessing empty tokens"
+    },
+    "markedjs__marked-1683": {
+      "instance_id": "markedjs__marked-1683",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear example**: The problem provides exact markdown that fails 2. **Spec test with expected output**: Shows escaped brackets should be unescaped in alt text 3. **Simple regex fix**: Standard escape sequence handling 4. **Focused scope**: Only affects alt text processing"
+    },
+    "markedjs__marked-1739": {
+      "instance_id": "markedjs__marked-1739",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear visual comparison**: Screenshots show difference vs GitHub 2. **Spec test with expected output**: Test provides exact HTML expected 3. **Regex pattern fix**: Standard HTML parsing regex update 4. **Focused scope**: Only affects HTML comment/special tag handling"
+    },
+    "markedjs__marked-1821": {
+      "instance_id": "markedjs__marked-1821",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear examples**: The demo link shows exactly what's wrong 2. **Spec tests**: Multiple test cases show valid and invalid strikethrough patterns 3. **Focused fix**: Just updating the capture group index 4. **Standard regex debugging**: Following the tokenizer logic reveals the issue"
+    },
+    "markedjs__marked-1825": {
+      "instance_id": "markedjs__marked-1825",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear bug**: Task lists shouldn't render with `gfm: false` 2. **Spec test with expected output**: Shows task syntax should be literal when non-GFM 3. **Simple conditional**: Wrap existing logic in GFM option check 4. **Consistent behavior**: Tables already respect GFM option"
+    },
+    "markedjs__marked-1889": {
+      "instance_id": "markedjs__marked-1889",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear problem**: Whitespace incorrectly removed from code blocks 2. **Spec tests with expected output**: Tests show whitespace should be preserved 3. **Simple conditional**: Gate the whitespace removal behind pedantic option 4. **Logical fix**: Code blocks should preserve content exactly"
+    },
+    "markedjs__marked-1936": {
+      "instance_id": "markedjs__marked-1936",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **CommonMark compliance**: Tests are from CommonMark spec 2. **Clear expectation**: Space should be separate from list_item 3. **Focused area**: List parsing in Tokenizer 4. **Spec-driven**: The expected behavior is defined by CommonMark"
+    },
+    "markedjs__marked-2483": {
+      "instance_id": "markedjs__marked-2483",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear visual bug**: Demo shows exactly what's wrong 2. **Spec tests with expected output**: Tests show correct parsing 3. **Focused fix**: List parsing needs to detect fence boundaries 4. **Standard markdown behavior**: Code fences after lists are well-defined"
+    },
+    "markedjs__marked-2627": {
+      "instance_id": "markedjs__marked-2627",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear demo link**: Exact reproduction case provided 2. **Spec test with expected output**: Multiple escape scenarios tested 3. **Unit test**: Tests inline tokenization of escaped punctuation 4. **Pattern matching fix**: Standard escape handling in regex matching"
+    },
+    "markedjs__marked-2811": {
+      "instance_id": "markedjs__marked-2811",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "1. **Extensive Unicode list**: The fix requires knowing the complete list of Unicode punctuation from CommonMark spec 2. **Not inferrable from example**: The Japanese comma example doesn't hint at the full scope of punctuation characters needed 3. **Spec compliance**: The fix references CommonMark specification for the complete punctuation list 4. **Implementation detail**: The exact Unicode ranges aren't derivable from the bug report"
+    },
+    "markedjs__marked-684": {
+      "instance_id": "markedjs__marked-684",
+      "repo": "markedjs/marked",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "1. **Clear visual bug**: Adjacent lists merging incorrectly 2. **Spec test with expected HTML**: Shows ul and ol should be separate 3. **Simple fix**: Remove the `smartLists` condition 4. **Standard markdown behavior**: Lists of different types should be separate"
+    },
+    "processing__p5.js-3068": {
+      "instance_id": "processing__p5.js-3068",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "loadStrings empty lines - unit test with clear expectation."
+    },
+    "processing__p5.js-3680": {
+      "instance_id": "processing__p5.js-3680",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "VISUAL_OUTPUT_MISMATCH"
+      ],
+      "explanation": "Loading GIF frames involves visual frame extraction and counting."
+    },
+    "processing__p5.js-3709": {
+      "instance_id": "processing__p5.js-3709",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "WebGL tint feature but failing tests include Files I/O, docs preprocessor, and helpers tests unrelated to tint."
+    },
+    "processing__p5.js-3769": {
+      "instance_id": "processing__p5.js-3769",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "WebGL BufferDef test and friendly global binder - focused unit tests."
+    },
+    "processing__p5.js-4147": {
+      "instance_id": "processing__p5.js-4147",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "WebGL buffer properties test - focused unit tests."
+    },
+    "processing__p5.js-4561": {
+      "instance_id": "processing__p5.js-4561",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "FES validateParameters caching - unit test setup modification."
+    },
+    "processing__p5.js-5305": {
+      "instance_id": "processing__p5.js-5305",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "FES error messages - unit tests with specific error identification patterns."
+    },
+    "processing__p5.js-5555": {
+      "instance_id": "processing__p5.js-5555",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "WebGL alpha default change but failing tests include docs and helpers tests."
+    },
+    "processing__p5.js-5771": {
+      "instance_id": "processing__p5.js-5771",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "SOLVEABLE"
+      ],
+      "explanation": "WebGL QUADS vertex ordering - single focused unit test."
+    },
+    "processing__p5.js-5794": {
+      "instance_id": "processing__p5.js-5794",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "WebGL blendMode fix but failing tests include Files I/O tests."
+    },
+    "processing__p5.js-5855": {
+      "instance_id": "processing__p5.js-5855",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+      ],
+      "explanation": "Curve detail feature but tests involve geometry count assertions not specified in problem."
+    },
+    "processing__p5.js-5915": {
+      "instance_id": "processing__p5.js-5915",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "WebGL stroke color interpolation but failing tests include Files I/O and docs tests."
+    },
+    "processing__p5.js-5917": {
+      "instance_id": "processing__p5.js-5917",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "WebGL premultipliedAlpha change but failing tests include many Files I/O tests unrelated to the feature."
+    },
+    "processing__p5.js-5970": {
+      "instance_id": "processing__p5.js-5970",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "WebGL register availability test but failing tests include many Files I/O tests."
+    },
+    "processing__p5.js-6069": {
+      "instance_id": "processing__p5.js-6069",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "WebGL blendMode for points but failing tests include many Files I/O tests."
+    },
+    "processing__p5.js-6111": {
+      "instance_id": "processing__p5.js-6111",
+      "repo": "processing/p5.js",
+      "keywords": [
+        "UNRELATED_TESTS"
+      ],
+      "explanation": "Camera frustum fix but failing tests include many Files I/O tests unrelated to cameras."
+    }
+  }
+}
