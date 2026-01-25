@@ -6,10 +6,10 @@
     "statistics": {
       "total": 102,
       "by_keyword": {
-        "SOLVEABLE": 71,
-        "HIDDEN_FUNCTIONAL_REQUIREMENT": 12,
-        "VISUAL_OUTPUT_MISMATCH": 15,
-        "CHANGE_SCOPE_EXCESSIVE": 1,
+        "SOLVEABLE": 74,
+        "DATASET_BUG": 1,
+        "HIDDEN_FUNCTIONAL_REQUIREMENT": 10,
+        "VISUAL_OUTPUT_MISMATCH": 13,
         "UNRELATED_TESTS": 4
       },
       "by_repo": {
@@ -42,9 +42,9 @@
       "instance_id": "Automattic__wp-calypso-21635",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "DATASET_BUG"
       ],
-      "explanation": "Validation test for Brazilian tax ID (CPF) format."
+      "explanation": "DATASET_BUG: Problem statement describes 'rename showEmailSettings to showNotificationSettings' but the test verifies 'isValidCPF (Brazilian tax identification number)' and patch modifies ebanx.js/masking.js for credit card processing. The problem statement and patch/tests are about completely unrelated features."
     },
     "Automattic__wp-calypso-21648": {
       "instance_id": "Automattic__wp-calypso-21648",
@@ -266,9 +266,9 @@
       "instance_id": "Automattic__wp-calypso-33752",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+        "SOLVEABLE"
       ],
-      "explanation": "Tests verify specific CSS class changes."
+      "explanation": "Widow prevention in text. Multiple valid solutions exist: using non-breaking spaces directly in strings, or modifying preventWidows() to handle React elements. Both claude-4.5-opus and gemini-3-pro found different valid approaches."
     },
     "Automattic__wp-calypso-33948": {
       "instance_id": "Automattic__wp-calypso-33948",
@@ -378,9 +378,9 @@
       "instance_id": "chartjs__Chart.js-8567",
       "repo": "chartjs/Chart.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH"
+        "SOLVEABLE"
       ],
-      "explanation": "1. **Visual PNG comparison tests**: Tests require matching pixel-perfect PNG baselines 2. **Layout algorithm complexity**: The fix involves understanding the box layout system and fullSize box handling 3. **Unclear requirements**: The problem says \"labels overlapping\" but doesn't specify exact spacing requirements that the test verifies An agent cannot generate the expected PNG outputs and cannot determine the precise layout algorithm changes without seeing the expected visual result."
+      "explanation": "Y-scale labels overlapping. The visual bug is clearly described with comparison screenshots. Fix involves layout algorithm for fullSize box handling. Visual tests have tolerance allowing equivalent solutions."
     },
     "chartjs__Chart.js-8593": {
       "instance_id": "chartjs__Chart.js-8593",
@@ -394,10 +394,9 @@
       "instance_id": "chartjs__Chart.js-8650",
       "repo": "chartjs/Chart.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH",
-        "CHANGE_SCOPE_EXCESSIVE"
+        "SOLVEABLE"
       ],
-      "explanation": "1. **VISUAL_OUTPUT_MISMATCH**: The tests require matching 70+ PNG baseline images and specific pixel coordinates. An agent cannot generate the exact expected PNG outputs or know the precise pixel values without access to the test baselines. 2. **CHANGE_SCOPE_EXCESSIVE**: The simple problem description (\"rightmost point gets cut off\") belies a solution that requires: - Creating a new architectural concept (`minPadding`)"
+      "explanation": "Rightmost data point cutoff fix. The problem clearly describes the visual issue, and the fix involves standard chart overflow/padding calculation. Multiple valid approaches can achieve similar visual results."
     },
     "chartjs__Chart.js-8705": {
       "instance_id": "chartjs__Chart.js-8705",
@@ -699,9 +698,9 @@
       "instance_id": "markedjs__marked-2811",
       "repo": "markedjs/marked",
       "keywords": [
-        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+        "SOLVEABLE"
       ],
-      "explanation": "1. **Extensive Unicode list**: The fix requires knowing the complete list of Unicode punctuation from CommonMark spec 2. **Not inferrable from example**: The Japanese comma example doesn't hint at the full scope of punctuation characters needed 3. **Spec compliance**: The fix references CommonMark specification for the complete punctuation list 4. **Implementation detail**: The exact Unicode ranges aren't derivable from the bug report"
+      "explanation": "Unicode punctuation handling. While extensive Unicode ranges are needed, agents with knowledge of CommonMark spec or Unicode categories can infer the required punctuation characters. Gemini-3-pro successfully solved this using Unicode character classes."
     },
     "markedjs__marked-684": {
       "instance_id": "markedjs__marked-684",
