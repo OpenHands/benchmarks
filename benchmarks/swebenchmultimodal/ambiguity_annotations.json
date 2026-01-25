@@ -6,11 +6,12 @@
     "statistics": {
       "total": 102,
       "by_keyword": {
-        "SOLVEABLE": 74,
+        "HIDDEN_FUNCTIONAL_REQUIREMENT": 13,
+        "IDENTIFIER_NAME_UNDERSPECIFIED": 6,
         "DATASET_BUG": 1,
-        "HIDDEN_FUNCTIONAL_REQUIREMENT": 10,
+        "SOLVEABLE": 63,
         "VISUAL_OUTPUT_MISMATCH": 13,
-        "UNRELATED_TESTS": 4
+        "UNRELATED_TESTS": 6
       },
       "by_repo": {
         "Automattic/wp-calypso": 37,
@@ -26,7 +27,7 @@
       "instance_id": "Automattic__wp-calypso-21409",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
       ],
       "explanation": "Selector tests for countries with states list."
     },
@@ -34,9 +35,9 @@
       "instance_id": "Automattic__wp-calypso-21492",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "IDENTIFIER_NAME_UNDERSPECIFIED"
       ],
-      "explanation": "Utility test for extracting role from OAuth scope."
+      "explanation": "IDENTIFIER_NAME_UNDERSPECIFIED: Tests require new function/selector name that doesn't exist in codebase. Utility test for extracting role from OAuth scope."
     },
     "Automattic__wp-calypso-21635": {
       "instance_id": "Automattic__wp-calypso-21635",
@@ -74,15 +75,15 @@
       "instance_id": "Automattic__wp-calypso-21977",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "IDENTIFIER_NAME_UNDERSPECIFIED"
       ],
-      "explanation": "The tests clearly specify the state management requirements: 1. Track when OAuth connects/completes 2. Track when account creation completes 3. Provide action to clear completion notification Standard Redux pattern with selectors, reducers, and actions."
+      "explanation": "IDENTIFIER_NAME_UNDERSPECIFIED: Tests require new function/selector name that doesn't exist in codebase. The tests clearly specify the state management requirements: 1. Track when OAuth connects/completes 2. Track when account creation completes 3. Provide action to clear completion notification Standard Redux pattern with selectors, reducers, and actions."
     },
     "Automattic__wp-calypso-22026": {
       "instance_id": "Automattic__wp-calypso-22026",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
       ],
       "explanation": "Selector tests for shipping country settings."
     },
@@ -122,9 +123,9 @@
       "instance_id": "Automattic__wp-calypso-23017",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "IDENTIFIER_NAME_UNDERSPECIFIED"
       ],
-      "explanation": "Utility test for checking subscription date."
+      "explanation": "IDENTIFIER_NAME_UNDERSPECIFIED: Tests require new function/selector name that doesn't exist in codebase. Utility test for checking subscription date."
     },
     "Automattic__wp-calypso-23377": {
       "instance_id": "Automattic__wp-calypso-23377",
@@ -186,9 +187,9 @@
       "instance_id": "Automattic__wp-calypso-26008",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "IDENTIFIER_NAME_UNDERSPECIFIED"
       ],
-      "explanation": "Content detection test for embedded Polldaddy surveys."
+      "explanation": "IDENTIFIER_NAME_UNDERSPECIFIED: Tests require new function/selector name that doesn't exist in codebase. Content detection test for embedded Polldaddy surveys."
     },
     "Automattic__wp-calypso-26286": {
       "instance_id": "Automattic__wp-calypso-26286",
@@ -210,9 +211,9 @@
       "instance_id": "Automattic__wp-calypso-26816",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "IDENTIFIER_NAME_UNDERSPECIFIED"
       ],
-      "explanation": "Reducer and selector tests for Gutenberg opt-in dialog."
+      "explanation": "IDENTIFIER_NAME_UNDERSPECIFIED: Tests require new function/selector name that doesn't exist in codebase. Reducer and selector tests for Gutenberg opt-in dialog."
     },
     "Automattic__wp-calypso-27090": {
       "instance_id": "Automattic__wp-calypso-27090",
@@ -242,9 +243,9 @@
       "instance_id": "Automattic__wp-calypso-31830",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "IDENTIFIER_NAME_UNDERSPECIFIED"
       ],
-      "explanation": "Unit test for mobile app detection utilities."
+      "explanation": "IDENTIFIER_NAME_UNDERSPECIFIED: Tests require new function/selector name that doesn't exist in codebase. Unit test for mobile app detection utilities."
     },
     "Automattic__wp-calypso-32764": {
       "instance_id": "Automattic__wp-calypso-32764",
@@ -306,7 +307,7 @@
       "instance_id": "Automattic__wp-calypso-34820",
       "repo": "Automattic/wp-calypso",
       "keywords": [
-        "SOLVEABLE"
+        "HIDDEN_FUNCTIONAL_REQUIREMENT"
       ],
       "explanation": "Unit tests for user utils and cart store transformations."
     },
@@ -738,7 +739,7 @@
       "instance_id": "processing__p5.js-3769",
       "repo": "processing/p5.js",
       "keywords": [
-        "SOLVEABLE"
+        "UNRELATED_TESTS"
       ],
       "explanation": "WebGL BufferDef test and friendly global binder - focused unit tests."
     },
@@ -746,7 +747,7 @@
       "instance_id": "processing__p5.js-4147",
       "repo": "processing/p5.js",
       "keywords": [
-        "SOLVEABLE"
+        "UNRELATED_TESTS"
       ],
       "explanation": "WebGL buffer properties test - focused unit tests."
     },
