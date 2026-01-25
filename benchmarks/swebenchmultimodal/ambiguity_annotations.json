@@ -6,11 +6,11 @@
     "statistics": {
       "total": 102,
       "by_keyword": {
-        "SOLVEABLE": 65,
-        "HIDDEN_FUNCTIONAL_REQUIREMENT": 13,
-        "VISUAL_OUTPUT_MISMATCH": 16,
+        "SOLVEABLE": 71,
+        "HIDDEN_FUNCTIONAL_REQUIREMENT": 12,
+        "VISUAL_OUTPUT_MISMATCH": 15,
         "CHANGE_SCOPE_EXCESSIVE": 1,
-        "UNRELATED_TESTS": 8
+        "UNRELATED_TESTS": 4
       },
       "by_repo": {
         "Automattic/wp-calypso": 37,
@@ -563,9 +563,9 @@
       "instance_id": "diegomura__react-pdf-1541",
       "repo": "diegomura/react-pdf",
       "keywords": [
-        "HIDDEN_FUNCTIONAL_REQUIREMENT"
+        "SOLVEABLE"
       ],
-      "explanation": "1. **New comprehensive test file**: Tests many layout scenarios not described in the issue 2. **Internal layout logic**: Tests verify specific box dimensions that aren't specified in the problem 3. **Edge case coverage**: Tests check multiple combinations of flex properties 4. **Implementation-specific assertions**: Tests verify exact numeric dimensions An agent cannot infer the specific dimension calculations expected from the general problem description."
+      "explanation": "Flexbox elements don't stretch to full page size. Problem provides repl and codesandbox showing exact expected behavior (browser flexbox). Fix follows standard CSS flexbox specification which is well-documented."
     },
     "diegomura__react-pdf-1552": {
       "instance_id": "diegomura__react-pdf-1552",
@@ -723,9 +723,9 @@
       "instance_id": "processing__p5.js-3680",
       "repo": "processing/p5.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH"
+        "SOLVEABLE"
       ],
-      "explanation": "Loading GIF frames involves visual frame extraction and counting."
+      "explanation": "WebGL vertex fill documentation fix. Tests verify documentation code examples execute without error. The patch removes outdated @alt text and adds new examples - no visual pixel comparison tests."
     },
     "processing__p5.js-3709": {
       "instance_id": "processing__p5.js-3709",
@@ -771,9 +771,9 @@
       "instance_id": "processing__p5.js-5555",
       "repo": "processing/p5.js",
       "keywords": [
-        "UNRELATED_TESTS"
+        "SOLVEABLE"
       ],
-      "explanation": "WebGL alpha default change but failing tests include docs and helpers tests."
+      "explanation": "WebGL alpha default change. Problem statement explicitly says 'It's just a single boolean change :)' and provides CSS comparison showing expected behavior. Bundled docs/helpers tests are test infrastructure."
     },
     "processing__p5.js-5771": {
       "instance_id": "processing__p5.js-5771",
@@ -803,9 +803,9 @@
       "instance_id": "processing__p5.js-5915",
       "repo": "processing/p5.js",
       "keywords": [
-        "UNRELATED_TESTS"
+        "SOLVEABLE"
       ],
-      "explanation": "WebGL stroke color interpolation but failing tests include Files I/O and docs tests."
+      "explanation": "WebGL stroke color interpolation. Problem provides expected output image showing desired interpolation. Implementation follows the existing vertexColors pattern in the codebase. Bundled Files I/O tests are test infrastructure, not requirements."
     },
     "processing__p5.js-5917": {
       "instance_id": "processing__p5.js-5917",
@@ -819,17 +819,17 @@
       "instance_id": "processing__p5.js-5970",
       "repo": "processing/p5.js",
       "keywords": [
-        "UNRELATED_TESTS"
+        "SOLVEABLE"
       ],
-      "explanation": "WebGL register availability test but failing tests include many Files I/O tests."
+      "explanation": "WebGL register availability on Android. Problem statement provides root cause analysis ('the cause was in the register'), exact reproduction code, and follows standard WebGL attribute management patterns. Bundled Files I/O tests are infrastructure."
     },
     "processing__p5.js-6069": {
       "instance_id": "processing__p5.js-6069",
       "repo": "processing/p5.js",
       "keywords": [
-        "UNRELATED_TESTS"
+        "SOLVEABLE"
       ],
-      "explanation": "WebGL blendMode for points but failing tests include many Files I/O tests."
+      "explanation": "WebGL blendMode for points. Single-line fix adding _applyColorBlend() call, following pattern used elsewhere in codebase. Bundled Files I/O tests are test infrastructure, not requirements."
     },
     "processing__p5.js-6111": {
       "instance_id": "processing__p5.js-6111",
