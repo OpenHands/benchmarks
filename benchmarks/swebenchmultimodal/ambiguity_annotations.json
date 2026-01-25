@@ -9,8 +9,8 @@
         "HIDDEN_FUNCTIONAL_REQUIREMENT": 13,
         "IDENTIFIER_NAME_UNDERSPECIFIED": 6,
         "DATASET_BUG": 1,
-        "SOLVEABLE": 63,
-        "VISUAL_OUTPUT_MISMATCH": 13,
+        "SOLVEABLE": 68,
+        "VISUAL_OUTPUT_MISMATCH": 8,
         "UNRELATED_TESTS": 6
       },
       "by_repo": {
@@ -427,9 +427,9 @@
       "instance_id": "chartjs__Chart.js-8868",
       "repo": "chartjs/Chart.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH"
+        "SOLVEABLE"
       ],
-      "explanation": "Visual PNG comparison test requiring pixel-perfect matching of baseline image for axis positioning."
+      "explanation": "SOLVEABLE: Problem clearly describes the visual bug. Agents found correct fixes (verified by PNG tests passing). Previously marked VISUAL_OUTPUT_MISMATCH but agents proved the fix is logically derivable."
     },
     "chartjs__Chart.js-9027": {
       "instance_id": "chartjs__Chart.js-9027",
@@ -451,9 +451,9 @@
       "instance_id": "chartjs__Chart.js-9199",
       "repo": "chartjs/Chart.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH"
+        "SOLVEABLE"
       ],
-      "explanation": "Visual PNG comparison tests requiring pixel-perfect matching of baseline images for legend text alignment in RTL mode."
+      "explanation": "SOLVEABLE: Problem clearly describes the visual bug. Agents found correct fixes (verified by PNG tests passing). Previously marked VISUAL_OUTPUT_MISMATCH but agents proved the fix is logically derivable."
     },
     "chartjs__Chart.js-9367": {
       "instance_id": "chartjs__Chart.js-9367",
@@ -467,9 +467,9 @@
       "instance_id": "chartjs__Chart.js-9399",
       "repo": "chartjs/Chart.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH"
+        "SOLVEABLE"
       ],
-      "explanation": "All failing tests are visual PNG comparison tests requiring pixel-perfect matching of baseline images. An agent cannot generate the expected visual outputs."
+      "explanation": "SOLVEABLE: Problem clearly describes the visual bug. Agents found correct fixes (verified by PNG tests passing). Previously marked VISUAL_OUTPUT_MISMATCH but agents proved the fix is logically derivable."
     },
     "chartjs__Chart.js-9613": {
       "instance_id": "chartjs__Chart.js-9613",
@@ -483,9 +483,9 @@
       "instance_id": "chartjs__Chart.js-9678",
       "repo": "chartjs/Chart.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH"
+        "SOLVEABLE"
       ],
-      "explanation": "All failing tests are visual PNG comparison tests requiring pixel-perfect matching. An agent cannot generate the expected visual outputs without access to baseline images."
+      "explanation": "SOLVEABLE: Problem clearly describes the visual bug. Agents found correct fixes (verified by PNG tests passing). Previously marked VISUAL_OUTPUT_MISMATCH but agents proved the fix is logically derivable."
     },
     "chartjs__Chart.js-9764": {
       "instance_id": "chartjs__Chart.js-9764",
@@ -499,9 +499,9 @@
       "instance_id": "chartjs__Chart.js-9766",
       "repo": "chartjs/Chart.js",
       "keywords": [
-        "VISUAL_OUTPUT_MISMATCH"
+        "SOLVEABLE"
       ],
-      "explanation": "While the unit test provides clear expectations for `getMinMax()` behavior, the instance also requires passing a **PNG visual comparison test** (`bounds-data.png`). An agent could potentially implement the correct logic based on: 1. The problem description (stacked charts should use stacked values for range) 2. The unit test assertions (exact expected min/max values) However, the agent cannot verify that its implementation produces pixel-identical output matching the updated PNG baseline. The vi"
+      "explanation": "SOLVEABLE: Problem clearly describes the visual bug. Agents found correct fixes (verified by PNG tests passing). Previously marked VISUAL_OUTPUT_MISMATCH but agents proved the fix is logically derivable."
     },
     "chartjs__Chart.js-9871": {
       "instance_id": "chartjs__Chart.js-9871",
