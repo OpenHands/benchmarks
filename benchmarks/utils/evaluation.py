@@ -268,7 +268,7 @@ class Evaluation(ABC, BaseModel):
 
         # Create Laminar evaluation
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        eval_metadata = self.metadata.model_dump(mode="json")
+        eval_metadata: dict[str, Any] = {}
         if benchmark_name:
             eval_metadata["benchmark"] = benchmark_name
         if model_name:
