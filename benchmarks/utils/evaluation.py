@@ -254,7 +254,7 @@ class Evaluation(ABC, BaseModel):
 
         run_id = os.getenv("UNIQUE_EVAL_NAME")
         benchmark_name = self.metadata.dataset
-        model_name = getattr(self.metadata.llm, "model", None)
+        model_name = self.metadata.llm.model
 
         # Initialize Laminar
         LaminarService.get().initialize(trace_session_id=run_id)
