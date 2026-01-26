@@ -263,11 +263,8 @@ class Evaluation(ABC, BaseModel):
             trace_metadata["benchmark"] = benchmark_name
         if model_name:
             trace_metadata["model"] = model_name
-        try:
-            if trace_metadata:
-                Laminar.set_trace_metadata(trace_metadata)
-        except Exception:  # pragma: no cover - defensive logging
-            logger.debug("Failed to set Laminar trace metadata", exc_info=True)
+        if trace_metadata:
+            Laminar.set_trace_metadata(trace_metadata)
 
         # Create Laminar evaluation
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
