@@ -34,6 +34,7 @@ class LaminarService:
     def __init__(self) -> None:
         self._client: LaminarClient | None = None
         self._laminar_initialized = False
+        self._trace_session_id: str | None = None
 
     @classmethod
     def get(cls) -> "LaminarService":
@@ -44,13 +45,34 @@ class LaminarService:
     def _is_enabled(self) -> bool:
         return bool(os.environ.get("LMNR_PROJECT_API_KEY"))
 
-    def initialize(self) -> bool:
+    def _get_trace_session_id(self, override: str | None = None) -> str | None:
+        """Prefer CI/eval IDs so Laminar traces align with job IDs."""
+
+        if override:
+            return override
+        return os.environ.get("UNIQUE_EVAL_NAME")
+
+    def _set_trace_session_id(self, session_id: str | None) -> None:
+        if not session_id:
+            return
+        try:
+            Laminar.set_trace_session_id(session_id)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.debug("Failed to set Laminar trace session id: %s", exc)
+
+    def initialize(self, trace_session_id: str | None = None) -> bool:
         """
         Initialize the Laminar SDK once per process.
         Returns True if initialization succeeded (or was already done), False otherwise.
         """
 
+        session_id = self._get_trace_session_id(trace_session_id)
+
         if self._laminar_initialized:
+            # Allow late-binding the session ID if Laminar was initialized earlier.
+            if session_id and session_id != self._trace_session_id:
+                self._trace_session_id = session_id
+                self._set_trace_session_id(session_id)
             return True
 
         if not self._is_enabled():
@@ -58,6 +80,8 @@ class LaminarService:
 
         try:
             Laminar.initialize()
+            self._trace_session_id = session_id
+            self._set_trace_session_id(session_id)
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.debug("Failed to initialize Laminar SDK: %s", exc)
             return False
@@ -79,23 +103,38 @@ class LaminarService:
         return self._client
 
     def create_evaluation(
-        self, name: str, group_name: str, metadata: dict[str, Any] | None = None
+        self,
+        name: str,
+        group_name: str,
+        metadata: dict[str, Any] | None = None,
+        run_id: str | None = None,
     ):
         client = self._get_client()
         if client is None:
             return None
 
+        if run_id:
+            self._trace_session_id = run_id
+            self._set_trace_session_id(run_id)
+        elif self._trace_session_id is None:
+            self._trace_session_id = self._get_trace_session_id()
+
+        eval_name = run_id or name
+        metadata_payload = metadata.copy() if metadata else {}
+        if run_id:
+            metadata_payload.setdefault("run_id", run_id)
+
         try:
             eval_id = client.evals.create_evaluation(
-                name=name,
+                name=eval_name,
                 group_name=group_name,
-                metadata=metadata,
+                metadata=metadata_payload,
             )
             return eval_id
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.debug(
                 "Laminar evaluation %s (%s): %s",
-                name,
+                eval_name,
                 group_name,
                 exc,
             )

@@ -11,7 +11,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
@@ -252,16 +252,37 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation with support for single or multiple attempts."""
         all_instances = self.prepare_instances()
 
+        run_id = os.getenv("UNIQUE_EVAL_NAME")
+        benchmark_name = self.metadata.dataset
+        model_name = getattr(self.metadata.llm, "model", None)
+
         # Initialize Laminar
-        LaminarService.get().initialize()
+        LaminarService.get().initialize(trace_session_id=run_id)
+        trace_metadata: dict[str, Any] = {}
+        if benchmark_name:
+            trace_metadata["benchmark"] = benchmark_name
+        if model_name:
+            trace_metadata["model"] = model_name
+        try:
+            if trace_metadata:
+                Laminar.set_trace_metadata(trace_metadata)
+        except Exception:  # pragma: no cover - defensive logging
+            logger.debug("Failed to set Laminar trace metadata", exc_info=True)
 
         # Create Laminar evaluation
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        eval_metadata = self.metadata.model_dump(mode="json")
+        if benchmark_name:
+            eval_metadata["benchmark"] = benchmark_name
+        if model_name:
+            eval_metadata["model"] = model_name
+
         self.metadata.lmnr = LaminarEvalMetadata(
             eval_id=LaminarService.get().create_evaluation(
                 name=f"{self.metadata.dataset} {self.metadata.dataset_split} {now}",
                 group_name=f"{self.metadata.dataset} {self.metadata.dataset_split}",
-                metadata=self.metadata.model_dump(mode="json"),
+                metadata=eval_metadata,
+                run_id=run_id,
             )
         )
 
