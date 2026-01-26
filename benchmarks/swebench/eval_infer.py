@@ -11,10 +11,12 @@ Usage:
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -252,6 +254,22 @@ Examples:
         if not args.skip_evaluation:
             # Run evaluation
             run_swebench_evaluation(str(output_file), args.dataset, args.workers)
+
+            # Move report file to input file directory with .report.json extension
+            # SWE-Bench creates: {model_name.replace("/", "__")}.eval_{output_file.stem}.json
+            report_filename = (
+                f"{args.model_name.replace('/', '__')}.eval_{output_file.stem}.json"
+            )
+            report_path = output_file.parent / report_filename
+            dest_report_path = input_file.with_suffix(".report.json")
+
+            shutil.move(str(report_path), str(dest_report_path))
+            logger.info(f"Moved report file to: {dest_report_path}")
+
+            # Update Laminar datapoints with evaluation scores
+            LaminarService.get().update_evaluation_scores(
+                str(input_file), str(dest_report_path)
+            )
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))

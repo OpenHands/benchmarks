@@ -7,10 +7,13 @@ from jinja2 import Environment, FileSystemLoader
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
+    should_wrap_instance_id,
+    wrap_image,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -18,6 +21,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
@@ -94,20 +98,33 @@ class SWEBenchEvaluation(Evaluation):
         return instances
 
     # ---- Hook: prepare a workspace per instance ----------------------------------
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
+    ) -> RemoteWorkspace:
         """
         Use DockerWorkspace by default.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           Used by APIRemoteWorkspace for remote runtime allocation.
         """
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
+        base_agent_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+        )
+        wrap_needed = should_wrap_instance_id(instance.id)
+        agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
-            )
             SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
             logger.info(f"SKIP_BUILD={SKIP_BUILD}")
             if not SKIP_BUILD:
@@ -128,15 +145,23 @@ class SWEBenchEvaluation(Evaluation):
                 )
                 logger.info(f"Image build output: {output}")
                 assert output.error is None, f"Image build failed: {output.error}"
-                if agent_server_image not in output.tags:
+                if base_agent_image not in output.tags:
                     raise RuntimeError(
                         f"Built image tags {output.tags} do not include expected tag "
-                        f"{agent_server_image}"
+                        f"{base_agent_image}"
                     )
+                if wrap_needed:
+                    wrapped_result = wrap_image(base_agent_image, push=False)
+                    if wrapped_result.error:
+                        raise RuntimeError(
+                            "Wrapped image build failed: "
+                            f"{wrapped_result.error}; log={wrapped_result.log_path}"
+                        )
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
+                forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -155,8 +180,10 @@ class SWEBenchEvaluation(Evaluation):
                     "make sure to build, push it, and make it public accessible before using remote workspace."
                 )
             logger.info(
-                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
+                f"Using remote workspace with image {agent_server_image} "
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
+            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
@@ -164,6 +191,10 @@ class SWEBenchEvaluation(Evaluation):
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
+                forward_env=forward_env or [],
+                resource_factor=resource_factor,
+                init_timeout=startup_timeout,
+                startup_wait_timeout=startup_timeout,
             )
         else:
             raise ValueError(
@@ -205,16 +236,19 @@ class SWEBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        def _log_event(ev):  # keep it simple
-            logger.debug("Event: %s", ev)
-
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
+
+        persist_callback = build_event_persistence_callback(
+            run_id=self.metadata.eval_output_dir,
+            instance_id=instance.id,
+            attempt=self.current_attempt,
+        )
 
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[_log_event],
+            callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
@@ -236,7 +270,8 @@ class SWEBenchEvaluation(Evaluation):
             workspace_path=workspace.working_dir,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        # Run conversation with fake user responses to handle agent messages
+        run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -262,6 +297,7 @@ class SWEBenchEvaluation(Evaluation):
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result={
                 "git_patch": git_patch,
             },

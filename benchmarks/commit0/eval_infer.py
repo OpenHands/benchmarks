@@ -15,6 +15,7 @@ import logging
 import sys
 from pathlib import Path
 
+from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.report_costs import generate_cost_report
 
 
@@ -147,9 +148,14 @@ def process_commit0_results(
     logger.info(f"  Unresolved instances: {report['unresolved_instances']}")
     logger.info(f"  Total tests: {report['total_tests']}")
     logger.info(f"  Total passed tests: {report['total_passed_tests']}")
-    logger.info(
-        f"  Success rate: {report['resolved_instances'] / report['completed_instances'] * 100:.1f}%"
-    )
+    if report["completed_instances"]:
+        success_rate = (
+            report["resolved_instances"] / report["completed_instances"] * 100
+        )
+        success_rate_display = f"{success_rate:.1f}%"
+    else:
+        success_rate_display = "N/A"
+    logger.info(f"  Success rate: {success_rate_display}")
 
 
 def main() -> None:
@@ -183,8 +189,8 @@ Examples:
     if not input_file.suffix == ".jsonl":
         logger.warning(f"Input file does not have .jsonl extension: {input_file}")
 
-    # Determine output file (always use default name)
-    output_file = input_file.parent / "commit0_report.json"
+    # Determine output file (same name as input with .report.json extension)
+    output_file = input_file.with_suffix(".report.json")
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
@@ -193,6 +199,9 @@ Examples:
     try:
         # Process results and generate report
         process_commit0_results(str(input_file), str(output_file), args.model_name)
+
+        # Update Laminar datapoints with evaluation scores
+        LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))

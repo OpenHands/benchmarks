@@ -16,13 +16,134 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from time import monotonic
 
+from benchmarks.swtbench.image_utils import (
+    compute_required_images,
+    ensure_swt_bench_repo,
+)
+from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+PREBAKED_REGISTRY = "ghcr.io/openhands/swtbench-eval"
+
+
+def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
+    instance_ids: list[str] = []
+    seen = set()
+    with predictions_file.open("r") as infile:
+        for line_num, line in enumerate(infile, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "Skipping invalid JSON in predictions file line %s: %s",
+                    line_num,
+                    e,
+                )
+                continue
+            instance_id = data.get("instance_id")
+            if not instance_id:
+                logger.warning(
+                    "Skipping predictions file line %s without instance_id",
+                    line_num,
+                )
+                continue
+            if instance_id in seen:
+                continue
+            seen.add(instance_id)
+            instance_ids.append(instance_id)
+    return instance_ids
+
+
+def try_pull_prebaked_images(
+    predictions_file: Path,
+    dataset: str,
+    split: str = "test",
+    registry: str = PREBAKED_REGISTRY,
+) -> None:
+    """
+    Best-effort pull of prebaked base/env images; no-op on failure.
+    """
+    try:
+        base_images, env_images = compute_required_images(
+            predictions_file,
+            dataset,
+            split,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Skipping prebaked image pull (compute failed): %s", exc)
+        return
+
+    tags = sorted(base_images | env_images)
+    if not tags:
+        logger.info("No prebaked images to pull (empty tag set)")
+        return
+
+    registry = registry.rstrip("/")
+    for tag in tags:
+        remote = f"{registry}/{tag}"
+        logger.info("Attempting to pull prebaked image %s", remote)
+        try:
+            pull = subprocess.run(
+                ["docker", "pull", remote],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            logger.warning("Docker not available; skipping prebaked image pull")
+            return
+
+        if pull.returncode != 0:
+            logger.warning("Failed to pull %s: %s", remote, pull.stderr.strip())
+            continue
+
+        # Tag the remote image with the local name expected by the harness.
+        tag_res = subprocess.run(
+            ["docker", "tag", remote, tag],
+            capture_output=True,
+            text=True,
+        )
+        if tag_res.returncode != 0:
+            logger.warning("Failed to tag %s as %s: %s", remote, tag, tag_res.stderr)
+        else:
+            logger.info("Pulled and tagged %s -> %s", remote, tag)
+
+
+def update_report_with_submitted_instances(
+    report_path: Path, predictions_path: Path
+) -> None:
+    if not report_path.exists():
+        raise FileNotFoundError(f"Report file not found for update: {report_path}")
+    if not predictions_path.exists():
+        raise FileNotFoundError(
+            f"Predictions file not found for update: {predictions_path}"
+        )
+
+    report = json.loads(report_path.read_text())
+    submitted_ids = _load_prediction_instance_ids(predictions_path)
+    report["submitted_instances"] = len(submitted_ids)
+    report["submitted_ids"] = submitted_ids
+
+    resolved_ids = report.get("resolved_ids")
+    unresolved_ids = report.get("unresolved_ids")
+    if isinstance(resolved_ids, list) and isinstance(unresolved_ids, list):
+        completed_ids = sorted(set(resolved_ids) | set(unresolved_ids))
+        report["completed_ids"] = completed_ids
+        report["completed_instances"] = len(completed_ids)
+
+    report_path.write_text(json.dumps(report, indent=4))
+    logger.info(
+        "Updated report with submitted_instances/submitted_ids: %s", report_path
+    )
 
 
 def convert_to_swtbench_format(
@@ -114,7 +235,8 @@ def convert_to_swtbench_format(
 
 def run_swtbench_evaluation(
     predictions_file: str,
-    dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
+    # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
+    dataset: str = "princeton-nlp/SWE-bench_Verified",
     workers: str = "12",
 ) -> None:
     """
@@ -130,30 +252,12 @@ def run_swtbench_evaluation(
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
     """
-    logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
+    use_legacy = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in ("1", "true", "yes")
+    mode = "legacy-conda" if use_legacy else "prebaked-images"
+    logger.info("Running SWT-Bench evaluation on %s (mode=%s)", predictions_file, mode)
 
     try:
-        # Use a global cache directory for SWT-Bench source
-        cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
-        swt_bench_dir = cache_dir / "swt-bench"
-
-        # Clone SWT-Bench repository if it doesn't exist
-        if not swt_bench_dir.exists():
-            logger.info("Setting up SWT-Bench source in global cache...")
-            cache_dir.mkdir(parents=True, exist_ok=True)
-
-            logger.info("Cloning SWT-Bench repository...")
-            clone_cmd = [
-                "git",
-                "clone",
-                "https://github.com/logic-star-ai/swt-bench.git",
-                str(swt_bench_dir),
-            ]
-            result = subprocess.run(clone_cmd, text=True)
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, clone_cmd)
-
-            logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
+        swt_bench_dir = ensure_swt_bench_repo()
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
@@ -194,7 +298,6 @@ def run_swtbench_evaluation(
             dataset,
             "--predictions_path",
             predictions_filename,
-            "--filter_swt",
             "--max_workers",
             str(workers),
             "--run_id",
@@ -208,15 +311,22 @@ def run_swtbench_evaluation(
         logger.info("SWT-Bench evaluation output:")
         print("-" * 80)
 
+        eval_start = monotonic()
         # Stream output directly to console, running from swt-bench directory
         result = subprocess.run(cmd, text=True, cwd=swt_bench_dir, env=env)
+        eval_end = monotonic()
 
         print("-" * 80)
         if result.returncode == 0:
-            logger.info("SWT-Bench evaluation completed successfully")
+            logger.info(
+                "SWT-Bench evaluation completed successfully in %.2fs",
+                eval_end - eval_start,
+            )
         else:
             logger.error(
-                f"SWT-Bench evaluation failed with return code {result.returncode}"
+                "SWT-Bench evaluation failed with return code %s after %.2fs",
+                result.returncode,
+                eval_end - eval_start,
             )
             raise subprocess.CalledProcessError(result.returncode, cmd)
 
@@ -246,11 +356,12 @@ Examples:
 
     parser.add_argument("input_file", help="Path to the OpenHands output.jsonl file")
 
+    # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     parser.add_argument(
         "--dataset",
-        default="eth-sri/SWT-bench_Verified_bm25_27k_zsp",
+        default="princeton-nlp/SWE-bench_Verified",
         help="SWT-Bench dataset to evaluate against "
-        "(default: eth-sri/SWT-bench_Verified_bm25_27k_zsp)",
+        "(default: princeton-nlp/SWE-bench_Verified)",
     )
 
     parser.add_argument(
@@ -303,9 +414,55 @@ Examples:
         # Convert format
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
+        # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
+        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
+        if use_prebaked:
+            try_pull_prebaked_images(
+                output_file,
+                args.dataset,
+            )
+        else:
+            logger.info(
+                "SWTBENCH_FORCE_CONDA set; skipping prebaked image pull "
+                "and using legacy (pre-mamba) evaluation flow"
+            )
+
         if not args.skip_evaluation:
+            eval_phase_start = monotonic()
             # Run evaluation
             run_swtbench_evaluation(str(output_file), args.dataset, args.workers)
+            eval_phase_end = monotonic()
+
+            cleanup_phase_start = monotonic()
+            # Move SWT-Bench evaluation report to same folder as output.jsonl
+            cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
+            swt_bench_dir = cache_dir / "swt-bench"
+            report_dir = swt_bench_dir / "evaluation_results"
+            run_id = f"eval_{output_file.stem}"
+            model_name_safe = args.model_name.replace("/", "__")
+            report_file = report_dir / f"{model_name_safe}.{run_id}.json"
+
+            target_dir = input_file.parent
+            target_file = target_dir / "output.report.json"
+            shutil.move(str(report_file), str(target_file))
+            logger.info(f"Moved evaluation report to: {target_file}")
+            update_report_with_submitted_instances(target_file, output_file)
+
+            # Update Laminar datapoints with evaluation scores
+            LaminarService.get().update_evaluation_scores(
+                str(input_file), str(target_file)
+            )
+            cleanup_phase_end = monotonic()
+
+            logger.info(
+                "Timing summary: swtbench_eval=%.2fs, report_move_and_metrics=%.2fs",
+                eval_phase_end - eval_phase_start,
+                cleanup_phase_end - cleanup_phase_start,
+            )
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))

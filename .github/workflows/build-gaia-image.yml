@@ -9,14 +9,6 @@ on:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
-      target:
-        description: 'Build target (default: binary-minimal)'
-        required: false
-        default: 'binary-minimal'
-        type: choice
-        options:
-          - binary-minimal
-          - source-minimal
 
 concurrency:
   group: build-gaia-${{ github.ref }}
@@ -30,7 +22,7 @@ jobs:
        github.event.label.name == 'build-gaia')
 
     runs-on:
-      labels: ubuntu-latest
+      labels: blacksmith-32vcpu-ubuntu-2204
 
     permissions:
       contents: read
@@ -49,7 +41,7 @@ jobs:
             echo "Using default ref (the commit that triggered this workflow)"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
@@ -65,7 +57,7 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
-      - name: Set up Docker Buildx with Blacksmith
+      - name: Set up Docker Buildx
         uses: useblacksmith/setup-docker-builder@v1
 
       - name: Log in to GitHub Container Registry
@@ -84,11 +76,12 @@ jobs:
         run: |
           make build
 
-      - name: Build and push GAIA image
+      - name: Build and push GAIA image with MCP layer
         run: |
           set -euo pipefail
 
-          TARGET="${{ inputs.target || 'binary-minimal' }}"
+          # GAIA requires 'binary' target to include Chromium for browser operations
+          TARGET="binary"
 
           CMD="uv run benchmarks/gaia/build_images.py \
             --image ghcr.io/openhands/eval-agent-server \
@@ -97,6 +90,8 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
+
+          echo "✅ GAIA image with MCP layer built and pushed successfully"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
@@ -113,7 +108,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-logs-${{ github.run_id }}
           path: build-logs.tar.gz
@@ -157,6 +152,7 @@ jobs:
         run: |
           # Get SDK version
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
+          SDK_SHA_SHORT=${SDK_SHA:0:7}
 
           # Read the single manifest file
           MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
@@ -167,12 +163,7 @@ jobs:
           fi
 
           # Extract the image tag from the manifest
-          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "
-import sys, json
-data = json.loads(sys.stdin.read())
-tags = data.get('tags', [])
-print(tags[0] if tags else 'unknown')
-          ")
+          IMAGE_TAG=$(cat "$MANIFEST_FILE" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); tags = data.get('tags', []); print(tags[0] if tags else 'unknown')")
 
           if [ "$IMAGE_TAG" = "unknown" ]; then
             echo "No valid image tag found in manifest"
@@ -188,22 +179,22 @@ print(tags[0] if tags else 'unknown')
             TRIGGER="${{ github.event_name }}"
           fi
 
-          # Post comment
-          COMMENT_BODY=$(cat <<EOF
-## GAIA Image Build Complete ✅
-
-**SDK Version:** [\`${SDK_SHA:0:7}\`](https://github.com/OpenHands/software-agent-sdk/commit/${SDK_SHA})
-**Image Tag:** \`${IMAGE_TAG}\`
-**Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-**Triggered by:** ${TRIGGER}
-EOF
-          )
-
+          # Post comment using jq to properly handle multi-line content
+          jq -n \
+            --arg sdk_short "${SDK_SHA_SHORT}" \
+            --arg sdk_full "${SDK_SHA}" \
+            --arg image "${IMAGE_TAG}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg server_url "${{ github.server_url }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg trigger "${TRIGGER}" \
+            '{body: "## GAIA Image Build Complete ✅\n\n**SDK Version:** [`\($sdk_short)`](https://github.com/OpenHands/software-agent-sdk/commit/\($sdk_full))\n**Image:** `\($image)` ⚡ _(includes pre-cached MCP server)_\n**Workflow Run:** [#\($run_id)](\($server_url)/\($repo)/actions/runs/\($run_id))\n**Triggered by:** \($trigger)\n\nThe image includes pre-cached `mcp-server-fetch` to eliminate 1-18 minute startup delays."}' | \
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
             "${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments" \
-            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
+            -d @-
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

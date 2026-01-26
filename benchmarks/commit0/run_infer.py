@@ -8,32 +8,34 @@ from commit0.harness.constants import SPLIT
 from datasets import load_dataset
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.commit0.build_images import (
+    extract_custom_tag,
+    get_base_docker_image,
+)
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
+from benchmarks.utils.dataset import prepare_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 
 logger = get_logger(__name__)
-
-
-def get_docker_image(
-    repo_name: str, docker_image_prefix: str = "docker.io/wentingzhao/"
-) -> str:
-    """Get docker image for a commit0 repository."""
-    return (docker_image_prefix.rstrip("/") + "/" + repo_name).lower() + ":v0"
 
 
 def get_instruction(
@@ -135,6 +137,14 @@ class Commit0Evaluation(Evaluation):
         dataset = load_dataset(dataset_name, split=dataset_split)
         df = commit0_setup(dataset, repo_split)
 
+        if self.metadata.selected_instances_file:
+            df = prepare_dataset(
+                dataset=df,
+                n_limit=None,
+                selected_instances_file=self.metadata.selected_instances_file,
+            )
+            self.metadata.eval_limit = len(df)
+
         instances: List[EvalInstance] = []
         for _, row in df.iterrows():
             inst_id = str(row["instance_id"])
@@ -152,23 +162,79 @@ class Commit0Evaluation(Evaluation):
         logger.info("Total instances to process: %d", len(instances))
         return instances
 
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
+    ) -> RemoteWorkspace:
         """
         Create workspace and set up the commit0 repository.
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           Used by APIRemoteWorkspace for remote runtime allocation.
+            forward_env: Environment variables to forward into the workspace.
         """
         repo_name = instance.data["repo"].split("/")[1]
-        base_docker_image = get_docker_image(repo_name)
+        base_docker_image = get_base_docker_image(repo_name)
+        build_target = "source-minimal"
         logger.info(f"Using base docker image: {base_docker_image}")
 
-        # Build agent-server image from base commit0 image
-        workspace = DockerDevWorkspace(
-            base_image=base_docker_image,
-            working_dir="/workspace",
-            target="source-minimal",
-        )
-        logger.info(
-            f"Building workspace from {base_docker_image}. This may take a while..."
-        )
+        if self.metadata.workspace_type == "docker":
+            # Build agent-server image from base commit0 image
+            workspace = DockerDevWorkspace(
+                base_image=base_docker_image,
+                working_dir="/workspace",
+                target=build_target,
+                forward_env=forward_env or [],
+            )
+            logger.info(
+                f"Building workspace from {base_docker_image}. This may take a while..."
+            )
+        elif self.metadata.workspace_type == "remote":
+            runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            if not runtime_api_key:
+                raise ValueError(
+                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                )
+
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            custom_tag = extract_custom_tag(base_docker_image)
+            suffix = f"-{build_target}" if build_target != "binary" else ""
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+            )
+
+            if not image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry. "
+                    "Run 'benchmarks/commit0/build_images.py --push' to build and push it first."
+                )
+
+            logger.info(
+                f"Using remote workspace with image {agent_server_image} "
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+            )
+            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            workspace = APIRemoteWorkspace(
+                runtime_api_url=os.getenv(
+                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                ),
+                runtime_api_key=runtime_api_key,
+                server_image=agent_server_image,
+                target_type="source" if "source" in build_target else "binary",
+                forward_env=forward_env or [],
+                resource_factor=resource_factor,
+                init_timeout=startup_timeout,
+                startup_wait_timeout=startup_timeout,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
 
         # Clone the repository to the specific directory
         workspace_dir_name = instance.data["repo"].split("/")[1]
@@ -239,13 +305,16 @@ class Commit0Evaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        def _log_event(ev):
-            logger.debug("Event: %s", ev)
+        persist_callback = build_event_persistence_callback(
+            run_id=self.metadata.eval_output_dir,
+            instance_id=instance.id,
+            attempt=self.current_attempt,
+        )
 
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[_log_event],
+            callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
@@ -254,7 +323,8 @@ class Commit0Evaluation(Evaluation):
             metadata=self.metadata,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+        conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
 
@@ -493,6 +563,7 @@ class Commit0Evaluation(Evaluation):
 
         out = EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result=test_result,
             instruction=instruction,
             error=None,
@@ -566,6 +637,7 @@ def main() -> None:
         critic=create_critic(args),
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        workspace_type=args.workspace,
     )
 
     evaluator = Commit0Evaluation(

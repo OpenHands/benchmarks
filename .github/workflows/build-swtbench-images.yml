@@ -25,9 +25,34 @@ on:
         required: false
         default: '0'
         type: string
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        default: ''
+        type: string
       sdk-commit:
         description: 'Software Agent SDK commit/ref to use'
         required: true
+        type: string
+      build-eval-env:
+        description: 'Also build prebaked SWT-bench eval env images (default: false)'
+        required: false
+        default: 'false'
+        type: string
+      eval-image-prefix:
+        description: 'Registry prefix for prebaked eval images'
+        required: false
+        default: 'ghcr.io/openhands/swtbench-eval'
+        type: string
+      max-retries:
+        description: 'Retries per batch for eval env builds'
+        required: false
+        default: '2'
+        type: string
+      build-batch-size:
+        description: 'Env images per batch for eval env builds'
+        required: false
+        default: '10'
         type: string
 
 concurrency:
@@ -42,12 +67,21 @@ jobs:
        github.event.label.name == 'build-swt-bench')
 
     runs-on:
-      labels: ubuntu-latest
+      labels: blacksmith-32vcpu-ubuntu-2204
 
     permissions:
       contents: read
       packages: write
       issues: write
+
+    # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+    env:
+      DATASET: princeton-nlp/SWE-bench_Verified
+      SPLIT: test
+      MAX_WORKERS: '4'
+      N_LIMIT: '0'
+      INSTANCE_IDS: ''
+      SELECT_FILE: ''
 
     steps:
       - name: Determine checkout ref
@@ -61,7 +95,7 @@ jobs:
             echo "Using default ref (the commit that triggered this workflow)"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
@@ -77,8 +111,8 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx with Blacksmith
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -105,11 +139,24 @@ jobs:
           SPLIT="${{ inputs.split || 'test' }}"
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
+          INSTANCE_IDS="${{ inputs.instance-ids }}"
 
           # SWT-Bench uses source-minimal target (same as SWE-bench)
           TARGET="source-minimal"
 
-          CMD="uv run benchmarks/swt_bench/build_images.py \
+          SELECT_FILE=""
+          if [ -n "${INSTANCE_IDS}" ]; then
+            SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
+            echo "Creating selected instances file at ${SELECT_FILE}"
+            echo "${INSTANCE_IDS}" \
+              | tr ',' '\n' \
+              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+              | sed '/^$/d' > "${SELECT_FILE}"
+            # When explicit instances are provided, ignore n-limit to avoid double filtering
+            N_LIMIT="0"
+          fi
+
+          CMD="uv run benchmarks/swtbench/build_images.py \
             --dataset ${DATASET} \
             --split ${SPLIT} \
             --image ghcr.io/openhands/eval-agent-server \
@@ -121,12 +168,73 @@ jobs:
           if [ "$N_LIMIT" != "0" ]; then
             CMD="$CMD --n-limit ${N_LIMIT}"
           fi
+          if [ -n "${SELECT_FILE}" ]; then
+            CMD="$CMD --select ${SELECT_FILE}"
+          fi
 
           echo "Running: $CMD"
           eval "$CMD"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+
+      - name: Build prebaked eval env images
+        if: ${{ inputs.build-eval-env == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Starting prebaked eval env image build at $(date -u)"
+          echo "Runner: $(uname -a)"
+          df -h
+          docker system df || true
+          docker info || true
+
+          DATASET="${{ inputs.dataset || 'princeton-nlp/SWE-bench_Verified' }}"
+          SPLIT="${{ inputs.split || 'test' }}"
+          N_LIMIT="${{ inputs.n-limit || '0' }}"
+          INSTANCE_IDS="${{ inputs.instance-ids }}"
+          IMAGE_PREFIX="${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
+          MAX_RETRIES="${{ inputs.max-retries || '2' }}"
+          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '10' }}"
+
+          echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
+          echo "MAX_RETRIES=${MAX_RETRIES}" >> "$GITHUB_ENV"
+          echo "BUILD_BATCH_SIZE=${BUILD_BATCH_SIZE}" >> "$GITHUB_ENV"
+
+          # Basic BuildKit disk guard similar to SWE-bench
+          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
+            LINE=$(tail -n1 /tmp/buildkit_df)
+            TOTAL=$(echo "$LINE" | awk '{print $2}')
+            USED=$(echo "$LINE" | awk '{print $3}')
+            FREE=$(echo "$LINE" | awk '{print $4}')
+            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
+              PCT=$(( 100 * USED / TOTAL ))
+              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
+            else
+              echo "Warning: unable to parse df output for /var/lib/buildkit"
+            fi
+          else
+            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
+
+          ARGS=(--dataset "${DATASET}" --split "${SPLIT}" --image-prefix "${IMAGE_PREFIX}" --max-workers "${MAX_WORKERS}" --build-mode "${BUILD_MODE}" --max-retries "${MAX_RETRIES}" --build-batch-size "${BUILD_BATCH_SIZE}")
+          if [ -n "${INSTANCE_IDS}" ]; then
+            ARGS+=(--instance-ids "${INSTANCE_IDS}")
+          else
+            ARGS+=(--eval-limit "${N_LIMIT}")
+          fi
+
+          echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"
+          DOCKER_BUILDKIT=1 \
+          BUILDKIT_PROGRESS=plain \
+          BUILDKIT_RESET_ON_FAILURE=1 \
+          PYTHONUNBUFFERED=1 uv run swtbench-build-eval-images "${ARGS[@]}" | tee build_eval_env.log
+
+          echo "Completed prebaked eval env image build at $(date -u)"
+          docker ps -a || true
+          docker system df || true
 
       - name: Archive build logs
         if: always()
@@ -140,7 +248,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-logs-${{ github.run_id }}
           path: build-logs.tar.gz
@@ -168,6 +276,23 @@ jobs:
           echo "**Total Images:** $TOTAL_IMAGES" >> "$GITHUB_STEP_SUMMARY"
           echo "**Successful:** $SUCCESS_COUNT ✅" >> "$GITHUB_STEP_SUMMARY"
           echo "**Failed:** $FAIL_COUNT ❌" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Make prebaked eval image package public (best-effort)
+        if: ${{ inputs.build-eval-env == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_PREFIX: ${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}
+        run: |
+          set -euo pipefail
+          NAME=$(echo "${IMAGE_PREFIX}" | awk -F/ '{print $NF}')
+          if [ -z "$NAME" ]; then
+            echo "No package name derived from IMAGE_PREFIX=${IMAGE_PREFIX}, skipping visibility update"
+            exit 0
+          fi
+          gh api -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            /orgs/OpenHands/packages/container/${NAME}/visibility \
+            -f visibility=public || echo "Warning: failed to set package visibility"
 
       - name: Comment on tracker issue
         if: success()

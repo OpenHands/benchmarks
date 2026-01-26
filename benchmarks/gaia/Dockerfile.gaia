@@ -1,0 +1,17 @@
+# Dockerfile for GAIA evaluation with MCP server pre-installed
+# Extends the base SDK image to pre-cache mcp-server-fetch and eliminate startup delays
+
+ARG SDK_IMAGE=ghcr.io/openhands/eval-agent-server:f715937-gaia-binary-minimal
+FROM ${SDK_IMAGE}
+
+# Switch to root to install packages
+USER root
+
+# Pre-install MCP server to avoid 1-18 minute startup delays during agent initialization
+# This caches the mcp-server-fetch package so uvx can start it instantly at runtime
+RUN uvx mcp-server-fetch --version 2>&1 || echo "MCP server cached"
+
+# Switch back to openhands user
+USER openhands
+
+# Inherit all other settings from base image

@@ -6,6 +6,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -13,6 +14,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
+from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
@@ -135,9 +137,21 @@ class SWTBenchEvaluation(Evaluation):
         return instances
 
     # ---- Hook: prepare a workspace per instance ----------------------------------
-    def prepare_workspace(self, instance: EvalInstance) -> RemoteWorkspace:
+    def prepare_workspace(
+        self,
+        instance: EvalInstance,
+        resource_factor: int = 1,
+        forward_env: list[str] | None = None,
+    ) -> RemoteWorkspace:
         """
         Create workspace based on workspace_type (docker or remote).
+
+        Args:
+            instance: The evaluation instance to prepare workspace for.
+            resource_factor: Resource factor for runtime allocation (default: 1).
+                           Higher values allocate more CPU/memory resources.
+                           Used by APIRemoteWorkspace for remote runtime allocation.
+            forward_env: Environment variables to forward into the workspace.
         """
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
@@ -168,11 +182,13 @@ class SWTBenchEvaluation(Evaluation):
                     base_image=official_docker_image,
                     working_dir="/workspace",
                     target=build_target,
+                    forward_env=forward_env or [],
                 )
             else:
                 workspace = DockerWorkspace(
                     server_image=agent_server_image,
                     working_dir="/workspace",
+                    forward_env=forward_env or [],
                 )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -191,8 +207,10 @@ class SWTBenchEvaluation(Evaluation):
                     "make sure to build, push it, and make it public accessible before using remote workspace."
                 )
             logger.info(
-                f"Using remote workspace with image {agent_server_image} (sdk sha: {sdk_short_sha})"
+                f"Using remote workspace with image {agent_server_image} "
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
+            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
@@ -200,6 +218,10 @@ class SWTBenchEvaluation(Evaluation):
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
+                forward_env=forward_env or [],
+                resource_factor=resource_factor,
+                init_timeout=startup_timeout,
+                startup_wait_timeout=startup_timeout,
             )
         else:
             raise ValueError(
@@ -243,16 +265,19 @@ class SWTBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        def _log_event(ev):  # keep it simple
-            logger.debug("Event: %s", ev)
-
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
+
+        persist_callback = build_event_persistence_callback(
+            run_id=self.metadata.eval_output_dir,
+            instance_id=instance.id,
+            attempt=self.current_attempt,
+        )
 
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[_log_event],
+            callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
         )
 
@@ -274,7 +299,8 @@ class SWTBenchEvaluation(Evaluation):
             workspace_path=workspace.working_dir,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        # Run conversation with fake user responses to handle agent messages
+        run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -299,6 +325,7 @@ class SWTBenchEvaluation(Evaluation):
 
         out = EvalOutput(
             instance_id=instance.id,
+            attempt=self.current_attempt,
             test_result={
                 "git_patch": git_patch,
             },

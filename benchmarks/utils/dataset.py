@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import time
 from typing import cast
 
 import pandas as pd
@@ -24,8 +26,6 @@ def _load_selected_instances(select_file_path: str) -> set[str]:
         FileNotFoundError: If the select file doesn't exist
         ValueError: If the file is empty
     """
-    import os
-
     if not os.path.isfile(select_file_path):
         raise FileNotFoundError(f"Select file not found: {select_file_path}")
 
@@ -72,6 +72,40 @@ def prepare_dataset(
     return dataset
 
 
+def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
+    """Load a Hugging Face dataset with retries and longer HTTP timeouts."""
+    # Default HF timeout is ~10s; bump it to reduce transient ReadTimeouts.
+    os.environ.setdefault("HF_HUB_HTTP_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", os.environ["HF_HUB_HTTP_TIMEOUT"])
+
+    attempts = 5
+    backoff = 5.0
+    last_exc: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            dataset = load_dataset(dataset_name, split=split)
+            assert isinstance(dataset, Dataset)
+            return dataset
+        except Exception as exc:
+            last_exc = exc
+            if attempt == attempts:
+                break
+            wait = min(backoff, 60.0)
+            logger.warning(
+                "load_dataset failed (attempt %s/%s): %s; retrying in %.1fs",
+                attempt,
+                attempts,
+                exc,
+                wait,
+            )
+            time.sleep(wait)
+            backoff *= 2
+
+    assert last_exc is not None
+    raise last_exc
+
+
 def get_dataset(
     dataset_name: str,
     split: str,
@@ -79,11 +113,18 @@ def get_dataset(
     selected_instances_file: str | None = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
-    # Load dataset
-    dataset = load_dataset(dataset_name, split=split)
-    assert isinstance(dataset, Dataset)
-    df = dataset.to_pandas()
-    assert isinstance(df, pd.DataFrame)
+    # Check if dataset_name is a local file path
+    if os.path.isfile(dataset_name) and dataset_name.endswith(".jsonl"):
+        # Load local JSONL file
+        dataset = load_dataset("json", data_files=dataset_name, split="train")
+        assert isinstance(dataset, Dataset)
+        df = dataset.to_pandas()
+        assert isinstance(df, pd.DataFrame)
+    else:
+        # Load dataset from HuggingFace Hub
+        dataset = _load_hf_dataset_with_retry(dataset_name, split)
+        df = dataset.to_pandas()
+        assert isinstance(df, pd.DataFrame)
 
     # TODO: Add the ability to filter dataset
     logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")
