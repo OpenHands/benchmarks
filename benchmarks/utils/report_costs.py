@@ -101,6 +101,8 @@ def calculate_time_statistics(jsonl_data: List[Optional[Dict]]) -> Dict:
     if not jsonl_data:
         return {
             "average_duration": 0.0,
+            "max_duration": 0.0,
+            "min_duration": 0.0,
             "total_duration": 0.0,
             "total_lines": 0,
             "lines_with_duration": 0,
@@ -115,6 +117,8 @@ def calculate_time_statistics(jsonl_data: List[Optional[Dict]]) -> Dict:
     if not durations:
         return {
             "average_duration": 0.0,
+            "max_duration": 0.0,
+            "min_duration": 0.0,
             "total_duration": 0.0,
             "total_lines": len(jsonl_data),
             "lines_with_duration": 0,
@@ -122,6 +126,8 @@ def calculate_time_statistics(jsonl_data: List[Optional[Dict]]) -> Dict:
 
     return {
         "average_duration": sum(durations) / len(durations),
+        "max_duration": max(durations),
+        "min_duration": min(durations),
         "total_duration": sum(durations),
         "total_lines": len(jsonl_data),
         "lines_with_duration": len(durations),
@@ -160,8 +166,14 @@ def calculate_costs(directory_path: str) -> None:
     # Find output files
     output_file, critic_files = find_output_files(directory)
 
-    if not output_file and not critic_files:
-        print(f"No output.jsonl or critic attempt files found in {directory_path}")
+    if not output_file:
+        print(f"Missing output.jsonl in {directory_path}")
+        sys.exit(1)
+
+    if not critic_files:
+        print(
+            f"Missing critic attempt files (output.critic_attempt_*.jsonl) in {directory_path}"
+        )
         sys.exit(1)
 
     print(f"Cost Report for: {directory_path}")
@@ -176,19 +188,48 @@ def calculate_costs(directory_path: str) -> None:
         "summary": {},
     }
 
-    main_cost: Optional[float] = None
-    main_total_duration: Optional[float] = None
+    main_cost: float
 
     # Process main output file
-    if output_file:
-        print("\nSelected instance in Main output.jsonl only:")
-        print(f"  {output_file.name}")
+    print("\nSelected instance in Main output.jsonl only:")
+    print(f"  {output_file.name}")
 
-        jsonl_data = read_jsonl_file(output_file)
+    jsonl_data = read_jsonl_file(output_file)
+    cost = extract_accumulated_cost(jsonl_data)
+    time_stats = calculate_time_statistics(jsonl_data)
+    main_cost = cost
+
+    print(f"    Lines: {len(jsonl_data)}")
+    print(f"    Cost: ${cost:.6f}")
+    print("    Time Stats:")
+    print(f"      Average Duration: {format_duration(time_stats['average_duration'])}")
+    print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
+    print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
+    print(
+        f"      Lines with Duration: {time_stats['lines_with_duration']}/{time_stats['total_lines']}"
+    )
+
+    # Add to report data
+    report_data["main_output"] = {
+        "filename": output_file.name,
+        "lines": len(jsonl_data),
+        "cost": cost,
+        "time_statistics": time_stats,
+    }
+
+    # Process critic files individually
+    critic_total_cost = 0.0
+    critic_total_duration = 0.0
+    print("\nCritic Attempt Files:")
+
+    for critic_file in critic_files:
+        print(f"  {critic_file.name}")
+
+        jsonl_data = read_jsonl_file(critic_file)
         cost = extract_accumulated_cost(jsonl_data)
         time_stats = calculate_time_statistics(jsonl_data)
-        main_cost = cost
-        main_total_duration = time_stats.get("total_duration", 0.0)
+        critic_total_cost += cost
+        critic_total_duration += time_stats["total_duration"]
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
@@ -196,83 +237,42 @@ def calculate_costs(directory_path: str) -> None:
         print(
             f"      Average Duration: {format_duration(time_stats['average_duration'])}"
         )
+        print(f"      Max Duration: {format_duration(time_stats['max_duration'])}")
+        print(f"      Min Duration: {format_duration(time_stats['min_duration'])}")
         print(
             f"      Lines with Duration: {time_stats['lines_with_duration']}/{time_stats['total_lines']}"
         )
 
         # Add to report data
-        report_data["main_output"] = {
-            "filename": output_file.name,
-            "lines": len(jsonl_data),
-            "cost": cost,
-            "time_statistics": time_stats,
-        }
+        report_data["critic_files"].append(
+            {
+                "filename": critic_file.name,
+                "lines": len(jsonl_data),
+                "cost": cost,
+                "time_statistics": time_stats,
+            }
+        )
 
-    # Process critic files individually
-    critic_total_cost = 0.0
-    critic_total_duration = 0.0
-    if critic_files:
-        print("\nCritic Attempt Files:")
-
-        for critic_file in critic_files:
-            print(f"  {critic_file.name}")
-
-            jsonl_data = read_jsonl_file(critic_file)
-            cost = extract_accumulated_cost(jsonl_data)
-            time_stats = calculate_time_statistics(jsonl_data)
-            critic_total_cost += cost
-            critic_total_duration += time_stats.get("total_duration", 0.0)
-
-            print(f"    Lines: {len(jsonl_data)}")
-            print(f"    Cost: ${cost:.6f}")
-            print("    Time Stats:")
-            print(
-                f"      Average Duration: {format_duration(time_stats['average_duration'])}"
-            )
-            print(
-                f"      Lines with Duration: {time_stats['lines_with_duration']}/{time_stats['total_lines']}"
-            )
-
-            # Add to report data
-            report_data["critic_files"].append(
-                {
-                    "filename": critic_file.name,
-                    "lines": len(jsonl_data),
-                    "cost": cost,
-                    "time_statistics": time_stats,
-                }
-            )
-
-        print(f"\n  Total Critic Files Cost: ${critic_total_cost:.6f}")
+    print(f"\n  Total Critic Files Cost: ${critic_total_cost:.6f}")
 
     # Summary
     print("\n" + "=" * 80)
     print("SUMMARY:")
 
-    # Total cost represents actual spend:
-    # - If critic files exist, they contain all attempts; use their sum.
-    # - Otherwise, fall back to the main output cost.
-    total_cost = critic_total_cost if critic_files else (main_cost or 0.0)
+    # Total cost represents actual spend: critic files contain all attempts.
+    total_cost = critic_total_cost
 
-    # Total duration represents total time across all instances:
-    # - If critic files exist, use their sum.
-    # - Otherwise, fall back to the main output duration.
-    total_duration = (
-        critic_total_duration if critic_files else (main_total_duration or 0.0)
-    )
+    # Total duration represents total time across all instances from critic files.
+    total_duration = critic_total_duration
 
-    if main_cost is not None:
-        print(f"  Main Output Cost (best results): ${main_cost:.6f}")
-    if critic_files:
-        print(f"  Sum Critic Files (all attempts): ${critic_total_cost:.6f}")
+    print(f"  Main Output Cost (best results): ${main_cost:.6f}")
+    print(f"  Sum Critic Files (all attempts): ${critic_total_cost:.6f}")
     print(f"  Total Cost (no double-count): ${total_cost:.6f}")
 
     summary = {"total_cost": total_cost, "total_duration": total_duration}
 
-    if main_cost is not None:
-        summary["only_main_output_cost"] = main_cost
-    if critic_files:
-        summary["sum_critic_files"] = critic_total_cost
+    summary["only_main_output_cost"] = main_cost
+    summary["sum_critic_files"] = critic_total_cost
 
     report_data["summary"] = summary
 
