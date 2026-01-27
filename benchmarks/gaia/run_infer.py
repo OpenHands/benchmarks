@@ -11,6 +11,7 @@ import pandas as pd
 from datasets import DatasetDict, load_dataset
 from PIL import Image
 
+from benchmarks.gaia import constants
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
@@ -75,13 +76,13 @@ class GAIAEvaluation(Evaluation):
         logger.info(
             f"Loading GAIA dataset: {level}, split: {self.metadata.dataset_split}"
         )
-        dataset = cast(DatasetDict, load_dataset("gaia-benchmark/GAIA", level))
+        dataset = cast(DatasetDict, load_dataset(constants.DATASET_NAME, level))
 
         # Download dataset files
         logger.info(f"Downloading GAIA dataset files to {DATASET_CACHE_DIR}")
         DATASET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         huggingface_hub.snapshot_download(
-            "gaia-benchmark/GAIA",
+            constants.DATASET_NAME,
             repo_type="dataset",
             local_dir=str(DATASET_CACHE_DIR),
         )
@@ -151,14 +152,14 @@ class GAIAEvaluation(Evaluation):
         if self.metadata.workspace_type == "docker":
             # Use DockerDevWorkspace with base image (same as main branch)
             workspace = DockerDevWorkspace(
-                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                base_image=constants.GAIA_BASE_IMAGE,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image
             # GAIA uses a universal agent server image (one image for all instances)
-            # Built from nikolaik/python-nodejs:python3.12-nodejs22 base
+            # Built from constants.GAIA_BASE_IMAGE base
             # Using binary target (not binary-minimal) to include Chromium for browser operations
             # Image includes pre-cached MCP server to eliminate startup delays
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -168,9 +169,7 @@ class GAIAEvaluation(Evaluation):
                 )
 
             sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-{constants.TARGET_TYPE}"
 
             if not image_exists(agent_server_image):
                 raise RuntimeError(
@@ -182,16 +181,21 @@ class GAIAEvaluation(Evaluation):
                 f"Using remote workspace with GAIA image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(constants.DEFAULT_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                    "RUNTIME_API_URL", constants.DEFAULT_RUNTIME_API_URL
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 init_timeout=startup_timeout,
                 startup_wait_timeout=startup_timeout,
-                target_type="binary",  # GAIA images use binary target
+                target_type=constants.TARGET_TYPE,  # GAIA images use binary target
                 forward_env=forward_env or [],
                 resource_factor=resource_factor,
             )
@@ -211,7 +215,10 @@ class GAIAEvaluation(Evaluation):
 
             # Construct source file path
             src_file = (
-                DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
+                DATASET_CACHE_DIR
+                / constants.DATASET_YEAR
+                / self.metadata.dataset_split
+                / file_name
             )
 
             if not src_file.exists():
@@ -289,7 +296,10 @@ class GAIAEvaluation(Evaluation):
                 # Load image and encode as base64
                 assert self.metadata.details is not None
                 src_file = (
-                    DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
+                    DATASET_CACHE_DIR
+                    / constants.DATASET_YEAR
+                    / self.metadata.dataset_split
+                    / file_name
                 )
                 if src_file.exists():
                     image = Image.open(src_file)
@@ -400,7 +410,10 @@ Here is the task:
             if extension_name == "zip":
                 # List files from zip
                 src_file = (
-                    DATASET_CACHE_DIR / "2023" / self.metadata.dataset_split / file_name
+                    DATASET_CACHE_DIR
+                    / constants.DATASET_YEAR
+                    / self.metadata.dataset_split
+                    / file_name
                 )
                 if src_file.exists():
                     with zipfile.ZipFile(src_file, "r") as zip_ref:
@@ -585,7 +598,7 @@ def main() -> None:
     # Create metadata
     metadata = EvalMetadata(
         llm=llm,
-        dataset="gaia-benchmark/GAIA",
+        dataset=constants.DATASET_NAME,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,

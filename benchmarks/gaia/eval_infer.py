@@ -18,6 +18,7 @@ import json
 import sys
 from pathlib import Path
 
+from benchmarks.gaia import constants
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -29,7 +30,7 @@ logger = get_logger(__name__)
 def process_gaia_results(
     input_file: str,
     output_file: str,
-    model_name: str = "openhands",
+    model_name: str = constants.DEFAULT_MODEL_NAME,
 ) -> None:
     """
     Process GAIA output.jsonl and generate evaluation report.
@@ -197,8 +198,8 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        default=constants.DEFAULT_MODEL_NAME,
+        help=f"Model name to use in the model_name_or_path field (default: {constants.DEFAULT_MODEL_NAME})",
     )
 
     args = parser.parse_args()
