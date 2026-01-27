@@ -12,6 +12,19 @@ from benchmarks.commit0.build_images import (
     extract_custom_tag,
     get_base_docker_image,
 )
+from benchmarks.commit0.constants import (
+    AGENT_BRANCH_NAME,
+    BUILD_TARGET,
+    DEFAULT_COMMAND_TIMEOUT,
+    DEFAULT_CONVERSATION_TIMEOUT,
+    DEFAULT_DATASET,
+    DEFAULT_DATASET_SPLIT,
+    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    DEFAULT_REPO_SPLIT,
+    DEFAULT_RUNTIME_API_URL,
+    GIT_BRANCH_NAME,
+    WORKSPACE_DIR,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -110,9 +123,9 @@ class Commit0Evaluation(Evaluation):
         self,
         metadata: EvalMetadata,
         num_workers: int = 1,
-        repo_split: str = "lite",
-        dataset_name: str = "wentingzhao/commit0_combined",
-        dataset_split: str = "test",
+        repo_split: str = DEFAULT_REPO_SPLIT,
+        dataset_name: str = DEFAULT_DATASET,
+        dataset_split: str = DEFAULT_DATASET_SPLIT,
     ):
         super().__init__(metadata=metadata, num_workers=num_workers)
         # Store additional parameters in metadata.details for access in methods
@@ -130,9 +143,9 @@ class Commit0Evaluation(Evaluation):
         logger.info("Setting up Commit0 evaluation data")
 
         details = self.metadata.details or {}
-        dataset_name = details.get("dataset_name", "wentingzhao/commit0_combined")
-        dataset_split = details.get("dataset_split", "test")
-        repo_split = details.get("repo_split", "lite")
+        dataset_name = details.get("dataset_name", DEFAULT_DATASET)
+        dataset_split = details.get("dataset_split", DEFAULT_DATASET_SPLIT)
+        repo_split = details.get("repo_split", DEFAULT_REPO_SPLIT)
 
         dataset = load_dataset(dataset_name, split=dataset_split)
         df = commit0_setup(dataset, repo_split)
@@ -180,14 +193,14 @@ class Commit0Evaluation(Evaluation):
         """
         repo_name = instance.data["repo"].split("/")[1]
         base_docker_image = get_base_docker_image(repo_name)
-        build_target = "source-minimal"
+        build_target = BUILD_TARGET
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
             # Build agent-server image from base commit0 image
             workspace = DockerDevWorkspace(
                 base_image=base_docker_image,
-                working_dir="/workspace",
+                working_dir=WORKSPACE_DIR,
                 target=build_target,
                 forward_env=forward_env or [],
             )
@@ -218,11 +231,14 @@ class Commit0Evaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv("RUNTIME_API_URL", DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
@@ -238,37 +254,39 @@ class Commit0Evaluation(Evaluation):
 
         # Clone the repository to the specific directory
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        clone_cmd = f"cd /workspace/ && git clone -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
-        res = workspace.execute_command(clone_cmd, timeout=600)
+        clone_cmd = f"cd {WORKSPACE_DIR}/ && git clone -b {GIT_BRANCH_NAME} https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
+        res = workspace.execute_command(clone_cmd, timeout=DEFAULT_COMMAND_TIMEOUT)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
         logger.info(f"Cloned repository: {instance.data['repo']}")
 
         # Create new branch
-        branch_cmd = f"cd /workspace/{workspace_dir_name} && git checkout -b openhands"
-        res = workspace.execute_command(branch_cmd, timeout=600)
+        branch_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && git checkout -b {AGENT_BRANCH_NAME}"
+        res = workspace.execute_command(branch_cmd, timeout=DEFAULT_COMMAND_TIMEOUT)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to create branch: {res.stderr}")
-        logger.info("Created new branch: openhands")
+        logger.info(f"Created new branch: {AGENT_BRANCH_NAME}")
 
         # Install commit0
         # Try uv first, fall back to pip if uv is not available
-        install_cmd = f"cd /workspace/{workspace_dir_name} && (uv pip install commit0 || pip install commit0)"
-        res = workspace.execute_command(install_cmd, timeout=600)
+        install_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && (uv pip install commit0 || pip install commit0)"
+        res = workspace.execute_command(install_cmd, timeout=DEFAULT_COMMAND_TIMEOUT)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to install commit0: {res.stderr}")
         logger.info("Installed commit0")
 
         # Install pytest and required plugins for test reporting
-        plugin_install_cmd = f"cd /workspace/{workspace_dir_name} && (uv pip install pytest pytest-json-report pytest-cov || pip install pytest pytest-json-report pytest-cov)"
-        res = workspace.execute_command(plugin_install_cmd, timeout=600)
+        plugin_install_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && (uv pip install pytest pytest-json-report pytest-cov || pip install pytest pytest-json-report pytest-cov)"
+        res = workspace.execute_command(
+            plugin_install_cmd, timeout=DEFAULT_COMMAND_TIMEOUT
+        )
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to install pytest and plugins: {res.stderr}")
         logger.info("Installed pytest and required plugins")
 
         # Verify pytest and plugin installation
         verify_pytest_cmd = (
-            f"cd /workspace/{workspace_dir_name} && python -m pytest --version"
+            f"cd {WORKSPACE_DIR}/{workspace_dir_name} && python -m pytest --version"
         )
         verify_pytest_res = workspace.execute_command(verify_pytest_cmd, timeout=60)
         logger.info(f"Pytest verification exit code: {verify_pytest_res.exit_code}")
@@ -277,7 +295,7 @@ class Commit0Evaluation(Evaluation):
         else:
             logger.warning(f"Pytest verification failed: {verify_pytest_res.stderr}")
 
-        verify_plugin_cmd = f"cd /workspace/{workspace_dir_name} && python -c 'import pytest_jsonreport; print(\"Plugin available\")'"
+        verify_plugin_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && python -c 'import pytest_jsonreport; print(\"Plugin available\")'"
         verify_plugin_res = workspace.execute_command(verify_plugin_cmd, timeout=60)
         logger.info(f"Plugin verification exit code: {verify_plugin_res.exit_code}")
         if verify_plugin_res.exit_code == 0:
@@ -294,7 +312,7 @@ class Commit0Evaluation(Evaluation):
         Run agent, collect history, git patch, and test results.
         """
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        repo_path = f"/workspace/{workspace_dir_name}"
+        repo_path = f"{WORKSPACE_DIR}/{workspace_dir_name}"
 
         tools = get_default_tools(enable_browser=False)
         agent = Agent(
@@ -323,20 +341,24 @@ class Commit0Evaluation(Evaluation):
             metadata=self.metadata,
         )
         conversation.send_message(instruction)
-        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+        run_timeout = int(
+            os.getenv("CONVERSATION_TIMEOUT", str(DEFAULT_CONVERSATION_TIMEOUT))
+        )
         conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
 
         # Complete runtime: git add, commit, diff, run tests
-        workspace.execute_command(f"cd {repo_path} && git add .", timeout=600)
+        workspace.execute_command(
+            f"cd {repo_path} && git add .", timeout=DEFAULT_COMMAND_TIMEOUT
+        )
         # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
             'git config --global user.email "evaluation@openhands.dev" && '
             'git config --global user.name "OpenHands Evaluation" && '
-            'git commit --no-verify -m "openhands edits"',
-            timeout=600,
+            f'git commit --no-verify -m "{AGENT_BRANCH_NAME} edits"',
+            timeout=DEFAULT_COMMAND_TIMEOUT,
         )
 
         # Get git patch
@@ -345,7 +367,7 @@ class Commit0Evaluation(Evaluation):
         for retry in range(5):
             patch_result = workspace.execute_command(
                 f"cd {repo_path} && git diff {base_commit} HEAD -- . ':(exclude)spec.pdf.bz2'",
-                timeout=600 + 100 * retry,
+                timeout=DEFAULT_COMMAND_TIMEOUT + 100 * retry,
             )
             if patch_result.exit_code == 0:
                 git_patch = patch_result.stdout.strip()
@@ -363,7 +385,9 @@ class Commit0Evaluation(Evaluation):
             test_cmd = "python -m pytest"
         full_test_cmd = f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
         logger.info(f"Running test command: {full_test_cmd}")
-        test_result = workspace.execute_command(full_test_cmd, timeout=600)
+        test_result = workspace.execute_command(
+            full_test_cmd, timeout=DEFAULT_COMMAND_TIMEOUT
+        )
         logger.info(f"Test command exit code: {test_result.exit_code}")
         if test_result.exit_code != 0:
             logger.warning(f"Test command failed with stderr: {test_result.stderr}")
@@ -372,7 +396,7 @@ class Commit0Evaluation(Evaluation):
         # Read test output
         test_output_result = workspace.execute_command(
             f"cd {repo_path} && cat test_output.txt",
-            timeout=600,
+            timeout=DEFAULT_COMMAND_TIMEOUT,
         )
         test_output = (
             test_output_result.stdout.strip()
@@ -388,7 +412,7 @@ class Commit0Evaluation(Evaluation):
         repo_name_normalized = repo_name.replace(".", "-")
         test_ids_result = workspace.execute_command(
             f"cd {repo_path} && commit0 get-tests {repo_name_normalized}",
-            timeout=600,
+            timeout=DEFAULT_COMMAND_TIMEOUT,
         )
         test_ids = (
             test_ids_result.stdout.strip().split("\n")
@@ -405,7 +429,7 @@ class Commit0Evaluation(Evaluation):
         # Read test report
         report_result = workspace.execute_command(
             f"cd {repo_path} && cat report.json",
-            timeout=600,
+            timeout=DEFAULT_COMMAND_TIMEOUT,
         )
 
         # Debug logging for report
@@ -593,11 +617,11 @@ def main() -> None:
     parser.add_argument(
         "--repo-split",
         type=str,
-        default="lite",
+        default=DEFAULT_REPO_SPLIT,
         help="all, lite, or each repo name",
     )
     # Override the default dataset for commit0
-    parser.set_defaults(dataset="wentingzhao/commit0_combined")
+    parser.set_defaults(dataset=DEFAULT_DATASET)
     args = parser.parse_args()
 
     # Validate max_attempts

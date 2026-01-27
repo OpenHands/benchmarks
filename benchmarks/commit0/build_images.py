@@ -13,6 +13,13 @@ import sys
 
 from commit0.harness.constants import SPLIT
 
+from benchmarks.commit0.constants import (
+    CUSTOM_TAG_PREFIX,
+    DEFAULT_DATASET,
+    DEFAULT_DOCKER_IMAGE_PREFIX,
+    DEFAULT_IMAGE_TAG,
+    DEFAULT_REPO_SPLIT,
+)
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -22,7 +29,6 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-DEFAULT_DOCKER_IMAGE_PREFIX = "docker.io/wentingzhao/"
 
 
 def get_base_docker_image(
@@ -33,14 +39,14 @@ def get_base_docker_image(
     prefix = docker_image_prefix or os.getenv(
         "EVAL_DOCKER_IMAGE_PREFIX", DEFAULT_DOCKER_IMAGE_PREFIX
     )
-    return (prefix.rstrip("/") + "/" + repo_name).lower() + ":v0"
+    return (prefix.rstrip("/") + "/" + repo_name).lower() + f":{DEFAULT_IMAGE_TAG}"
 
 
 def extract_custom_tag(base_image: str) -> str:
     """Extract Commit0 custom tag from a base image name."""
     repo_tag = base_image.rsplit("/", 1)[-1]
     repo_name = repo_tag.split(":", 1)[0].lower()
-    return f"commit0-{repo_name}"
+    return f"{CUSTOM_TAG_PREFIX}{repo_name}"
 
 
 def _load_selected_instances(selected_instances_file: str) -> list[str]:
@@ -90,7 +96,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--repo-split",
         type=str,
-        default="lite",
+        default=DEFAULT_REPO_SPLIT,
         help="Commit0 repo split (lite, all, or repo name)",
     )
     parser.add_argument(
@@ -99,7 +105,7 @@ def main(argv: list[str]) -> int:
         default="",
         help="Override base image prefix (default: env EVAL_DOCKER_IMAGE_PREFIX)",
     )
-    parser.set_defaults(dataset="wentingzhao/commit0_combined")
+    parser.set_defaults(dataset=DEFAULT_DATASET)
     args = parser.parse_args(argv)
 
     docker_image_prefix = args.docker_image_prefix or None
