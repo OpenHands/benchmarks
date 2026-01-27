@@ -12,6 +12,7 @@ Example:
 import sys
 from pathlib import Path
 
+from benchmarks.swebench import constants
 from benchmarks.utils.build_utils import (
     BuildOutput,
     build_all_images,
@@ -32,13 +33,15 @@ WRAPPED_REPOS = {"sphinx-doc"}
 
 def get_official_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
+    docker_image_prefix: str = constants.DOCKER_IMAGE_PREFIX,
 ) -> str:
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
     repo, name = instance_id.split("__")
     official_image_name = docker_image_prefix.rstrip("/")
-    official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
+    official_image_name += (
+        f"/sweb.eval.x86_64.{repo}_1776_{name}:{constants.DOCKER_IMAGE_TAG}".lower()
+    )
     logger.debug(f"Official SWE-Bench image: {official_image_name}")
     return official_image_name
 

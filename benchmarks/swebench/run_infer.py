@@ -4,6 +4,7 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swebench import constants
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
@@ -114,10 +115,12 @@ class SWEBenchEvaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = constants.DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
-        suffix = f"-{build_target}" if build_target != "binary" else ""
+        suffix = (
+            f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
+        )
         base_agent_image = (
             f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
         )
@@ -183,10 +186,15 @@ class SWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    constants.DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+                )
+            )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                    "RUNTIME_API_URL", constants.DEFAULT_RUNTIME_API_URL
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
@@ -280,9 +288,9 @@ class SWEBenchEvaluation(Evaluation):
         # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit --no-verify -m 'patch'"
+            f"git config --global user.email '{constants.GIT_USER_EMAIL}' && "
+            f"git config --global user.name '{constants.GIT_USER_NAME}' && "
+            f"git commit --no-verify -m '{constants.GIT_COMMIT_MESSAGE}'"
         )
 
         # Get git patch
