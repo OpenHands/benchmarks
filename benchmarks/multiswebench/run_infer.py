@@ -11,6 +11,27 @@ from benchmarks.multiswebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.multiswebench.constants import (
+    DEFAULT_BUILD_TARGET,
+    DEFAULT_DOCKER_IMAGE_PREFIX,
+    DEFAULT_ENV_SETUP_COMMANDS,
+    DEFAULT_LANGUAGE,
+    DEFAULT_RUN_WITH_BROWSING,
+    DEFAULT_RUNTIME_API_URL,
+    DEFAULT_STARTUP_TIMEOUT,
+    DEFAULT_USE_HINT_TEXT,
+    DEFAULT_USE_INSTANCE_IMAGE,
+    DEFAULT_WORKING_DIR,
+    DOCKER_IMAGE_PREFIX_ENV_VAR,
+    REMOTE_RUNTIME_STARTUP_TIMEOUT_ENV_VAR,
+    RUN_WITH_BROWSING_ENV_VAR,
+    RUNTIME_API_KEY_ENV_VAR,
+    RUNTIME_API_URL_ENV_VAR,
+    SDK_SHORT_SHA_ENV_VAR,
+    SKIP_BUILD_ENV_VAR,
+    USE_HINT_TEXT_ENV_VAR,
+    USE_INSTANCE_IMAGE_ENV_VAR,
+)
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.args_parser import get_parser
@@ -42,18 +63,33 @@ class MultiSWEBenchEvalMetadata(EvalMetadata):
     """Extended metadata for Multi-SWE-bench evaluation with language support."""
 
     lang: str = Field(
-        default="java", description="Language for Multi-SWE-bench dataset"
+        default=DEFAULT_LANGUAGE, description="Language for Multi-SWE-bench dataset"
     )
 
 
 logger = get_logger(__name__)
 
 # Environment variables for Multi-SWE-Bench configuration
-USE_HINT_TEXT = os.environ.get("USE_HINT_TEXT", "false").lower() == "true"
-USE_INSTANCE_IMAGE = os.environ.get("USE_INSTANCE_IMAGE", "true").lower() == "true"
-RUN_WITH_BROWSING = os.environ.get("RUN_WITH_BROWSING", "false").lower() == "true"
+USE_HINT_TEXT = (
+    os.environ.get(USE_HINT_TEXT_ENV_VAR, str(DEFAULT_USE_HINT_TEXT).lower()).lower()
+    == "true"
+)
+USE_INSTANCE_IMAGE = (
+    os.environ.get(
+        USE_INSTANCE_IMAGE_ENV_VAR, str(DEFAULT_USE_INSTANCE_IMAGE).lower()
+    ).lower()
+    == "true"
+)
+RUN_WITH_BROWSING = (
+    os.environ.get(
+        RUN_WITH_BROWSING_ENV_VAR, str(DEFAULT_RUN_WITH_BROWSING).lower()
+    ).lower()
+    == "true"
+)
 # For Multi-SWE-Bench, force mswebench prefix instead of the general SWE-Bench prefix
-DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
+DOCKER_IMAGE_PREFIX = os.environ.get(
+    DOCKER_IMAGE_PREFIX_ENV_VAR, DEFAULT_DOCKER_IMAGE_PREFIX
+)
 
 logger.info(f"Using docker image prefix: {DOCKER_IMAGE_PREFIX}")
 
@@ -200,7 +236,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             instance.data, docker_image_prefix=DOCKER_IMAGE_PREFIX
         )
         logger.info(f"Using official docker image: {official_docker_image}")
-        build_target = "source-minimal"
+        build_target = DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
@@ -209,7 +245,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            SKIP_BUILD = os.getenv("MULTI_SWE_BENCH_SKIP_BUILD", "0").lower() in (
+            SKIP_BUILD = os.getenv(SKIP_BUILD_ENV_VAR, "0").lower() in (
                 "1",
                 "true",
                 "yes",
@@ -241,15 +277,15 @@ class MultiSWEBenchEvaluation(Evaluation):
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
-                working_dir="/workspace",
+                working_dir=DEFAULT_WORKING_DIR,
                 forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
-            runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            runtime_api_key = os.getenv(RUNTIME_API_KEY_ENV_VAR)
+            sdk_short_sha = os.getenv(SDK_SHORT_SHA_ENV_VAR, SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
-                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                    f"{RUNTIME_API_KEY_ENV_VAR} environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
@@ -264,10 +300,14 @@ class MultiSWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    REMOTE_RUNTIME_STARTUP_TIMEOUT_ENV_VAR, str(DEFAULT_STARTUP_TIMEOUT)
+                )
+            )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                    RUNTIME_API_URL_ENV_VAR, DEFAULT_RUNTIME_API_URL
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
@@ -432,7 +472,7 @@ def main() -> None:
     parser.add_argument(
         "--lang",
         type=str,
-        default="java",
+        default=DEFAULT_LANGUAGE,
         help="Language for Multi-SWE-bench dataset",
     )
     args = parser.parse_args()
@@ -475,7 +515,7 @@ def main() -> None:
         details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
-        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        env_setup_commands=DEFAULT_ENV_SETUP_COMMANDS,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,

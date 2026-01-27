@@ -1,5 +1,7 @@
 import json
 
+from benchmarks.multiswebench.constants import DEFAULT_VERSION
+
 
 def format_data_for_inference(input_file, output_file):
     with (
@@ -21,7 +23,7 @@ def format_data_for_inference(input_file, output_file):
                 )
                 continue
 
-            # 提取原始数据
+            # Extract original data
             org = item.get("org", "")
             repo = item.get("repo", "")
             number = str(item.get("number", ""))
@@ -39,7 +41,7 @@ def format_data_for_inference(input_file, output_file):
             new_item["FAIL_TO_PASS"] = []
             new_item["PASS_TO_PASS"] = []
             new_item["base_commit"] = item["base"].get("sha", "")
-            new_item["version"] = "0.1"  # depends
+            new_item["version"] = DEFAULT_VERSION
 
             output_data = new_item
             fout.write(json.dumps(output_data, ensure_ascii=False) + "\n")

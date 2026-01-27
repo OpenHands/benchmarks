@@ -14,6 +14,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from benchmarks.multiswebench.constants import (
+    DEFAULT_DATASET,
+    DEFAULT_LANGUAGE,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_SPLIT,
+)
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.multiswebench.scripts.eval.update_multi_swe_bench_config import (
     update_multi_swe_config,
@@ -29,7 +35,7 @@ def run_multi_swebench_evaluation(
     dataset_name: str | None = None,
     split: str | None = None,
     input_file: str | None = None,
-    lang: str = "java",
+    lang: str = DEFAULT_LANGUAGE,
 ):
     """
     Run Multi-SWE-Bench evaluation using the predictions file.
@@ -46,9 +52,9 @@ def run_multi_swebench_evaluation(
 
     # Default dataset and split if not provided
     if dataset_name is None:
-        dataset_name = "bytedance-research/Multi-SWE-Bench"
+        dataset_name = DEFAULT_DATASET
     if split is None:
-        split = "test"
+        split = DEFAULT_SPLIT
 
     try:
         if input_file is None:
@@ -108,14 +114,12 @@ def main():
     parser = argparse.ArgumentParser(description="Multi-SWE-Bench Evaluation")
     parser.add_argument("input_file", help="Path to OpenHands output.jsonl file")
     parser.add_argument(
-        "--model-name", default="OpenHands", help="Model name for predictions"
+        "--model-name", default=DEFAULT_MODEL_NAME, help="Model name for predictions"
     )
+    parser.add_argument("--dataset", default=DEFAULT_DATASET, help="Dataset name")
+    parser.add_argument("--split", default=DEFAULT_SPLIT, help="Dataset split")
     parser.add_argument(
-        "--dataset", default="bytedance-research/Multi-SWE-Bench", help="Dataset name"
-    )
-    parser.add_argument("--split", default="test", help="Dataset split")
-    parser.add_argument(
-        "--lang", default="java", help="Language for Multi-SWE-bench dataset"
+        "--lang", default=DEFAULT_LANGUAGE, help="Language for Multi-SWE-bench dataset"
     )
     parser.add_argument(
         "--skip-evaluation",
