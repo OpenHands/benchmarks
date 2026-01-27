@@ -44,7 +44,7 @@ class LaminarService:
     def _is_enabled(self) -> bool:
         return bool(os.environ.get("LMNR_PROJECT_API_KEY"))
 
-    def initialize(self, trace_session_id: str | None = None) -> bool:
+    def initialize(self) -> bool:
         """
         Initialize the Laminar SDK once per process.
         Returns True if initialization succeeded (or was already done), False otherwise.
@@ -58,8 +58,6 @@ class LaminarService:
 
         try:
             Laminar.initialize()
-            if trace_session_id:
-                Laminar.set_trace_session_id(trace_session_id)
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.debug("Failed to initialize Laminar SDK: %s", exc)
             return False
@@ -85,37 +83,19 @@ class LaminarService:
         name: str,
         group_name: str,
         metadata: dict[str, Any] | None = None,
-        run_id: str | None = None,
     ):
         client = self._get_client()
         if client is None:
             return None
 
-        eval_name = run_id or name
-        metadata_payload = metadata.copy() if metadata else {}
-        if run_id:
-            metadata_payload.setdefault("run_id", run_id)
-
-        if run_id:
-            try:
-                Laminar.set_trace_session_id(run_id)
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.debug("Failed to set Laminar trace session id: %s", exc)
-
         try:
-            eval_id = client.evals.create_evaluation(
-                name=eval_name,
+            return client.evals.create_evaluation(
+                name=name,
                 group_name=group_name,
-                metadata=metadata_payload,
+                metadata=metadata,
             )
-            return eval_id
         except Exception as exc:  # pragma: no cover - defensive logging
-            logger.debug(
-                "Laminar evaluation %s (%s): %s",
-                eval_name,
-                group_name,
-                exc,
-            )
+            logger.debug("Laminar evaluation %s (%s): %s", name, group_name, exc)
 
     def create_evaluation_datapoint(
         self,
@@ -123,10 +103,13 @@ class LaminarService:
         data: Any,
         metadata: dict[str, Any],
         index: int,
+        session_id: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ) -> tuple[UUID | None, str | None]:
         """
         Create a Laminar datapoint.
         Creates a new span for the evaluation and returns the span context.
+        Session ID and trace metadata are set on the span if provided.
         """
 
         if eval_id is None:
@@ -141,6 +124,12 @@ class LaminarService:
                 "Evaluation",
                 span_type="EVALUATION",  # type: ignore
             )
+            # Set session ID and metadata on the active span
+            if session_id:
+                Laminar.set_trace_session_id(session_id)
+            if trace_metadata:
+                Laminar.set_trace_metadata(trace_metadata)
+
             lmnr_span_ctx = Laminar.serialize_span_context(eval_span)
             eval_span.end()
 

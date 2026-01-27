@@ -11,7 +11,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
@@ -252,36 +252,35 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation with support for single or multiple attempts."""
         all_instances = self.prepare_instances()
 
-        run_id = os.getenv("UNIQUE_EVAL_NAME")
-        benchmark_name = self.metadata.dataset
-        model_name = self.metadata.llm.model
-
         # Initialize Laminar
-        LaminarService.get().initialize(trace_session_id=run_id)
-        trace_metadata: dict[str, Any] = {}
-        if benchmark_name:
-            trace_metadata["benchmark"] = benchmark_name
-        if model_name:
-            trace_metadata["model"] = model_name
-        if trace_metadata:
-            Laminar.set_trace_metadata(trace_metadata)
+        LaminarService.get().initialize()
 
-        # Create Laminar evaluation
+        # Build metadata for Laminar evaluation and traces
+        run_id = os.getenv("UNIQUE_EVAL_NAME")
+        laminar_meta = {
+            k: v
+            for k, v in [
+                ("benchmark", self.metadata.dataset),
+                ("model", self.metadata.llm.model),
+            ]
+            if v
+        }
+
+        # Create Laminar evaluation (use run_id as name if available)
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        eval_metadata: dict[str, Any] = {}
-        if benchmark_name:
-            eval_metadata["benchmark"] = benchmark_name
-        if model_name:
-            eval_metadata["model"] = model_name
-
+        eval_name = (
+            run_id or f"{self.metadata.dataset} {self.metadata.dataset_split} {now}"
+        )
         self.metadata.lmnr = LaminarEvalMetadata(
             eval_id=LaminarService.get().create_evaluation(
-                name=f"{self.metadata.dataset} {self.metadata.dataset_split} {now}",
+                name=eval_name,
                 group_name=f"{self.metadata.dataset} {self.metadata.dataset_split}",
-                metadata=eval_metadata,
-                run_id=run_id,
+                metadata=laminar_meta or None,
             )
         )
+        # Store for use in datapoint creation
+        self._laminar_session_id = run_id
+        self._laminar_trace_meta = laminar_meta or None
 
         total_instances = len(all_instances)
         logger.info("prepared %d instances for evaluation", total_instances)
@@ -351,6 +350,8 @@ class Evaluation(ABC, BaseModel):
                             inst.id,
                             self.metadata.model_dump(mode="json"),
                             index,
+                            session_id=self._laminar_session_id,
+                            trace_metadata=self._laminar_trace_meta,
                         )
                     )
                     if datapoint_id is not None:
