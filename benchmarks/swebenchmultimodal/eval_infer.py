@@ -16,6 +16,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from benchmarks.swebenchmultimodal.constants import (
+    ANNOTATIONS_FILENAME,
+    DEFAULT_DATASET,
+    DEFAULT_EVAL_WORKERS,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_SPLIT,
+    SETUP_FILES_TO_REMOVE,
+    SOLVEABLE_KEYWORD,
+)
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -24,7 +33,7 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 # Path to ambiguity annotations relative to this file
-ANNOTATIONS_FILE = Path(__file__).parent / "ambiguity_annotations.json"
+ANNOTATIONS_FILE = Path(__file__).parent / ANNOTATIONS_FILENAME
 
 
 def load_ambiguity_annotations() -> dict[str, Any]:
@@ -77,7 +86,7 @@ def calculate_component_scores(
 
     for instance_id, annotation in annotations.items():
         keywords = annotation.get("keywords", [])
-        if "SOLVEABLE" in keywords:
+        if SOLVEABLE_KEYWORD in keywords:
             solveable_ids.add(instance_id)
         else:
             unsolveable_ids.add(instance_id)
@@ -213,8 +222,7 @@ def convert_to_swebench_format(
                     git_patch = ""
 
                 # postprocess git_patch
-                setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
-                git_patch = remove_files_from_patch(git_patch, setup_files)
+                git_patch = remove_files_from_patch(git_patch, SETUP_FILES_TO_REMOVE)
 
                 # Create SWE-Bench format entry
                 swebench_entry = {
@@ -269,9 +277,9 @@ def find_report_json(predictions_dir: Path, run_id: str) -> Path | None:
 
 def run_swebench_multimodal_evaluation(
     predictions_file: str,
-    dataset: str = "princeton-nlp/SWE-bench_Multimodal",
-    split: str = "dev",
-    workers: str = "12",
+    dataset: str = DEFAULT_DATASET,
+    split: str = DEFAULT_SPLIT,
+    workers: str = DEFAULT_EVAL_WORKERS,
     run_id: str | None = None,
 ) -> Path | None:
     """
@@ -363,10 +371,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert OpenHands output to SWE-Bench format and run multimodal evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 Examples:
     uv run swebenchmultimodal-eval output.jsonl
-    uv run swebenchmultimodal-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Multimodal
+    uv run swebenchmultimodal-eval /path/to/output.jsonl --dataset {DEFAULT_DATASET}
     uv run swebenchmultimodal-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
@@ -375,15 +383,14 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Multimodal",
-        help="SWE-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Multimodal)",
+        default=DEFAULT_DATASET,
+        help=f"SWE-Bench dataset to evaluate against (default: {DEFAULT_DATASET})",
     )
 
     parser.add_argument(
         "--split",
-        default="dev",
-        help="Dataset split to use (default: dev)",
+        default=DEFAULT_SPLIT,
+        help=f"Dataset split to use (default: {DEFAULT_SPLIT})",
     )
 
     parser.add_argument(
@@ -400,14 +407,14 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        default=DEFAULT_MODEL_NAME,
+        help=f"Model name to use in the model_name_or_path field (default: {DEFAULT_MODEL_NAME})",
     )
 
     parser.add_argument(
         "--workers",
-        default="12",
-        help="Number of workers to use when evaluating",
+        default=DEFAULT_EVAL_WORKERS,
+        help=f"Number of workers to use when evaluating (default: {DEFAULT_EVAL_WORKERS})",
     )
 
     parser.add_argument(

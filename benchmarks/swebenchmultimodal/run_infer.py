@@ -10,6 +10,25 @@ from benchmarks.swebenchmultimodal.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.swebenchmultimodal.constants import (
+    ALLOWED_IMAGE_TYPES,
+    BUILD_TARGET,
+    DEFAULT_DATASET,
+    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    DEFAULT_RUNTIME_API_URL,
+    DEFAULT_SKIP_BUILD,
+    DEFAULT_SPLIT,
+    ENV_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    ENV_RUNTIME_API_KEY,
+    ENV_RUNTIME_API_URL,
+    ENV_SDK_SHORT_SHA,
+    ENV_SETUP_COMMANDS,
+    ENV_SKIP_BUILD,
+    GIT_COMMIT_MESSAGE,
+    GIT_USER_EMAIL,
+    GIT_USER_NAME,
+    WORKSPACE_DIR,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -58,7 +77,7 @@ def is_valid_image_url(url: str, allowed_types: list | None = None) -> bool:
         True if URL points to a valid image type, False otherwise
     """
     if allowed_types is None:
-        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+        allowed_types = ALLOWED_IMAGE_TYPES
 
     try:
         # Send a HEAD request first to check headers without downloading the entire file
@@ -152,18 +171,21 @@ class SWEBenchEvaluation(Evaluation):
         """
         # Use multimodal image
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
-        suffix = f"-{build_target}" if build_target != "binary" else ""
+        suffix = f"-{BUILD_TARGET}" if BUILD_TARGET != "binary" else ""
 
         if self.metadata.workspace_type == "docker":
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-            if not SKIP_BUILD:
+            skip_build = os.getenv(ENV_SKIP_BUILD, DEFAULT_SKIP_BUILD).lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+            logger.info(f"SKIP_BUILD={skip_build}")
+            if not skip_build:
                 logger.info(
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
@@ -177,7 +199,7 @@ class SWEBenchEvaluation(Evaluation):
                     base_image=official_docker_image,
                     target_image=EVAL_AGENT_SERVER_IMAGE,
                     custom_tag=custom_tag,
-                    target=build_target,
+                    target=BUILD_TARGET,
                     push=False,
                 )
                 logger.info(f"Image build output: {output}")
@@ -190,15 +212,15 @@ class SWEBenchEvaluation(Evaluation):
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
-                working_dir="/workspace",
+                working_dir=WORKSPACE_DIR,
                 forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
-            runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            runtime_api_key = os.getenv(ENV_RUNTIME_API_KEY)
+            sdk_short_sha = os.getenv(ENV_SDK_SHORT_SHA, SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
-                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                    f"{ENV_RUNTIME_API_KEY} environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
@@ -213,16 +235,19 @@ class SWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    ENV_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+                    DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+                )
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv(ENV_RUNTIME_API_URL, DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 init_timeout=startup_timeout,
                 startup_wait_timeout=startup_timeout,
-                target_type="source" if "source" in build_target else "binary",
+                target_type="source" if "source" in BUILD_TARGET else "binary",
                 forward_env=forward_env or [],
                 resource_factor=resource_factor,
             )
@@ -377,9 +402,9 @@ class SWEBenchEvaluation(Evaluation):
         # and prevent the commit from being created
         workspace.execute_command(
             f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit --no-verify -m 'patch'"
+            f"git config --global user.email '{GIT_USER_EMAIL}' && "
+            f"git config --global user.name '{GIT_USER_NAME}' && "
+            f"git commit --no-verify -m '{GIT_COMMIT_MESSAGE}'"
         )
 
         # Get git patch (same as regular swebench - use base_commit)
@@ -424,7 +449,7 @@ def main() -> None:
         help="Path to prompt template file",
     )
     # Override the default dataset and split for multimodal
-    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Multimodal", split="dev")
+    parser.set_defaults(dataset=DEFAULT_DATASET, split=DEFAULT_SPLIT)
     args = parser.parse_args()
 
     # Validate max_attempts
@@ -464,7 +489,7 @@ def main() -> None:
         details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
-        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        env_setup_commands=ENV_SETUP_COMMANDS,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
