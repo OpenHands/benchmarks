@@ -9,6 +9,16 @@ from typing import Iterable, Iterator, List, Sequence
 
 import docker
 
+from benchmarks.swtbench.constants import (
+    BUILD_MODE_CHOICES,
+    DEFAULT_BUILD_BATCH_SIZE,
+    DEFAULT_BUILD_MAX_RETRIES,
+    DEFAULT_BUILD_MAX_WORKERS,
+    DEFAULT_BUILD_MODE,
+    DEFAULT_EVAL_LIMIT,
+    DEFAULT_SPLIT,
+    PREBAKED_REGISTRY,
+)
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import image_exists as remote_image_exists
@@ -258,11 +268,11 @@ def main() -> None:
         description="Build and push prebaked SWT-bench eval env images."
     )
     parser.add_argument("--dataset", required=True, help="Dataset name")
-    parser.add_argument("--split", default="test", help="Dataset split")
+    parser.add_argument("--split", default=DEFAULT_SPLIT, help="Dataset split")
     parser.add_argument(
         "--eval-limit",
         type=int,
-        default=1,
+        default=DEFAULT_EVAL_LIMIT,
         help="Match inference sampling by limiting instances (0 to disable)",
     )
     parser.add_argument(
@@ -277,31 +287,31 @@ def main() -> None:
     )
     parser.add_argument(
         "--image-prefix",
-        default="ghcr.io/openhands/swtbench-eval",
+        default=PREBAKED_REGISTRY,
         help="Registry prefix for pushed images",
     )
     parser.add_argument(
         "--max-workers",
         type=int,
-        default=4,
+        default=DEFAULT_BUILD_MAX_WORKERS,
         help="Parallel builds for env images",
     )
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=2,
+        default=DEFAULT_BUILD_MAX_RETRIES,
         help="Retries per batch for env image builds",
     )
     parser.add_argument(
         "--build-batch-size",
         type=int,
-        default=10,
+        default=DEFAULT_BUILD_BATCH_SIZE,
         help="Number of env images to build per batch",
     )
     parser.add_argument(
         "--build-mode",
-        choices=["api", "cli"],
-        default="cli",
+        choices=BUILD_MODE_CHOICES,
+        default=DEFAULT_BUILD_MODE,
         help="swt-bench build mode",
     )
     parser.add_argument(

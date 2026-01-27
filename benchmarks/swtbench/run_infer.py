@@ -4,6 +4,26 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swtbench.constants import (
+    AGENT_SERVER_IMAGE_BASE,
+    DEFAULT_BUILD_TARGET,
+    DEFAULT_ENV_SETUP_COMMANDS,
+    DEFAULT_RUNTIME_API_URL,
+    DEFAULT_SKIP_BUILD,
+    DEFAULT_STARTUP_TIMEOUT,
+    ENV_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+    ENV_RUNTIME_API_KEY,
+    ENV_RUNTIME_API_URL,
+    ENV_SDK_SHORT_SHA,
+    ENV_SKIP_BUILD,
+    EVAL_NOTE_PREFIX,
+    GIT_USER_EMAIL,
+    GIT_USER_NAME,
+    IMAGE_NAME_SEPARATOR,
+    IMAGE_TAG_LATEST,
+    SWEBENCH_DOCKER_IMAGE_PREFIX,
+    SWTBENCH_DOCKER_IMAGE_PREFIX,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -34,26 +54,28 @@ logger = get_logger(__name__)
 
 def get_official_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
+    docker_image_prefix: str = SWEBENCH_DOCKER_IMAGE_PREFIX,
 ) -> str:
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
     repo, name = instance_id.split("__")
     official_image_name = docker_image_prefix.rstrip("/")
-    official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
+    official_image_name += (
+        f"/sweb.eval.x86_64.{repo}_{IMAGE_NAME_SEPARATOR}_{name}:{IMAGE_TAG_LATEST}"
+    ).lower()
     logger.debug(f"Using official SWE-Bench image: {official_image_name}")
     return official_image_name
 
 
 def get_agent_server_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swtbench/",
-    target: str = "source-minimal",
+    docker_image_prefix: str = SWTBENCH_DOCKER_IMAGE_PREFIX,
+    target: str = DEFAULT_BUILD_TARGET,
 ) -> str:
     """Get the agent server Docker image for an instance."""
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
-        "ghcr.io/all-hands-ai/agent-server"
+        AGENT_SERVER_IMAGE_BASE
         + f":v{__version__}_{_base_slug(official_image_name)}_{target}"
     )
 
@@ -154,7 +176,7 @@ class SWTBenchEvaluation(Evaluation):
             forward_env: Environment variables to forward into the workspace.
         """
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = DEFAULT_BUILD_TARGET
 
         # Create a custom tag for the image
         name_tag = official_docker_image.split("/")[-1]
@@ -166,15 +188,19 @@ class SWTBenchEvaluation(Evaluation):
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-            if not SKIP_BUILD:
+            skip_build = os.getenv(ENV_SKIP_BUILD, DEFAULT_SKIP_BUILD).lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+            logger.info(f"{ENV_SKIP_BUILD}={skip_build}")
+            if not skip_build:
                 logger.info(
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
                     "This may take a while...\n"
                     "You can run benchmarks/swtbench/build_images.py and set "
-                    "SKIP_BUILD=1 to skip building and use pre-built "
+                    f"{ENV_SKIP_BUILD}=1 to skip building and use pre-built "
                     "agent-server image."
                 )
                 # For SWT-bench, we use DockerDevWorkspace with base_image
@@ -191,11 +217,11 @@ class SWTBenchEvaluation(Evaluation):
                     forward_env=forward_env or [],
                 )
         elif self.metadata.workspace_type == "remote":
-            runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
+            runtime_api_key = os.getenv(ENV_RUNTIME_API_KEY)
+            sdk_short_sha = os.getenv(ENV_SDK_SHORT_SHA, SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
-                    "RUNTIME_API_KEY environment variable is not set for remote workspace"
+                    f"{ENV_RUNTIME_API_KEY} environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
@@ -210,11 +236,11 @@ class SWTBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(ENV_REMOTE_RUNTIME_STARTUP_TIMEOUT, DEFAULT_STARTUP_TIMEOUT)
+            )
             workspace = APIRemoteWorkspace(
-                runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
-                ),
+                runtime_api_url=os.getenv(ENV_RUNTIME_API_URL, DEFAULT_RUNTIME_API_URL),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
@@ -283,7 +309,7 @@ class SWTBenchEvaluation(Evaluation):
 
         logger.info("repo_path: %s", repo_path)
         cp_testebed_repo = workspace.execute_command(
-            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
+            f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}"
         )
         assert cp_testebed_repo.exit_code == 0, (
             f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
@@ -309,8 +335,8 @@ class SWTBenchEvaluation(Evaluation):
         # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
+            f"git config --global user.email '{GIT_USER_EMAIL}' && "
+            f"git config --global user.name '{GIT_USER_NAME}' && "
             "git commit --no-verify -m 'patch'"
         )
 
@@ -378,7 +404,7 @@ def main() -> None:
         dataset_name=dataset_description,
         model_name=llm.model,
         max_iterations=args.max_iterations,
-        eval_note="SWT-" + args.note,
+        eval_note=EVAL_NOTE_PREFIX + args.note,
     )
 
     critic = create_critic(args)
@@ -392,7 +418,7 @@ def main() -> None:
         details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
-        env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
+        env_setup_commands=DEFAULT_ENV_SETUP_COMMANDS,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,

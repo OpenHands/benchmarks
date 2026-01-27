@@ -18,6 +18,19 @@ import sys
 from pathlib import Path
 from time import monotonic
 
+from benchmarks.swtbench.constants import (
+    DEFAULT_DATASET,
+    DEFAULT_EVAL_WORKERS,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_SPLIT,
+    ENV_SWTBENCH_FORCE_CONDA,
+    EVAL_RUN_ID_PREFIX,
+    EVALUATION_RESULTS_DIR,
+    PREBAKED_REGISTRY,
+    REPORT_FILENAME,
+    SETUP_FILES_TO_REMOVE,
+    SWT_BENCH_REPO_DIR,
+)
 from benchmarks.swtbench.image_utils import (
     compute_required_images,
     ensure_swt_bench_repo,
@@ -29,8 +42,6 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-
-PREBAKED_REGISTRY = "ghcr.io/openhands/swtbench-eval"
 
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
@@ -67,7 +78,7 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
 def try_pull_prebaked_images(
     predictions_file: Path,
     dataset: str,
-    split: str = "test",
+    split: str = DEFAULT_SPLIT,
     registry: str = PREBAKED_REGISTRY,
 ) -> None:
     """
@@ -147,7 +158,7 @@ def update_report_with_submitted_instances(
 
 
 def convert_to_swtbench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
+    input_file: str, output_file: str, model_name: str = DEFAULT_MODEL_NAME
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
@@ -203,8 +214,7 @@ def convert_to_swtbench_format(
                     git_patch = ""
 
                 # postprocess git_patch
-                setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
-                git_patch = remove_files_from_patch(git_patch, setup_files)
+                git_patch = remove_files_from_patch(git_patch, SETUP_FILES_TO_REMOVE)
 
                 # Create SWT-Bench format entry
                 swtbench_entry = {
@@ -236,8 +246,8 @@ def convert_to_swtbench_format(
 def run_swtbench_evaluation(
     predictions_file: str,
     # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
-    dataset: str = "princeton-nlp/SWE-bench_Verified",
-    workers: str = "12",
+    dataset: str = DEFAULT_DATASET,
+    workers: str = DEFAULT_EVAL_WORKERS,
 ) -> None:
     """
     Run SWT-Bench evaluation on the predictions file.
@@ -252,7 +262,7 @@ def run_swtbench_evaluation(
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
     """
-    use_legacy = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in ("1", "true", "yes")
+    use_legacy = os.getenv(ENV_SWTBENCH_FORCE_CONDA, "").lower() in ("1", "true", "yes")
     mode = "legacy-conda" if use_legacy else "prebaked-images"
     logger.info("Running SWT-Bench evaluation on %s (mode=%s)", predictions_file, mode)
 
@@ -301,7 +311,7 @@ def run_swtbench_evaluation(
             "--max_workers",
             str(workers),
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            f"{EVAL_RUN_ID_PREFIX}{predictions_path.stem}",
         ]
 
         logger.info(f"Using Python executable: {python_executable}")
@@ -359,9 +369,8 @@ Examples:
     # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Verified",
-        help="SWT-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Verified)",
+        default=DEFAULT_DATASET,
+        help=f"SWT-Bench dataset to evaluate against (default: {DEFAULT_DATASET})",
     )
 
     parser.add_argument(
@@ -378,14 +387,14 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
+        default=DEFAULT_MODEL_NAME,
+        help=f"Model name to use in the model_name_or_path field (default: {DEFAULT_MODEL_NAME})",
     )
 
     parser.add_argument(
         "--workers",
-        default="12",
-        help="Number of workers to use when evaluating",
+        default=DEFAULT_EVAL_WORKERS,
+        help=f"Number of workers to use when evaluating (default: {DEFAULT_EVAL_WORKERS})",
     )
 
     args = parser.parse_args()
@@ -414,8 +423,8 @@ Examples:
         # Convert format
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
 
-        # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
-        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
+        # Default: use prebaked images; SWTBENCH_FORCE_CONDA opts into legacy flow.
+        use_prebaked = os.getenv(ENV_SWTBENCH_FORCE_CONDA, "").lower() not in (
             "1",
             "true",
             "yes",
@@ -427,7 +436,7 @@ Examples:
             )
         else:
             logger.info(
-                "SWTBENCH_FORCE_CONDA set; skipping prebaked image pull "
+                f"{ENV_SWTBENCH_FORCE_CONDA} set; skipping prebaked image pull "
                 "and using legacy (pre-mamba) evaluation flow"
             )
 
@@ -440,14 +449,14 @@ Examples:
             cleanup_phase_start = monotonic()
             # Move SWT-Bench evaluation report to same folder as output.jsonl
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
-            swt_bench_dir = cache_dir / "swt-bench"
-            report_dir = swt_bench_dir / "evaluation_results"
-            run_id = f"eval_{output_file.stem}"
+            swt_bench_dir = cache_dir / SWT_BENCH_REPO_DIR
+            report_dir = swt_bench_dir / EVALUATION_RESULTS_DIR
+            run_id = f"{EVAL_RUN_ID_PREFIX}{output_file.stem}"
             model_name_safe = args.model_name.replace("/", "__")
             report_file = report_dir / f"{model_name_safe}.{run_id}.json"
 
             target_dir = input_file.parent
-            target_file = target_dir / "output.report.json"
+            target_file = target_dir / REPORT_FILENAME
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
             update_report_with_submitted_instances(target_file, output_file)
