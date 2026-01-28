@@ -36,7 +36,7 @@ def test_workspace_cleanup_called_on_success():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -87,7 +87,7 @@ def test_workspace_cleanup_called_on_failure():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -147,7 +147,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -203,7 +203,7 @@ def test_workspace_cleanup_with_retries():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=2,
         critic=PassCritic(),
     )
