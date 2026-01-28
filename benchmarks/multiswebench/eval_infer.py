@@ -48,19 +48,35 @@ def run_multi_swebench_evaluation(
     if dataset_name is None:
         dataset_name = "bytedance-research/Multi-SWE-Bench"
     if split is None:
-        split = "test"
+        split = "train"
 
     try:
         if input_file is None:
             raise ValueError("input_file cannot be None")
         input_path = Path(input_file)
         work_dir = input_path.parent
+        original_work_dir = work_dir  # Save original for copying back results
+
+        # Check if running in K8s with Docker-in-Docker shared volume
+        shared_dir = Path("/shared")
+        using_shared = False
+        if shared_dir.exists() and shared_dir.is_dir():
+            logger.info("Detected /shared volume (Docker-in-Docker), copying eval outputs...")
+            # Copy work_dir to /shared so DinD can access it
+            shared_work_dir = shared_dir / work_dir.name
+            if shared_work_dir.exists():
+                shutil.rmtree(shared_work_dir)
+            shutil.copytree(work_dir, shared_work_dir, symlinks=True)
+            work_dir = shared_work_dir
+            input_file = str(shared_work_dir / input_path.name)
+            using_shared = True
+            logger.info(f"Using shared work_dir: {work_dir}")
 
         # Create config file for Multi-SWE-Bench
         config_file = work_dir / "config.json"
 
-        # Handle dataset path - download if it's a ByteDance-Seed/Multi-SWE-bench dataset
-        if dataset_name.startswith("ByteDance-Seed/Multi-SWE-bench"):
+        # Handle dataset path - download if it's a Multi-SWE-Bench HuggingFace dataset
+        if dataset_name.startswith(("ByteDance-Seed/Multi-SWE-bench", "bytedance-research/Multi-SWE-Bench")):
             logger.info(f"Downloading Multi-SWE-bench dataset for language: {lang}")
             dataset_path = download_and_concat_dataset(dataset_name, lang)
         else:
@@ -92,6 +108,18 @@ def run_multi_swebench_evaluation(
 
         logger.info(f"Return code: {result.returncode}")
 
+        # Copy results back from /shared to original location
+        if using_shared:
+            logger.info(f"Copying results back from {work_dir} to {original_work_dir}")
+            # Only copy back the eval_files directory (contains results)
+            eval_files_src = work_dir / "eval_files"
+            eval_files_dst = original_work_dir / "eval_files"
+            if eval_files_src.exists():
+                if eval_files_dst.exists():
+                    shutil.rmtree(eval_files_dst)
+                shutil.copytree(eval_files_src, eval_files_dst, symlinks=True)
+                logger.info("Results copied back successfully")
+
         if result.returncode != 0:
             error_msg = f"Evaluation failed with return code {result.returncode}"
             print(f"ERROR: {error_msg}")
@@ -113,7 +141,7 @@ def main():
     parser.add_argument(
         "--dataset", default="bytedance-research/Multi-SWE-Bench", help="Dataset name"
     )
-    parser.add_argument("--split", default="test", help="Dataset split")
+    parser.add_argument("--split", default="train", help="Dataset split")
     parser.add_argument(
         "--lang", default="java", help="Language for Multi-SWE-bench dataset"
     )
@@ -140,7 +168,7 @@ def main():
         logger.info(f"Results saved to {results_file}")
 
         # Move the report file to the output location
-        output_report_path = args.input_file.with_suffix(".report.json")
+        output_report_path = Path(args.input_file).with_suffix(".report.json")
         shutil.move(str(results_file), str(output_report_path))
         logger.info(f"Report moved to {output_report_path}")
 
