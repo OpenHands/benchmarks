@@ -36,8 +36,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         type=str,
-        default="princeton-nlp/SWE-bench_Verified",
-        help="Dataset name",
+        help="Dataset name (each benchmark sets its default via set_defaults)",
     )
     parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
