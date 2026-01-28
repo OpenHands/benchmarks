@@ -79,26 +79,23 @@ class LaminarService:
         return self._client
 
     def create_evaluation(
-        self, name: str, group_name: str, metadata: dict[str, Any] | None = None
+        self,
+        name: str,
+        group_name: str,
+        metadata: dict[str, Any] | None = None,
     ):
         client = self._get_client()
         if client is None:
             return None
 
         try:
-            eval_id = client.evals.create_evaluation(
+            return client.evals.create_evaluation(
                 name=name,
                 group_name=group_name,
                 metadata=metadata,
             )
-            return eval_id
         except Exception as exc:  # pragma: no cover - defensive logging
-            logger.debug(
-                "Laminar evaluation %s (%s): %s",
-                name,
-                group_name,
-                exc,
-            )
+            logger.debug("Laminar evaluation %s (%s): %s", name, group_name, exc)
 
     def create_evaluation_datapoint(
         self,
@@ -106,10 +103,13 @@ class LaminarService:
         data: Any,
         metadata: dict[str, Any],
         index: int,
+        session_id: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ) -> tuple[UUID | None, str | None]:
         """
         Create a Laminar datapoint.
         Creates a new span for the evaluation and returns the span context.
+        Session ID and trace metadata are set on the span if provided.
         """
 
         if eval_id is None:
@@ -124,6 +124,12 @@ class LaminarService:
                 "Evaluation",
                 span_type="EVALUATION",  # type: ignore
             )
+            # Set session ID and metadata on the active span
+            if session_id:
+                Laminar.set_trace_session_id(session_id)
+            if trace_metadata:
+                Laminar.set_trace_metadata(trace_metadata)
+
             lmnr_span_ctx = Laminar.serialize_span_context(eval_span)
             eval_span.end()
 
