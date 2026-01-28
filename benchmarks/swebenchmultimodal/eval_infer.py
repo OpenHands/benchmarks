@@ -157,7 +157,7 @@ def update_report_with_component_scores(report_json_path: Path) -> dict[str, flo
 
 
 def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
+    input_file: str, output_file: str, model_name: str
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
@@ -177,10 +177,18 @@ def convert_to_swebench_format(
     {
         "instance_id": "django__django-11333",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "litellm_proxy/claude-sonnet-4-5-20250929"
     }
+
+    The model identifier is required for attribution in SWE-Bench reports and
+    filenames. Typical values mirror the LLM config's `model` field, e.g.,
+    "litellm_proxy/claude-sonnet-4-5-20250929" or
+    "litellm_proxy/claude-haiku-4-5-20251001".
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
+
+    if not model_name:
+        raise ValueError("model_name is required and cannot be empty")
 
     converted_count = 0
     error_count = 0
@@ -400,8 +408,11 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        required=True,
+        help=(
+            "Model identifier to record in model_name_or_path "
+            "(e.g., litellm_proxy/claude-sonnet-4-5-20250929)"
+        ),
     )
 
     parser.add_argument(
