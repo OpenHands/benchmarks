@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+from benchmarks.swtbench.constants import (
+    DEFAULT_SPLIT,
+    SWT_BENCH_REPO_DIR,
+    SWT_BENCH_REPO_URL,
+)
 from openhands.sdk import get_logger
 
 
@@ -20,7 +25,7 @@ def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
     Returns the repository path under the cache directory.
     """
     cache_dir = cache_dir or Path.home() / ".cache" / "openhands" / "swt-bench"
-    swt_bench_dir = cache_dir / "swt-bench"
+    swt_bench_dir = cache_dir / SWT_BENCH_REPO_DIR
 
     if swt_bench_dir.exists():
         return swt_bench_dir
@@ -31,7 +36,7 @@ def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
         [
             "git",
             "clone",
-            "https://github.com/logic-star-ai/swt-bench.git",
+            SWT_BENCH_REPO_URL,
             str(swt_bench_dir),
         ],
         text=True,
@@ -131,7 +136,7 @@ def main() -> None:
     )
     parser.add_argument("output_jsonl", type=Path, help="Path to output.jsonl")
     parser.add_argument("--dataset", required=True, help="Dataset name")
-    parser.add_argument("--split", default="test", help="Dataset split")
+    parser.add_argument("--split", default=DEFAULT_SPLIT, help="Dataset split")
     parser.add_argument(
         "--format",
         choices=["plain", "json"],
