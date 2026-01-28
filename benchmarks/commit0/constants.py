@@ -18,9 +18,6 @@ CUSTOM_TAG_PREFIX = "commit0-"
 # Build configuration
 BUILD_TARGET = "source-minimal"
 
-# Workspace configuration
-WORKSPACE_DIR = "/workspace"
-
 # Git configuration
 GIT_BRANCH_NAME = "commit0_combined"
 AGENT_BRANCH_NAME = "openhands"

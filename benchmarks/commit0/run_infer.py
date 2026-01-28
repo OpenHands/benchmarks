@@ -23,7 +23,6 @@ from benchmarks.commit0.constants import (
     DEFAULT_REPO_SPLIT,
     DEFAULT_RUNTIME_API_URL,
     GIT_BRANCH_NAME,
-    WORKSPACE_DIR,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -200,7 +199,7 @@ class Commit0Evaluation(Evaluation):
             # Build agent-server image from base commit0 image
             workspace = DockerDevWorkspace(
                 base_image=base_docker_image,
-                working_dir=WORKSPACE_DIR,
+                working_dir="/workspace",
                 target=build_target,
                 forward_env=forward_env or [],
             )
@@ -254,14 +253,14 @@ class Commit0Evaluation(Evaluation):
 
         # Clone the repository to the specific directory
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        clone_cmd = f"cd {WORKSPACE_DIR}/ && git clone -b {GIT_BRANCH_NAME} https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
+        clone_cmd = f"cd /workspace/ && git clone -b {GIT_BRANCH_NAME} https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
         res = workspace.execute_command(clone_cmd, timeout=DEFAULT_COMMAND_TIMEOUT)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
         logger.info(f"Cloned repository: {instance.data['repo']}")
 
         # Create new branch
-        branch_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && git checkout -b {AGENT_BRANCH_NAME}"
+        branch_cmd = f"cd /workspace/{workspace_dir_name} && git checkout -b {AGENT_BRANCH_NAME}"
         res = workspace.execute_command(branch_cmd, timeout=DEFAULT_COMMAND_TIMEOUT)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to create branch: {res.stderr}")
@@ -269,14 +268,14 @@ class Commit0Evaluation(Evaluation):
 
         # Install commit0
         # Try uv first, fall back to pip if uv is not available
-        install_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && (uv pip install commit0 || pip install commit0)"
+        install_cmd = f"cd /workspace/{workspace_dir_name} && (uv pip install commit0 || pip install commit0)"
         res = workspace.execute_command(install_cmd, timeout=DEFAULT_COMMAND_TIMEOUT)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to install commit0: {res.stderr}")
         logger.info("Installed commit0")
 
         # Install pytest and required plugins for test reporting
-        plugin_install_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && (uv pip install pytest pytest-json-report pytest-cov || pip install pytest pytest-json-report pytest-cov)"
+        plugin_install_cmd = f"cd /workspace/{workspace_dir_name} && (uv pip install pytest pytest-json-report pytest-cov || pip install pytest pytest-json-report pytest-cov)"
         res = workspace.execute_command(
             plugin_install_cmd, timeout=DEFAULT_COMMAND_TIMEOUT
         )
@@ -286,7 +285,7 @@ class Commit0Evaluation(Evaluation):
 
         # Verify pytest and plugin installation
         verify_pytest_cmd = (
-            f"cd {WORKSPACE_DIR}/{workspace_dir_name} && python -m pytest --version"
+            f"cd /workspace/{workspace_dir_name} && python -m pytest --version"
         )
         verify_pytest_res = workspace.execute_command(verify_pytest_cmd, timeout=60)
         logger.info(f"Pytest verification exit code: {verify_pytest_res.exit_code}")
@@ -295,7 +294,7 @@ class Commit0Evaluation(Evaluation):
         else:
             logger.warning(f"Pytest verification failed: {verify_pytest_res.stderr}")
 
-        verify_plugin_cmd = f"cd {WORKSPACE_DIR}/{workspace_dir_name} && python -c 'import pytest_jsonreport; print(\"Plugin available\")'"
+        verify_plugin_cmd = f"cd /workspace/{workspace_dir_name} && python -c 'import pytest_jsonreport; print(\"Plugin available\")'"
         verify_plugin_res = workspace.execute_command(verify_plugin_cmd, timeout=60)
         logger.info(f"Plugin verification exit code: {verify_plugin_res.exit_code}")
         if verify_plugin_res.exit_code == 0:
@@ -312,7 +311,7 @@ class Commit0Evaluation(Evaluation):
         Run agent, collect history, git patch, and test results.
         """
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        repo_path = f"{WORKSPACE_DIR}/{workspace_dir_name}"
+        repo_path = f"/workspace/{workspace_dir_name}"
 
         tools = get_default_tools(enable_browser=False)
         agent = Agent(
