@@ -117,7 +117,7 @@ def convert_to_swebench_format(
 def run_swebench_evaluation(
     predictions_file: str,
     dataset: str = constants.DEFAULT_DATASET,
-    workers: str = constants.DEFAULT_EVAL_WORKERS,
+    workers: int = constants.DEFAULT_EVAL_WORKERS,
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -216,12 +216,13 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default=constants.DEFAULT_MODEL_NAME,
-        help=f"Model name to use in the model_name_or_path field (default: {constants.DEFAULT_MODEL_NAME})",
+        default=constants.DEFAULT_CLI_MODEL_NAME,
+        help=f"Model name to use in the model_name_or_path field (default: {constants.DEFAULT_CLI_MODEL_NAME})",
     )
 
     parser.add_argument(
         "--workers",
+        type=int,
         default=constants.DEFAULT_EVAL_WORKERS,
         help=f"Number of workers to use when evaluating (default: {constants.DEFAULT_EVAL_WORKERS})",
     )

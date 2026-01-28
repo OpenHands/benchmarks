@@ -5,50 +5,43 @@ This module serves as the single source of truth for all constant values
 used in the SWE-Bench evaluation workflow.
 """
 
-# =============================================================================
-# Dataset Configuration
-# =============================================================================
-DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
+from typing import Final
 
-# =============================================================================
-# Docker Image Configuration
-# =============================================================================
-DOCKER_IMAGE_PREFIX = "docker.io/swebench/"
-DOCKER_IMAGE_TAG = "latest"
-# Repos that require the docutils/roman wrapper layer
-WRAPPED_REPOS = {"sphinx-doc"}
 
-# =============================================================================
-# Build Configuration
-# =============================================================================
-BUILD_TARGET_SOURCE_MINIMAL = "source-minimal"
-BUILD_TARGET_BINARY = "binary"
-DEFAULT_BUILD_TARGET = BUILD_TARGET_SOURCE_MINIMAL
+# Dataset
+DEFAULT_DATASET: Final[str] = "princeton-nlp/SWE-bench_Verified"
 
-# =============================================================================
-# Runtime Configuration
-# =============================================================================
-DEFAULT_RUNTIME_API_URL = "https://runtime.eval.all-hands.dev"
-DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT = 600
+# Docker
+DOCKER_IMAGE_PREFIX: Final[str] = "docker.io/swebench/"
+DOCKER_IMAGE_TAG: Final[str] = "latest"
+WRAPPED_REPOS: Final[frozenset[str]] = frozenset(
+    {"sphinx-doc"}
+)  # Repos requiring docutils/roman wrapper
 
-# =============================================================================
-# Evaluation Configuration
-# =============================================================================
-DEFAULT_EVAL_WORKERS = "12"
+# Build
+BUILD_TARGET_SOURCE_MINIMAL: Final[str] = "source-minimal"
+BUILD_TARGET_BINARY: Final[str] = "binary"
+DEFAULT_BUILD_TARGET: Final[str] = BUILD_TARGET_SOURCE_MINIMAL
 
-# =============================================================================
-# Model Configuration
-# =============================================================================
-DEFAULT_MODEL_NAME = "OpenHands"
+# Runtime
+DEFAULT_RUNTIME_API_URL: Final[str] = "https://runtime.eval.all-hands.dev"
+DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT: Final[int] = 600
 
-# =============================================================================
-# Git Configuration
-# =============================================================================
-GIT_USER_EMAIL = "evaluation@openhands.dev"
-GIT_USER_NAME = "OpenHands Evaluation"
-GIT_COMMIT_MESSAGE = "patch"
+# Evaluation
+DEFAULT_EVAL_WORKERS: Final[int] = 12
 
-# =============================================================================
+# Model - preserving original behavior: function default is "OpenHands", CLI default is "openhands"
+DEFAULT_MODEL_NAME: Final[str] = "OpenHands"
+DEFAULT_CLI_MODEL_NAME: Final[str] = "openhands"
+
+# Git
+GIT_USER_EMAIL: Final[str] = "evaluation@openhands.dev"
+GIT_USER_NAME: Final[str] = "OpenHands Evaluation"
+GIT_COMMIT_MESSAGE: Final[str] = "patch"
+
 # Patch Processing
-# =============================================================================
-SETUP_FILES_TO_REMOVE = ["pyproject.toml", "tox.ini", "setup.py"]
+SETUP_FILES_TO_REMOVE: Final[tuple[str, ...]] = (
+    "pyproject.toml",
+    "tox.ini",
+    "setup.py",
+)
