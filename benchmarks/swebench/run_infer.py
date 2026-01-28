@@ -334,6 +334,9 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    # SWE-bench defaults match the global args_parser defaults (evaluation repository values.yaml)
+    # Explicit set_defaults for consistency with other benchmarks
+    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Verified", split="test")
     args = parser.parse_args()
 
     # Validate max_attempts

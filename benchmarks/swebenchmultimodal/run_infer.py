@@ -423,7 +423,7 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
-    # Override the default dataset and split for multimodal
+    # Override defaults for SWE-bench Multimodal (matches evaluation repository values.yaml)
     parser.set_defaults(dataset="princeton-nlp/SWE-bench_Multimodal", split="dev")
     args = parser.parse_args()
 
