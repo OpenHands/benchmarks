@@ -5,7 +5,7 @@ This module serves as the single source of truth for all constant values
 used in the SWE-Bench evaluation workflow.
 """
 
-from typing import Final
+from typing import Final, Literal
 
 
 # Dataset
@@ -18,10 +18,11 @@ WRAPPED_REPOS: Final[frozenset[str]] = frozenset(
     {"sphinx-doc"}
 )  # Repos requiring docutils/roman wrapper
 
-# Build
-BUILD_TARGET_SOURCE_MINIMAL: Final[str] = "source-minimal"
-BUILD_TARGET_BINARY: Final[str] = "binary"
-DEFAULT_BUILD_TARGET: Final[str] = BUILD_TARGET_SOURCE_MINIMAL
+# Build target type (matches openhands.agent_server.docker.build.TargetType)
+TargetType = Literal["binary", "binary-minimal", "source", "source-minimal"]
+BUILD_TARGET_SOURCE_MINIMAL: Final[TargetType] = "source-minimal"
+BUILD_TARGET_BINARY: Final[TargetType] = "binary"
+DEFAULT_BUILD_TARGET: Final[TargetType] = BUILD_TARGET_SOURCE_MINIMAL
 
 # Runtime
 DEFAULT_RUNTIME_API_URL: Final[str] = "https://runtime.eval.all-hands.dev"
