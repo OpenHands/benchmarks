@@ -5,9 +5,6 @@ This module serves as the single source of truth for all constant values
 used throughout the Multi-SWE-Bench benchmark implementation.
 """
 
-from pathlib import Path
-
-
 # =============================================================================
 # Dataset Configuration
 # =============================================================================
@@ -23,9 +20,6 @@ DEFAULT_LANGUAGE = "java"
 
 # Default model name for predictions
 DEFAULT_MODEL_NAME = "OpenHands"
-
-# Default version for formatted data
-DEFAULT_VERSION = "0.1"
 
 # =============================================================================
 # Docker/Image Configuration
@@ -89,16 +83,6 @@ FIX_PATCH_RUN_CMD = (
     "sed -i 's@git apply.*@patch --batch --fuzz=5 -p1 -i /home/test.patch;"
     "patch --batch --fuzz=5 -p1 -i /home/fix.patch@g' /home/fix-run.sh ; chmod +x /home/*.sh  ; /home/fix-run.sh\""
 )
-
-# =============================================================================
-# Paths
-# =============================================================================
-
-# Cache directory for downloaded datasets (relative to module location)
-DATASET_CACHE_DIR_NAME = "data"
-
-# Get the absolute path to the dataset cache directory
-DATASET_CACHE_DIR = Path(__file__).parent / DATASET_CACHE_DIR_NAME
 
 # =============================================================================
 # Workspace Configuration

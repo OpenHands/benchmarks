@@ -6,14 +6,17 @@ and concatenate instances by programming language.
 """
 
 import json
+from pathlib import Path
 
 from huggingface_hub import hf_hub_download, list_repo_files
 
-from benchmarks.multiswebench.constants import DATASET_CACHE_DIR
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+# Cache directory for downloaded datasets
+DATASET_CACHE_DIR = Path(__file__).parent / "data"
 
 
 def download_and_concat_dataset(dataset_path: str, language: str) -> str:
