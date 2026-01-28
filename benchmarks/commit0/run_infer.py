@@ -260,7 +260,9 @@ class Commit0Evaluation(Evaluation):
         logger.info(f"Cloned repository: {instance.data['repo']}")
 
         # Create new branch
-        branch_cmd = f"cd /workspace/{workspace_dir_name} && git checkout -b {AGENT_BRANCH_NAME}"
+        branch_cmd = (
+            f"cd /workspace/{workspace_dir_name} && git checkout -b {AGENT_BRANCH_NAME}"
+        )
         res = workspace.execute_command(branch_cmd, timeout=DEFAULT_COMMAND_TIMEOUT)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to create branch: {res.stderr}")
