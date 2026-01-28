@@ -5,7 +5,6 @@ This module serves as the single source of truth for all hyperparameters
 and constant values used in the SWTBench evaluation workflow.
 """
 
-from enum import Enum
 from typing import Final, Literal, Tuple
 
 
@@ -34,19 +33,9 @@ DEFAULT_BUILD_TARGET: Final[TargetType] = "source-minimal"
 IMAGE_TAG_LATEST: Final[str] = "latest"
 IMAGE_NAME_SEPARATOR: Final[str] = "1776"
 
-
-class BuildMode(str, Enum):
-    """Build mode options for SWT-bench evaluation."""
-
-    API = "api"
-    CLI = "cli"
-
-
-# Default build mode
-DEFAULT_BUILD_MODE: Final[str] = BuildMode.CLI.value
-
-# Build mode choices (tuple for immutability)
-BUILD_MODE_CHOICES: Final[Tuple[str, ...]] = tuple(m.value for m in BuildMode)
+# Build mode choices and default
+BUILD_MODE_CHOICES: Final[Tuple[str, ...]] = ("api", "cli")
+DEFAULT_BUILD_MODE: Final[str] = "cli"
 
 # =============================================================================
 # Dataset Related Constants
