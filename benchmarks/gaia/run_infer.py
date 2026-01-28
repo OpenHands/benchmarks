@@ -551,6 +551,8 @@ def main() -> None:
         required=True,
         help="GAIA level to evaluate (e.g., 2023_level1, 2023_level2, 2023_level3)",
     )
+    # Override defaults for GAIA (matches evaluation repository values.yaml)
+    parser.set_defaults(dataset="gaia-benchmark/GAIA")
     args = parser.parse_args()
 
     # Create critic instance from parsed arguments
@@ -585,7 +587,7 @@ def main() -> None:
     # Create metadata
     metadata = EvalMetadata(
         llm=llm,
-        dataset="gaia-benchmark/GAIA",
+        dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,

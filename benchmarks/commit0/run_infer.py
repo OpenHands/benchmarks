@@ -596,8 +596,12 @@ def main() -> None:
         default="lite",
         help="all, lite, or each repo name",
     )
-    # Override the default dataset for commit0
-    parser.set_defaults(dataset="wentingzhao/commit0_combined")
+    # Override defaults for commit0 (matches evaluation repository values.yaml)
+    parser.set_defaults(
+        dataset="wentingzhao/commit0_combined",
+        max_attempts=1,
+        max_retries=1,
+    )
     args = parser.parse_args()
 
     # Validate max_attempts

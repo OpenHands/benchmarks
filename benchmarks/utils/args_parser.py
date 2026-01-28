@@ -1,5 +1,11 @@
 """
-Argument parsing utilities for SWE-bench benchmarks.
+Argument parsing utilities for benchmarks.
+
+Default values are aligned with the evaluation repository (OpenHands/evaluation)
+to ensure consistency between local development and production runs.
+
+Benchmark-specific values should be set via parser.set_defaults() in each
+benchmark's run_infer.py to override these common defaults.
 """
 
 import argparse
@@ -8,10 +14,17 @@ from benchmarks.utils.critics import add_critic_args
 
 
 def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
-    """Create and return argument parser.
+    """Create and return argument parser with common defaults.
+
+    Default values match the most common settings used across benchmarks
+    in the evaluation repository. Individual benchmarks can override
+    these using parser.set_defaults() before calling parse_args().
+
+    Args:
+        add_llm_config: Whether to add the llm_config_path positional argument.
 
     Returns:
-        ArgumentParser instance
+        ArgumentParser instance with common benchmark arguments.
     """
     parser = argparse.ArgumentParser(description="Run Evaluation inference")
     if add_llm_config:
@@ -30,15 +43,15 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--workspace",
         type=str,
-        default="docker",
+        default="remote",
         choices=["docker", "remote"],
-        help="Type of workspace to use (default: docker)",
+        help="Type of workspace to use (default: remote)",
     )
     parser.add_argument(
-        "--max-iterations", type=int, default=100, help="Maximum iterations"
+        "--max-iterations", type=int, default=500, help="Maximum iterations"
     )
     parser.add_argument(
-        "--num-workers", type=int, default=1, help="Number of evaluation workers"
+        "--num-workers", type=int, default=1, help="Number of inference workers"
     )
     parser.add_argument("--note", type=str, default="initial", help="Evaluation note")
     parser.add_argument(
@@ -60,7 +73,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
     )
 
-    # Add critic arguments
+    # Add critic arguments (default: finish_with_patch)
     add_critic_args(parser)
 
     parser.add_argument(

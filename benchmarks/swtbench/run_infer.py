@@ -355,6 +355,8 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    # Override defaults for SWT-bench (matches evaluation repository values.yaml)
+    parser.set_defaults(dataset="eth-sri/SWT-bench_Verified_bm25_27k_zsp")
     args = parser.parse_args()
 
     # Validate max_attempts
