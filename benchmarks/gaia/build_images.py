@@ -13,6 +13,7 @@ Example:
 import sys
 from pathlib import Path
 
+from benchmarks.gaia import constants
 from benchmarks.utils.build_utils import (
     BuildOutput,
     _get_sdk_submodule_info,
@@ -26,8 +27,6 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 
-# GAIA base image: Python 3.12 + Node.js 22 (default for agent server)
-GAIA_BASE_IMAGE = "nikolaik/python-nodejs:python3.12-nodejs22"
 # MCP layer Dockerfile
 MCP_DOCKERFILE = Path(__file__).with_name("Dockerfile.gaia")
 
@@ -63,18 +62,22 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     # GAIA only needs one universal image for all instances
-    base_images = [GAIA_BASE_IMAGE]
+    base_images = [constants.GAIA_BASE_IMAGE]
 
-    logger.info(f"Building GAIA agent server image from base: {GAIA_BASE_IMAGE}")
+    logger.info(
+        f"Building GAIA agent server image from base: {constants.GAIA_BASE_IMAGE}"
+    )
     logger.info(f"Target: {args.target}")
     logger.info(f"Image: {args.image}")
     logger.info(f"Push: {args.push}")
 
     def tag_fn(_base: str) -> str:
-        return f"gaia-{args.target}"
+        return f"{constants.IMAGE_TAG_PREFIX}-{args.target}"
 
     # Build base GAIA image
-    build_dir = default_build_output_dir("gaia", "validation")
+    build_dir = default_build_output_dir(
+        constants.IMAGE_TAG_PREFIX, constants.DATASET_SPLIT_VALIDATION
+    )
     exit_code = build_all_images(
         base_images=base_images,
         target=args.target,
@@ -93,7 +96,9 @@ def main(argv: list[str]) -> int:
 
     # Build MCP-enhanced layer after base image succeeds
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
-    base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
+    base_gaia_image = (
+        f"{args.image}:{git_sha[:7]}-{constants.IMAGE_TAG_PREFIX}-{args.target}"
+    )
 
     logger.info("Building MCP-enhanced GAIA image from base: %s", base_gaia_image)
     mcp_result = build_gaia_mcp_layer(base_gaia_image, push=args.push)
