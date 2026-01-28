@@ -147,7 +147,7 @@ def update_report_with_submitted_instances(
 
 
 def convert_to_swtbench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
+    input_file: str, output_file: str, model_name: str
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
@@ -167,10 +167,18 @@ def convert_to_swtbench_format(
     {
         "instance_id": "sympy__sympy-20590",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "litellm_proxy/claude-sonnet-4-5-20250929"
     }
+
+    The model identifier is required for attribution in SWT-Bench reports and
+    filenames. Typical values mirror the LLM config's `model` field, e.g.,
+    "litellm_proxy/claude-sonnet-4-5-20250929" or
+    "litellm_proxy/claude-haiku-4-5-20251001".
     """
     logger.info(f"Converting {input_file} to SWT-Bench format: {output_file}")
+
+    if not model_name:
+        raise ValueError("model_name is required and cannot be empty")
 
     converted_count = 0
     error_count = 0
@@ -378,8 +386,11 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
+        required=True,
+        help=(
+            "Model identifier to record in model_name_or_path "
+            "(e.g., litellm_proxy/claude-sonnet-4-5-20250929)"
+        ),
     )
 
     parser.add_argument(

@@ -26,9 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_commit0_results(
-    input_file: str, output_file: str, model_name: str = "openhands"
-) -> None:
+def process_commit0_results(input_file: str, output_file: str, model_name: str) -> None:
     """
     Process Commit0 output.jsonl and generate evaluation report.
 
@@ -63,8 +61,16 @@ def process_commit0_results(
         "resolved_ids": [...],
         "unresolved_ids": [...]
     }
+
+    The model identifier is required for attribution in downstream reports and
+    filenames. Typical values mirror the LLM config's `model` field, e.g.,
+    "litellm_proxy/claude-sonnet-4-5-20250929" or
+    "litellm_proxy/claude-haiku-4-5-20251001".
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
+
+    if not model_name:
+        raise ValueError("model_name is required and cannot be empty")
 
     completed_ids = []
     resolved_ids = []
@@ -174,8 +180,11 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        required=True,
+        help=(
+            "Model identifier to record in model_name_or_path "
+            "(e.g., litellm_proxy/claude-sonnet-4-5-20250929)"
+        ),
     )
 
     args = parser.parse_args()
