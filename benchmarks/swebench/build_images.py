@@ -27,8 +27,6 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
-# Repos that require the docutils/roman wrapper layer
-WRAPPED_REPOS = {"sphinx-doc"}
 
 
 def get_official_docker_image(
@@ -63,12 +61,12 @@ def should_wrap_custom_tag(custom_tag: str) -> bool:
     prefix = "sweb.eval.x86_64."
     if custom_tag.startswith(prefix):
         custom_tag = custom_tag[len(prefix) :]
-    return custom_tag.split("_", 1)[0] in WRAPPED_REPOS
+    return custom_tag.split("_", 1)[0] in constants.WRAPPED_REPOS
 
 
 def should_wrap_instance_id(instance_id: str) -> bool:
     repo = instance_id.split("__")[0]
-    return repo in WRAPPED_REPOS
+    return repo in constants.WRAPPED_REPOS
 
 
 def collect_unique_base_images(

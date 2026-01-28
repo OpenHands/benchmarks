@@ -189,7 +189,7 @@ class SWEBenchEvaluation(Evaluation):
             startup_timeout = float(
                 os.getenv(
                     "REMOTE_RUNTIME_STARTUP_TIMEOUT",
-                    constants.DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT,
+                    str(constants.DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
                 )
             )
             workspace = APIRemoteWorkspace(
