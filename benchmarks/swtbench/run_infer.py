@@ -237,7 +237,9 @@ class SWTBenchEvaluation(Evaluation):
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
-                os.getenv(ENV_REMOTE_RUNTIME_STARTUP_TIMEOUT, DEFAULT_STARTUP_TIMEOUT)
+                os.getenv(
+                    ENV_REMOTE_RUNTIME_STARTUP_TIMEOUT, str(DEFAULT_STARTUP_TIMEOUT)
+                )
             )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(ENV_RUNTIME_API_URL, DEFAULT_RUNTIME_API_URL),
@@ -418,7 +420,7 @@ def main() -> None:
         details={},
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
-        env_setup_commands=DEFAULT_ENV_SETUP_COMMANDS,
+        env_setup_commands=list(DEFAULT_ENV_SETUP_COMMANDS),
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,

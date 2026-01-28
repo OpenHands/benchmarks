@@ -247,7 +247,7 @@ def run_swtbench_evaluation(
     predictions_file: str,
     # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     dataset: str = DEFAULT_DATASET,
-    workers: str = DEFAULT_EVAL_WORKERS,
+    workers: int = DEFAULT_EVAL_WORKERS,
 ) -> None:
     """
     Run SWT-Bench evaluation on the predictions file.
@@ -393,6 +393,7 @@ Examples:
 
     parser.add_argument(
         "--workers",
+        type=int,
         default=DEFAULT_EVAL_WORKERS,
         help=f"Number of workers to use when evaluating (default: {DEFAULT_EVAL_WORKERS})",
     )
