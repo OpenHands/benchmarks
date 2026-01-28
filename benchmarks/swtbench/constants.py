@@ -6,7 +6,11 @@ and constant values used in the SWTBench evaluation workflow.
 """
 
 from enum import Enum
-from typing import Final, Tuple
+from typing import Final, Literal, Tuple
+
+
+# Type alias for build targets (matches openhands.sdk.workspace.TargetType)
+TargetType = Literal["binary", "binary-minimal", "source", "source-minimal"]
 
 
 # =============================================================================
@@ -24,7 +28,7 @@ AGENT_SERVER_IMAGE_BASE: Final[str] = "ghcr.io/all-hands-ai/agent-server"
 PREBAKED_REGISTRY: Final[str] = "ghcr.io/openhands/swtbench-eval"
 
 # Build target for agent server images
-DEFAULT_BUILD_TARGET: Final[str] = "source-minimal"
+DEFAULT_BUILD_TARGET: Final[TargetType] = "source-minimal"
 
 # Image tag constants
 IMAGE_TAG_LATEST: Final[str] = "latest"

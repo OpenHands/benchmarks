@@ -23,6 +23,7 @@ from benchmarks.swtbench.constants import (
     IMAGE_TAG_LATEST,
     SWEBENCH_DOCKER_IMAGE_PREFIX,
     SWTBENCH_DOCKER_IMAGE_PREFIX,
+    TargetType,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -70,7 +71,7 @@ def get_official_docker_image(
 def get_agent_server_docker_image(
     instance_id: str,
     docker_image_prefix: str = SWTBENCH_DOCKER_IMAGE_PREFIX,
-    target: str = DEFAULT_BUILD_TARGET,
+    target: TargetType = DEFAULT_BUILD_TARGET,
 ) -> str:
     """Get the agent server Docker image for an instance."""
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
@@ -176,7 +177,7 @@ class SWTBenchEvaluation(Evaluation):
             forward_env: Environment variables to forward into the workspace.
         """
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = DEFAULT_BUILD_TARGET
+        build_target: TargetType = DEFAULT_BUILD_TARGET
 
         # Create a custom tag for the image
         name_tag = official_docker_image.split("/")[-1]
