@@ -31,9 +31,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         parser.add_argument(
             "llm_config_path",
             type=str,
-            nargs="?",
-            default=".llm_config/runtime.json",
-            help="Path to JSON LLM configuration (default: .llm_config/runtime.json)",
+            help="Path to JSON LLM configuration",
         )
     parser.add_argument(
         "--dataset",
