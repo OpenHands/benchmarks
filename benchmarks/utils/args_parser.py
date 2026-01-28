@@ -1,18 +1,14 @@
 """
-Argument parsing utilities for benchmarks.
+Argument parsing utilities for SWE-bench benchmarks.
 """
 
 import argparse
 
-from benchmarks.utils import constants
 from benchmarks.utils.critics import add_critic_args
 
 
 def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     """Create and return argument parser.
-
-    Note: --dataset has no default. Each benchmark should set its own default
-    using parser.set_defaults(dataset=<benchmark_specific_constant>).
 
     Returns:
         ArgumentParser instance
@@ -27,57 +23,41 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         type=str,
-        default=None,
-        help="Dataset name (required unless benchmark provides default)",
+        default="princeton-nlp/SWE-bench_Verified",
+        help="Dataset name",
     )
-    parser.add_argument(
-        "--split",
-        type=str,
-        default=constants.DEFAULT_SPLIT,
-        help=f"Dataset split (default: {constants.DEFAULT_SPLIT})",
-    )
+    parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
         "--workspace",
         type=str,
-        default=constants.DEFAULT_WORKSPACE,
+        default="docker",
         choices=["docker", "remote"],
-        help=f"Type of workspace to use (default: {constants.DEFAULT_WORKSPACE})",
+        help="Type of workspace to use (default: docker)",
     )
     parser.add_argument(
-        "--max-iterations",
-        type=int,
-        default=constants.DEFAULT_MAX_ITERATIONS,
-        help=f"Maximum iterations (default: {constants.DEFAULT_MAX_ITERATIONS})",
+        "--max-iterations", type=int, default=100, help="Maximum iterations"
     )
     parser.add_argument(
-        "--num-workers",
-        type=int,
-        default=constants.DEFAULT_NUM_EVAL_WORKERS,
-        help=f"Number of evaluation workers (default: {constants.DEFAULT_NUM_EVAL_WORKERS})",
+        "--num-workers", type=int, default=1, help="Number of evaluation workers"
     )
-    parser.add_argument(
-        "--note",
-        type=str,
-        default=constants.DEFAULT_NOTE,
-        help=f"Evaluation note (default: {constants.DEFAULT_NOTE})",
-    )
+    parser.add_argument("--note", type=str, default="initial", help="Evaluation note")
     parser.add_argument(
         "--output-dir",
         type=str,
-        default=constants.DEFAULT_OUTPUT_DIR,
-        help=f"Evaluation output directory (default: {constants.DEFAULT_OUTPUT_DIR})",
+        default="./eval_outputs",
+        help="Evaluation output directory",
     )
     parser.add_argument(
         "--n-limit",
         type=int,
-        default=constants.DEFAULT_N_LIMIT,
-        help=f"Limit number of instances to evaluate (default: {constants.DEFAULT_N_LIMIT})",
+        default=0,
+        help="Limit number of instances to evaluate",
     )
     parser.add_argument(
         "--max-attempts",
         type=int,
-        default=constants.DEFAULT_MAX_ATTEMPTS,
-        help=f"Maximum number of attempts for iterative mode (default: {constants.DEFAULT_MAX_ATTEMPTS}, min: 1)",
+        default=3,
+        help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
     )
 
     # Add critic arguments
@@ -92,7 +72,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=constants.DEFAULT_MAX_RETRIES,
-        help=f"Maximum retries for instances that throw exceptions (default: {constants.DEFAULT_MAX_RETRIES})",
+        default=3,
+        help="Maximum retries for instances that throw exceptions (default: 3)",
     )
     return parser

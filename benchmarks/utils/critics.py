@@ -11,7 +11,6 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Set
 
-from benchmarks.utils import constants
 from benchmarks.utils.models import EvalInstanceID, EvalOutput
 from openhands.sdk import get_logger
 from openhands.sdk.critic import (
@@ -38,9 +37,9 @@ def add_critic_args(parser: ArgumentParser) -> None:
     parser.add_argument(
         "--critic",
         type=str,
-        default=constants.DEFAULT_CRITIC,
+        default="pass",
         help=(
-            f"Name of the critic to use for evaluation (default: '{constants.DEFAULT_CRITIC}'). "
+            "Name of the critic to use for evaluation (default: 'pass'). "
             "Critics determine whether an agent's output is considered successful "
             "and whether another attempt should be made in iterative evaluation mode. "
             "Available critics: "
