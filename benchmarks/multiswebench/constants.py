@@ -61,28 +61,31 @@ DEFAULT_USE_INSTANCE_IMAGE = True
 DEFAULT_RUN_WITH_BROWSING = False
 
 # =============================================================================
-# Evaluation Configuration
+# Evaluation Harness Configuration
 # =============================================================================
 
-# Default evaluation mode
-DEFAULT_EVAL_MODE = "evaluation"
-
-# Default evaluation config values
-DEFAULT_FORCE_BUILD = True
-DEFAULT_NEED_CLONE = True
-DEFAULT_CLEAR_ENV = True
-DEFAULT_STOP_ON_ERROR = False
-DEFAULT_MAX_WORKERS = 5
-DEFAULT_MAX_WORKERS_BUILD_IMAGE = 5
-DEFAULT_MAX_WORKERS_RUN_INSTANCE = 5
-DEFAULT_LOG_LEVEL = "DEBUG"
-
-# Fix patch run command for evaluation harness
-FIX_PATCH_RUN_CMD = (
-    'bash -c "apt update ; apt install -y patch ; '
-    "sed -i 's@git apply.*@patch --batch --fuzz=5 -p1 -i /home/test.patch;"
-    "patch --batch --fuzz=5 -p1 -i /home/fix.patch@g' /home/fix-run.sh ; chmod +x /home/*.sh  ; /home/fix-run.sh\""
-)
+# Default configuration template for Multi-SWE-Bench evaluation harness.
+# Dynamic values (paths) are added at runtime.
+DEFAULT_EVAL_HARNESS_CONFIG = {
+    "mode": "evaluation",
+    "force_build": True,
+    "need_clone": True,
+    "clear_env": True,
+    "stop_on_error": False,
+    "max_workers": 5,
+    "max_workers_build_image": 5,
+    "max_workers_run_instance": 5,
+    "log_level": "DEBUG",
+    "fix_patch_run_cmd": (
+        'bash -c "apt update ; apt install -y patch ; '
+        "sed -i 's@git apply.*@patch --batch --fuzz=5 -p1 -i /home/test.patch;"
+        "patch --batch --fuzz=5 -p1 -i /home/fix.patch@g' /home/fix-run.sh ; "
+        'chmod +x /home/*.sh  ; /home/fix-run.sh"'
+    ),
+    "specifics": [],
+    "skips": [],
+    "global_env": [],
+}
 
 # =============================================================================
 # Workspace Configuration
