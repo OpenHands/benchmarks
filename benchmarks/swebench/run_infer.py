@@ -334,6 +334,8 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    # Set SWE-bench specific default dataset
+    parser.set_defaults(dataset=constants.DEFAULT_DATASET)
     args = parser.parse_args()
 
     # Validate max_attempts
