@@ -558,8 +558,8 @@ def main() -> None:
     logger.info(f"Using critic: {type(critic).__name__}")
 
     # Validate arguments
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     # Load LLM config
     llm_config_path = args.llm_config_path
@@ -591,7 +591,7 @@ def main() -> None:
         eval_output_dir=structured_output_dir,
         details={"level": args.level},
         eval_limit=args.n_limit,
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
         workspace_type=args.workspace,

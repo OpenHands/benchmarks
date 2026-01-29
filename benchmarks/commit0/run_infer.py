@@ -600,9 +600,9 @@ def main() -> None:
     parser.set_defaults(dataset="wentingzhao/commit0_combined")
     args = parser.parse_args()
 
-    # Validate max_attempts
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    # Validate n_critic_runs
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     llm_config_path = args.llm_config_path
     if not os.path.isfile(llm_config_path):
@@ -634,7 +634,7 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=None,
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=create_critic(args),
         selected_instances_file=args.select,
         max_retries=args.max_retries,

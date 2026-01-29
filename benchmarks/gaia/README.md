@@ -62,7 +62,7 @@ uv run python -m benchmarks.gaia.get_score --file outputs/gaia/output.jsonl
 - `--output-dir`: Base directory for outputs (default: `outputs`)
 - `--n-limit`: Limit number of instances to evaluate (default: 0 = all)
 - `--num-workers`: Number of parallel workers (default: 1)
-- `--max-attempts`: Maximum attempts for iterative mode (default: 1)
+- `--n-critic-runs`: Number of critic evaluation runs for iterative mode (default: 1)
 - `--note`: Optional note to add to output directory name
 
 

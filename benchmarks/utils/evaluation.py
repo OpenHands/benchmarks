@@ -184,13 +184,13 @@ class Evaluation(ABC, BaseModel):
         """
         Run evaluation with iterative mode support.
 
-        If max_attempts > 1, will retry failed instances multiple times.
-        If max_attempts == 1, will run once without retries.
+        If n_critic_runs > 1, will retry failed instances multiple times.
+        If n_critic_runs == 1, will run once without retries.
         """
         logger.info("Starting evaluation (process pool)")
         logger.info("metadata=%s", self.metadata)
         logger.info("workers=%d", self.num_workers)
-        logger.info("max_attempts=%d", self.metadata.max_attempts)
+        logger.info("n_critic_runs=%d", self.metadata.n_critic_runs)
 
         # Use iterative mode for all cases
         return self._run_iterative_mode(on_result=on_result)
@@ -292,9 +292,9 @@ class Evaluation(ABC, BaseModel):
         critic = self.metadata.critic
         all_outputs: List[EvalOutput] = []
 
-        for attempt in range(1, self.metadata.max_attempts + 1):
+        for attempt in range(1, self.metadata.n_critic_runs + 1):
             self.current_attempt = attempt
-            logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
+            logger.info(f"Starting attempt {attempt}/{self.metadata.n_critic_runs}")
 
             instances_to_process = self._get_instances_for_attempt(
                 attempt, all_instances, critic
@@ -411,14 +411,14 @@ class Evaluation(ABC, BaseModel):
         logger.info("Aggregating results from all attempts")
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
-            max_attempts=self.metadata.max_attempts,
+            n_critic_runs=self.metadata.n_critic_runs,
             critic=self.metadata.critic,
             final_output_file="output.jsonl",
         )
 
         logger.info(
             f"Evaluation complete: {total_instances} total instances, "
-            f"{self.metadata.max_attempts} max attempts"
+            f"{self.metadata.n_critic_runs} max attempts"
         )
         return all_outputs
 

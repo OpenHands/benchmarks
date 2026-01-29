@@ -537,8 +537,8 @@ def main() -> None:
     args = parser.parse_args()
 
     # Validate args
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     # Load LLM config
     llm_config_path = args.llm_config_path
@@ -577,7 +577,7 @@ def main() -> None:
             "platform": "linux/amd64",
         },
         eval_limit=args.n_limit,
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
     )
