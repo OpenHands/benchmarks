@@ -10,5 +10,4 @@ INFER_DEFAULTS = {
     "split": "validation",
     "num_workers": 30,
     "max_attempts": 3,
-    "critic": "finish_with_patch",
 }

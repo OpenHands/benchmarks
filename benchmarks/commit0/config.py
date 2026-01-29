@@ -12,5 +12,4 @@ INFER_DEFAULTS = {
     "num_workers": 8,
     "max_attempts": 1,
     "max_retries": 1,
-    "critic": "finish_with_patch",
 }

@@ -11,7 +11,6 @@ INFER_DEFAULTS = {
     "num_workers": 30,
     "max_attempts": 3,
     "max_retries": 3,
-    "critic": "finish_with_patch",
 }
 
 # Evaluation defaults (used by eval_infer.py)

@@ -37,8 +37,9 @@ def add_critic_args(parser: ArgumentParser) -> None:
     parser.add_argument(
         "--critic",
         type=str,
+        default="finish_with_patch",
         help=(
-            "Name of the critic to use for evaluation. "
+            "Name of the critic to use for evaluation (default: finish_with_patch). "
             "Critics determine whether an agent's output is considered successful "
             "and whether another attempt should be made in iterative evaluation mode. "
             "Available critics: "
