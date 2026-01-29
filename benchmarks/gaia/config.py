@@ -14,8 +14,3 @@ INFER_DEFAULTS = {
     "max_attempts": 3,
     "critic": "finish_with_patch",
 }
-
-# Evaluation defaults (used by eval_infer.py)
-EVAL_DEFAULTS = {
-    "model_name": "openhands",
-}

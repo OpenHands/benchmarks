@@ -18,7 +18,6 @@ import json
 import sys
 from pathlib import Path
 
-from benchmarks.gaia.config import EVAL_DEFAULTS
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -198,11 +197,9 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        help="Model name to use in the model_name_or_path field",
+        default="openhands",
+        help="Model name to use in the model_name_or_path field (default: openhands)",
     )
-
-    # Apply EVAL_DEFAULTS from config
-    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 
