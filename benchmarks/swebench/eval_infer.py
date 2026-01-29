@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.config import EVAL_DEFAULTS
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -223,9 +224,11 @@ Examples:
     parser.add_argument(
         "--workers",
         type=int,
-        default=constants.DEFAULT_EVAL_WORKERS,
-        help=f"Number of workers to use when evaluating (default: {constants.DEFAULT_EVAL_WORKERS})",
+        help="Number of workers to use when evaluating",
     )
+
+    # Apply EVAL_DEFAULTS from config
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 

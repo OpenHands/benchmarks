@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from time import monotonic
 
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import (
     compute_required_images,
     ensure_swt_bench_repo,
@@ -378,15 +379,16 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
+        help="Model name to use in the model_name_or_path field",
     )
 
     parser.add_argument(
         "--workers",
-        default="24",
-        help="Number of workers to use when evaluating (default: 24)",
+        help="Number of workers to use when evaluating",
     )
+
+    # Apply EVAL_DEFAULTS from config
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 
