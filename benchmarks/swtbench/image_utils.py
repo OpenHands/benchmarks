@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-from benchmarks.swtbench.config import INFER_DEFAULTS
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from openhands.sdk import get_logger
 
 
@@ -133,10 +133,7 @@ def main() -> None:
     parser.add_argument("output_jsonl", type=Path, help="Path to output.jsonl")
     parser.add_argument("--dataset", help="Dataset name")
     parser.add_argument("--split", help="Dataset split")
-    parser.set_defaults(
-        dataset=INFER_DEFAULTS["dataset"],
-        split=INFER_DEFAULTS["split"],
-    )
+    parser.set_defaults(**EVAL_DEFAULTS)
     parser.add_argument(
         "--format",
         choices=["plain", "json"],

@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from time import monotonic
 
-from benchmarks.swtbench.config import EVAL_DEFAULTS, INFER_DEFAULTS
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import (
     compute_required_images,
     ensure_swt_bench_repo,
@@ -68,7 +68,7 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
 def try_pull_prebaked_images(
     predictions_file: Path,
     dataset: str,
-    split: str = INFER_DEFAULTS["split"],
+    split: str = EVAL_DEFAULTS["split"],
     registry: str = PREBAKED_REGISTRY,
 ) -> None:
     """

@@ -9,7 +9,7 @@ from typing import Iterable, Iterator, List, Sequence
 
 import docker
 
-from benchmarks.swtbench.config import INFER_DEFAULTS
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import image_exists as remote_image_exists
@@ -261,8 +261,8 @@ def main() -> None:
     parser.add_argument("--dataset", help="Dataset name")
     parser.add_argument("--split", help="Dataset split")
     parser.set_defaults(
-        dataset=INFER_DEFAULTS["dataset"],
-        split=INFER_DEFAULTS["split"],
+        dataset=EVAL_DEFAULTS["dataset"],
+        split=EVAL_DEFAULTS["split"],
     )
     parser.add_argument(
         "--eval-limit",
