@@ -2,12 +2,13 @@
 Argument parsing utilities for benchmarks.
 
 This module defines common arguments used across all benchmarks.
-No default values are set here - each benchmark must set its own defaults
-via parser.set_defaults() to match the evaluation repository configuration.
+Benchmark-specific defaults should be set via parser.set_defaults()
+to match the evaluation repository configuration.
 """
 
 import argparse
 
+from benchmarks.utils.constants import OUTPUT_DIR
 from benchmarks.utils.critics import add_critic_args
 
 
@@ -44,15 +45,17 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-iterations", type=int, help="Maximum iterations")
     parser.add_argument("--num-workers", type=int, help="Number of inference workers")
-    parser.add_argument("--note", type=str, help="Evaluation note")
+    parser.add_argument("--note", type=str, default="initial", help="Evaluation note")
     parser.add_argument(
         "--output-dir",
         type=str,
+        default=OUTPUT_DIR,
         help="Evaluation output directory",
     )
     parser.add_argument(
         "--n-limit",
         type=int,
+        default=0,
         help="Limit number of instances to evaluate (0 = no limit)",
     )
     parser.add_argument(

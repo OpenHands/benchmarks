@@ -15,9 +15,6 @@ INFER_DEFAULTS = {
     "max_attempts": 1,
     "max_retries": 1,
     "critic": "finish_with_patch",
-    "output_dir": "./eval_outputs",
-    "n_limit": 0,
-    "note": "initial",
 }
 
 # Evaluation defaults (used by eval_infer.py)
