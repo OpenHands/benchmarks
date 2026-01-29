@@ -4,7 +4,7 @@ Build agent-server images for Commit0 repositories.
 
 Example:
   uv run benchmarks/commit0/build_images.py \
-    --dataset wentingzhao/commit0_combined --split test --repo-split lite \
+    --repo-split lite \
     --image ghcr.io/openhands/eval-agent-server --push --max-workers 16
 """
 
@@ -13,6 +13,7 @@ import sys
 
 from commit0.harness.constants import SPLIT
 
+from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -90,7 +91,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--repo-split",
         type=str,
-        default="lite",
         help="Commit0 repo split (lite, all, or repo name)",
     )
     parser.add_argument(
@@ -99,7 +99,11 @@ def main(argv: list[str]) -> int:
         default="",
         help="Override base image prefix (default: env EVAL_DOCKER_IMAGE_PREFIX)",
     )
-    parser.set_defaults(dataset="wentingzhao/commit0_combined")
+    parser.set_defaults(
+        dataset=INFER_DEFAULTS["dataset"],
+        split=INFER_DEFAULTS["split"],
+        repo_split=INFER_DEFAULTS["repo_split"],
+    )
     args = parser.parse_args(argv)
 
     docker_image_prefix = args.docker_image_prefix or None
