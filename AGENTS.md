@@ -83,26 +83,6 @@ make build  # Rebuild environment
 4. Register CLI entrypoint in `pyproject.toml` under `[project.scripts]`
 5. Update README.md with usage instructions
 
-# Default Values Alignment
-Default values in `benchmarks/utils/args_parser.py` are aligned with the evaluation 
-repository (OpenHands/evaluation) `eval-job/values.yaml`. This ensures consistency 
-between local development and production runs.
-
-**Shared defaults in args_parser.py:**
-- `--workspace`: "remote" (production uses remote workspaces)
-- `--max-iterations`: 500 (sufficient for complex tasks)
-- `--critic`: "finish_with_patch" (ensures agent produces valid patches)
-- `--max-attempts`: 3 (allows retries on critic failures)
-- `--max-retries`: 3 (handles transient errors)
-
-**Benchmark-specific overrides:** Use `parser.set_defaults()` in each benchmark's 
-`run_infer.py` before calling `parse_args()`:
-- `gaia`: dataset="gaia-benchmark/GAIA"
-- `swebench`: dataset="princeton-nlp/SWE-bench_Verified" (default)
-- `swtbench`: dataset="eth-sri/SWT-bench_Verified_bm25_27k_zsp"
-- `commit0`: dataset="wentingzhao/commit0_combined", max_attempts=1, max_retries=1
-- `swebenchmultimodal`: dataset="princeton-nlp/SWE-bench_Multimodal", split="dev"
-
 # LLM Configuration
 LLM configs use JSON matching the [LLM class schema](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93):
 ```json

@@ -4,7 +4,7 @@ Build agent-server images for Commit0 repositories.
 
 Example:
   uv run benchmarks/commit0/build_images.py \
-    --repo-split lite \
+    --dataset wentingzhao/commit0_combined --split test --repo-split lite \
     --image ghcr.io/openhands/eval-agent-server --push --max-workers 16
 """
 
