@@ -10,7 +10,6 @@ INFER_DEFAULTS = {
     "split": "test",
     "repo_split": "lite",
     "num_workers": 8,
-    "max_iterations": 500,
     "max_attempts": 1,
     "max_retries": 1,
     "critic": "finish_with_patch",

@@ -9,7 +9,6 @@ INFER_DEFAULTS = {
     "dataset": "gaia-benchmark/GAIA",
     "split": "validation",
     "num_workers": 30,
-    "max_iterations": 500,
     "max_attempts": 3,
     "critic": "finish_with_patch",
 }

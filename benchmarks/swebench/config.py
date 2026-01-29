@@ -9,7 +9,6 @@ INFER_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Verified",
     "split": "test",
     "num_workers": 30,
-    "max_iterations": 500,
     "max_attempts": 3,
     "max_retries": 3,
     "critic": "finish_with_patch",

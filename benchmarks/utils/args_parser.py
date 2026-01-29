@@ -44,7 +44,12 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         choices=["docker", "remote"],
         help="Type of workspace to use (default: remote)",
     )
-    parser.add_argument("--max-iterations", type=int, help="Maximum iterations")
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=500,
+        help="Maximum iterations (default: 500)",
+    )
     parser.add_argument("--num-workers", type=int, help="Number of inference workers")
     parser.add_argument("--note", type=str, help="Optional evaluation note")
     parser.add_argument(
