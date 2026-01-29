@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 
 def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str = constants.DEFAULT_MODEL_NAME
+    input_file: str, output_file: str, model_name: str = EVAL_DEFAULTS["model_name"]
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
@@ -117,8 +117,8 @@ def convert_to_swebench_format(
 
 def run_swebench_evaluation(
     predictions_file: str,
-    dataset: str = constants.DEFAULT_DATASET,
-    workers: int = constants.DEFAULT_EVAL_WORKERS,
+    dataset: str = EVAL_DEFAULTS["dataset"],
+    workers: int = EVAL_DEFAULTS["workers"],
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -199,8 +199,7 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default=constants.DEFAULT_DATASET,
-        help=f"SWE-Bench dataset to evaluate against (default: {constants.DEFAULT_DATASET})",
+        help="SWE-Bench dataset to evaluate against",
     )
 
     parser.add_argument(
@@ -217,8 +216,7 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default=constants.DEFAULT_CLI_MODEL_NAME,
-        help=f"Model name to use in the model_name_or_path field (default: {constants.DEFAULT_CLI_MODEL_NAME})",
+        help="Model name to use in the model_name_or_path field",
     )
 
     parser.add_argument(
