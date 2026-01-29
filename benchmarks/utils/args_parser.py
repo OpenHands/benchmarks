@@ -45,7 +45,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-iterations", type=int, help="Maximum iterations")
     parser.add_argument("--num-workers", type=int, help="Number of inference workers")
-    parser.add_argument("--note", type=str, default="initial", help="Evaluation note")
+    parser.add_argument("--note", type=str, help="Optional evaluation note")
     parser.add_argument(
         "--output-dir",
         type=str,
