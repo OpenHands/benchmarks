@@ -19,6 +19,5 @@ INFER_DEFAULTS = {
 # Evaluation defaults (used by eval_infer.py)
 EVAL_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Verified",
-    "model_name": "openhands",
     "workers": 12,
 }

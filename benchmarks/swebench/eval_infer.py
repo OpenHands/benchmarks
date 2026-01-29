@@ -28,7 +28,9 @@ logger = get_logger(__name__)
 
 
 def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str = EVAL_DEFAULTS["model_name"]
+    input_file: str,
+    output_file: str,
+    model_name: str = constants.DEFAULT_CLI_MODEL_NAME,
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
