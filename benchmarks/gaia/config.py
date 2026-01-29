@@ -8,6 +8,7 @@ Default values aligned with evaluation repository (OpenHands/evaluation).
 INFER_DEFAULTS = {
     "dataset": "gaia-benchmark/GAIA",
     "split": "validation",
+    "level": "2023_all",
     "num_workers": 30,
     "max_attempts": 3,
 }

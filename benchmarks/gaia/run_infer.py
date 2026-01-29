@@ -549,8 +549,7 @@ def main() -> None:
     parser.add_argument(
         "--level",
         type=str,
-        required=True,
-        help="GAIA level to evaluate (e.g., 2023_level1, 2023_level2, 2023_level3)",
+        help="GAIA level to evaluate (e.g., 2023_level1, 2023_level2, 2023_level3, 2023_all)",
     )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
