@@ -20,6 +20,5 @@ INFER_DEFAULTS = {
 EVAL_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Multimodal",
     "split": "dev",
-    "model_name": "openhands",
     "workers": 12,
 }

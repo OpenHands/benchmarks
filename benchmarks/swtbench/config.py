@@ -20,6 +20,5 @@ INFER_DEFAULTS = {
 # Note: eval uses SWE-bench dataset, not SWT-bench dataset
 EVAL_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Verified",
-    "model_name": "OpenHands",
     "workers": 24,
 }
