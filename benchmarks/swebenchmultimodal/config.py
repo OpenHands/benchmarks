@@ -8,7 +8,6 @@ Default values aligned with evaluation repository (OpenHands/evaluation).
 INFER_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Multimodal",
     "split": "dev",
-    "workspace": "remote",
     "num_workers": 30,
     "max_iterations": 500,
     "max_attempts": 3,

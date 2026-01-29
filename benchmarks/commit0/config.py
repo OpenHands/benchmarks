@@ -9,7 +9,6 @@ INFER_DEFAULTS = {
     "dataset": "wentingzhao/commit0_combined",
     "split": "test",
     "repo_split": "lite",
-    "workspace": "remote",
     "num_workers": 8,
     "max_iterations": 500,
     "max_attempts": 1,
