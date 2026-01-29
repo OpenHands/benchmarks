@@ -15,6 +15,7 @@ import logging
 import sys
 from pathlib import Path
 
+from benchmarks.commit0.config import EVAL_DEFAULTS
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.report_costs import generate_cost_report
 
@@ -174,9 +175,11 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        help="Model name to use in the model_name_or_path field",
     )
+
+    # Apply EVAL_DEFAULTS from config
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 
