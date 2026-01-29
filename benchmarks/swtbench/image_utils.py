@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -87,9 +88,15 @@ def compute_required_images(
     from src.dataset import load_swebench_dataset  # type: ignore[import-not-found]
     from src.exec_spec import make_exec_spec  # type: ignore[import-not-found]
 
-    dataset_entries = load_swebench_dataset(
-        name=dataset, split=split, is_swt=True, filter_swt=True
-    )
+    # Change to swt-bench directory for dataset loading (required for filter files)
+    cwd = os.getcwd()
+    try:
+        os.chdir(swt_bench_dir)
+        dataset_entries = load_swebench_dataset(
+            name=dataset, split=split, is_swt=True, filter_swt=True
+        )
+    finally:
+        os.chdir(cwd)
     entries_by_id = {entry["instance_id"]: entry for entry in dataset_entries}
 
     missing = [iid for iid in instance_ids if iid not in entries_by_id]
