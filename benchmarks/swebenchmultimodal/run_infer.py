@@ -10,6 +10,7 @@ from benchmarks.swebenchmultimodal.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.swebenchmultimodal.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -423,8 +424,8 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
-    # Override defaults for SWE-bench Multimodal (matches evaluation repository values.yaml)
-    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Multimodal", split="dev")
+    # Apply INFER_DEFAULTS from config (matches evaluation repository values.yaml)
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts

@@ -12,6 +12,7 @@ from benchmarks.commit0.build_images import (
     extract_custom_tag,
     get_base_docker_image,
 )
+from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -593,15 +594,10 @@ def main() -> None:
     parser.add_argument(
         "--repo-split",
         type=str,
-        default="lite",
         help="all, lite, or each repo name",
     )
-    # Override defaults for commit0 (matches evaluation repository values.yaml)
-    parser.set_defaults(
-        dataset="wentingzhao/commit0_combined",
-        max_attempts=1,
-        max_retries=1,
-    )
+    # Apply INFER_DEFAULTS from config (matches evaluation repository values.yaml)
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts
