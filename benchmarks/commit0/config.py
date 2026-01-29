@@ -20,5 +20,4 @@ INFER_DEFAULTS = {
 # Evaluation defaults (used by eval_infer.py)
 EVAL_DEFAULTS = {
     "model_name": "openhands",
-    "workers": 1,
 }
