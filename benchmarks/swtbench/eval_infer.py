@@ -237,7 +237,7 @@ def run_swtbench_evaluation(
     predictions_file: str,
     # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     dataset: str = "princeton-nlp/SWE-bench_Verified",
-    workers: str = "12",
+    workers: str = "24",
 ) -> None:
     """
     Run SWT-Bench evaluation on the predictions file.
@@ -384,8 +384,8 @@ Examples:
 
     parser.add_argument(
         "--workers",
-        default="12",
-        help="Number of workers to use when evaluating",
+        default="24",
+        help="Number of workers to use when evaluating (default: 24)",
     )
 
     args = parser.parse_args()

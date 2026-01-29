@@ -37,17 +37,14 @@ def add_critic_args(parser: ArgumentParser) -> None:
     parser.add_argument(
         "--critic",
         type=str,
-        default="finish_with_patch",
         help=(
-            "Name of the critic to use for evaluation (default: 'finish_with_patch'). "
+            "Name of the critic to use for evaluation. "
             "Critics determine whether an agent's output is considered successful "
             "and whether another attempt should be made in iterative evaluation mode. "
             "Available critics: "
-            "'pass' - Always accepts the output (no retry logic, suitable for single-attempt runs), "
+            "'pass' - Always accepts the output (no retry logic), "
             "'finish_with_patch' - Requires both AgentFinishAction and non-empty git patch, "
-            "'empty_patch_critic' - Only requires non-empty git patch. "
-            "For production runs, 'finish_with_patch' is recommended as it ensures "
-            "the agent produces a valid patch before completing."
+            "'empty_patch_critic' - Only requires non-empty git patch."
         ),
     )
     parser.add_argument(

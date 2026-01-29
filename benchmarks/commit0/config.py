@@ -1,0 +1,26 @@
+"""
+Commit0 benchmark configuration.
+
+Default values aligned with evaluation repository (OpenHands/evaluation).
+"""
+
+# Inference defaults (used by run_infer.py)
+INFER_DEFAULTS = {
+    "dataset": "wentingzhao/commit0_combined",
+    "split": "test",
+    "repo_split": "lite",
+    "workspace": "remote",
+    "num_workers": 8,
+    "max_iterations": 500,
+    "max_attempts": 1,
+    "max_retries": 1,
+    "critic": "finish_with_patch",
+    "output_dir": "./eval_outputs",
+    "n_limit": 0,
+    "note": "initial",
+}
+
+# Evaluation defaults (used by eval_infer.py)
+EVAL_DEFAULTS = {
+    "model_name": "openhands",
+}

@@ -12,6 +12,7 @@ from benchmarks.commit0.build_images import (
     extract_custom_tag,
     get_base_docker_image,
 )
+from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback

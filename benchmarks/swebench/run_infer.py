@@ -5,6 +5,7 @@ from typing import List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
@@ -334,9 +335,7 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
-    # SWE-bench defaults match the global args_parser defaults (evaluation repository values.yaml)
-    # Explicit set_defaults for consistency with other benchmarks
-    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Verified", split="test")
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts

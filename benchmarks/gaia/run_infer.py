@@ -11,6 +11,7 @@ import pandas as pd
 from datasets import DatasetDict, load_dataset
 from PIL import Image
 
+from benchmarks.gaia.config import INFER_DEFAULTS
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
@@ -551,8 +552,7 @@ def main() -> None:
         required=True,
         help="GAIA level to evaluate (e.g., 2023_level1, 2023_level2, 2023_level3)",
     )
-    # Override defaults for GAIA (matches evaluation repository values.yaml)
-    parser.set_defaults(dataset="gaia-benchmark/GAIA")
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Create critic instance from parsed arguments
