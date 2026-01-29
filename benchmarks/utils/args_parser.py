@@ -8,7 +8,6 @@ to match the evaluation repository configuration.
 
 import argparse
 
-from benchmarks.utils.constants import OUTPUT_DIR
 from benchmarks.utils.critics import add_critic_args
 
 
@@ -55,7 +54,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default=OUTPUT_DIR,
+        default="./eval_outputs",
         help="Evaluation output directory",
     )
     parser.add_argument(
