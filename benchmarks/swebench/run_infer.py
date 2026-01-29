@@ -5,13 +5,13 @@ from typing import List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebench import constants
-from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
     should_wrap_instance_id,
     wrap_image,
 )
+from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
