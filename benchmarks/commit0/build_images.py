@@ -13,7 +13,7 @@ import sys
 
 from commit0.harness.constants import SPLIT
 
-from benchmarks.commit0.config import INFER_DEFAULTS
+from benchmarks.commit0.config import BUILD_DEFAULTS, INFER_DEFAULTS
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -103,6 +103,7 @@ def main(argv: list[str]) -> int:
         dataset=INFER_DEFAULTS["dataset"],
         split=INFER_DEFAULTS["split"],
         repo_split=INFER_DEFAULTS["repo_split"],
+        **BUILD_DEFAULTS,
     )
     args = parser.parse_args(argv)
 

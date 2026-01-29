@@ -9,8 +9,6 @@ INFER_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Multimodal",
     "split": "dev",
     "num_workers": 30,
-    "max_attempts": 3,
-    "max_retries": 3,
 }
 
 # Evaluation defaults (used by eval_infer.py)
@@ -18,4 +16,9 @@ EVAL_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Multimodal",
     "split": "dev",
     "workers": 12,
+}
+
+# Build defaults (used by build_images.py)
+BUILD_DEFAULTS = {
+    "max_workers": 32,
 }
