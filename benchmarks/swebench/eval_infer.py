@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.config import EVAL_DEFAULTS
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -27,7 +28,9 @@ logger = get_logger(__name__)
 
 
 def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str = constants.DEFAULT_MODEL_NAME
+    input_file: str,
+    output_file: str,
+    model_name: str = constants.DEFAULT_CLI_MODEL_NAME,
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
@@ -116,8 +119,8 @@ def convert_to_swebench_format(
 
 def run_swebench_evaluation(
     predictions_file: str,
-    dataset: str = constants.DEFAULT_DATASET,
-    workers: int = constants.DEFAULT_EVAL_WORKERS,
+    dataset: str = EVAL_DEFAULTS["dataset"],
+    workers: int = EVAL_DEFAULTS["workers"],
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -198,8 +201,7 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default=constants.DEFAULT_DATASET,
-        help=f"SWE-Bench dataset to evaluate against (default: {constants.DEFAULT_DATASET})",
+        help="SWE-Bench dataset to evaluate against",
     )
 
     parser.add_argument(
@@ -216,16 +218,17 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default=constants.DEFAULT_CLI_MODEL_NAME,
-        help=f"Model name to use in the model_name_or_path field (default: {constants.DEFAULT_CLI_MODEL_NAME})",
+        help="Model name to use in the model_name_or_path field",
     )
 
     parser.add_argument(
         "--workers",
         type=int,
-        default=constants.DEFAULT_EVAL_WORKERS,
-        help=f"Number of workers to use when evaluating (default: {constants.DEFAULT_EVAL_WORKERS})",
+        help="Number of workers to use when evaluating",
     )
+
+    # Apply EVAL_DEFAULTS from config
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 
