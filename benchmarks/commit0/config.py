@@ -12,7 +12,7 @@ INFER_DEFAULTS = {
     "repo_split": "lite",
     "num_workers": 16,
     "max_attempts": 1,
-    "max_retries": 1,
+    "max_retries": 3,
 }
 
 # Build defaults (used by build_images.py)
