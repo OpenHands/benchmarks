@@ -15,6 +15,7 @@ import logging
 import sys
 from pathlib import Path
 
+from benchmarks.commit0.constants import DEFAULT_MODEL_NAME, TOTAL_INSTANCES
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.report_costs import generate_cost_report
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def process_commit0_results(
-    input_file: str, output_file: str, model_name: str = "openhands"
+    input_file: str, output_file: str, model_name: str = DEFAULT_MODEL_NAME
 ) -> None:
     """
     Process Commit0 output.jsonl and generate evaluation report.
@@ -123,7 +124,7 @@ def process_commit0_results(
     # Generate report
     report = {
         "model_name_or_path": model_name,
-        "total_instances": 16,  # Fixed as per requirement
+        "total_instances": TOTAL_INSTANCES,
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
         "resolved_instances": len(resolved_ids),
@@ -174,8 +175,8 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        default=DEFAULT_MODEL_NAME,
+        help=f"Model name to use in the model_name_or_path field (default: {DEFAULT_MODEL_NAME})",
     )
 
     args = parser.parse_args()
