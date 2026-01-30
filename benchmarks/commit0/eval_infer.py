@@ -51,7 +51,7 @@ def process_commit0_results(
 
     Report format (similar to SWE-Bench):
     {
-        "model_name_or_path": "OpenHands/claude-sonnet-4-5-20250929",
+        "model_name_or_path": "OpenHands-{version}/claude-sonnet-4-5-20250929",
         "total_instances": 16,
         "submitted_instances": 16,
         "completed_instances": 16,
@@ -67,9 +67,9 @@ def process_commit0_results(
     }
 
     The model identifier is optional. If provided, the value is formatted as
-    "OpenHands/{model_name}" where model_name is extracted from the LLM
+    "OpenHands-{version}/{model_name}" where model_name is extracted from the LLM
     config's `model` field (e.g., "litellm_proxy/claude-sonnet-4-5-20250929"
-    becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands"
+    becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands-{version}"
     is used.
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
@@ -185,9 +185,9 @@ Examples:
         default=None,
         help=(
             "Optional model identifier. If provided, model_name_or_path will be "
-            "'OpenHands/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
-            "becomes 'OpenHands/claude-sonnet-4-5-20250929'). If not provided, "
-            "just 'OpenHands' is used."
+            "'OpenHands-{version}/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929'). If not provided, "
+            "just 'OpenHands-{version}' is used."
         ),
     )
 

@@ -178,13 +178,13 @@ def convert_to_swebench_format(
     {
         "instance_id": "django__django-11333",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands/claude-sonnet-4-5-20250929"
+        "model_name_or_path": "OpenHands-{version}/claude-sonnet-4-5-20250929"
     }
 
     The model identifier is optional. If provided, the value is formatted as
-    "OpenHands/{model_name}" where model_name is extracted from the LLM
+    "OpenHands-{version}/{model_name}" where model_name is extracted from the LLM
     config's `model` field (e.g., "litellm_proxy/claude-sonnet-4-5-20250929"
-    becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands"
+    becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands-{version}"
     is used.
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
@@ -410,9 +410,9 @@ Examples:
         default=None,
         help=(
             "Optional model identifier. If provided, model_name_or_path will be "
-            "'OpenHands/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
-            "becomes 'OpenHands/claude-sonnet-4-5-20250929'). If not provided, "
-            "just 'OpenHands' is used."
+            "'OpenHands-{version}/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929'). If not provided, "
+            "just 'OpenHands-{version}' is used."
         ),
     )
 

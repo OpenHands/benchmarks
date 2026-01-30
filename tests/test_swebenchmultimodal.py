@@ -32,8 +32,10 @@ class TestConvertToSwebenchFormat:
             lines = f.readlines()
         assert len(lines) == 0
 
-    def test_model_name_formats_as_openhands_plus_model(self):
-        """Test that model_name is formatted as 'OpenHands/{model_name}'."""
+    def test_model_name_formats_as_openhands_with_version_and_model(self):
+        """Test that model_name is formatted as 'OpenHands-{version}/{model_name}'."""
+        from benchmarks.utils.version import SDK_SHORT_SHA
+
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".jsonl", delete=False
         ) as infile:
@@ -57,10 +59,13 @@ class TestConvertToSwebenchFormat:
         with open(output_path, "r") as f:
             result = json.loads(f.readline())
 
-        assert result["model_name_or_path"] == "OpenHands/claude-sonnet-4-5-20250929"
+        expected = f"OpenHands-{SDK_SHORT_SHA}/claude-sonnet-4-5-20250929"
+        assert result["model_name_or_path"] == expected
 
-    def test_no_model_name_uses_openhands_only(self):
-        """Test that when no model_name is provided, just 'OpenHands' is used."""
+    def test_no_model_name_uses_openhands_with_version_only(self):
+        """Test that when no model_name is provided, 'OpenHands-{version}' is used."""
+        from benchmarks.utils.version import SDK_SHORT_SHA
+
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".jsonl", delete=False
         ) as infile:
@@ -83,4 +88,5 @@ class TestConvertToSwebenchFormat:
         with open(output_path, "r") as f:
             result = json.loads(f.readline())
 
-        assert result["model_name_or_path"] == "OpenHands"
+        expected = f"OpenHands-{SDK_SHORT_SHA}"
+        assert result["model_name_or_path"] == expected
