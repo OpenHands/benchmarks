@@ -10,6 +10,7 @@ Example:
 
 import sys
 
+from benchmarks.swebenchmultimodal.constants import DOCKER_IMAGE_PREFIX
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -24,7 +25,7 @@ logger = get_logger(__name__)
 
 def get_official_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
+    docker_image_prefix: str = DOCKER_IMAGE_PREFIX,
 ) -> str:
     # For multimodal benchmark, we use regular SWE-bench images as base
     # since multimodal-specific images (sweb.mm.eval.*) are not available
