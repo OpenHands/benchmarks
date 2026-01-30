@@ -46,11 +46,11 @@ def convert_to_swebench_format(
     {
         "instance_id": "django__django-11333",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands + claude-sonnet-4-5-20250929"
+        "model_name_or_path": "OpenHands/claude-sonnet-4-5-20250929"
     }
 
     The model identifier is optional. If provided, the value is formatted as
-    "OpenHands + {model_name}" where model_name is extracted from the LLM
+    "OpenHands/{model_name}" where model_name is extracted from the LLM
     config's `model` field (e.g., "litellm_proxy/claude-sonnet-4-5-20250929"
     becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands"
     is used.
@@ -92,10 +92,10 @@ def convert_to_swebench_format(
                 git_patch = remove_files_from_patch(git_patch, setup_files)
 
                 # Create SWE-Bench format entry
-                # Format model_name_or_path as "OpenHands" or "OpenHands + {model_name}"
+                # Format model_name_or_path as "OpenHands" or "OpenHands/{model_name}"
                 if model_name:
                     extracted_model_name = model_name.rsplit("/", 1)[-1]
-                    model_name_or_path = f"OpenHands + {extracted_model_name}"
+                    model_name_or_path = f"OpenHands/{extracted_model_name}"
                 else:
                     model_name_or_path = "OpenHands"
                 swebench_entry = {
@@ -230,8 +230,8 @@ Examples:
         default=None,
         help=(
             "Optional model identifier. If provided, model_name_or_path will be "
-            "'OpenHands + {model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
-            "becomes 'OpenHands + claude-sonnet-4-5-20250929'). If not provided, "
+            "'OpenHands/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands/claude-sonnet-4-5-20250929'). If not provided, "
             "just 'OpenHands' is used."
         ),
     )
