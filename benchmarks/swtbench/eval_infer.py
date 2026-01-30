@@ -410,6 +410,8 @@ Examples:
     logger.info(f"Dataset: {args.dataset}")
     logger.info(f"Model name: {args.model_name}")
 
+    dest_report_path: Path | None = None
+
     try:
         # Convert format
         convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
@@ -450,6 +452,7 @@ Examples:
             target_file = target_dir / "output.report.json"
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
+            dest_report_path = target_file
             update_report_with_submitted_instances(target_file, output_file)
 
             # Update Laminar datapoints with evaluation scores
@@ -468,6 +471,7 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        print(json.dumps({"report_json": str(dest_report_path or "")}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")

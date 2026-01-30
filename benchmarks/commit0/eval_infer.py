@@ -207,6 +207,7 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        print(json.dumps({"report_json": str(output_file)}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")
