@@ -125,56 +125,6 @@ def calculate_component_scores(
     }
 
 
-def update_summary_fields(report_json_path: Path, model_name: str) -> None:
-    """Add SWE-Bench-style summary counts to the multimodal report.
-
-    The harness emits per-instance entries but no aggregated fields. To keep the
-    evaluation UI consistent (submitted/completed/resolved counts), we compute
-    them here from the report contents. Only instance keys (non-component_scores)
-    are considered.
-    """
-
-    if not report_json_path.exists():
-        raise FileNotFoundError(
-            f"Report file not found for summary update: {report_json_path}"
-        )
-
-    report = json.loads(report_json_path.read_text())
-
-    # Filter out non-instance keys
-    instance_ids = [key for key in report.keys() if key != "component_scores"]
-
-    resolved_ids: list[str] = []
-    unresolved_ids: list[str] = []
-
-    for instance_id in instance_ids:
-        entry = report.get(instance_id, {})
-        if entry.get("resolved") is True:
-            resolved_ids.append(instance_id)
-        else:
-            unresolved_ids.append(instance_id)
-
-    total_instances = len(instance_ids)
-
-    summary = {
-        "model_name_or_path": model_name,
-        "total_instances": total_instances,
-        "submitted_instances": total_instances,
-        "completed_instances": total_instances,
-        "resolved_instances": len(resolved_ids),
-        "unresolved_instances": len(unresolved_ids),
-        "empty_patch_instances": 0,
-        "error_instances": 0,
-        "submitted_ids": instance_ids,
-        "completed_ids": instance_ids,
-        "resolved_ids": resolved_ids,
-        "unresolved_ids": unresolved_ids,
-    }
-
-    report.update(summary)
-    report_json_path.write_text(json.dumps(report, indent=4))
-
-
 def update_report_with_component_scores(report_json_path: Path) -> dict[str, float]:
     """
     Calculate component scores and update the report.json with them.
