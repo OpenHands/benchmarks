@@ -23,6 +23,7 @@ from benchmarks.swtbench.image_utils import (
     ensure_swt_bench_repo,
 )
 from benchmarks.utils.laminar import LaminarService
+from benchmarks.utils.model_name import format_model_name_or_path
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -213,16 +214,10 @@ def convert_to_swtbench_format(
                 git_patch = remove_files_from_patch(git_patch, setup_files)
 
                 # Create SWT-Bench format entry
-                # Format model_name_or_path as "OpenHands" or "OpenHands/{model_name}"
-                if model_name:
-                    extracted_model_name = model_name.rsplit("/", 1)[-1]
-                    model_name_or_path = f"OpenHands/{extracted_model_name}"
-                else:
-                    model_name_or_path = "OpenHands"
                 swtbench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name_or_path,
+                    "model_name_or_path": format_model_name_or_path(model_name),
                 }
 
                 # Write to output file

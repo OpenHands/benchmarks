@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.laminar import LaminarService
+from benchmarks.utils.model_name import format_model_name_or_path
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -155,14 +156,8 @@ def process_gaia_results(
     submitted_ids = completed_ids + incomplete_ids
 
     # Generate report
-    # Format model_name_or_path as "OpenHands" or "OpenHands/{model_name}"
-    if model_name:
-        extracted_model_name = model_name.rsplit("/", 1)[-1]
-        model_name_or_path = f"OpenHands/{extracted_model_name}"
-    else:
-        model_name_or_path = "OpenHands"
     report = {
-        "model_name_or_path": model_name_or_path,
+        "model_name_or_path": format_model_name_or_path(model_name),
         "total_instances": len(submitted_ids),
         "submitted_instances": len(submitted_ids),
         "completed_instances": len(completed_ids),

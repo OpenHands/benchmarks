@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.laminar import LaminarService
+from benchmarks.utils.model_name import format_model_name_or_path
 from benchmarks.utils.report_costs import generate_cost_report
 
 
@@ -128,14 +129,8 @@ def process_commit0_results(
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
     # Generate report
-    # Format model_name_or_path as "OpenHands" or "OpenHands/{model_name}"
-    if model_name:
-        extracted_model_name = model_name.rsplit("/", 1)[-1]
-        model_name_or_path = f"OpenHands/{extracted_model_name}"
-    else:
-        model_name_or_path = "OpenHands"
     report = {
-        "model_name_or_path": model_name_or_path,
+        "model_name_or_path": format_model_name_or_path(model_name),
         "total_instances": 16,  # Fixed as per requirement
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
