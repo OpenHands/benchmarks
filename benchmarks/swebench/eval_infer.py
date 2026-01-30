@@ -118,6 +118,10 @@ def run_swebench_evaluation(
     predictions_file: str,
     dataset: str = constants.DEFAULT_DATASET,
     workers: int = constants.DEFAULT_EVAL_WORKERS,
+    split: str | None = None,
+    run_id: str | None = None,
+    modal: bool = False,
+    timeout: int | None = None,
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -135,8 +139,6 @@ def run_swebench_evaluation(
         predictions_dir = predictions_path.parent
         predictions_filename = predictions_path.name
 
-        # Run SWE-Bench evaluation using global python (not UV environment)
-        # since swebench is installed globally
         cmd = [
             "uv",
             "run",
@@ -149,9 +151,16 @@ def run_swebench_evaluation(
             predictions_filename,
             "--max_workers",
             str(workers),
-            "--run_id",
-            f"eval_{predictions_path.stem}",
         ]
+        if split:
+            cmd.extend(["--split", split])
+        # Run-id: honor explicit value, otherwise default to eval_<stem>
+        run_id_value = run_id or f"eval_{predictions_path.stem}"
+        cmd.extend(["--run_id", run_id_value])
+        if modal:
+            cmd.extend(["--modal", "true"])
+        if timeout is not None:
+            cmd.extend(["--timeout", str(timeout)])
 
         logger.info(f"Running command: {' '.join(cmd)}")
         logger.info(f"Working directory: {predictions_dir}")
@@ -226,6 +235,26 @@ Examples:
         default=constants.DEFAULT_EVAL_WORKERS,
         help=f"Number of workers to use when evaluating (default: {constants.DEFAULT_EVAL_WORKERS})",
     )
+    parser.add_argument(
+        "--split",
+        default=None,
+        help="Dataset split to evaluate (optional; if omitted uses harness default)",
+    )
+    parser.add_argument(
+        "--run-id",
+        dest="run_id",
+        help="Run ID for evaluation (default: eval_<predictions_file_stem>)",
+    )
+    parser.add_argument(
+        "--modal",
+        action="store_true",
+        help="Enable modal mode for the evaluation harness",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        help="Optional timeout (seconds) passed to the evaluation harness",
+    )
 
     args = parser.parse_args()
 
@@ -257,13 +286,23 @@ Examples:
 
         if not args.skip_evaluation:
             # Run evaluation
-            run_swebench_evaluation(str(output_file), args.dataset, args.workers)
+            run_swebench_evaluation(
+                str(output_file),
+                args.dataset,
+                args.workers,
+                args.split,
+                args.run_id,
+                args.modal,
+                args.timeout,
+            )
 
             # Move report file to input file directory with .report.json extension
             # SWE-Bench creates: {model_name.replace("/", "__")}.eval_{output_file.stem}.json
-            report_filename = (
-                f"{args.model_name.replace('/', '__')}.eval_{output_file.stem}.json"
-            )
+            model_safe = args.model_name.replace("/", "__")
+            if args.run_id:
+                report_filename = f"{model_safe}.{args.run_id}.json"
+            else:
+                report_filename = f"{model_safe}.eval_{output_file.stem}.json"
             report_path = output_file.parent / report_filename
             dest_report_path = input_file.with_suffix(".report.json")
 
