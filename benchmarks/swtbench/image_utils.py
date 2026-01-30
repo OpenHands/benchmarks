@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from openhands.sdk import get_logger
 
 
@@ -137,8 +138,9 @@ def main() -> None:
         description="List SWT-bench base/env images required for a predictions file."
     )
     parser.add_argument("output_jsonl", type=Path, help="Path to output.jsonl")
-    parser.add_argument("--dataset", required=True, help="Dataset name")
-    parser.add_argument("--split", default="test", help="Dataset split")
+    parser.add_argument("--dataset", help="Dataset name")
+    parser.add_argument("--split", help="Dataset split")
+    parser.set_defaults(**EVAL_DEFAULTS)
     parser.add_argument(
         "--format",
         choices=["plain", "json"],

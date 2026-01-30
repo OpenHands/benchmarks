@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: 'Dataset name (e.g., princeton-nlp/SWE-bench_Verified)'
+        description: 'Dataset name (e.g., eth-sri/SWT-bench_Verified_bm25_27k_zsp)'
         required: true
-        default: 'princeton-nlp/SWE-bench_Verified'
+        default: 'eth-sri/SWT-bench_Verified_bm25_27k_zsp'
         type: string
       split:
         description: 'Dataset split'
@@ -76,7 +76,7 @@ jobs:
 
     # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
     env:
-      DATASET: princeton-nlp/SWE-bench_Verified
+      DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
       SPLIT: test
       MAX_WORKERS: '4'
       N_LIMIT: '0'
@@ -135,7 +135,7 @@ jobs:
           set -euo pipefail
 
           # Get inputs with defaults
-          DATASET="${{ inputs.dataset || 'princeton-nlp/SWE-bench_Verified' }}"
+          DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
           SPLIT="${{ inputs.split || 'test' }}"
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
@@ -189,7 +189,7 @@ jobs:
           docker system df || true
           docker info || true
 
-          DATASET="${{ inputs.dataset || 'princeton-nlp/SWE-bench_Verified' }}"
+          DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
           SPLIT="${{ inputs.split || 'test' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"

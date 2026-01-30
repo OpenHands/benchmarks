@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     BuildOutput,
     build_all_images,
@@ -158,6 +159,7 @@ def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:
 
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
+    parser.set_defaults(**BUILD_DEFAULTS)
     args = parser.parse_args(argv)
 
     base_images: list[str] = collect_unique_base_images(

@@ -1,5 +1,9 @@
 """
-Argument parsing utilities for SWE-bench benchmarks.
+Argument parsing utilities for benchmarks.
+
+This module defines common arguments used across all benchmarks.
+Benchmark-specific defaults should be set via parser.set_defaults()
+to match the evaluation repository configuration.
 """
 
 import argparse
@@ -8,10 +12,16 @@ from benchmarks.utils.critics import add_critic_args
 
 
 def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
-    """Create and return argument parser.
+    """Create and return argument parser without defaults.
+
+    Each benchmark must call parser.set_defaults() before parse_args()
+    to set values matching the evaluation repository (OpenHands/evaluation).
+
+    Args:
+        add_llm_config: Whether to add the llm_config_path positional argument.
 
     Returns:
-        ArgumentParser instance
+        ArgumentParser instance with common benchmark arguments (no defaults).
     """
     parser = argparse.ArgumentParser(description="Run Evaluation inference")
     if add_llm_config:
@@ -23,24 +33,24 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         type=str,
-        default="princeton-nlp/SWE-bench_Verified",
         help="Dataset name",
     )
-    parser.add_argument("--split", type=str, default="test", help="Dataset split")
+    parser.add_argument("--split", type=str, help="Dataset split")
     parser.add_argument(
         "--workspace",
         type=str,
-        default="docker",
+        default="remote",
         choices=["docker", "remote"],
-        help="Type of workspace to use (default: docker)",
+        help="Type of workspace to use (default: remote)",
     )
     parser.add_argument(
-        "--max-iterations", type=int, default=100, help="Maximum iterations"
+        "--max-iterations",
+        type=int,
+        default=500,
+        help="Maximum iterations (default: 500)",
     )
-    parser.add_argument(
-        "--num-workers", type=int, default=1, help="Number of evaluation workers"
-    )
-    parser.add_argument("--note", type=str, default="initial", help="Evaluation note")
+    parser.add_argument("--num-workers", type=int, help="Number of inference workers")
+    parser.add_argument("--note", type=str, help="Optional evaluation note")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -51,7 +61,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         "--n-limit",
         type=int,
         default=0,
-        help="Limit number of instances to evaluate",
+        help="Limit number of instances to evaluate (0 = no limit)",
     )
     parser.add_argument(
         "--max-attempts",
@@ -60,13 +70,12 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
     )
 
-    # Add critic arguments
+    # Add critic arguments (no default)
     add_critic_args(parser)
 
     parser.add_argument(
         "--select",
         type=str,
-        default=None,
         help="Path to text file containing instance IDs to select (one per line)",
     )
     parser.add_argument(

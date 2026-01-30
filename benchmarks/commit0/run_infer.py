@@ -12,6 +12,7 @@ from benchmarks.commit0.build_images import (
     extract_custom_tag,
     get_base_docker_image,
 )
+from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -110,9 +111,9 @@ class Commit0Evaluation(Evaluation):
         self,
         metadata: EvalMetadata,
         num_workers: int = 1,
-        repo_split: str = "lite",
-        dataset_name: str = "wentingzhao/commit0_combined",
-        dataset_split: str = "test",
+        repo_split: str | None = None,
+        dataset_name: str | None = None,
+        dataset_split: str | None = None,
     ):
         super().__init__(metadata=metadata, num_workers=num_workers)
         # Store additional parameters in metadata.details for access in methods
@@ -120,9 +121,9 @@ class Commit0Evaluation(Evaluation):
             metadata.details = {}
         metadata.details.update(
             {
-                "repo_split": repo_split,
-                "dataset_name": dataset_name,
-                "dataset_split": dataset_split,
+                "repo_split": repo_split or INFER_DEFAULTS["repo_split"],
+                "dataset_name": dataset_name or INFER_DEFAULTS["dataset"],
+                "dataset_split": dataset_split or INFER_DEFAULTS["split"],
             }
         )
 
@@ -130,9 +131,9 @@ class Commit0Evaluation(Evaluation):
         logger.info("Setting up Commit0 evaluation data")
 
         details = self.metadata.details or {}
-        dataset_name = details.get("dataset_name", "wentingzhao/commit0_combined")
-        dataset_split = details.get("dataset_split", "test")
-        repo_split = details.get("repo_split", "lite")
+        dataset_name = details.get("dataset_name", INFER_DEFAULTS["dataset"])
+        dataset_split = details.get("dataset_split", INFER_DEFAULTS["split"])
+        repo_split = details.get("repo_split", INFER_DEFAULTS["repo_split"])
 
         dataset = load_dataset(dataset_name, split=dataset_split)
         df = commit0_setup(dataset, repo_split)
@@ -593,11 +594,10 @@ def main() -> None:
     parser.add_argument(
         "--repo-split",
         type=str,
-        default="lite",
         help="all, lite, or each repo name",
     )
-    # Override the default dataset for commit0
-    parser.set_defaults(dataset="wentingzhao/commit0_combined")
+    # Apply INFER_DEFAULTS from config (matches evaluation repository values.yaml)
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts
