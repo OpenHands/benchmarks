@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 
+from benchmarks.multiswebench.constants import DEFAULT_EVAL_HARNESS_CONFIG
 from benchmarks.multiswebench.scripts.eval.convert import convert_to_eval_format
 
 
@@ -18,32 +19,14 @@ def update_multi_swe_config(output_jsonl_path, config_path, dataset):
     os.makedirs(os.path.join(path_to_parent, "eval_files", "repos"), exist_ok=True)
     os.makedirs(os.path.join(path_to_parent, "eval_files", "logs"), exist_ok=True)
 
-    # Prepare config dict
-    config = {
-        "mode": "evaluation",
-        "workdir": os.path.join(path_to_parent, "eval_files", "workdir"),
-        "patch_files": [converted_path],
-        "dataset_files": [dataset],
-        "force_build": True,
-        "output_dir": os.path.join(path_to_parent, "eval_files", "dataset"),
-        "specifics": [],
-        "skips": [],
-        "repo_dir": os.path.join(path_to_parent, "eval_files", "repos"),
-        "need_clone": True,
-        "global_env": [],
-        "clear_env": True,
-        "stop_on_error": False,
-        "max_workers": 5,
-        "max_workers_build_image": 5,
-        "max_workers_run_instance": 5,
-        "log_dir": os.path.join(path_to_parent, "eval_files", "logs"),
-        "log_level": "DEBUG",
-        "fix_patch_run_cmd": (
-            'bash -c "apt update ; apt install -y patch ; '
-            "sed -i 's@git apply.*@patch --batch --fuzz=5 -p1 -i /home/test.patch;"
-            "patch --batch --fuzz=5 -p1 -i /home/fix.patch@g' /home/fix-run.sh ; chmod +x /home/*.sh  ; /home/fix-run.sh\""
-        ),
-    }
+    # Start with default config and add dynamic paths
+    config = DEFAULT_EVAL_HARNESS_CONFIG.copy()
+    config["workdir"] = os.path.join(path_to_parent, "eval_files", "workdir")
+    config["patch_files"] = [converted_path]
+    config["dataset_files"] = [dataset]
+    config["output_dir"] = os.path.join(path_to_parent, "eval_files", "dataset")
+    config["repo_dir"] = os.path.join(path_to_parent, "eval_files", "repos")
+    config["log_dir"] = os.path.join(path_to_parent, "eval_files", "logs")
 
     # Save to multibench.config
     os.makedirs(os.path.dirname(config_path), exist_ok=True)

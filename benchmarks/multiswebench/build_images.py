@@ -11,6 +11,12 @@ Example:
 import os
 from pathlib import Path
 
+from benchmarks.multiswebench.constants import (
+    DEFAULT_DOCKER_IMAGE_PREFIX,
+    DEFAULT_LANGUAGE,
+    DOCKER_IMAGE_PREFIX_ENV_VAR,
+    LANGUAGE_ENV_VAR,
+)
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -23,8 +29,10 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 # Environment variables for multi-language support
-DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
-LANGUAGE = os.environ.get("LANGUAGE", "java")
+DOCKER_IMAGE_PREFIX = os.environ.get(
+    DOCKER_IMAGE_PREFIX_ENV_VAR, DEFAULT_DOCKER_IMAGE_PREFIX
+)
+LANGUAGE = os.environ.get(LANGUAGE_ENV_VAR, DEFAULT_LANGUAGE)
 
 
 def get_official_docker_image(
