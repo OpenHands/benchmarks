@@ -249,6 +249,8 @@ Examples:
     logger.info(f"Dataset: {args.dataset}")
     logger.info(f"Model name: {args.model_name}")
 
+    dest_report_path: Path | None = None
+
     try:
         # Convert format
         convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
@@ -277,6 +279,11 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        # Emit machine-readable report location for callers
+        if not args.skip_evaluation and dest_report_path is not None:
+            print(json.dumps({"report_json": str(dest_report_path)}))
+        else:
+            print(json.dumps({"report_json": ""}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")
