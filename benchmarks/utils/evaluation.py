@@ -255,15 +255,32 @@ class Evaluation(ABC, BaseModel):
         # Initialize Laminar
         LaminarService.get().initialize()
 
-        # Create Laminar evaluation
+        # Build metadata for Laminar evaluation and traces
+        run_id = os.getenv("UNIQUE_EVAL_NAME")
+        laminar_meta = {
+            k: v
+            for k, v in [
+                ("benchmark", self.metadata.dataset),
+                ("model", self.metadata.llm.model),
+            ]
+            if v
+        }
+
+        # Create Laminar evaluation (use run_id as name if available)
         now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        eval_name = (
+            run_id or f"{self.metadata.dataset} {self.metadata.dataset_split} {now}"
+        )
         self.metadata.lmnr = LaminarEvalMetadata(
             eval_id=LaminarService.get().create_evaluation(
-                name=f"{self.metadata.dataset} {self.metadata.dataset_split} {now}",
+                name=eval_name,
                 group_name=f"{self.metadata.dataset} {self.metadata.dataset_split}",
-                metadata=self.metadata.model_dump(mode="json"),
+                metadata=laminar_meta or None,
             )
         )
+        # Store for use in datapoint creation
+        self._laminar_session_id = run_id
+        self._laminar_trace_meta = laminar_meta or None
 
         total_instances = len(all_instances)
         logger.info("prepared %d instances for evaluation", total_instances)
@@ -333,6 +350,8 @@ class Evaluation(ABC, BaseModel):
                             inst.id,
                             self.metadata.model_dump(mode="json"),
                             index,
+                            session_id=self._laminar_session_id,
+                            trace_metadata=self._laminar_trace_meta,
                         )
                     )
                     if datapoint_id is not None:
