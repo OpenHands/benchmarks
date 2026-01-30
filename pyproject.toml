@@ -90,6 +90,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+exclude = ["legacy"]
 
 [tool.ruff.format]
 quote-style = "double"
