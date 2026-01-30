@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import tempfile
@@ -608,6 +609,7 @@ def main() -> None:
 
     logger.info("Evaluation completed!")
     logger.info(f"Results written to: {evaluator.output_path}")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":
