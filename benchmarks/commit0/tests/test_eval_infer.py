@@ -33,7 +33,11 @@ def test_output_file_naming():
         expected_output_file = Path(tmpdir) / "output.report.json"
 
         # Process the results
-        process_commit0_results(str(input_file), str(expected_output_file))
+        process_commit0_results(
+            str(input_file),
+            str(expected_output_file),
+            "litellm_proxy/claude-sonnet-4-5-20250929",
+        )
 
         # Verify the output file was created
         assert expected_output_file.exists(), (
@@ -75,7 +79,11 @@ def test_output_file_naming_with_different_input_name():
         expected_output_file = Path(tmpdir) / "results.report.json"
 
         # Process the results
-        process_commit0_results(str(input_file), str(expected_output_file))
+        process_commit0_results(
+            str(input_file),
+            str(expected_output_file),
+            "litellm_proxy/claude-sonnet-4-5-20250929",
+        )
 
         # Verify the output file was created
         assert expected_output_file.exists(), (

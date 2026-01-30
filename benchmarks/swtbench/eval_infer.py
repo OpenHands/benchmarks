@@ -23,6 +23,7 @@ from benchmarks.swtbench.image_utils import (
     ensure_swt_bench_repo,
 )
 from benchmarks.utils.laminar import LaminarService
+from benchmarks.utils.model_name import format_model_name_or_path
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -147,7 +148,7 @@ def update_report_with_submitted_instances(
 
 
 def convert_to_swtbench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
+    input_file: str, output_file: str, model_name: str
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
@@ -167,8 +168,12 @@ def convert_to_swtbench_format(
     {
         "instance_id": "sympy__sympy-20590",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "OpenHands-{version}/claude-sonnet-4-5-20250929"
     }
+
+    The model_name_or_path is formatted as "OpenHands-{version}/{model_name}" where
+    model_name is extracted from the LLM config's `model` field
+    (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Converting {input_file} to SWT-Bench format: {output_file}")
 
@@ -210,7 +215,7 @@ def convert_to_swtbench_format(
                 swtbench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name,
+                    "model_name_or_path": format_model_name_or_path(model_name),
                 }
 
                 # Write to output file
@@ -378,8 +383,12 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
+        required=True,
+        help=(
+            "Model identifier (required). model_name_or_path will be "
+            "'OpenHands-{version}/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929')."
+        ),
     )
 
     parser.add_argument(

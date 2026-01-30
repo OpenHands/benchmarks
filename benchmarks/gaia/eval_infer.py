@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.laminar import LaminarService
+from benchmarks.utils.model_name import format_model_name_or_path
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -29,7 +30,7 @@ logger = get_logger(__name__)
 def process_gaia_results(
     input_file: str,
     output_file: str,
-    model_name: str = "openhands",
+    model_name: str,
 ) -> None:
     """
     Process GAIA output.jsonl and generate evaluation report.
@@ -49,7 +50,7 @@ def process_gaia_results(
 
     Report format (similar to SWE-Bench):
     {
-        "model_name_or_path": "openhands",
+        "model_name_or_path": "OpenHands-{version}/claude-sonnet-4-5-20250929",
         "total_instances": 165,
         "submitted_instances": 165,
         "completed_instances": 165,
@@ -64,6 +65,10 @@ def process_gaia_results(
         "resolved_ids": [...],
         "unresolved_ids": [...]
     }
+
+    The model_name_or_path is formatted as "OpenHands-{version}/{model_name}" where
+    model_name is extracted from the LLM config's `model` field
+    (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
 
@@ -150,7 +155,7 @@ def process_gaia_results(
 
     # Generate report
     report = {
-        "model_name_or_path": model_name,
+        "model_name_or_path": format_model_name_or_path(model_name),
         "total_instances": len(submitted_ids),
         "submitted_instances": len(submitted_ids),
         "completed_instances": len(completed_ids),
@@ -197,8 +202,12 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        required=True,
+        help=(
+            "Model identifier (required). model_name_or_path will be "
+            "'OpenHands-{version}/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929')."
+        ),
     )
 
     args = parser.parse_args()

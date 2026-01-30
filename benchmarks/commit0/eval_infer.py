@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.utils.laminar import LaminarService
+from benchmarks.utils.model_name import format_model_name_or_path
 from benchmarks.utils.report_costs import generate_cost_report
 
 
@@ -26,9 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_commit0_results(
-    input_file: str, output_file: str, model_name: str = "openhands"
-) -> None:
+def process_commit0_results(input_file: str, output_file: str, model_name: str) -> None:
     """
     Process Commit0 output.jsonl and generate evaluation report.
 
@@ -50,6 +49,7 @@ def process_commit0_results(
 
     Report format (similar to SWE-Bench):
     {
+        "model_name_or_path": "OpenHands-{version}/claude-sonnet-4-5-20250929",
         "total_instances": 16,
         "submitted_instances": 16,
         "completed_instances": 16,
@@ -63,6 +63,10 @@ def process_commit0_results(
         "resolved_ids": [...],
         "unresolved_ids": [...]
     }
+
+    The model_name_or_path is formatted as "OpenHands-{version}/{model_name}" where
+    model_name is extracted from the LLM config's `model` field
+    (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
 
@@ -122,7 +126,7 @@ def process_commit0_results(
 
     # Generate report
     report = {
-        "model_name_or_path": model_name,
+        "model_name_or_path": format_model_name_or_path(model_name),
         "total_instances": 16,  # Fixed as per requirement
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
@@ -174,8 +178,12 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        required=True,
+        help=(
+            "Model identifier (required). model_name_or_path will be "
+            "'OpenHands-{version}/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929')."
+        ),
     )
 
     args = parser.parse_args()
