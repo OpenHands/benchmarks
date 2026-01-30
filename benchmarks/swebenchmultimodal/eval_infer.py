@@ -158,7 +158,7 @@ def update_report_with_component_scores(report_json_path: Path) -> dict[str, flo
 
 
 def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str | None = None
+    input_file: str, output_file: str, model_name: str
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
@@ -181,11 +181,9 @@ def convert_to_swebench_format(
         "model_name_or_path": "OpenHands-{version}/claude-sonnet-4-5-20250929"
     }
 
-    The model identifier is optional. If provided, the value is formatted as
-    "OpenHands-{version}/{model_name}" where model_name is extracted from the LLM
-    config's `model` field (e.g., "litellm_proxy/claude-sonnet-4-5-20250929"
-    becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands-{version}"
-    is used.
+    The model_name_or_path is formatted as "OpenHands-{version}/{model_name}" where
+    model_name is extracted from the LLM config's `model` field
+    (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
 
@@ -407,12 +405,11 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default=None,
+        required=True,
         help=(
-            "Optional model identifier. If provided, model_name_or_path will be "
+            "Model identifier (required). model_name_or_path will be "
             "'OpenHands-{version}/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
-            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929'). If not provided, "
-            "just 'OpenHands-{version}' is used."
+            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929')."
         ),
     )
 

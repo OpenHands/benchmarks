@@ -62,31 +62,14 @@ class TestConvertToSwebenchFormat:
         expected = f"OpenHands-{SDK_SHORT_SHA}/claude-sonnet-4-5-20250929"
         assert result["model_name_or_path"] == expected
 
-    def test_no_model_name_uses_openhands_with_version_only(self):
-        """Test that when no model_name is provided, 'OpenHands-{version}' is used."""
-        from benchmarks.utils.version import SDK_SHORT_SHA
+    def test_missing_model_name_raises_error(self):
+        """Test that missing model_name raises ValueError."""
+        import pytest
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".jsonl", delete=False
-        ) as infile:
-            # Write a valid entry
-            entry = {
-                "instance_id": "test__test-123",
-                "test_result": {"git_patch": "diff --git a/test.py b/test.py"},
-            }
-            infile.write(json.dumps(entry) + "\n")
-            input_path = infile.name
+        from benchmarks.utils.model_name import format_model_name_or_path
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".swebench.jsonl", delete=False
-        ) as outfile:
-            output_path = outfile.name
+        with pytest.raises(ValueError, match="model_name is required"):
+            format_model_name_or_path("")
 
-        # Call without model_name (uses default None)
-        convert_to_swebench_format(input_path, output_path)
-
-        with open(output_path, "r") as f:
-            result = json.loads(f.readline())
-
-        expected = f"OpenHands-{SDK_SHORT_SHA}"
-        assert result["model_name_or_path"] == expected
+        with pytest.raises(ValueError, match="model_name is required"):
+            format_model_name_or_path(None)  # type: ignore[arg-type]
