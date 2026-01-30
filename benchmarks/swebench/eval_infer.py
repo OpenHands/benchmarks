@@ -119,16 +119,24 @@ def convert_to_swebench_format(
 
 def run_swebench_evaluation(
     predictions_file: str,
+    run_id: str,
     dataset: str = EVAL_DEFAULTS["dataset"],
     workers: int = EVAL_DEFAULTS["workers"],
+    split: str | None = None,
+    modal: bool = False,
+    timeout: int | None = None,
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
 
     Args:
         predictions_file: Path to the SWE-Bench format predictions file
+        run_id: Unique identifier for this evaluation run
         dataset: SWE-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
+        split: Dataset split to evaluate (e.g., 'test', 'dev')
+        modal: Whether to use Modal for evaluation
+        timeout: Timeout in seconds for evaluation
     """
     logger.info(f"Running SWE-Bench evaluation on {predictions_file}")
 
@@ -153,8 +161,16 @@ def run_swebench_evaluation(
             "--max_workers",
             str(workers),
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            run_id,
         ]
+
+        # Add optional parameters
+        if split:
+            cmd.extend(["--split", split])
+        if modal:
+            cmd.extend(["--modal", "true"])
+        if timeout is not None:
+            cmd.extend(["--timeout", str(timeout)])
 
         logger.info(f"Running command: {' '.join(cmd)}")
         logger.info(f"Working directory: {predictions_dir}")
@@ -194,6 +210,7 @@ Examples:
     uv run swebench-eval output.jsonl
     uv run swebench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
     uv run swebench-eval output.jsonl --model-name "MyModel-v1.0"
+    uv run swebench-eval output.jsonl --split test --run-id my_eval --modal --timeout 1800
         """,
     )
 
@@ -227,6 +244,29 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
+    parser.add_argument(
+        "--split",
+        help="Dataset split to evaluate (e.g., 'test', 'dev')",
+    )
+
+    parser.add_argument(
+        "--run-id",
+        required=True,
+        help="Unique identifier for this evaluation run",
+    )
+
+    parser.add_argument(
+        "--modal",
+        action="store_true",
+        help="Use Modal for evaluation",
+    )
+
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        help="Timeout in seconds for evaluation",
+    )
+
     # Apply EVAL_DEFAULTS from config
     parser.set_defaults(**EVAL_DEFAULTS)
 
@@ -258,13 +298,19 @@ Examples:
 
         if not args.skip_evaluation:
             # Run evaluation
-            run_swebench_evaluation(str(output_file), args.dataset, args.workers)
+            run_swebench_evaluation(
+                str(output_file),
+                args.run_id,
+                args.dataset,
+                args.workers,
+                split=args.split,
+                modal=args.modal,
+                timeout=args.timeout,
+            )
 
             # Move report file to input file directory with .report.json extension
-            # SWE-Bench creates: {model_name.replace("/", "__")}.eval_{output_file.stem}.json
-            report_filename = (
-                f"{args.model_name.replace('/', '__')}.eval_{output_file.stem}.json"
-            )
+            # SWE-Bench creates: {model_name.replace("/", "__")}.{run_id}.json
+            report_filename = f"{args.model_name.replace('/', '__')}.{args.run_id}.json"
             report_path = output_file.parent / report_filename
             dest_report_path = input_file.with_suffix(".report.json")
 
