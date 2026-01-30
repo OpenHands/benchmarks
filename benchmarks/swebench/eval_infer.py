@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.swebench import constants
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -26,7 +27,7 @@ logger = get_logger(__name__)
 
 
 def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
+    input_file: str, output_file: str, model_name: str = constants.DEFAULT_MODEL_NAME
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
@@ -82,8 +83,9 @@ def convert_to_swebench_format(
                     git_patch = ""
 
                 # postprocess git_patch
-                setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
-                git_patch = remove_files_from_patch(git_patch, setup_files)
+                git_patch = remove_files_from_patch(
+                    git_patch, constants.SETUP_FILES_TO_REMOVE
+                )
 
                 # Create SWE-Bench format entry
                 swebench_entry = {
@@ -114,8 +116,8 @@ def convert_to_swebench_format(
 
 def run_swebench_evaluation(
     predictions_file: str,
-    dataset: str = "princeton-nlp/SWE-bench_Verified",
-    workers: str = "12",
+    dataset: str = constants.DEFAULT_DATASET,
+    workers: int = constants.DEFAULT_EVAL_WORKERS,
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -196,9 +198,8 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Verified",
-        help="SWE-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Verified)",
+        default=constants.DEFAULT_DATASET,
+        help=f"SWE-Bench dataset to evaluate against (default: {constants.DEFAULT_DATASET})",
     )
 
     parser.add_argument(
@@ -215,14 +216,15 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
+        default=constants.DEFAULT_CLI_MODEL_NAME,
+        help=f"Model name to use in the model_name_or_path field (default: {constants.DEFAULT_CLI_MODEL_NAME})",
     )
 
     parser.add_argument(
         "--workers",
-        default="12",
-        help="Number of workers to use when evaluating",
+        type=int,
+        default=constants.DEFAULT_EVAL_WORKERS,
+        help=f"Number of workers to use when evaluating (default: {constants.DEFAULT_EVAL_WORKERS})",
     )
 
     args = parser.parse_args()
