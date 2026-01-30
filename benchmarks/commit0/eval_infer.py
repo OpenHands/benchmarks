@@ -48,6 +48,7 @@ def process_commit0_results(input_file: str, output_file: str, model_name: str) 
 
     Report format (similar to SWE-Bench):
     {
+        "model_name_or_path": "OpenHands + claude-sonnet-4-5-20250929",
         "total_instances": 16,
         "submitted_instances": 16,
         "completed_instances": 16,
@@ -63,9 +64,9 @@ def process_commit0_results(input_file: str, output_file: str, model_name: str) 
     }
 
     The model identifier is required for attribution in downstream reports and
-    filenames. Typical values mirror the LLM config's `model` field, e.g.,
-    "litellm_proxy/claude-sonnet-4-5-20250929" or
-    "litellm_proxy/claude-haiku-4-5-20251001".
+    filenames. The value is formatted as "OpenHands + {model_name}" where
+    model_name is extracted from the LLM config's `model` field (e.g.,
+    "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
 
@@ -127,8 +128,10 @@ def process_commit0_results(input_file: str, output_file: str, model_name: str) 
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
     # Generate report
+    # Extract model name from path (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5-20250929")
+    extracted_model_name = model_name.rsplit("/", 1)[-1]
     report = {
-        "model_name_or_path": model_name,
+        "model_name_or_path": f"OpenHands + {extracted_model_name}",
         "total_instances": 16,  # Fixed as per requirement
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),

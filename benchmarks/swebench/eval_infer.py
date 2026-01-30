@@ -46,13 +46,13 @@ def convert_to_swebench_format(
     {
         "instance_id": "django__django-11333",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "litellm_proxy/claude-sonnet-4-5-20250929"
+        "model_name_or_path": "OpenHands + claude-sonnet-4-5-20250929"
     }
 
     The model identifier is required for attribution in SWE-Bench reports and
-    filenames. Typical values mirror the LLM config's `model` field, e.g.,
-    "litellm_proxy/claude-sonnet-4-5-20250929" or
-    "litellm_proxy/claude-haiku-4-5-20251001".
+    filenames. The value is formatted as "OpenHands + {model_name}" where
+    model_name is extracted from the LLM config's `model` field (e.g.,
+    "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
 
@@ -94,10 +94,12 @@ def convert_to_swebench_format(
                 git_patch = remove_files_from_patch(git_patch, setup_files)
 
                 # Create SWE-Bench format entry
+                # Extract model name from path (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5-20250929")
+                extracted_model_name = model_name.rsplit("/", 1)[-1]
                 swebench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name,
+                    "model_name_or_path": f"OpenHands + {extracted_model_name}",
                 }
 
                 # Write to output file

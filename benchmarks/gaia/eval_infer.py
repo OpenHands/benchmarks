@@ -49,7 +49,7 @@ def process_gaia_results(
 
     Report format (similar to SWE-Bench):
     {
-        "model_name_or_path": "litellm_proxy/claude-sonnet-4-5-20250929",
+        "model_name_or_path": "OpenHands + claude-sonnet-4-5-20250929",
         "total_instances": 165,
         "submitted_instances": 165,
         "completed_instances": 165,
@@ -66,9 +66,9 @@ def process_gaia_results(
     }
 
     The model identifier is required for attribution in GAIA reports and
-    filenames. Typical values mirror the LLM config's `model` field, e.g.,
-    "litellm_proxy/claude-sonnet-4-5-20250929" or
-    "litellm_proxy/claude-haiku-4-5-20251001".
+    filenames. The value is formatted as "OpenHands + {model_name}" where
+    model_name is extracted from the LLM config's `model` field (e.g.,
+    "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
 
@@ -157,8 +157,10 @@ def process_gaia_results(
     submitted_ids = completed_ids + incomplete_ids
 
     # Generate report
+    # Extract model name from path (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5-20250929")
+    extracted_model_name = model_name.rsplit("/", 1)[-1]
     report = {
-        "model_name_or_path": model_name,
+        "model_name_or_path": f"OpenHands + {extracted_model_name}",
         "total_instances": len(submitted_ids),
         "submitted_instances": len(submitted_ids),
         "completed_instances": len(completed_ids),
