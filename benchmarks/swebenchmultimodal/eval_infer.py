@@ -449,12 +449,6 @@ Examples:
                 str(output_file), args.dataset, args.split, args.workers, args.run_id
             )
 
-            if not report_path:
-                raise FileNotFoundError(
-                    f"Report file not found for run_id={args.run_id or f'eval_{output_file.stem}'} "
-                    f"in {output_file.parent}"
-                )
-
             # Calculate component scores if we have a report
             if report_path:
                 logger.info(
