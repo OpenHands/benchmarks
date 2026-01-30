@@ -122,9 +122,9 @@ def run_swebench_evaluation(
     run_id: str,
     dataset: str = EVAL_DEFAULTS["dataset"],
     workers: int = EVAL_DEFAULTS["workers"],
-    split: str | None = None,
-    modal: bool = False,
-    timeout: int | None = None,
+    split: str = EVAL_DEFAULTS["split"],
+    modal: bool = EVAL_DEFAULTS["modal"],
+    timeout: int = EVAL_DEFAULTS["timeout"],
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -164,13 +164,11 @@ def run_swebench_evaluation(
             run_id,
         ]
 
-        # Add optional parameters
-        if split:
-            cmd.extend(["--split", split])
+        # Add parameters
+        cmd.extend(["--split", split])
         if modal:
             cmd.extend(["--modal", "true"])
-        if timeout is not None:
-            cmd.extend(["--timeout", str(timeout)])
+        cmd.extend(["--timeout", str(timeout)])
 
         logger.info(f"Running command: {' '.join(cmd)}")
         logger.info(f"Working directory: {predictions_dir}")
@@ -258,16 +256,18 @@ Examples:
     parser.add_argument(
         "--modal",
         action="store_true",
-        help="Use Modal for evaluation",
+        default=EVAL_DEFAULTS["modal"],
+        help="Use Modal for evaluation (default: True)",
     )
 
     parser.add_argument(
         "--timeout",
         type=int,
-        help="Timeout in seconds for evaluation",
+        default=EVAL_DEFAULTS["timeout"],
+        help=f"Timeout in seconds for evaluation (default: {EVAL_DEFAULTS['timeout']})",
     )
 
-    # Apply EVAL_DEFAULTS from config
+    # Apply EVAL_DEFAULTS from config (for dataset, split, workers)
     parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
