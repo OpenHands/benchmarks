@@ -1,5 +1,6 @@
 """Tests for SWE-Bench Multimodal eval_infer functionality."""
 
+import json
 import tempfile
 
 from benchmarks.swebenchmultimodal.eval_infer import convert_to_swebench_format
@@ -31,12 +32,17 @@ class TestConvertToSwebenchFormat:
             lines = f.readlines()
         assert len(lines) == 0
 
-    def test_raises_when_model_name_missing(self):
-        """Ensure a missing model identifier is rejected."""
+    def test_model_name_formats_as_openhands_plus_model(self):
+        """Test that model_name is formatted as 'OpenHands + {model_name}'."""
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".jsonl", delete=False
         ) as infile:
-            infile.write("")
+            # Write a valid entry
+            entry = {
+                "instance_id": "test__test-123",
+                "test_result": {"git_patch": "diff --git a/test.py b/test.py"},
+            }
+            infile.write(json.dumps(entry) + "\n")
             input_path = infile.name
 
         with tempfile.NamedTemporaryFile(
@@ -44,9 +50,37 @@ class TestConvertToSwebenchFormat:
         ) as outfile:
             output_path = outfile.name
 
-        try:
-            convert_to_swebench_format(input_path, output_path, None)  # type: ignore[arg-type]
-        except ValueError:
-            return
+        convert_to_swebench_format(
+            input_path, output_path, "litellm_proxy/claude-sonnet-4-5-20250929"
+        )
 
-        assert False, "Expected ValueError when model_name_or_path is None"
+        with open(output_path, "r") as f:
+            result = json.loads(f.readline())
+
+        assert result["model_name_or_path"] == "OpenHands + claude-sonnet-4-5-20250929"
+
+    def test_no_model_name_uses_openhands_only(self):
+        """Test that when no model_name is provided, just 'OpenHands' is used."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        ) as infile:
+            # Write a valid entry
+            entry = {
+                "instance_id": "test__test-123",
+                "test_result": {"git_patch": "diff --git a/test.py b/test.py"},
+            }
+            infile.write(json.dumps(entry) + "\n")
+            input_path = infile.name
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".swebench.jsonl", delete=False
+        ) as outfile:
+            output_path = outfile.name
+
+        # Call without model_name (uses default None)
+        convert_to_swebench_format(input_path, output_path)
+
+        with open(output_path, "r") as f:
+            result = json.loads(f.readline())
+
+        assert result["model_name_or_path"] == "OpenHands"

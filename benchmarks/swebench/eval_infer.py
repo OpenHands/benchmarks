@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 
 def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str
+    input_file: str, output_file: str, model_name: str | None = None
 ) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
@@ -49,15 +49,13 @@ def convert_to_swebench_format(
         "model_name_or_path": "OpenHands + claude-sonnet-4-5-20250929"
     }
 
-    The model identifier is required for attribution in SWE-Bench reports and
-    filenames. The value is formatted as "OpenHands + {model_name}" where
-    model_name is extracted from the LLM config's `model` field (e.g.,
-    "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
+    The model identifier is optional. If provided, the value is formatted as
+    "OpenHands + {model_name}" where model_name is extracted from the LLM
+    config's `model` field (e.g., "litellm_proxy/claude-sonnet-4-5-20250929"
+    becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands"
+    is used.
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
-
-    if not model_name:
-        raise ValueError("model_name is required and cannot be empty")
 
     converted_count = 0
     error_count = 0
@@ -94,12 +92,16 @@ def convert_to_swebench_format(
                 git_patch = remove_files_from_patch(git_patch, setup_files)
 
                 # Create SWE-Bench format entry
-                # Extract model name from path (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5-20250929")
-                extracted_model_name = model_name.rsplit("/", 1)[-1]
+                # Format model_name_or_path as "OpenHands" or "OpenHands + {model_name}"
+                if model_name:
+                    extracted_model_name = model_name.rsplit("/", 1)[-1]
+                    model_name_or_path = f"OpenHands + {extracted_model_name}"
+                else:
+                    model_name_or_path = "OpenHands"
                 swebench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": f"OpenHands + {extracted_model_name}",
+                    "model_name_or_path": model_name_or_path,
                 }
 
                 # Write to output file
@@ -225,10 +227,12 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        required=True,
+        default=None,
         help=(
-            "Model identifier to record in model_name_or_path "
-            "(e.g., litellm_proxy/claude-sonnet-4-5-20250929)"
+            "Optional model identifier. If provided, model_name_or_path will be "
+            "'OpenHands + {model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands + claude-sonnet-4-5-20250929'). If not provided, "
+            "just 'OpenHands' is used."
         ),
     )
 

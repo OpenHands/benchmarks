@@ -26,7 +26,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_commit0_results(input_file: str, output_file: str, model_name: str) -> None:
+def process_commit0_results(
+    input_file: str, output_file: str, model_name: str | None = None
+) -> None:
     """
     Process Commit0 output.jsonl and generate evaluation report.
 
@@ -63,15 +65,13 @@ def process_commit0_results(input_file: str, output_file: str, model_name: str) 
         "unresolved_ids": [...]
     }
 
-    The model identifier is required for attribution in downstream reports and
-    filenames. The value is formatted as "OpenHands + {model_name}" where
-    model_name is extracted from the LLM config's `model` field (e.g.,
-    "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
+    The model identifier is optional. If provided, the value is formatted as
+    "OpenHands + {model_name}" where model_name is extracted from the LLM
+    config's `model` field (e.g., "litellm_proxy/claude-sonnet-4-5-20250929"
+    becomes "claude-sonnet-4-5-20250929"). If not provided, just "OpenHands"
+    is used.
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
-
-    if not model_name:
-        raise ValueError("model_name is required and cannot be empty")
 
     completed_ids = []
     resolved_ids = []
@@ -128,10 +128,14 @@ def process_commit0_results(input_file: str, output_file: str, model_name: str) 
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
     # Generate report
-    # Extract model name from path (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5-20250929")
-    extracted_model_name = model_name.rsplit("/", 1)[-1]
+    # Format model_name_or_path as "OpenHands" or "OpenHands + {model_name}"
+    if model_name:
+        extracted_model_name = model_name.rsplit("/", 1)[-1]
+        model_name_or_path = f"OpenHands + {extracted_model_name}"
+    else:
+        model_name_or_path = "OpenHands"
     report = {
-        "model_name_or_path": f"OpenHands + {extracted_model_name}",
+        "model_name_or_path": model_name_or_path,
         "total_instances": 16,  # Fixed as per requirement
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
@@ -183,10 +187,12 @@ Examples:
 
     parser.add_argument(
         "--model-name",
-        required=True,
+        default=None,
         help=(
-            "Model identifier to record in model_name_or_path "
-            "(e.g., litellm_proxy/claude-sonnet-4-5-20250929)"
+            "Optional model identifier. If provided, model_name_or_path will be "
+            "'OpenHands + {model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
+            "becomes 'OpenHands + claude-sonnet-4-5-20250929'). If not provided, "
+            "just 'OpenHands' is used."
         ),
     )
 
