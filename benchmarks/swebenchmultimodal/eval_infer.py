@@ -476,6 +476,10 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        if not args.skip_evaluation and report_path:
+            print(json.dumps({"report_json": str(report_path)}))
+        else:
+            print(json.dumps({"report_json": ""}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")
