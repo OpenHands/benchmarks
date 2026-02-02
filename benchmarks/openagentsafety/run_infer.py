@@ -639,6 +639,7 @@ def main() -> None:
     cleanup_docker_containers()
 
     logger.info("Evaluation completed!")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":
