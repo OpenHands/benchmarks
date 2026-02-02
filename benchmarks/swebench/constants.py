@@ -1,15 +1,12 @@
 """
 SWE-Bench hyperparameters and constant values.
 
-This module serves as the single source of truth for all constant values
-used in the SWE-Bench evaluation workflow.
+This module provides constant values used in the SWE-Bench evaluation workflow.
+For dataset, model, and worker defaults, see config.py (INFER_DEFAULTS, EVAL_DEFAULTS).
 """
 
 from typing import Final, Literal
 
-
-# Dataset
-DEFAULT_DATASET: Final[str] = "princeton-nlp/SWE-bench_Verified"
 
 # Docker
 DOCKER_IMAGE_PREFIX: Final[str] = "docker.io/swebench/"
@@ -28,8 +25,6 @@ DEFAULT_BUILD_TARGET: Final[TargetType] = BUILD_TARGET_SOURCE_MINIMAL
 DEFAULT_RUNTIME_API_URL: Final[str] = "https://runtime.eval.all-hands.dev"
 DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT: Final[int] = 600
 
-# Evaluation
-DEFAULT_EVAL_WORKERS: Final[int] = 12
 
 # Git
 GIT_USER_EMAIL: Final[str] = "evaluation@openhands.dev"

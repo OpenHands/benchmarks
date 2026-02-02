@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from time import monotonic
 
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import (
     compute_required_images,
     ensure_swt_bench_repo,
@@ -68,7 +69,7 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
 def try_pull_prebaked_images(
     predictions_file: Path,
     dataset: str,
-    split: str = "test",
+    split: str = EVAL_DEFAULTS["split"],
     registry: str = PREBAKED_REGISTRY,
 ) -> None:
     """
@@ -357,9 +358,7 @@ Examples:
     # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Verified",
-        help="SWT-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Verified)",
+        help="SWT-Bench dataset to evaluate against",
     )
 
     parser.add_argument(
@@ -376,9 +375,11 @@ Examples:
 
     parser.add_argument(
         "--workers",
-        default="12",
+        type=int,
         help="Number of workers to use when evaluating",
     )
+
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 
