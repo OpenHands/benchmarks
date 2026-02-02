@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from benchmarks.swebenchmultimodal.config import EVAL_DEFAULTS
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -375,15 +376,12 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Multimodal",
-        help="SWE-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Multimodal)",
+        help="SWE-Bench dataset to evaluate against",
     )
 
     parser.add_argument(
         "--split",
-        default="dev",
-        help="Dataset split to use (default: dev)",
+        help="Dataset split to use",
     )
 
     parser.add_argument(
@@ -406,9 +404,11 @@ Examples:
 
     parser.add_argument(
         "--workers",
-        default="12",
+        type=int,
         help="Number of workers to use when evaluating",
     )
+
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     parser.add_argument(
         "--run-id",
