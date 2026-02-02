@@ -4,6 +4,7 @@ from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swtbench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -355,6 +356,7 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts

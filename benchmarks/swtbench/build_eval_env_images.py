@@ -9,6 +9,7 @@ from typing import Iterable, Iterator, List, Sequence
 
 import docker
 
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import image_exists as remote_image_exists
@@ -257,8 +258,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build and push prebaked SWT-bench eval env images."
     )
-    parser.add_argument("--dataset", required=True, help="Dataset name")
-    parser.add_argument("--split", default="test", help="Dataset split")
+    parser.add_argument("--dataset", help="Dataset name")
+    parser.add_argument("--split", help="Dataset split")
+    parser.set_defaults(
+        dataset=EVAL_DEFAULTS["dataset"],
+        split=EVAL_DEFAULTS["split"],
+    )
     parser.add_argument(
         "--eval-limit",
         type=int,
