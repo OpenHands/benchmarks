@@ -72,9 +72,7 @@ def prepare_dataset(
     return dataset
 
 
-def _load_hf_dataset_with_retry(
-    dataset_name: str, split: str, **load_kwargs
-) -> Dataset:
+def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
     """Load a Hugging Face dataset with retries and longer HTTP timeouts."""
     # Default HF timeout is ~10s; bump it to reduce transient ReadTimeouts.
     os.environ.setdefault("HF_HUB_HTTP_TIMEOUT", "60")
@@ -86,13 +84,7 @@ def _load_hf_dataset_with_retry(
 
     for attempt in range(1, attempts + 1):
         try:
-            dataset = load_dataset(
-                dataset_name,
-                split=split,
-                trust_remote_code=True,
-                verification_mode="no_checks",
-                **load_kwargs,
-            )
+            dataset = load_dataset(dataset_name, split=split)
             assert isinstance(dataset, Dataset)
             return dataset
         except Exception as exc:
@@ -130,28 +122,9 @@ def get_dataset(
         assert isinstance(df, pd.DataFrame)
     else:
         # Load dataset from HuggingFace Hub
-        try:
-            dataset = _load_hf_dataset_with_retry(dataset_name, split)
-            df = dataset.to_pandas()
-            assert isinstance(df, pd.DataFrame)
-        except Exception as exc:
-            # Some datasets (e.g., Multi-SWE-Bench) occasionally ship schema
-            # changes that break the strict HF feature casting. Fall back to
-            # streaming mode and build the DataFrame manually to bypass schema
-            # enforcement.
-            logger.warning(
-                "load_dataset strict mode failed (%s); falling back to streaming",
-                exc,
-            )
-            stream_ds = load_dataset(
-                dataset_name,
-                split=split,
-                streaming=True,
-                trust_remote_code=True,
-                verification_mode="no_checks",
-            )
-            df = pd.DataFrame(list(stream_ds))
-            assert isinstance(df, pd.DataFrame)
+        dataset = _load_hf_dataset_with_retry(dataset_name, split)
+        df = dataset.to_pandas()
+        assert isinstance(df, pd.DataFrame)
 
     # TODO: Add the ability to filter dataset
     logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")
