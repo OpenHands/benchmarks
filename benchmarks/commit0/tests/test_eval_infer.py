@@ -36,7 +36,6 @@ def test_output_file_naming():
         process_commit0_results(
             str(input_file),
             str(expected_output_file),
-            "litellm_proxy/claude-sonnet-4-5-20250929",
         )
 
         # Verify the output file was created
@@ -82,7 +81,6 @@ def test_output_file_naming_with_different_input_name():
         process_commit0_results(
             str(input_file),
             str(expected_output_file),
-            "litellm_proxy/claude-sonnet-4-5-20250929",
         )
 
         # Verify the output file was created

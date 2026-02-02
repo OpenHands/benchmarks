@@ -17,8 +17,8 @@ import sys
 from pathlib import Path
 
 from benchmarks.swebench import constants
+from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.model_name import format_model_name_or_path
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -27,9 +27,7 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str
-) -> None:
+def convert_to_swebench_format(input_file: str, output_file: str) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
 
@@ -48,12 +46,8 @@ def convert_to_swebench_format(
     {
         "instance_id": "django__django-11333",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands-{version}/claude-sonnet-4-5-20250929"
+        "model_name_or_path": "<MODEL_NAME_OR_PATH>"
     }
-
-    The model_name_or_path is formatted as "OpenHands-{version}/{model_name}" where
-    model_name is extracted from the LLM config's `model` field
-    (e.g., "litellm_proxy/claude-sonnet-4-5-20250929" becomes "claude-sonnet-4-5-20250929").
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
 
@@ -96,7 +90,7 @@ def convert_to_swebench_format(
                 swebench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": format_model_name_or_path(model_name),
+                    "model_name_or_path": MODEL_NAME_OR_PATH,
                 }
 
                 # Write to output file
@@ -195,7 +189,6 @@ def main() -> None:
 Examples:
     uv run swebench-eval output.jsonl
     uv run swebench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swebench-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
@@ -217,16 +210,6 @@ Examples:
         "--skip-evaluation",
         action="store_true",
         help="Only convert format, skip running evaluation",
-    )
-
-    parser.add_argument(
-        "--model-name",
-        required=True,
-        help=(
-            "Model identifier (required). model_name_or_path will be "
-            "'OpenHands-{version}/{model_name}' (e.g., litellm_proxy/claude-sonnet-4-5-20250929 "
-            "becomes 'OpenHands-{version}/claude-sonnet-4-5-20250929')."
-        ),
     )
 
     parser.add_argument(
@@ -256,21 +239,18 @@ Examples:
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
-    logger.info(f"Model name: {args.model_name}")
 
     try:
         # Convert format
-        convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
+        convert_to_swebench_format(str(input_file), str(output_file))
 
         if not args.skip_evaluation:
             # Run evaluation
             run_swebench_evaluation(str(output_file), args.dataset, args.workers)
 
             # Move report file to input file directory with .report.json extension
-            # SWE-Bench creates: {model_name.replace("/", "__")}.eval_{output_file.stem}.json
-            report_filename = (
-                f"{args.model_name.replace('/', '__')}.eval_{output_file.stem}.json"
-            )
+            # SWE-Bench creates: {MODEL_NAME_OR_PATH}.eval_{output_file.stem}.json
+            report_filename = f"{MODEL_NAME_OR_PATH}.eval_{output_file.stem}.json"
             report_path = output_file.parent / report_filename
             dest_report_path = input_file.with_suffix(".report.json")
 

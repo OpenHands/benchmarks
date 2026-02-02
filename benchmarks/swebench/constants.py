@@ -31,10 +31,6 @@ DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT: Final[int] = 600
 # Evaluation
 DEFAULT_EVAL_WORKERS: Final[int] = 12
 
-# Model - preserving original behavior: function default is "OpenHands", CLI default is "openhands"
-DEFAULT_MODEL_NAME: Final[str] = "OpenHands"
-DEFAULT_CLI_MODEL_NAME: Final[str] = "openhands"
-
 # Git
 GIT_USER_EMAIL: Final[str] = "evaluation@openhands.dev"
 GIT_USER_NAME: Final[str] = "OpenHands Evaluation"
