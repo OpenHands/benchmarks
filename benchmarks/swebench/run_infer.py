@@ -260,6 +260,7 @@ class SWEBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
