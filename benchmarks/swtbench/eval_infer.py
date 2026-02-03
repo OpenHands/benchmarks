@@ -23,6 +23,7 @@ from benchmarks.swtbench.image_utils import (
     compute_required_images,
     ensure_swt_bench_repo,
 )
+from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -147,9 +148,7 @@ def update_report_with_submitted_instances(
     )
 
 
-def convert_to_swtbench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> None:
+def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -168,7 +167,7 @@ def convert_to_swtbench_format(
     {
         "instance_id": "sympy__sympy-20590",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "<MODEL_NAME_OR_PATH>"
     }
     """
     logger.info(f"Converting {input_file} to SWT-Bench format: {output_file}")
@@ -211,7 +210,7 @@ def convert_to_swtbench_format(
                 swtbench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name,
+                    "model_name_or_path": MODEL_NAME_OR_PATH,
                 }
 
                 # Write to output file
@@ -351,7 +350,6 @@ def main() -> None:
 Examples:
     uv run swtbench-eval output.jsonl
     uv run swtbench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swtbench-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
@@ -373,12 +371,6 @@ Examples:
         "--skip-evaluation",
         action="store_true",
         help="Only convert format, skip running evaluation",
-    )
-
-    parser.add_argument(
-        "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
     )
 
     parser.add_argument(
@@ -409,13 +401,12 @@ Examples:
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
-    logger.info(f"Model name: {args.model_name}")
 
     dest_report_path: Path | None = None
 
     try:
         # Convert format
-        convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
+        convert_to_swtbench_format(str(input_file), str(output_file))
 
         # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
         use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
@@ -446,8 +437,7 @@ Examples:
             swt_bench_dir = cache_dir / "swt-bench"
             report_dir = swt_bench_dir / "evaluation_results"
             run_id = f"eval_{output_file.stem}"
-            model_name_safe = args.model_name.replace("/", "__")
-            report_file = report_dir / f"{model_name_safe}.{run_id}.json"
+            report_file = report_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
 
             target_dir = input_file.parent
             target_file = target_dir / "output.report.json"
