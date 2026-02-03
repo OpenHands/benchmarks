@@ -18,6 +18,7 @@ from pathlib import Path
 
 from benchmarks.swebench import constants
 from benchmarks.swebench.config import EVAL_DEFAULTS
+from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -27,11 +28,7 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def convert_to_swebench_format(
-    input_file: str,
-    output_file: str,
-    model_name: str = constants.DEFAULT_CLI_MODEL_NAME,
-) -> None:
+def convert_to_swebench_format(input_file: str, output_file: str) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
 
@@ -50,7 +47,7 @@ def convert_to_swebench_format(
     {
         "instance_id": "django__django-11333",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "<MODEL_NAME_OR_PATH>"
     }
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
@@ -94,7 +91,7 @@ def convert_to_swebench_format(
                 swebench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name,
+                    "model_name_or_path": MODEL_NAME_OR_PATH,
                 }
 
                 # Write to output file
@@ -207,7 +204,6 @@ def main() -> None:
 Examples:
     uv run swebench-eval output.jsonl
     uv run swebench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swebench-eval output.jsonl --model-name "MyModel-v1.0"
     uv run swebench-eval output.jsonl --split test --run-id my_eval --modal --timeout 1800
         """,
     )
@@ -229,11 +225,6 @@ Examples:
         "--skip-evaluation",
         action="store_true",
         help="Only convert format, skip running evaluation",
-    )
-
-    parser.add_argument(
-        "--model-name",
-        help="Model name to use in the model_name_or_path field",
     )
 
     parser.add_argument(
@@ -290,13 +281,12 @@ Examples:
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
-    logger.info(f"Model name: {args.model_name}")
 
     dest_report_path: Path | None = None
 
     try:
         # Convert format
-        convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
+        convert_to_swebench_format(str(input_file), str(output_file))
 
         if not args.skip_evaluation:
             # Run evaluation
@@ -311,8 +301,8 @@ Examples:
             )
 
             # Move report file to input file directory with .report.json extension
-            # SWE-Bench creates: {model_name.replace("/", "__")}.{run_id}.json
-            report_filename = f"{args.model_name.replace('/', '__')}.{args.run_id}.json"
+            # SWE-Bench creates: {MODEL_NAME_OR_PATH}.{run_id}.json
+            report_filename = f"{MODEL_NAME_OR_PATH}.{args.run_id}.json"
             report_path = output_file.parent / report_filename
             dest_report_path = input_file.with_suffix(".report.json")
 
