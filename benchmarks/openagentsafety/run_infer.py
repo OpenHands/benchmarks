@@ -451,6 +451,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             callbacks=[persist_callback, event_callback],
             max_iteration_per_run=self.metadata.max_iterations,
             stuck_detection=True,
+            delete_on_close=True,
         )
 
         # Generate instruction

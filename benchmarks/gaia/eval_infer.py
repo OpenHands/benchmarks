@@ -29,7 +29,6 @@ logger = get_logger(__name__)
 def process_gaia_results(
     input_file: str,
     output_file: str,
-    model_name: str = "openhands",
 ) -> None:
     """
     Process GAIA output.jsonl and generate evaluation report.
@@ -49,7 +48,6 @@ def process_gaia_results(
 
     Report format (similar to SWE-Bench):
     {
-        "model_name_or_path": "openhands",
         "total_instances": 165,
         "submitted_instances": 165,
         "completed_instances": 165,
@@ -150,7 +148,6 @@ def process_gaia_results(
 
     # Generate report
     report = {
-        "model_name_or_path": model_name,
         "total_instances": len(submitted_ids),
         "submitted_instances": len(submitted_ids),
         "completed_instances": len(completed_ids),
@@ -189,17 +186,11 @@ def main() -> None:
         epilog="""
 Examples:
     uv run gaia-eval output.jsonl
-    uv run gaia-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
+    uv run gaia-eval /path/to/output.jsonl
         """,
     )
 
     parser.add_argument("input_file", help="Path to the GAIA output.jsonl file")
-
-    parser.add_argument(
-        "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
-    )
 
     args = parser.parse_args()
 
@@ -217,14 +208,12 @@ Examples:
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
-    logger.info(f"Model name: {args.model_name}")
 
     try:
         # Process results and generate report
         process_gaia_results(
             str(input_file),
             str(output_file),
-            args.model_name,
         )
 
         # Update Laminar datapoints with evaluation scores
