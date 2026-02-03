@@ -1,4 +1,4 @@
-"""Tests for commit0 eval_infer.py."""
+"""Tests for commit0 eval_infer functionality."""
 
 import json
 import tempfile
