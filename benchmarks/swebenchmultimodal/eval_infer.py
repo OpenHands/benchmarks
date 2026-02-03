@@ -267,9 +267,8 @@ def run_swebench_multimodal_evaluation(
     predictions_dir = predictions_path.parent
     predictions_filename = predictions_path.name
 
-    # Generate run_id if not provided
-    if run_id is None:
-        run_id = f"eval_{predictions_path.stem}"
+    # Default for run_id if not provided
+    run_id = run_id or predictions_path.stem
 
     # Run SWE-Bench Multimodal evaluation using UV environment
     # The key difference from regular SWE-Bench is the --modal true flag

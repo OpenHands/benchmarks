@@ -301,7 +301,7 @@ def run_swtbench_evaluation(
             "--max_workers",
             str(workers),
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            predictions_path.stem,
         ]
 
         logger.info(f"Using Python executable: {python_executable}")
@@ -436,7 +436,7 @@ Examples:
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
             report_dir = swt_bench_dir / "evaluation_results"
-            run_id = f"eval_{output_file.stem}"
+            run_id = output_file.stem
             report_file = report_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
 
             target_dir = input_file.parent
