@@ -262,74 +262,69 @@ def run_swebench_multimodal_evaluation(
     """
     logger.info(f"Running SWE-Bench Multimodal evaluation on {predictions_file}")
 
+    # Get the directory of the predictions file
+    predictions_path = Path(predictions_file)
+    predictions_dir = predictions_path.parent
+    predictions_filename = predictions_path.name
+
+    # Generate run_id if not provided
+    if run_id is None:
+        run_id = f"eval_{predictions_path.stem}"
+
+    # Run SWE-Bench Multimodal evaluation using UV environment
+    # The key difference from regular SWE-Bench is the --modal true flag
+    cmd = [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "swebench.harness.run_evaluation",
+        "--dataset_name",
+        dataset,
+        "--split",
+        split,
+        "--predictions_path",
+        predictions_filename,
+        "--max_workers",
+        str(workers),
+        "--modal",
+        "true",
+        "--run_id",
+        run_id,
+    ]
+
+    logger.info(f"Running command: {' '.join(cmd)}")
+    logger.info(f"Working directory: {predictions_dir}")
+    logger.info("SWE-Bench Multimodal evaluation output:")
+    print("-" * 80)
+
     try:
-        # Get the directory of the predictions file
-        predictions_path = Path(predictions_file)
-        predictions_dir = predictions_path.parent
-        predictions_filename = predictions_path.name
-
-        # Generate run_id if not provided
-        if run_id is None:
-            run_id = f"eval_{predictions_path.stem}"
-
-        # Run SWE-Bench Multimodal evaluation using UV environment
-        # The key difference from regular SWE-Bench is the --modal true flag
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "swebench.harness.run_evaluation",
-            "--dataset_name",
-            dataset,
-            "--split",
-            split,
-            "--predictions_path",
-            predictions_filename,
-            "--max_workers",
-            str(workers),
-            "--modal",
-            "true",
-            "--run_id",
-            run_id,
-        ]
-
-        logger.info(f"Running command: {' '.join(cmd)}")
-        logger.info(f"Working directory: {predictions_dir}")
-        logger.info("SWE-Bench Multimodal evaluation output:")
-        print("-" * 80)
-
-        # Stream output directly to console, running from predictions file directory
         result = subprocess.run(cmd, text=True, cwd=predictions_dir)
-
-        print("-" * 80)
-        if result.returncode == 0:
-            logger.info("SWE-Bench Multimodal evaluation completed successfully")
-        else:
-            logger.error(
-                f"SWE-Bench Multimodal evaluation failed with return code {result.returncode}"
-            )
-            raise subprocess.CalledProcessError(result.returncode, cmd)
-
-        # SWE-Bench multimodal writes its summary to <MODEL_NAME_OR_PATH>.<run_id>.json
-        report_path = predictions_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
-        if not report_path.exists():
-            raise FileNotFoundError(
-                f"Expected report file not found: {report_path}. "
-                "SWE-Bench harness output naming may have changed."
-            )
-        logger.info(f"Found report.json at: {report_path}")
-        return report_path
-
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         logger.error(
             "SWE-Bench evaluation command not found. "
             "Make sure SWE-Bench is properly installed."
         )
-        raise
-    except Exception as e:
-        logger.error(f"Error running SWE-Bench Multimodal evaluation: {e}")
-        raise
+        raise e
+
+    print("-" * 80)
+    if result.returncode == 0:
+        logger.info("SWE-Bench Multimodal evaluation completed successfully")
+    else:
+        logger.error(
+            f"SWE-Bench Multimodal evaluation failed with return code {result.returncode}"
+        )
+        raise subprocess.CalledProcessError(result.returncode, cmd)
+
+    # SWE-Bench multimodal writes its summary to <MODEL_NAME_OR_PATH>.<run_id>.json
+    report_path = predictions_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
+    if not report_path.exists():
+        raise FileNotFoundError(
+            f"Expected report file not found: {report_path}. "
+            "SWE-Bench harness output naming may have changed."
+        )
+    logger.info(f"Found report.json at: {report_path}")
+    return report_path
 
 
 def main() -> None:
