@@ -333,7 +333,6 @@ class GAIAEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
-            delete_on_close=True,
         )
 
         # Send message and run
