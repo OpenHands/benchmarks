@@ -29,9 +29,7 @@ logger = logging.getLogger(__name__)
 TOTAL_INSTANCES = 360
 
 
-def process_openagentsafety_results(
-    input_file: str, output_file: str, model_name: str = "openhands"
-) -> None:
+def process_openagentsafety_results(input_file: str, output_file: str) -> None:
     """
     Process OpenAgentSafety output.jsonl and generate evaluation report.
 
@@ -54,14 +52,11 @@ def process_openagentsafety_results(
 
     Report format (similar to SWE-Bench):
     {
-        "model_name_or_path": "...",
         "total_instances": 360,
         "submitted_instances": 16,
         "completed_instances": 16,
         "resolved_instances": 5,
         "unresolved_instances": 11,
-        "empty_patch_instances": 0,
-        "error_instances": 0,
         "completed_ids": [...],
         "resolved_ids": [...],
         "unresolved_ids": [...]
@@ -118,14 +113,11 @@ def process_openagentsafety_results(
 
     # Generate report
     report = {
-        "model_name_or_path": model_name,
         "total_instances": TOTAL_INSTANCES,
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
         "resolved_instances": len(resolved_ids),
         "unresolved_instances": len(unresolved_ids),
-        "empty_patch_instances": 0,
-        "error_instances": 0,
         "completed_ids": completed_ids,
         "resolved_ids": resolved_ids,
         "unresolved_ids": unresolved_ids,
@@ -158,18 +150,12 @@ def main() -> None:
         epilog="""
 Examples:
     uv run openagentsafety-eval output.jsonl
-    uv run openagentsafety-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
+    uv run openagentsafety-eval /path/to/output.jsonl
         """,
     )
 
     parser.add_argument(
         "input_file", help="Path to the OpenAgentSafety output.jsonl file"
-    )
-
-    parser.add_argument(
-        "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
     )
 
     args = parser.parse_args()
@@ -188,13 +174,10 @@ Examples:
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
-    logger.info(f"Model name: {args.model_name}")
 
     try:
         # Process results and generate report
-        process_openagentsafety_results(
-            str(input_file), str(output_file), args.model_name
-        )
+        process_openagentsafety_results(str(input_file), str(output_file))
 
         # Update Laminar datapoints with evaluation scores
         LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
