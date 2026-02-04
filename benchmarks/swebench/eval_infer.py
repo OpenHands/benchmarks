@@ -247,14 +247,19 @@ Examples:
     parser.add_argument(
         "--modal",
         action="store_true",
-        default=EVAL_DEFAULTS["modal"],
         help="Use Modal for evaluation (default: True)",
+    )
+
+    parser.add_argument(
+        "--no-modal",
+        action="store_false",
+        dest="modal",
+        help="Disable Modal for evaluation",
     )
 
     parser.add_argument(
         "--timeout",
         type=int,
-        default=EVAL_DEFAULTS["timeout"],
         help=f"Timeout in seconds for evaluation (default: {EVAL_DEFAULTS['timeout']})",
     )
 
