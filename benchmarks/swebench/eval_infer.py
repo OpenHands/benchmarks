@@ -260,6 +260,7 @@ Examples:
     parser.add_argument(
         "--timeout",
         type=int,
+        default=EVAL_DEFAULTS["timeout"],
         help=f"Timeout in seconds for evaluation (default: {EVAL_DEFAULTS['timeout']})",
     )
 
