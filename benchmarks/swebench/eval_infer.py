@@ -117,11 +117,11 @@ def convert_to_swebench_format(input_file: str, output_file: str) -> None:
 def run_swebench_evaluation(
     predictions_file: str,
     run_id: str,
-    dataset: str = EVAL_DEFAULTS["dataset"],
-    workers: int = EVAL_DEFAULTS["workers"],
-    split: str = EVAL_DEFAULTS["split"],
-    modal: bool = EVAL_DEFAULTS["modal"],
-    timeout: int = EVAL_DEFAULTS["timeout"],
+    dataset: str,
+    workers: int,
+    split: str,
+    modal: bool,
+    timeout: int,
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
