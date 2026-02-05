@@ -246,9 +246,16 @@ Examples:
 
     parser.add_argument(
         "--modal",
+        dest="modal",
         action="store_true",
-        default=EVAL_DEFAULTS["modal"],
-        help="Use Modal for evaluation (default: True)",
+        help="Use Modal for evaluation",
+    )
+
+    parser.add_argument(
+        "--no-modal",
+        dest="modal",
+        action="store_false",
+        help="Do not use Modal for evaluation",
     )
 
     parser.add_argument(
