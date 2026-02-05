@@ -17,6 +17,7 @@ EVAL_DEFAULTS = {
     "split": "test",
     "workers": 12,
     "timeout": 3600,
+    "modal": True,
 }
 
 # Build defaults (used by build_images.py)
