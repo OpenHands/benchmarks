@@ -120,7 +120,7 @@ def run_swebench_evaluation(
     dataset: str = EVAL_DEFAULTS["dataset"],
     workers: int = EVAL_DEFAULTS["workers"],
     split: str = EVAL_DEFAULTS["split"],
-    modal: bool = EVAL_DEFAULTS["modal"],
+    modal: bool = True,
     timeout: int = EVAL_DEFAULTS["timeout"],
 ) -> None:
     """
@@ -132,7 +132,7 @@ def run_swebench_evaluation(
         dataset: SWE-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
         split: Dataset split to evaluate (e.g., 'test', 'dev')
-        modal: Whether to use Modal for evaluation
+        modal: Whether to use Modal for evaluation (default: True)
         timeout: Timeout in seconds for evaluation
     """
     logger.info(f"Running SWE-Bench evaluation on {predictions_file}")
@@ -204,7 +204,8 @@ def main() -> None:
 Examples:
     uv run swebench-eval output.jsonl
     uv run swebench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swebench-eval output.jsonl --split test --run-id my_eval --modal --timeout 1800
+    uv run swebench-eval output.jsonl --split test --run-id my_eval --timeout 1800
+    uv run swebench-eval output.jsonl --no-modal  # Disable Modal for evaluation
         """,
     )
 
@@ -245,10 +246,10 @@ Examples:
     )
 
     parser.add_argument(
-        "--modal",
-        action="store_true",
-        default=EVAL_DEFAULTS["modal"],
-        help="Use Modal for evaluation (default: True)",
+        "--no-modal",
+        dest="modal",
+        action="store_false",
+        help="Disable Modal for evaluation (Modal is enabled by default)",
     )
 
     parser.add_argument(
@@ -259,7 +260,8 @@ Examples:
     )
 
     # Apply EVAL_DEFAULTS from config (for dataset, split, workers)
-    parser.set_defaults(**EVAL_DEFAULTS)
+    # Set modal=True by default for backward compatibility
+    parser.set_defaults(**EVAL_DEFAULTS, modal=True)
 
     args = parser.parse_args()
 

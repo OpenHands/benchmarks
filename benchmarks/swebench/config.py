@@ -16,7 +16,6 @@ EVAL_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Verified",
     "split": "test",
     "workers": 12,
-    "modal": True,
     "timeout": 3600,
 }
 

@@ -246,6 +246,7 @@ def run_swebench_multimodal_evaluation(
     split: str = "dev",
     workers: str = "12",
     run_id: str | None = None,
+    modal: bool = True,
 ) -> Path | None:
     """
     Run SWE-Bench Multimodal evaluation on the predictions file.
@@ -256,6 +257,7 @@ def run_swebench_multimodal_evaluation(
         split: Dataset split to use (default: dev)
         workers: Number of workers to use for evaluation
         run_id: Optional run ID for the evaluation
+        modal: Whether to use Modal for evaluation (default: True)
 
     Returns:
         Path to the generated report.json file, or None if not found
@@ -271,7 +273,6 @@ def run_swebench_multimodal_evaluation(
     run_id = run_id or predictions_path.stem
 
     # Run SWE-Bench Multimodal evaluation using UV environment
-    # The key difference from regular SWE-Bench is the --modal true flag
     cmd = [
         "uv",
         "run",
@@ -286,11 +287,13 @@ def run_swebench_multimodal_evaluation(
         predictions_filename,
         "--max_workers",
         str(workers),
-        "--modal",
-        "true",
         "--run_id",
         run_id,
     ]
+
+    # Add modal flag if enabled
+    if modal:
+        cmd.extend(["--modal", "true"])
 
     logger.info(f"Running command: {' '.join(cmd)}")
     logger.info(f"Working directory: {predictions_dir}")
@@ -335,6 +338,7 @@ def main() -> None:
 Examples:
     uv run swebenchmultimodal-eval output.jsonl
     uv run swebenchmultimodal-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Multimodal
+    uv run swebenchmultimodal-eval output.jsonl --no-modal  # Disable Modal for evaluation
         """,
     )
 
@@ -368,7 +372,15 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
-    parser.set_defaults(**EVAL_DEFAULTS)
+    parser.add_argument(
+        "--no-modal",
+        dest="modal",
+        action="store_false",
+        help="Disable Modal for evaluation (Modal is enabled by default)",
+    )
+
+    # Apply EVAL_DEFAULTS from config and set modal=True by default for backward compatibility
+    parser.set_defaults(**EVAL_DEFAULTS, modal=True)
 
     parser.add_argument(
         "--run-id",
@@ -405,7 +417,12 @@ Examples:
         if not args.skip_evaluation:
             # Run multimodal evaluation
             report_path = run_swebench_multimodal_evaluation(
-                str(output_file), args.dataset, args.split, args.workers, args.run_id
+                str(output_file),
+                args.dataset,
+                args.split,
+                args.workers,
+                args.run_id,
+                args.modal,
             )
 
             # Calculate component scores if we have a report
