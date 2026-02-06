@@ -40,7 +40,8 @@ dependencies = [
     "tenacity>=9.1.2",
     "websockets>=12",
     "lmnr>=0.7.24",
-    "multi-swe-bench>=1.1.1",
+    # TODO Remove the macOS exclusion once https://github.com/multi-swe-bench/multi-swe-bench/pull/93 is merged and released
+    "multi-swe-bench>=1.1.1; sys_platform != 'darwin'",
     "swt-bench @ git+https://github.com/logic-star-ai/swt-bench.git@5fdcd446ff05e248ecfffc19d560a210699f71f8",
 ]
 
