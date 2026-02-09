@@ -1,15 +1,18 @@
+import json
 import os
 from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swebench import constants
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
     should_wrap_instance_id,
     wrap_image,
 )
+from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -114,10 +117,12 @@ class SWEBenchEvaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = constants.DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
-        suffix = f"-{build_target}" if build_target != "binary" else ""
+        suffix = (
+            f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
+        )
         base_agent_image = (
             f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
         )
@@ -183,10 +188,15 @@ class SWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(constants.DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                    "RUNTIME_API_URL", constants.DEFAULT_RUNTIME_API_URL
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
@@ -250,6 +260,7 @@ class SWEBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
@@ -277,11 +288,12 @@ class SWEBenchEvaluation(Evaluation):
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+            f"git config --global user.email '{constants.GIT_USER_EMAIL}' && "
+            f"git config --global user.name '{constants.GIT_USER_NAME}' && "
+            f"git commit --no-verify -m '{constants.GIT_COMMIT_MESSAGE}'"
         )
 
         # Get git patch
@@ -325,6 +337,7 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts
@@ -381,6 +394,8 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
+    # Emit machine-readable path for callers
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":

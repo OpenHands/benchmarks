@@ -331,6 +331,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
@@ -371,11 +372,12 @@ class MultiSWEBenchEvaluation(Evaluation):
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
             "git config --global user.email 'evaluation@openhands.dev' && "
             "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+            "git commit --no-verify -m 'patch'"
         )
 
         # Get git patch - handle both SWE-Bench and Multi-SWE-Bench data formats
@@ -491,9 +493,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
-
-    # Output the result file path for the rollout script
-    print(f"### OUTPUT FILE: {evaluator.output_path} ###")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":

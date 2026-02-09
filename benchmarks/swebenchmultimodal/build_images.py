@@ -10,6 +10,7 @@ Example:
 
 import sys
 
+from benchmarks.swebenchmultimodal.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -68,6 +69,7 @@ def collect_unique_base_images(dataset, split, n_limit):
 
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
+    parser.set_defaults(**BUILD_DEFAULTS)
     args = parser.parse_args(argv)
 
     base_images: list[str] = collect_unique_base_images(

@@ -26,9 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_commit0_results(
-    input_file: str, output_file: str, model_name: str = "openhands"
-) -> None:
+def process_commit0_results(input_file: str, output_file: str) -> None:
     """
     Process Commit0 output.jsonl and generate evaluation report.
 
@@ -122,7 +120,6 @@ def process_commit0_results(
 
     # Generate report
     report = {
-        "model_name_or_path": model_name,
         "total_instances": 16,  # Fixed as per requirement
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),
@@ -166,17 +163,11 @@ def main() -> None:
         epilog="""
 Examples:
     uv run commit0-eval output.jsonl
-    uv run commit0-eval /path/to/output.jsonl --model-name "MyModel-v1.0"
+    uv run commit0-eval /path/to/output.jsonl
         """,
     )
 
     parser.add_argument("input_file", help="Path to the Commit0 output.jsonl file")
-
-    parser.add_argument(
-        "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
-    )
 
     args = parser.parse_args()
 
@@ -194,11 +185,10 @@ Examples:
 
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
-    logger.info(f"Model name: {args.model_name}")
 
     try:
         # Process results and generate report
-        process_commit0_results(str(input_file), str(output_file), args.model_name)
+        process_commit0_results(str(input_file), str(output_file))
 
         # Update Laminar datapoints with evaluation scores
         LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
@@ -207,6 +197,7 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        print(json.dumps({"report_json": str(output_file)}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")

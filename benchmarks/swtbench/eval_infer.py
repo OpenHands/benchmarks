@@ -18,10 +18,12 @@ import sys
 from pathlib import Path
 from time import monotonic
 
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import (
     compute_required_images,
     ensure_swt_bench_repo,
 )
+from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -67,7 +69,7 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
 def try_pull_prebaked_images(
     predictions_file: Path,
     dataset: str,
-    split: str = "test",
+    split: str = EVAL_DEFAULTS["split"],
     registry: str = PREBAKED_REGISTRY,
 ) -> None:
     """
@@ -146,9 +148,7 @@ def update_report_with_submitted_instances(
     )
 
 
-def convert_to_swtbench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> None:
+def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -167,7 +167,7 @@ def convert_to_swtbench_format(
     {
         "instance_id": "sympy__sympy-20590",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "<MODEL_NAME_OR_PATH>"
     }
     """
     logger.info(f"Converting {input_file} to SWT-Bench format: {output_file}")
@@ -210,7 +210,7 @@ def convert_to_swtbench_format(
                 swtbench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name,
+                    "model_name_or_path": MODEL_NAME_OR_PATH,
                 }
 
                 # Write to output file
@@ -301,7 +301,7 @@ def run_swtbench_evaluation(
             "--max_workers",
             str(workers),
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            predictions_path.stem,
         ]
 
         logger.info(f"Using Python executable: {python_executable}")
@@ -350,7 +350,6 @@ def main() -> None:
 Examples:
     uv run swtbench-eval output.jsonl
     uv run swtbench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swtbench-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
@@ -359,9 +358,7 @@ Examples:
     # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Verified",
-        help="SWT-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Verified)",
+        help="SWT-Bench dataset to evaluate against",
     )
 
     parser.add_argument(
@@ -377,16 +374,12 @@ Examples:
     )
 
     parser.add_argument(
-        "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
-    )
-
-    parser.add_argument(
         "--workers",
-        default="12",
+        type=int,
         help="Number of workers to use when evaluating",
     )
+
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 
@@ -408,11 +401,12 @@ Examples:
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
-    logger.info(f"Model name: {args.model_name}")
+
+    dest_report_path: Path | None = None
 
     try:
         # Convert format
-        convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
+        convert_to_swtbench_format(str(input_file), str(output_file))
 
         # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
         use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
@@ -442,14 +436,14 @@ Examples:
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
             report_dir = swt_bench_dir / "evaluation_results"
-            run_id = f"eval_{output_file.stem}"
-            model_name_safe = args.model_name.replace("/", "__")
-            report_file = report_dir / f"{model_name_safe}.{run_id}.json"
+            run_id = output_file.stem
+            report_file = report_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
 
             target_dir = input_file.parent
             target_file = target_dir / "output.report.json"
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
+            dest_report_path = target_file
             update_report_with_submitted_instances(target_file, output_file)
 
             # Update Laminar datapoints with evaluation scores
@@ -468,6 +462,7 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        print(json.dumps({"report_json": str(dest_report_path or "")}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")

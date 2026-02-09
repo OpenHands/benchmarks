@@ -3,12 +3,14 @@ import os
 from pathlib import Path
 from typing import List
 
+import requests
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebenchmultimodal.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.swebenchmultimodal.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -43,6 +45,34 @@ from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
+
+
+def is_valid_image_url(url: str, allowed_types: list | None = None) -> bool:
+    """
+    Check if a URL points to a valid image by examining the HTTP response content type.
+
+    Args:
+        url: The URL to check
+        allowed_types: List of allowed MIME types. If None, defaults to common image types.
+
+    Returns:
+        True if URL points to a valid image type, False otherwise
+    """
+    if allowed_types is None:
+        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+
+    try:
+        # Send a HEAD request first to check headers without downloading the entire file
+        response = requests.head(url, allow_redirects=True, timeout=5)
+        response.raise_for_status()
+
+        # Get the content type from the response headers
+        content_type = response.headers.get("Content-Type", "")
+
+        # Check if the content type is in the allowed types
+        return any(content_type.startswith(t) for t in allowed_types)
+    except Exception:
+        return False
 
 
 def get_instruction(
@@ -251,37 +281,22 @@ class SWEBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
-        # For multimodal datasets, we don't copy from testbed since it doesn't exist
-        # The repo should already be available in the workspace
-        logger.info("Skipping testbed copy for multimodal dataset")
-
-        # Create repo directory if it doesn't exist
-        mkdir_result = workspace.execute_command(f"mkdir -p {repo_path}")
-        if mkdir_result.exit_code != 0:
-            logger.warning(f"mkdir failed: {mkdir_result.stderr}")
-
-        # Initialize git repo if it doesn't exist, or reset if it does
-        git_init_result = workspace.execute_command(f"cd {repo_path} ; git init")
-        if git_init_result.exit_code != 0:
-            logger.warning(f"git init failed: {git_init_result.stderr}")
-
-        # Configure git user globally in the workspace
-        workspace.execute_command(
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation'"
+        # Copy testbed repo to workspace (same as regular swebench)
+        # The multimodal benchmark uses regular SWE-bench images which have /testbed
+        cp_testbed_repo = workspace.execute_command(
+            f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}"
+        )
+        assert cp_testbed_repo.exit_code == 0, (
+            f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"
         )
 
-        # Create an empty initial commit to establish HEAD
-        initial_commit_result = workspace.execute_command(
-            f"cd {repo_path} ; git commit --allow-empty -m 'Initial empty commit'"
-        )
-        if initial_commit_result.exit_code != 0:
-            logger.warning(
-                f"Initial empty commit failed: {initial_commit_result.stderr}"
-            )
+        # git reset to clean state
+        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
+        assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
         instruction = get_instruction(
             instance=instance.data,
@@ -295,17 +310,55 @@ class SWEBenchEvaluation(Evaluation):
                 assets = json.loads(instance.data["image_assets"])
                 if "problem_statement" in assets and assets["problem_statement"]:
                     image_urls = assets["problem_statement"]
-                    logger.info(f"Sending instruction with {len(image_urls)} images")
 
-                    # Create message with both text and images
-                    message = Message(
-                        role="user",
-                        content=[
-                            TextContent(text=instruction),
-                            ImageContent(image_urls=image_urls),
-                        ],
-                    )
-                    conversation.send_message(message)
+                    # Filter and validate image URLs
+                    valid_urls = []
+                    index_dict = {}
+                    for url in image_urls:
+                        if is_valid_image_url(url):
+                            if url in instruction:
+                                valid_urls.append(url)
+                                idx = instruction.find(url)
+                                index_dict[url] = idx
+                            else:
+                                logger.warning(
+                                    f"Image URL {url} not found in instruction, skipping"
+                                )
+                        else:
+                            logger.info(
+                                f"Image URL {url} is invalid or inaccessible, skipping"
+                            )
+
+                    if valid_urls:
+                        # Sort URLs by their position in the instruction
+                        sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
+                        sorted_urls = [item[0] for item in sorted_urls]
+
+                        # Add image numbering to instruction
+                        modified_instruction = instruction
+                        for idx, url in enumerate(sorted_urls):
+                            modified_instruction = modified_instruction.replace(
+                                url, f"{url} (Image: {idx + 1})"
+                            )
+
+                        logger.info(
+                            f"Sending instruction with {len(sorted_urls)} valid images"
+                        )
+
+                        # Create message with both text and images
+                        message = Message(
+                            role="user",
+                            content=[
+                                TextContent(text=modified_instruction),
+                                ImageContent(image_urls=sorted_urls),
+                            ],
+                        )
+                        conversation.send_message(message)
+                    else:
+                        logger.info(
+                            "No valid image URLs found, sending text-only instruction"
+                        )
+                        conversation.send_message(instruction)
                 else:
                     logger.info("No problem_statement images found in image_assets")
                     conversation.send_message(instruction)
@@ -321,41 +374,25 @@ class SWEBenchEvaluation(Evaluation):
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
-        # Check if there are any changes to commit
-        status_result = workspace.execute_command(
-            f"cd {repo_path} ; git status --porcelain"
+        # git commit (same as regular swebench - includes git config)
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
+        # and prevent the commit from being created
+        workspace.execute_command(
+            f"cd {repo_path} && "
+            "git config --global user.email 'evaluation@openhands.dev' && "
+            "git config --global user.name 'OpenHands Evaluation' && "
+            "git commit --no-verify -m 'patch'"
         )
 
-        if status_result.exit_code == 0 and status_result.stdout.strip():
-            # There are changes to commit
-            commit_result = workspace.execute_command(
-                f"cd {repo_path} ; git commit -m 'patch'"
-            )
-            if commit_result.exit_code != 0:
-                logger.warning(f"git commit failed: {commit_result.stderr}")
-                git_patch = ""
-            else:
-                # Get git patch - diff between the initial commit and the current commit
-                git_patch_result = workspace.execute_command(
-                    (f"cd {repo_path} ; git --no-pager diff --no-color HEAD~1 HEAD")
-                )
-                if git_patch_result.exit_code != 0:
-                    logger.warning(f"git diff HEAD~1 failed: {git_patch_result.stderr}")
-                    # Try to get the last commit as a patch
-                    git_patch_result = workspace.execute_command(
-                        (f"cd {repo_path} ; git --no-pager show --no-color HEAD")
-                    )
-                    if git_patch_result.exit_code != 0:
-                        logger.warning("git show HEAD also failed, using empty patch")
-                        git_patch = ""
-                    else:
-                        git_patch = git_patch_result.stdout
-                else:
-                    git_patch = git_patch_result.stdout
-        else:
-            # No changes to commit
-            logger.warning("No changes detected, using empty patch")
-            git_patch = ""
+        # Get git patch (same as regular swebench - use base_commit)
+        base_commit = instance.data["base_commit"]
+        git_patch_result = workspace.execute_command(
+            f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD"
+        )
+        assert git_patch_result.exit_code == 0, (
+            f"git diff failed: {git_patch_result.stderr}"
+        )
+        git_patch = git_patch_result.stdout
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
@@ -388,8 +425,8 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
-    # Override the default dataset and split for multimodal
-    parser.set_defaults(dataset="princeton-nlp/SWE-bench_Multimodal", split="dev")
+    # Apply INFER_DEFAULTS from config (matches evaluation repository values.yaml)
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts
@@ -446,6 +483,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":

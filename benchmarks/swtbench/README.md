@@ -8,7 +8,7 @@ Before running any benchmarks, you need to set up the environment see main READM
 ### 1. Run SWT-Bench Evaluation
 ```bash
 # Run evaluation with your configured LLM
-uv run swtbench-infer .llm_config/sonnet-4.json --critic pass
+uv run swtbench-infer .llm_config/sonnet-4.json --max-attempts 3 --n-limit 500 --max-iterations 500 --critic finish_with_patch
 ```
 
 ### 2. Selecting Specific Instances
@@ -26,13 +26,7 @@ requests__requests-5555
 
 2. Run evaluation with the selection file:
 ```bash
-python -m benchmarks.swtbench.run_infer \
-    --llm-config llm_config.toml \
-    --max-iterations 30 \
-    --select instances.txt \
-    --eval-output-dir ./evaluation_results \
-    --max-attempts 3 \
-    --critic finish_with_patch
+uv run swtbench-infer .llm_config/sonnet-4.json --max-attempts 3 --select instances.txt --n-limit 500 --max-iterations 500 --critic finish_with_patch
 ```
 
 This will only evaluate the instances listed in the file.
