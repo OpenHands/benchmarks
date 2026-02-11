@@ -493,33 +493,6 @@ For example: if you want to search for a research paper on Arxiv, either use the
                     )
                     return text
 
-            # Check for alternative output sources before retrying
-            if attempt == 0:
-                # Check for finish events that might contain output (legacy check)
-                finish_events = [
-                    e for e in events if "finish" in type(e).__name__.lower()
-                ]
-                if finish_events:
-                    logger.info(f"Found {len(finish_events)} finish events")
-                    for event in reversed(finish_events):
-                        output = getattr(event, "output", None)
-                        if output:
-                            logger.info(
-                                f"Found output in {type(event).__name__}: "
-                                f"{str(output)[:100]}"
-                            )
-                            return str(output)
-
-                # Check for error events
-                error_events = [
-                    e for e in events if "error" in type(e).__name__.lower()
-                ]
-                if error_events:
-                    logger.warning(
-                        f"Found {len(error_events)} error events: "
-                        f"{[type(e).__name__ for e in error_events]}"
-                    )
-
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
                 current_delay = retry_delay * (retry_backoff**attempt)
