@@ -434,9 +434,7 @@ For example: if you want to search for a research paper on Arxiv, either use the
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
         """Extract the last agent message/thought from conversation history.
 
-        This method searches for agent output in the following priority order:
-        1. Agent MessageEvent with llm_message content
-        2. ActionEvent with FinishAction containing a message
+        This method searches for agent output from either MessageEvent or FinishAction.
 
         Note: When using RemoteConversation (with DockerWorkspace), there's a race
           condition where the final MessageEvent might not appear in the events list
@@ -473,27 +471,27 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 )
 
             for event in reversed(events):
-                # Priority 1: Check for agent MessageEvent
-                if isinstance(event, MessageEvent) and event.source == "agent":
-                    logger.info(
-                        f"Found agent MessageEvent on attempt {attempt + 1}: "
-                        f"{type(event).__name__}"
-                    )
+                if not hasattr(event, "source") or event.source != "agent":
+                    continue
+
+                # Extract text from either MessageEvent or FinishAction
+                text = None
+                if isinstance(event, MessageEvent):
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
-                        return content.text
+                        text = content.text
+                elif isinstance(event, ActionEvent) and isinstance(
+                    event.action, FinishAction
+                ):
+                    text = event.action.message
 
-                # Priority 2: Check for FinishAction with message
-                if isinstance(event, ActionEvent) and event.source == "agent":
-                    if isinstance(event.action, FinishAction):
-                        finish_message = event.action.message
-                        if finish_message:
-                            logger.info(
-                                f"Found FinishAction with message on attempt {attempt + 1}: "
-                                f"{finish_message[:100]}..."
-                            )
-                            return finish_message
+                if text:
+                    logger.info(
+                        f"Found agent output on attempt {attempt + 1}: "
+                        f"{type(event).__name__} - {text[:100]}..."
+                    )
+                    return text
 
             # Check for alternative output sources before retrying
             if attempt == 0:
