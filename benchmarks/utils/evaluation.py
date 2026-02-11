@@ -8,8 +8,9 @@ import os
 import sys
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -38,6 +39,19 @@ from openhands.workspace import APIRemoteWorkspace
 
 logger = get_logger(__name__)
 
+# Interval in seconds between checking for per-instance timeouts
+TIMEOUT_CHECK_INTERVAL_SECONDS = 60
+
+
+@dataclass
+class PendingInstance:
+    """Tracks state for a pending evaluation instance."""
+
+    instance: EvalInstance
+    start_time: float
+    datapoint_id: UUID | None = None
+
+
 OnResult = Callable[[EvalInstance, EvalOutput], None]
 
 
@@ -51,7 +65,13 @@ class Evaluation(ABC, BaseModel):
     )
     instance_timeout: int = Field(
         default=4 * 60 * 60,  # 4 hours
-        description="Maximum time in seconds for a single instance to complete",
+        description=(
+            "Maximum time in seconds for a single instance to complete. "
+            "Note: When a timeout occurs, the instance is marked as failed and "
+            "removed from tracking, but the underlying worker process may continue "
+            "running until pool shutdown. This is a limitation of ProcessPoolExecutor - "
+            "Future.cancel() only prevents unstarted futures from starting."
+        ),
     )
 
     def model_post_init(self, __context) -> None:
@@ -344,10 +364,9 @@ class Evaluation(ABC, BaseModel):
 
             # Run evaluation for this attempt
             pool = ProcessPoolExecutor(max_workers=self.num_workers)
-            futures: list = []
-            future_to_instance: dict = {}
-            future_start_times: dict = {}
-            lmnr_datapoints: dict[str, UUID] = {}
+            futures: list[Future] = []
+            # Consolidated tracking: maps future -> PendingInstance
+            pending_instances: dict[Future, PendingInstance] = {}
             try:
                 for index, inst in enumerate(instances_to_process):
                     datapoint_id, lmnr_span_ctx = (
@@ -360,17 +379,18 @@ class Evaluation(ABC, BaseModel):
                             trace_metadata=self._laminar_trace_meta,
                         )
                     )
-                    if datapoint_id is not None:
-                        lmnr_datapoints[inst.id] = datapoint_id
 
                     fut = pool.submit(
                         self._process_one_mp, inst, lmnr_span_ctx, attempt
                     )
                     futures.append(fut)
-                    future_to_instance[fut] = inst
-                    future_start_times[fut] = time.monotonic()
+                    pending_instances[fut] = PendingInstance(
+                        instance=inst,
+                        start_time=time.monotonic(),
+                        datapoint_id=datapoint_id,
+                    )
 
-                pending: set = set(futures)
+                pending: set[Future] = set(futures)
                 progress = tqdm(
                     total=len(futures), desc=f"Attempt {attempt}", leave=False
                 )
@@ -379,7 +399,9 @@ class Evaluation(ABC, BaseModel):
                     # Wait for any future to complete, with short timeout to check
                     # for per-instance timeouts
                     done, pending = wait(
-                        pending, timeout=60, return_when=FIRST_COMPLETED
+                        pending,
+                        timeout=TIMEOUT_CHECK_INTERVAL_SECONDS,
+                        return_when=FIRST_COMPLETED,
                     )
 
                     # Process completed futures
@@ -387,13 +409,16 @@ class Evaluation(ABC, BaseModel):
                         progress.update(1)
                         try:
                             instance, out = fut.result()
+                            pending_info = pending_instances.get(fut)
 
                             # Add Laminar metadata to EvalOutput
                             if out.metadata is None:
                                 out.metadata = self.metadata.model_copy(deep=True)
                             out.metadata.lmnr = LaminarEvalMetadata(
                                 eval_id=self.metadata.lmnr.eval_id,
-                                datapoint_id=lmnr_datapoints.get(instance.id, None),
+                                datapoint_id=(
+                                    pending_info.datapoint_id if pending_info else None
+                                ),
                             )
 
                             attempt_on_result(instance, out)
@@ -409,14 +434,16 @@ class Evaluation(ABC, BaseModel):
                     timed_out_futures = [
                         fut
                         for fut in pending
-                        if now - future_start_times[fut] > self.instance_timeout
+                        if now - pending_instances[fut].start_time
+                        > self.instance_timeout
                     ]
 
                     for fut in timed_out_futures:
                         pending.discard(fut)
                         progress.update(1)
-                        inst = future_to_instance.get(fut)
-                        if inst:
+                        pending_info = pending_instances.get(fut)
+                        if pending_info:
+                            inst = pending_info.instance
                             logger.error(
                                 f"Instance {inst.id} timed out after "
                                 f"{self.instance_timeout}s"
@@ -433,13 +460,15 @@ class Evaluation(ABC, BaseModel):
                                 error_output.metadata = self.metadata.model_copy(
                                     deep=True
                                 )
-                            assert error_output.metadata is not None
-                            assert self.metadata.lmnr is not None
-                            error_output.metadata.lmnr = LaminarEvalMetadata(
-                                eval_id=self.metadata.lmnr.eval_id,
-                                datapoint_id=lmnr_datapoints.get(inst.id, None),
-                            )
+                            # metadata is guaranteed non-None after the above assignment
+                            if self.metadata.lmnr is not None:
+                                error_output.metadata.lmnr = LaminarEvalMetadata(
+                                    eval_id=self.metadata.lmnr.eval_id,
+                                    datapoint_id=pending_info.datapoint_id,
+                                )
                             attempt_on_result(inst, error_output)
+                        # Note: fut.cancel() only prevents unstarted futures from
+                        # starting. Running workers will continue until pool shutdown.
                         fut.cancel()
 
                 progress.close()
