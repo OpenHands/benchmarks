@@ -6,8 +6,9 @@ import base64
 import json
 import os
 import sys
+import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,10 @@ class Evaluation(ABC, BaseModel):
     num_workers: int = Field(default=1, ge=1)
     current_attempt: int = Field(
         default=1, description="Current attempt number (1-indexed)"
+    )
+    instance_timeout: int = Field(
+        default=4 * 60 * 60,  # 4 hours
+        description="Maximum time in seconds for a single instance to complete",
     )
 
     def model_post_init(self, __context) -> None:
@@ -339,10 +344,11 @@ class Evaluation(ABC, BaseModel):
 
             # Run evaluation for this attempt
             pool = ProcessPoolExecutor(max_workers=self.num_workers)
-            futures = []
+            futures: list = []
+            future_to_instance: dict = {}
+            future_start_times: dict = {}
+            lmnr_datapoints: dict[str, UUID] = {}
             try:
-                futures = []
-                lmnr_datapoints: dict[str, UUID] = dict()
                 for index, inst in enumerate(instances_to_process):
                     datapoint_id, lmnr_span_ctx = (
                         LaminarService.get().create_evaluation_datapoint(
@@ -357,34 +363,86 @@ class Evaluation(ABC, BaseModel):
                     if datapoint_id is not None:
                         lmnr_datapoints[inst.id] = datapoint_id
 
-                    futures.append(
-                        pool.submit(self._process_one_mp, inst, lmnr_span_ctx, attempt)
+                    fut = pool.submit(
+                        self._process_one_mp, inst, lmnr_span_ctx, attempt
+                    )
+                    futures.append(fut)
+                    future_to_instance[fut] = inst
+                    future_start_times[fut] = time.monotonic()
+
+                pending: set = set(futures)
+                progress = tqdm(
+                    total=len(futures), desc=f"Attempt {attempt}", leave=False
+                )
+
+                while pending:
+                    # Wait for any future to complete, with short timeout to check
+                    # for per-instance timeouts
+                    done, pending = wait(
+                        pending, timeout=60, return_when=FIRST_COMPLETED
                     )
 
-                for fut in tqdm(
-                    as_completed(futures),
-                    total=len(futures),
-                    desc=f"Attempt {attempt}",
-                    leave=False,
-                ):
-                    try:
-                        instance, out = fut.result()
+                    # Process completed futures
+                    for fut in done:
+                        progress.update(1)
+                        try:
+                            instance, out = fut.result()
 
-                        # Add Laminar metadata to EvalOutput so we can use it in the evaluation process
-                        if out.metadata is None:
-                            out.metadata = self.metadata.model_copy(deep=True)
-                        out.metadata.lmnr = LaminarEvalMetadata(
-                            eval_id=self.metadata.lmnr.eval_id,
-                            datapoint_id=lmnr_datapoints.get(instance.id, None),
-                        )
+                            # Add Laminar metadata to EvalOutput
+                            if out.metadata is None:
+                                out.metadata = self.metadata.model_copy(deep=True)
+                            out.metadata.lmnr = LaminarEvalMetadata(
+                                eval_id=self.metadata.lmnr.eval_id,
+                                datapoint_id=lmnr_datapoints.get(instance.id, None),
+                            )
 
-                        attempt_on_result(instance, out)
-                    except Exception as e:
-                        logger.error(
-                            f"Unexpected error from worker process: {str(e)[:50]}",
-                            exc_info=True,
-                            stack_info=True,
-                        )
+                            attempt_on_result(instance, out)
+                        except Exception as e:
+                            logger.error(
+                                f"Unexpected error from worker process: {str(e)[:50]}",
+                                exc_info=True,
+                                stack_info=True,
+                            )
+
+                    # Check for per-instance timeouts
+                    now = time.monotonic()
+                    timed_out_futures = [
+                        fut
+                        for fut in pending
+                        if now - future_start_times[fut] > self.instance_timeout
+                    ]
+
+                    for fut in timed_out_futures:
+                        pending.discard(fut)
+                        progress.update(1)
+                        inst = future_to_instance.get(fut)
+                        if inst:
+                            logger.error(
+                                f"Instance {inst.id} timed out after "
+                                f"{self.instance_timeout}s"
+                            )
+                            error_output = self._create_error_output(
+                                inst,
+                                TimeoutError(
+                                    f"Instance did not complete within "
+                                    f"{self.instance_timeout}s timeout"
+                                ),
+                                attempt,
+                            )
+                            if error_output.metadata is None:
+                                error_output.metadata = self.metadata.model_copy(
+                                    deep=True
+                                )
+                            assert error_output.metadata is not None
+                            assert self.metadata.lmnr is not None
+                            error_output.metadata.lmnr = LaminarEvalMetadata(
+                                eval_id=self.metadata.lmnr.eval_id,
+                                datapoint_id=lmnr_datapoints.get(inst.id, None),
+                            )
+                            attempt_on_result(inst, error_output)
+                        fut.cancel()
+
+                progress.close()
 
                 # Normal completion - shutdown gracefully
                 pool.shutdown(wait=True)
