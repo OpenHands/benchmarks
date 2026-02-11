@@ -40,6 +40,8 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
+from openhands.sdk.event import ActionEvent
+from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
@@ -432,6 +434,10 @@ For example: if you want to search for a research paper on Arxiv, either use the
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
         """Extract the last agent message/thought from conversation history.
 
+        This method searches for agent output in the following priority order:
+        1. Agent MessageEvent with llm_message content
+        2. ActionEvent with FinishAction containing a message
+
         Note: When using RemoteConversation (with DockerWorkspace), there's a race
           condition where the final MessageEvent might not appear in the events list
           immediately after run() completes, due to WebSocket event streaming.
@@ -467,20 +473,31 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 )
 
             for event in reversed(events):
+                # Priority 1: Check for agent MessageEvent
                 if isinstance(event, MessageEvent) and event.source == "agent":
                     logger.info(
                         f"Found agent MessageEvent on attempt {attempt + 1}: "
                         f"{type(event).__name__}"
                     )
-                    # Try different event types
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
                         return content.text
 
+                # Priority 2: Check for FinishAction with message
+                if isinstance(event, ActionEvent) and event.source == "agent":
+                    if isinstance(event.action, FinishAction):
+                        finish_message = event.action.message
+                        if finish_message:
+                            logger.info(
+                                f"Found FinishAction with message on attempt {attempt + 1}: "
+                                f"{finish_message[:100]}..."
+                            )
+                            return finish_message
+
             # Check for alternative output sources before retrying
             if attempt == 0:
-                # Check for finish events that might contain output
+                # Check for finish events that might contain output (legacy check)
                 finish_events = [
                     e for e in events if "finish" in type(e).__name__.lower()
                 ]
@@ -510,7 +527,7 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 current_delay = retry_delay * (retry_backoff**attempt)
                 current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
-                    "Agent MessageEvent not found yet, "
+                    "Agent MessageEvent or FinishAction not found yet, "
                     f"waiting {current_delay:.1f}s before retry..."
                 )
                 time.sleep(current_delay)
