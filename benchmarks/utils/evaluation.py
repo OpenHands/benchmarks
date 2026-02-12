@@ -736,80 +736,11 @@ class Evaluation(ABC, BaseModel):
 def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     """Reset the logger for multiprocessing with instance-specific logging.
 
-    Save logs to a separate file for each instance, instead of trying to write to the
-    same file/console from multiple processes. This provides:
-    - One INFO line to console at start with tail hint
-    - All subsequent logs go to instance-specific file
-    - Only WARNING+ messages go to console after initial message
-
-    Args:
-        log_dir: Directory to store log files
-        instance_id: Unique identifier for the instance being processed
+    See benchmarks.utils.console_logging.setup_instance_logging for details.
     """
-    import logging
+    from benchmarks.utils.console_logging import setup_instance_logging
 
-    # Set up logger
-    log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
-    output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
-
-    # Get root logger and remove all existing handlers
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
-    class ConversationEventFilter(logging.Filter):
-        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
-            msg = record.getMessage()
-            return msg in {"conversation_event", "conversation_event_metadata"}
-
-    # Datadog/console handler for conversation events (bypasses stdout redirection)
-    # if bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, False)):
-    if True:  # force datadog logging
-        from pythonjsonlogger.json import JsonFormatter
-
-        dd_handler = logging.StreamHandler(sys.__stdout__)
-        dd_handler.setLevel(logging.INFO)
-        dd_handler.addFilter(ConversationEventFilter())
-        dd_handler.setFormatter(
-            JsonFormatter(
-                fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
-            )
-        )
-        root_logger.addHandler(dd_handler)
-
-    # Create console handler for initial message
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(
-        logging.Formatter(
-            f"Instance {instance_id} - " + "%(asctime)s - %(levelname)s - %(message)s"
-        )
-    )
-    root_logger.addHandler(console_handler)
-    root_logger.setLevel(logging.DEBUG)
-
-    # Print one INFO line with helpful hint
-    root_logger.info(
-        f"""
-    === Evaluation Started (instance {instance_id}) ===
-    View live output:
-    • tail -f {log_file}          (logger)
-    • tail -f {output_log_file}   (stdout/stderr)
-    ===============================================
-    """.strip()
-    )
-
-    # Now set console to WARNING+ only
-    console_handler.setLevel(logging.WARNING)
-
-    # Add file handler for detailed logs
-    os.makedirs(log_dir, exist_ok=True)
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    )
-    file_handler.setLevel(logging.INFO)
-    root_logger.addHandler(file_handler)
+    setup_instance_logging(log_dir, instance_id)
 
 
 @contextmanager

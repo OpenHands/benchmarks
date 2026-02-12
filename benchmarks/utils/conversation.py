@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from openhands.sdk import Event, get_logger
+from openhands.sdk.event import ActionEvent
+
+from benchmarks.utils.console_logging import print_trajectory_line
 
 
 logger = get_logger(__name__)
@@ -67,7 +70,7 @@ def _truncate(s: str, max_len: int) -> str:
 
 
 def build_event_persistence_callback(
-    run_id: str, instance_id: str, attempt: int = 1
+    run_id: str, instance_id: str, attempt: int = 1, show_trajectory: bool = True
 ) -> ConversationCallback:
     """
     Create a callback that logs events for later retrieval.
@@ -81,15 +84,31 @@ def build_event_persistence_callback(
         run_id: Unique identifier for this evaluation run (e.g., job name).
         instance_id: Identifier for the evaluation instance.
         attempt: Attempt number for retries (1-indexed).
+        show_trajectory: If True, print trajectory logs to console.
 
     Returns:
         A callback function to be passed to Conversation.
     """
+    short_id = (
+        instance_id.split("__")[-1][:20] if "__" in instance_id else instance_id[:20]
+    )
+    tool_call_index = 0
     # if not bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, True)):
     #     return lambda event: None
     # TODO: Re-enable the above once we have debugged runtime issues
 
     def _persist_event(event: Event) -> None:
+        nonlocal tool_call_index
+
+        # Print trajectory line to console (uses console_logging helper)
+        if show_trajectory:
+            if isinstance(event, ActionEvent) and event.tool_name:
+                tool_call_index += 1
+            print_trajectory_line(
+                event, short_id=short_id, tool_call_index=tool_call_index
+            )
+
+        # Persist event to logs
         try:
             serialized = event.model_dump_json(exclude_none=True)
             event_size = len(serialized.encode("utf-8"))

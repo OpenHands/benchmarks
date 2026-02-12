@@ -15,6 +15,7 @@ from benchmarks.multiswebench.download_dataset import download_and_concat_datase
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -398,6 +399,14 @@ class MultiSWEBenchEvaluation(Evaluation):
             f"git diff failed: {git_patch_result.stderr}"
         )
         git_patch = git_patch_result.stdout
+
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(

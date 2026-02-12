@@ -14,6 +14,7 @@ from benchmarks.commit0.build_images import (
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -506,6 +507,14 @@ class Commit0Evaluation(Evaluation):
 
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
+
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
 
         # Save workspace as zip (if supported by workspace implementation)
         zip_dest = os.path.join(

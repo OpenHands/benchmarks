@@ -7,6 +7,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swtbench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -326,6 +327,14 @@ class SWTBenchEvaluation(Evaluation):
             f"git diff failed: {git_patch_result.stderr}"
         )
         git_patch = git_patch_result.stdout
+
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
 
         out = EvalOutput(
             instance_id=instance.id,
