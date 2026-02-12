@@ -12,7 +12,11 @@ import pandas as pd
 import requests
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.openagentsafety.build_images import build_workspace_image
+from benchmarks.openagentsafety.build_images import (
+    build_workspace_image,
+    check_image_exists,
+    get_image_name,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -20,6 +24,7 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -38,12 +43,16 @@ def convert_numpy_types(obj: Any) -> Any:
         return float(obj)
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
-    elif pd.isna(obj):
-        return None
     elif isinstance(obj, dict):
         return {k: convert_numpy_types(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [convert_numpy_types(item) for item in obj]
+    else:
+        try:
+            if pd.isna(obj):
+                return None
+        except (ValueError, TypeError):
+            pass
     return obj
 
 
@@ -57,8 +66,13 @@ class NumpyEncoder(json.JSONEncoder):
             return float(o)
         elif isinstance(o, np.ndarray):
             return o.tolist()
-        elif pd.isna(o):
-            return None
+        elif hasattr(o, "model_dump"):
+            return o.model_dump()
+        try:
+            if pd.isna(o):
+                return None
+        except (ValueError, TypeError):
+            pass
         return super().default(o)
 
 
@@ -183,7 +197,7 @@ def cleanup_docker_containers():
                 "-a",
                 "-q",
                 "--filter",
-                "ancestor=openagentsafety-agent-server:local",
+                f"ancestor={get_image_name()}",
             ],
             capture_output=True,
             text=True,
@@ -378,7 +392,17 @@ class OpenAgentSafetyEvaluation(Evaluation):
             resource_factor: Resource factor for runtime allocation (default: 1).
             forward_env: Environment variables to forward into the workspace.
         """
-        server_image = build_workspace_image()
+        # Try to build image on-the-fly, fall back to pre-built if build fails
+        try:
+            server_image = build_workspace_image()
+        except Exception as build_error:
+            server_image = get_image_name()
+            
+            if not check_image_exists(server_image):
+                raise RuntimeError(
+                    f"On-the-fly build failed and pre-built image {server_image} does not exist"
+            )
+            logger.info(f"Using pre-built image {server_image}")
 
         workspace = DockerWorkspace(
             server_image=server_image,
@@ -462,7 +486,9 @@ class OpenAgentSafetyEvaluation(Evaluation):
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning)
-                run_conversation_with_fake_user_response(conversation)
+                run_conversation_with_fake_user_response(
+                    conversation, run_timeout=self.metadata.conversation_timeout
+                )
             logger.info(f"Conversation completed for {instance.id}")
         except ValidationError as e:
             logger.warning(f"Validation error from custom events (continuing): {e}")
@@ -530,6 +556,65 @@ class OpenAgentSafetyEvaluation(Evaluation):
         )
 
 
+def generate_report(output_jsonl: str, report_path: str, model_name: str) -> None:
+    """Generate a .report.json from the output.jsonl, matching the format
+    expected by nemo_evaluator (same schema as SWE-Bench / GAIA reports)."""
+    completed_ids: list[str] = []
+    resolved_ids: list[str] = []
+    unresolved_ids: list[str] = []
+    error_ids: list[str] = []
+
+    if not os.path.exists(output_jsonl):
+        logger.warning("No output.jsonl found at %s, skipping report", output_jsonl)
+        return
+
+    with open(output_jsonl, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            instance_id = data.get("instance_id", "")
+            error = data.get("error")
+            test_result = data.get("test_result", {})
+
+            if error or test_result.get("error"):
+                error_ids.append(instance_id)
+            else:
+                completed_ids.append(instance_id)
+                # Treat as resolved when there is no error
+                resolved_ids.append(instance_id)
+
+    submitted_ids = completed_ids + error_ids
+    report = {
+        "benchmark": "openagentsafety",
+        "model_name_or_path": model_name,
+        "total_instances": len(submitted_ids),
+        "submitted_instances": len(submitted_ids),
+        "completed_instances": len(completed_ids),
+        "incomplete_instances": 0,
+        "resolved_instances": len(resolved_ids),
+        "unresolved_instances": len(unresolved_ids),
+        "empty_patch_instances": 0,
+        "error_instances": len(error_ids),
+        "submitted_ids": submitted_ids,
+        "completed_ids": completed_ids,
+        "incomplete_ids": [],
+        "resolved_ids": resolved_ids,
+        "unresolved_ids": unresolved_ids,
+    }
+
+    with open(report_path, "w") as f:
+        json.dump(report, f, indent=4)
+
+    logger.info("Report written to %s (%d completed, %d errors)",
+                report_path, len(completed_ids), len(error_ids))
+
+
 def main() -> None:
     """Main entry point."""
     parser = get_parser(add_llm_config=True)
@@ -542,12 +627,7 @@ def main() -> None:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
     # Load LLM config
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     # Construct output directory
@@ -572,15 +652,18 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={
-            "server_image": "openagentsafety-agent-server:local",
+            "server_image": get_image_name(),
             "platform": "linux/amd64",
         },
         eval_limit=args.n_limit,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
+        skip_failed_samples=args.skip_failed_samples,
     )
 
     # Initial cleanup
@@ -635,6 +718,12 @@ def main() -> None:
 
     # Run evaluation
     evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
+
+    # Generate .report.json for nemo_evaluator compatibility
+    report_path = os.path.join(
+        metadata.eval_output_dir, "output.report.json"
+    )
+    generate_report(evaluator.output_path, report_path, llm.model)
 
     # Final cleanup
     cleanup_docker_containers()

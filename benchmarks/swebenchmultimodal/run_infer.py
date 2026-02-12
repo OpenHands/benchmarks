@@ -23,13 +23,14 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
     LLM,
     Agent,
@@ -160,7 +161,7 @@ class SWEBenchEvaluation(Evaluation):
 
         if self.metadata.workspace_type == "docker":
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
             SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
             logger.info(f"SKIP_BUILD={SKIP_BUILD}")
@@ -196,14 +197,13 @@ class SWEBenchEvaluation(Evaluation):
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
             if not image_exists(agent_server_image):
                 raise RuntimeError(
@@ -212,7 +212,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -369,7 +369,9 @@ class SWEBenchEvaluation(Evaluation):
             logger.info("No image_assets found, sending text-only instruction")
             conversation.send_message(instruction)
         # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        run_conversation_with_fake_user_response(
+            conversation, run_timeout=self.metadata.conversation_timeout
+        )
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -411,7 +413,10 @@ class SWEBenchEvaluation(Evaluation):
 
 def main() -> None:
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    try:
+        choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    except ValueError:
+        choices = [str(p) for p in prompt_dir.glob("*.j2")]
     default_prompt_path = prompt_dir / "default.j2"
     assert default_prompt_path.exists(), (
         f"Default prompt {default_prompt_path} not found"
@@ -433,12 +438,7 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -462,6 +462,7 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={},
         prompt_path=args.prompt_path,
@@ -471,6 +472,7 @@ def main() -> None:
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        skip_failed_samples=args.skip_failed_samples,
         workspace_type=args.workspace,
     )
 

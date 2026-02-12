@@ -1,4 +1,6 @@
+import os
 import subprocess
+import warnings
 from pathlib import Path
 
 
@@ -18,10 +20,19 @@ def _get_submodule_sha(submodule_path: Path) -> str:
 
 def get_sdk_sha() -> str:
     """
-    Get the current git sha from the SDK submodule.
+    Get the SDK SHA from git submodule, falling back to "unknown".
     """
-    return _get_submodule_sha(PROJECT_ROOT / "vendor" / "software-agent-sdk")
+    try:
+        return _get_submodule_sha(PROJECT_ROOT / "vendor" / "software-agent-sdk")
+    except subprocess.CalledProcessError:
+        warnings.warn(
+            "Could not get SDK SHA from git submodule. Using 'unknown' as fallback. "
+        )
+        return "unknown"
 
 
 SDK_SHA = get_sdk_sha()
 SDK_SHORT_SHA = SDK_SHA[:7]
+
+# This is used as the first part of the image tag: <prefix>-<custom_tag>-<target>
+IMAGE_TAG_PREFIX = os.getenv("IMAGE_TAG_PREFIX", SDK_SHORT_SHA)

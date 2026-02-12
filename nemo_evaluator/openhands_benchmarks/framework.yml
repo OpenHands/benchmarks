@@ -1,0 +1,266 @@
+framework:
+  name: openhands_benchmarks
+  pkg_name: openhands_benchmarks
+  full_name: OpenHands Benchmarks
+  description: Multi-benchmark evaluation harness using the OpenHands agent framework.
+  url: https://github.com/All-Hands-AI/openhands-agent-benchmarks
+
+defaults:
+  command: >-
+    python3 -m benchmarks.scripts.run_benchmark
+    --model openai/{{target.api_endpoint.model_id}}
+    --api-base-url {{target.api_endpoint.url}}
+    {% if target.api_endpoint.api_key_name is not none %}--api-key-env {{target.api_endpoint.api_key_name}}{% endif %}
+    --temperature {{config.params.temperature}}
+    --top-p {{config.params.top_p}}
+    --max-completion-tokens {{config.params.max_new_tokens}}
+    --timeout {{config.params.request_timeout}}
+    --max-retries {{config.params.max_retries}}
+    --benchmark {{config.params.extra.benchmark}}
+    {% if config.params.extra.dataset is defined and config.params.extra.dataset is not none %}--dataset {{config.params.extra.dataset}}{% endif %}
+    {% if config.params.extra.split is defined and config.params.extra.split is not none %}--split {{config.params.extra.split}}{% endif %}
+    --workspace {{config.params.extra.workspace}}
+    --max-iterations {{config.params.extra.max_steps}}
+    --conversation-timeout {{config.params.extra.conversation_timeout}}
+    --num-workers {{config.params.parallelism}}
+    --note {{config.type}}
+    --output-dir {{config.output_dir}}
+    --max-attempts {{config.params.extra.max_attempts}}
+    --instance-max-retries {{config.params.extra.instance_max_retries}}
+    {% if config.params.limit_samples is not none %}--n-limit {{config.params.limit_samples}}{% endif %}
+    {% if config.params.extra.skip_failed_samples %}--skip-failed-samples{% endif %}
+    {% if config.params.extra.level is defined and config.params.extra.level is not none %}--level {{config.params.extra.level}}{% endif %}
+    {% if config.params.extra.repo_split is defined and config.params.extra.repo_split is not none %}--repo-split {{config.params.extra.repo_split}}{% endif %}
+    {% if config.params.extra.language is defined and config.params.extra.language is not none %}--language {{config.params.extra.language}}{% endif %}
+    {% if config.params.extra.modal is defined and config.params.extra.modal is not none %}{% if config.params.extra.modal %}--modal{% else %}--no-modal{% endif %}{% endif %}
+
+  config:
+    params:
+      limit_samples: null
+      temperature: 0.6
+      top_p: 1.0
+      max_new_tokens: 64000
+      request_timeout: 84000
+      max_retries: 5
+      parallelism: 1
+      extra:
+        workspace: docker
+        max_steps: 100
+        conversation_timeout: 28000
+        max_attempts: 3
+        instance_max_retries: 3
+        skip_failed_samples: false
+  target:
+    api_endpoint:
+      adapter_config:
+        mode: client  # disable adapters by default
+
+evaluations:
+  # SWE-bench variants
+  - name: swebench-verified
+    description: SWE-bench Verified - 500 human-validated GitHub issues
+    defaults:
+      config:
+        type: swebench-verified
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: swebench
+            dataset: princeton-nlp/SWE-bench_Verified
+            split: test
+
+  - name: swebench-lite
+    description: SWE-bench Lite - 300 curated GitHub issues
+    defaults:
+      config:
+        type: swebench-lite
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: swebench
+            dataset: princeton-nlp/SWE-bench_Lite
+            split: test
+
+  - name: swebench-full
+    description: SWE-bench Full - Complete dataset of GitHub issues
+    defaults:
+      config:
+        type: swebench-full
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: swebench
+            dataset: princeton-nlp/SWE-bench
+            split: test
+
+  # GAIA benchmark
+  - name: gaia
+    description: GAIA - General AI Assistant benchmark for real-world tasks requiring reasoning, tool use, and web browsing
+    defaults:
+      config:
+        type: gaia
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: gaia
+            dataset: gaia-benchmark/GAIA
+            split: test
+            level: "2023_all"
+
+  # Commit0 benchmark
+  - name: commit0
+    description: Commit0 - Repository-level code generation benchmark
+    defaults:
+      config:
+        type: commit0
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: commit0
+            dataset: wentingzhao/commit0_combined
+            split: test
+            repo_split: lite
+            max_attempts: 1
+
+  # Multi-SWE-bench (multilingual)
+  - name: multiswebench-java
+    description: Multi-SWE-bench Java - Multilingual SWE-bench for Java repositories
+    defaults:
+      config:
+        type: multiswebench-java
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: java_verified
+            language: java
+
+  - name: multiswebench-python  # empty subset
+    description: Multi-SWE-bench Python - Multilingual SWE-bench for Python repositories
+    defaults:
+      config:
+        type: multiswebench-python
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: python_verified
+            language: python
+
+  - name: multiswebench-go
+    description: Multi-SWE-bench Go - Multilingual SWE-bench for Go repositories
+    defaults:
+      config:
+        type: multiswebench-go
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: go_verified
+            language: go
+
+  - name: multiswebench-c
+    description: Multi-SWE-bench C - Multilingual SWE-bench for C repositories
+    defaults:
+      config:
+        type: multiswebench-c
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: c_verified
+            language: c
+
+  - name: multiswebench-cpp
+    description: Multi-SWE-bench C++ - Multilingual SWE-bench for C++ repositories
+    defaults:
+      config:
+        type: multiswebench-cpp
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: cpp_verified
+            language: cpp
+
+  - name: multiswebench-js
+    description: Multi-SWE-bench JavaScript - Multilingual SWE-bench for JavaScript repositories
+    defaults:
+      config:
+        type: multiswebench-js
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: js_verified
+            language: js
+
+  - name: multiswebench-rust
+    description: Multi-SWE-bench Rust - Multilingual SWE-bench for Rust repositories
+    defaults:
+      config:
+        type: multiswebench-rust
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: rust_verified
+            language: rust
+
+  - name: multiswebench-ts
+    description: Multi-SWE-bench TypeScript - Multilingual SWE-bench for TypeScript repositories
+    defaults:
+      config:
+        type: multiswebench-ts
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: multiswebench
+            dataset: bytedance-research/Multi-SWE-Bench
+            split: ts_verified
+            language: ts
+
+  # SWT-bench
+  - name: swtbench
+    description: SWT-bench - Software testing benchmark for test generation
+    defaults:
+      config:
+        type: swtbench
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: swtbench
+
+  # SWE-bench Multimodal
+  - name: swebench-multimodal
+    description: SWE-bench Multimodal - GitHub issues with visual context
+    defaults:
+      config:
+        type: swebench-multimodal
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: swebenchmultimodal
+            dataset: princeton-nlp/SWE-bench_Multimodal
+            split: dev  # test spit did not work
+            modal: false
+
+  # OpenAgentSafety benchmark
+  - name: openagentsafety
+    description: OpenAgentSafety - Safety evaluation benchmark for AI agents
+    defaults:
+      config:
+        type: openagentsafety
+        supported_endpoint_types: [chat]
+        params:
+          extra:
+            benchmark: openagentsafety
+            dataset: mgulavani/openagentsafety_full_updated_v3
+            split: train

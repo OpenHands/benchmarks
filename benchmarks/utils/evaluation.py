@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import sys
+import traceback
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
@@ -53,6 +54,15 @@ class PendingInstance:
 
 
 OnResult = Callable[[EvalInstance, EvalOutput], None]
+
+
+class SampleFailedError(Exception):
+    """Raised when a sample fails and skip_failed_samples=False."""
+
+    def __init__(self, instance_id: str, error: str):
+        self.instance_id = instance_id
+        self.error = error
+        super().__init__(f"Sample {instance_id} failed: {error}")
 
 
 class Evaluation(ABC, BaseModel):
@@ -132,12 +142,23 @@ class Evaluation(ABC, BaseModel):
         raise NotImplementedError
 
     def _create_error_output(
-        self, instance: EvalInstance, error: Exception, retry_count: int
+        self,
+        instance: EvalInstance,
+        error: Exception,
+        retry_count: int,
+        *,
+        stack: str | None = None,
     ) -> EvalOutput:
         """Create an EvalOutput object for a failed instance."""
+        err_type = error.__class__.__name__
+        err_msg = str(error)
         return EvalOutput(
             instance_id=instance.id,
-            test_result={},
+            test_result={
+                "error_type": err_type,
+                "error_message": err_msg,
+                "error_stack": stack,
+            },
             instruction=None,
             error=(
                 f"Instance failed after {retry_count} retries. Last error: {str(error)}"
@@ -411,6 +432,10 @@ class Evaluation(ABC, BaseModel):
                             instance, out = fut.result()
                             pending_info = pending_instances.get(fut)
 
+                            # Fail fast if skip_failed_samples=False and sample errored
+                            if out.error and not self.metadata.skip_failed_samples:
+                                raise SampleFailedError(instance.id, out.error)
+
                             # Add Laminar metadata to EvalOutput
                             if out.metadata is None:
                                 out.metadata = self.metadata.model_copy(deep=True)
@@ -422,6 +447,9 @@ class Evaluation(ABC, BaseModel):
                             )
 
                             attempt_on_result(instance, out)
+                        except SampleFailedError:
+                            # Re-raise to fail the entire evaluation
+                            raise
                         except Exception as e:
                             logger.error(
                                 f"Unexpected error from worker process: {str(e)[:50]}",
@@ -455,6 +483,7 @@ class Evaluation(ABC, BaseModel):
                                     f"{self.instance_timeout}s timeout"
                                 ),
                                 attempt,
+                                stack=None,
                             )
                             if error_output.metadata is None:
                                 error_output.metadata = self.metadata.model_copy(
@@ -581,6 +610,7 @@ class Evaluation(ABC, BaseModel):
             retry_count = 0
             runtime_failure_count = 0
             last_error = None
+            last_error_stack: str | None = None
             max_retries = self.metadata.max_retries
             runtime_runs: list[RemoteRuntimeAllocation] = []
 
@@ -648,6 +678,7 @@ class Evaluation(ABC, BaseModel):
                     return instance, out
                 except Exception as e:
                     last_error = e
+                    last_error_stack = traceback.format_exc()
                     retry_count += 1
                     lmnr_span.record_exception(e)
 
@@ -692,7 +723,10 @@ class Evaluation(ABC, BaseModel):
                         )
                         # Create error output for final failure
                         error_output = self._create_error_output(
-                            instance, last_error, max_retries
+                            instance,
+                            last_error,
+                            max_retries,
+                            stack=last_error_stack,
                         )
                         if runtime_runs:
                             error_output.runtime_runs = runtime_runs
@@ -723,7 +757,10 @@ class Evaluation(ABC, BaseModel):
 
             # This should never be reached, but added for type safety
             error_output = self._create_error_output(
-                instance, Exception("Unexpected error: no attempts made"), max_retries
+                instance,
+                Exception("Unexpected error: no attempts made"),
+                max_retries,
+                stack=None,
             )
             if runtime_runs:
                 error_output.runtime_runs = runtime_runs

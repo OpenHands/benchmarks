@@ -143,14 +143,34 @@ def run_swebench_evaluation(
         predictions_dir = predictions_path.parent
         predictions_filename = predictions_path.name
 
-        # Run SWE-Bench evaluation using global python (not UV environment)
-        # since swebench is installed globally
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "swebench.harness.run_evaluation",
+        # Try uv first, fall back to current Python interpreter
+        try:
+            uv_check = subprocess.run(
+                ["uv", "--version"],
+                capture_output=True,
+                text=True,
+            )
+            uv_available = uv_check.returncode == 0
+        except FileNotFoundError:
+            uv_available = False
+
+        if uv_available:
+            cmd = [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "swebench.harness.run_evaluation",
+            ]
+        else:
+            logger.info("uv not available, using current Python interpreter")
+            cmd = [
+                sys.executable,
+                "-m",
+                "swebench.harness.run_evaluation",
+            ]
+
+        cmd.extend([
             "--dataset_name",
             dataset,
             "--predictions_path",
@@ -159,7 +179,7 @@ def run_swebench_evaluation(
             str(workers),
             "--run_id",
             run_id,
-        ]
+        ])
 
         # Add parameters
         cmd.extend(["--split", split])
@@ -315,6 +335,16 @@ Examples:
 
             shutil.move(str(report_path), str(dest_report_path))
             logger.info(f"Moved report file to: {dest_report_path}")
+
+            # Add benchmark field to the report
+            with open(dest_report_path, "r") as f:
+                report_data = json.load(f)
+            if isinstance(args.dataset, str) and "/" in args.dataset:
+                report_data["benchmark"] = args.dataset.split("/")[-1].lower()
+            else:
+                report_data["benchmark"] = str(args.dataset).lower()
+            with open(dest_report_path, "w") as f:
+                json.dump(report_data, f, indent=4)
 
             # Update Laminar datapoints with evaluation scores
             LaminarService.get().update_evaluation_scores(

@@ -147,6 +147,7 @@ def update_report_with_component_scores(report_json_path: Path) -> dict[str, flo
         report = json.load(f)
 
     # Add component scores to report
+    report["benchmark"] = "swebench-multimodal"
     report["component_scores"] = scores
 
     # Write updated report
@@ -246,6 +247,7 @@ def run_swebench_multimodal_evaluation(
     split: str = "dev",
     workers: str = "12",
     run_id: str | None = None,
+    modal: bool = True,
 ) -> Path | None:
     """
     Run SWE-Bench Multimodal evaluation on the predictions file.
@@ -262,68 +264,96 @@ def run_swebench_multimodal_evaluation(
     """
     logger.info(f"Running SWE-Bench Multimodal evaluation on {predictions_file}")
 
-    # Get the directory of the predictions file
-    predictions_path = Path(predictions_file)
-    predictions_dir = predictions_path.parent
-    predictions_filename = predictions_path.name
-
-    # Default for run_id if not provided
-    run_id = run_id or predictions_path.stem
-
-    # Run SWE-Bench Multimodal evaluation using UV environment
-    # The key difference from regular SWE-Bench is the --modal true flag
-    cmd = [
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "swebench.harness.run_evaluation",
-        "--dataset_name",
-        dataset,
-        "--split",
-        split,
-        "--predictions_path",
-        predictions_filename,
-        "--max_workers",
-        str(workers),
-        "--modal",
-        "true",
-        "--run_id",
-        run_id,
-    ]
-
-    logger.info(f"Running command: {' '.join(cmd)}")
-    logger.info(f"Working directory: {predictions_dir}")
-    logger.info("SWE-Bench Multimodal evaluation output:")
-    print("-" * 80)
-
     try:
+        # Get the directory of the predictions file
+        predictions_path = Path(predictions_file)
+        predictions_dir = predictions_path.parent
+        predictions_filename = predictions_path.name
+
+        # Generate run_id if not provided
+        if run_id is None:
+            run_id = f"eval_{predictions_path.stem}"
+
+        # Run SWE-Bench Multimodal evaluation
+        # The key difference from regular SWE-Bench is the --modal true flag
+        # Try uv first, fall back to current Python interpreter
+        try:
+            uv_check = subprocess.run(
+                ["uv", "--version"],
+                capture_output=True,
+                text=True,
+            )
+            uv_available = uv_check.returncode == 0
+        except FileNotFoundError:
+            uv_available = False
+
+        if uv_available:
+            cmd = [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "swebench.harness.run_evaluation",
+            ]
+        else:
+            logger.info("uv not available, using current Python interpreter")
+            cmd = [
+                sys.executable,
+                "-m",
+                "swebench.harness.run_evaluation",
+            ]
+
+        cmd.extend([
+            "--dataset_name",
+            dataset,
+            "--split",
+            split,
+            "--predictions_path",
+            predictions_filename,
+            "--max_workers",
+            str(workers),
+            "--run_id",
+            run_id,
+        ])
+        if modal:
+            cmd.extend(["--modal", "true"])
+
+        logger.info(f"Running command: {' '.join(cmd)}")
+        logger.info(f"Working directory: {predictions_dir}")
+        logger.info("SWE-Bench Multimodal evaluation output:")
+        print("-" * 80)
+
+        # Stream output directly to console, running from predictions file directory
         result = subprocess.run(cmd, text=True, cwd=predictions_dir)
-    except FileNotFoundError as e:
+
+        print("-" * 80)
+        if result.returncode == 0:
+            logger.info("SWE-Bench Multimodal evaluation completed successfully")
+        else:
+            logger.error(
+                f"SWE-Bench Multimodal evaluation failed with return code {result.returncode}"
+            )
+            raise subprocess.CalledProcessError(result.returncode, cmd)
+
+        # SWE-Bench multimodal writes its summary to <MODEL_NAME_OR_PATH>.<run_id>.json
+        report_path = predictions_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
+        if not report_path.exists():
+            raise FileNotFoundError(
+                f"Expected report file not found: {report_path}. "
+                "SWE-Bench harness output naming may have changed."
+            )
+
+        return report_path
+
+    except FileNotFoundError:
         logger.error(
             "SWE-Bench evaluation command not found. "
             "Make sure SWE-Bench is properly installed."
         )
-        raise e
-
-    print("-" * 80)
-    if result.returncode == 0:
-        logger.info("SWE-Bench Multimodal evaluation completed successfully")
-    else:
-        logger.error(
-            f"SWE-Bench Multimodal evaluation failed with return code {result.returncode}"
-        )
-        raise subprocess.CalledProcessError(result.returncode, cmd)
-
-    # SWE-Bench multimodal writes its summary to <MODEL_NAME_OR_PATH>.<run_id>.json
-    report_path = predictions_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
-    if not report_path.exists():
-        raise FileNotFoundError(
-            f"Expected report file not found: {report_path}. "
-            "SWE-Bench harness output naming may have changed."
-        )
-    logger.info(f"Found report.json at: {report_path}")
-    return report_path
+        raise
+    except Exception as e:
+        logger.error(f"Error running SWE-Bench Multimodal evaluation: {e}")
+        raise
 
 
 def main() -> None:
@@ -368,6 +398,13 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
+    parser.add_argument(
+        "--modal",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use Modal for evaluation (default: True). Use --no-modal for local evaluation.",
+    )
+
     parser.set_defaults(**EVAL_DEFAULTS)
 
     parser.add_argument(
@@ -405,7 +442,7 @@ Examples:
         if not args.skip_evaluation:
             # Run multimodal evaluation
             report_path = run_swebench_multimodal_evaluation(
-                str(output_file), args.dataset, args.split, args.workers, args.run_id
+                str(output_file), args.dataset, args.split, args.workers, args.run_id, args.modal
             )
 
             # Calculate component scores if we have a report
@@ -414,6 +451,15 @@ Examples:
                     "Calculating component scores (solveable/unsolveable accuracy)..."
                 )
                 component_scores = update_report_with_component_scores(report_path)
+                # Export a .report.json artifact so framework parsers
+                # can discover benchmark results consistently across benchmarks.
+                with open(report_path, "r") as f:
+                    report_data = json.load(f)
+                report_data["benchmark"] = "swebench-multimodal"
+                dest_report_path = input_file.with_suffix(".report.json")
+                with open(dest_report_path, "w") as f:
+                    json.dump(report_data, f, indent=4)
+                logger.info(f"Wrote report artifact to: {dest_report_path}")
                 if component_scores:
                     logger.info("=" * 60)
                     logger.info("COMPONENT SCORES SUMMARY")

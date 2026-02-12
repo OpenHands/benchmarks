@@ -148,7 +148,9 @@ def update_report_with_submitted_instances(
     )
 
 
-def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
+def convert_to_swtbench_format(
+    input_file: str, output_file: str
+) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -271,21 +273,32 @@ def run_swtbench_evaluation(
         # but using the uv environment's python executable which has all dependencies
         benchmarks_dir = Path(__file__).parent.parent.parent
 
-        # Get the python executable from the uv environment
-        python_executable = subprocess.run(
-            [
-                "uv",
-                "run",
-                "--directory",
-                str(benchmarks_dir),
-                "python",
-                "-c",
-                "import sys; print(sys.executable)",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=benchmarks_dir,
-        ).stdout.strip()
+        # Get the python executable from the uv environment, fall back to current interpreter
+        try:
+            uv_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "--directory",
+                    str(benchmarks_dir),
+                    "python",
+                    "-c",
+                    "import sys; print(sys.executable)",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=benchmarks_dir,
+            )
+            uv_available = uv_result.returncode == 0 and uv_result.stdout.strip()
+        except FileNotFoundError:
+            uv_available = False
+            uv_result = None
+
+        if uv_available:
+            python_executable = uv_result.stdout.strip()
+        else:
+            python_executable = sys.executable
+            logger.info("uv not available, using current Python interpreter")
 
         # Set up environment with PYTHONPATH to include swt-bench directory
         env = os.environ.copy()
@@ -301,7 +314,7 @@ def run_swtbench_evaluation(
             "--max_workers",
             str(workers),
             "--run_id",
-            predictions_path.stem,
+            f"eval_{predictions_path.stem}",
         ]
 
         logger.info(f"Using Python executable: {python_executable}")
@@ -436,7 +449,7 @@ Examples:
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
             report_dir = swt_bench_dir / "evaluation_results"
-            run_id = output_file.stem
+            run_id = f"eval_{output_file.stem}"
             report_file = report_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
 
             target_dir = input_file.parent
@@ -444,6 +457,14 @@ Examples:
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
             dest_report_path = target_file
+
+            # Add benchmark field to the report
+            with open(target_file, "r") as f:
+                report_data = json.load(f)
+            report_data["benchmark"] = "swtbench"
+            with open(target_file, "w") as f:
+                json.dump(report_data, f, indent=4)
+
             update_report_with_submitted_instances(target_file, output_file)
 
             # Update Laminar datapoints with evaluation scores

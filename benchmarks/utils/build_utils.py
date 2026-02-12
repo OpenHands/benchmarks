@@ -28,7 +28,6 @@ from benchmarks.utils.buildx_utils import (
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.image_utils import image_exists
-from openhands.agent_server.docker.build import BuildOptions, TargetType, build
 from openhands.sdk import get_logger
 
 
@@ -279,9 +278,13 @@ def build_image(
     base_image: str,
     target_image: str,
     custom_tag: str,
-    target: TargetType = "source-minimal",
+    target: str = "source-minimal",
     push: bool = False,
 ) -> BuildOutput:
+    # Importing here because openhands.agent_server.docker.build runs git checks
+    # which fails when installed as a package outside the git repo
+    from openhands.agent_server.docker.build import BuildOptions, build
+
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
 
@@ -312,7 +315,7 @@ def _build_with_logging(
     base_image: str,
     target_image: str,
     custom_tag: str = "",
-    target: TargetType = "source-minimal",
+    target: str = "source-minimal",
     push: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
@@ -405,7 +408,7 @@ def default_build_output_dir(
 
 def build_all_images(
     base_images: list[str],
-    target: TargetType,
+    target: str,
     build_dir: Path,
     image: str = EVAL_AGENT_SERVER_IMAGE,
     push: bool = False,
