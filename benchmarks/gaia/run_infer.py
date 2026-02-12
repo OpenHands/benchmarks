@@ -16,7 +16,6 @@ from benchmarks.gaia.config import INFER_DEFAULTS
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -28,10 +27,11 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
+    LLM,
     Agent,
     Conversation,
     Event,
@@ -39,15 +39,11 @@ from openhands.sdk import (
     Message,
     MessageEvent,
     TextContent,
-    Tool,
     get_logger,
 )
-from openhands.sdk.event import ActionEvent
-from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -156,12 +152,29 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
-            # Use DockerDevWorkspace with base image (same as main branch)
-            workspace = DockerDevWorkspace(
-                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                working_dir="/workspace",
-                forward_env=forward_env or [],
-            )
+            # Use DockerDevWorkspace with base image
+            # Fall back to pre-built image if build fails
+            try:
+                workspace = DockerDevWorkspace(
+                    base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                    working_dir="/workspace",
+                    forward_env=forward_env or [],
+                )
+            except Exception as build_error:
+                build_target = os.getenv("GAIA_BUILD_TARGET", "binary-minimal")
+                agent_server_image = (
+                    f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-{build_target}"
+                )
+                if not image_exists(agent_server_image):
+                    raise RuntimeError(
+                        f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"
+                    )
+                workspace = DockerWorkspace(
+                    server_image=agent_server_image,
+                    working_dir="/workspace",
+                    forward_env=forward_env or [],
+                )
+                logger.info(f"Using pre-built image {agent_server_image}")
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image
             # GAIA uses a universal agent server image (one image for all instances)
@@ -174,9 +187,8 @@ class GAIAEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
             )
 
             if not image_exists(agent_server_image):
@@ -187,7 +199,7 @@ class GAIAEvaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with GAIA image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -307,8 +319,6 @@ class GAIAEvaluation(Evaluation):
 
         # Create agent
         tools = get_default_tools(enable_browser=True)
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
         tavily_api_key = os.getenv("TAVILY_API_KEY", "")
         assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
         agent = Agent(
@@ -356,7 +366,9 @@ class GAIAEvaluation(Evaluation):
         else:
             conversation.send_message(instruction)
         # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        run_conversation_with_fake_user_response(
+            conversation, run_timeout=self.metadata.conversation_timeout
+        )
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)
@@ -369,12 +381,6 @@ class GAIAEvaluation(Evaluation):
         logger.info(
             f"Instance {instance.id}: score={score}, "
             f"model_answer='{model_answer}', ground_truth='{ground_truth}'"
-        )
-
-        summarize_instance(
-            instance_id=instance.id,
-            conversation=conversation,
-            logger=logger,
         )
 
         # Collect history
@@ -445,8 +451,6 @@ For example: if you want to search for a research paper on Arxiv, either use the
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
         """Extract the last agent message/thought from conversation history.
 
-        This method searches for agent output from either MessageEvent or FinishAction.
-
         Note: When using RemoteConversation (with DockerWorkspace), there's a race
           condition where the final MessageEvent might not appear in the events list
           immediately after run() completes, due to WebSocket event streaming.
@@ -482,34 +486,50 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 )
 
             for event in reversed(events):
-                if not hasattr(event, "source") or event.source != "agent":
-                    continue
-
-                # Extract text from either MessageEvent or FinishAction
-                text = None
-                if isinstance(event, MessageEvent):
+                if isinstance(event, MessageEvent) and event.source == "agent":
+                    logger.info(
+                        f"Found agent MessageEvent on attempt {attempt + 1}: "
+                        f"{type(event).__name__}"
+                    )
+                    # Try different event types
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
-                        text = content.text
-                elif isinstance(event, ActionEvent) and isinstance(
-                    event.action, FinishAction
-                ):
-                    text = event.action.message
+                        return content.text
 
-                if text:
-                    logger.info(
-                        f"Found agent output on attempt {attempt + 1}: "
-                        f"{type(event).__name__} - {text[:100]}..."
+            # Check for alternative output sources before retrying
+            if attempt == 0:
+                # Check for finish events that might contain output
+                finish_events = [
+                    e for e in events if "finish" in type(e).__name__.lower()
+                ]
+                if finish_events:
+                    logger.info(f"Found {len(finish_events)} finish events")
+                    for event in reversed(finish_events):
+                        output = getattr(event, "output", None)
+                        if output:
+                            logger.info(
+                                f"Found output in {type(event).__name__}: "
+                                f"{str(output)[:100]}"
+                            )
+                            return str(output)
+
+                # Check for error events
+                error_events = [
+                    e for e in events if "error" in type(e).__name__.lower()
+                ]
+                if error_events:
+                    logger.warning(
+                        f"Found {len(error_events)} error events: "
+                        f"{[type(e).__name__ for e in error_events]}"
                     )
-                    return text
 
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
                 current_delay = retry_delay * (retry_backoff**attempt)
                 current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
-                    "Agent MessageEvent or FinishAction not found yet, "
+                    "Agent MessageEvent not found yet, "
                     f"waiting {current_delay:.1f}s before retry..."
                 )
                 time.sleep(current_delay)
@@ -563,6 +583,7 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
+    # Load LLM config
     llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
@@ -584,14 +605,16 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={"level": args.level},
         eval_limit=args.n_limit,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
+        skip_failed_samples=args.skip_failed_samples,
         workspace_type=args.workspace,
-        enable_delegation=args.enable_delegation,
     )
 
     # Create evaluator

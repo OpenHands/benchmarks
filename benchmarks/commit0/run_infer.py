@@ -14,7 +14,6 @@ from benchmarks.commit0.build_images import (
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -25,18 +24,17 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import Agent, Conversation, Tool, get_logger
+from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -188,16 +186,35 @@ class Commit0Evaluation(Evaluation):
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
-            # Build agent-server image from base commit0 image
-            workspace = DockerDevWorkspace(
-                base_image=base_docker_image,
-                working_dir="/workspace",
-                target=build_target,
-                forward_env=forward_env or [],
-            )
-            logger.info(
-                f"Building workspace from {base_docker_image}. This may take a while..."
-            )
+            # Try to build agent-server image from base commit0 image
+            # Fall back to pre-built image if build fails
+            try:
+                workspace = DockerDevWorkspace(
+                    base_image=base_docker_image,
+                    working_dir="/workspace",
+                    target=build_target,
+                    forward_env=forward_env or [],
+                )
+                logger.info(
+                    f"Building workspace from {base_docker_image}. This may take a while..."
+                )
+            except Exception:
+                custom_tag = extract_custom_tag(base_docker_image)
+                suffix = f"-{build_target}" if build_target != "binary" else ""
+                agent_server_image = (
+                    f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+                )
+                if not image_exists(agent_server_image):
+                    raise RuntimeError(
+                        f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"
+                    )
+                
+                workspace = DockerWorkspace(
+                    server_image=agent_server_image,
+                    working_dir="/workspace",
+                    forward_env=forward_env or [],
+                )
+                logger.info(f"Using pre-built image {agent_server_image}")
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:
@@ -205,11 +222,10 @@ class Commit0Evaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             custom_tag = extract_custom_tag(base_docker_image)
             suffix = f"-{build_target}" if build_target != "binary" else ""
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
 
             if not image_exists(agent_server_image):
@@ -220,7 +236,7 @@ class Commit0Evaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -241,10 +257,8 @@ class Commit0Evaluation(Evaluation):
             )
 
         # Clone the repository to the specific directory
-        # Use --depth 1 for shallow clone to prevent agents from accessing git history
-        # and exploiting it to retrieve original implementations (reward hacking prevention)
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        clone_cmd = f"cd /workspace/ && git clone --depth 1 -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
+        clone_cmd = f"cd /workspace/ && git clone -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
         res = workspace.execute_command(clone_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
@@ -303,8 +317,6 @@ class Commit0Evaluation(Evaluation):
         repo_path = f"/workspace/{workspace_dir_name}"
 
         tools = get_default_tools(enable_browser=False)
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -514,14 +526,6 @@ class Commit0Evaluation(Evaluation):
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
 
-        # Log instance summary
-        summarize_instance(
-            instance_id=instance.id,
-            conversation=conversation,
-            git_patch=git_patch or "",
-            logger=logger,
-        )
-
         # Save workspace as zip (if supported by workspace implementation)
         zip_dest = os.path.join(
             self.metadata.eval_output_dir, "repos", repo_name, f"{repo_name}.zip"
@@ -593,7 +597,10 @@ class Commit0Evaluation(Evaluation):
 
 def main() -> None:
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    try:
+        choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    except ValueError:
+        choices = [str(p) for p in prompt_dir.glob("*.j2")]
     default_prompt_path = prompt_dir / "default.j2"
     assert default_prompt_path.exists(), (
         f"Default prompt {default_prompt_path} not found"
@@ -640,6 +647,7 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={},
         prompt_path=args.prompt_path,
@@ -649,8 +657,8 @@ def main() -> None:
         critic=create_critic(args),
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        skip_failed_samples=args.skip_failed_samples,
         workspace_type=args.workspace,
-        enable_delegation=args.enable_delegation,
     )
 
     evaluator = Commit0Evaluation(

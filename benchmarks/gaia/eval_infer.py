@@ -148,6 +148,7 @@ def process_gaia_results(
 
     # Generate report
     report = {
+        "benchmark": "gaia",
         "total_instances": len(submitted_ids),
         "submitted_instances": len(submitted_ids),
         "completed_instances": len(completed_ids),

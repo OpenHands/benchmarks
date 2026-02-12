@@ -15,7 +15,6 @@ from benchmarks.swebench.build_images import (
 from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
-from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -26,49 +25,21 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
-    ToolPresetType,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import Agent, Conversation, Tool, get_logger
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
+from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
-
-
-def get_tools_for_preset(
-    preset: ToolPresetType, enable_browser: bool = False
-) -> list[Tool]:
-    """Get the list of tools for the given preset.
-
-    Args:
-        preset: The tool preset to use (default, gemini, or planning).
-        enable_browser: Whether to include browser tools.
-
-    Returns:
-        List of Tool instances for the given preset.
-    """
-    if preset == "gemini":
-        from openhands.tools.preset.gemini import get_gemini_tools
-
-        return get_gemini_tools(enable_browser=enable_browser)
-    elif preset == "planning":
-        from openhands.tools.preset.planning import get_planning_tools
-
-        # Planning preset doesn't support browser tools
-        return get_planning_tools()
-    else:  # default
-        from openhands.tools.preset.default import get_default_tools
-
-        return get_default_tools(enable_browser=enable_browser)
 
 
 def get_instruction(
@@ -154,7 +125,7 @@ class SWEBenchEvaluation(Evaluation):
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
         )
         base_agent_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
         )
         wrap_needed = should_wrap_instance_id(instance.id)
         agent_server_image = base_agent_image
@@ -200,14 +171,13 @@ class SWEBenchEvaluation(Evaluation):
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
             if not image_exists(agent_server_image):
                 raise RuntimeError(
@@ -258,13 +228,10 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_tools_for_preset(
-            preset=self.metadata.tool_preset,
+        tools = get_default_tools(
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -315,7 +282,9 @@ class SWEBenchEvaluation(Evaluation):
         )
         conversation.send_message(instruction)
         # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        run_conversation_with_fake_user_response(
+            conversation, run_timeout=self.metadata.conversation_timeout
+        )
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -339,14 +308,6 @@ class SWEBenchEvaluation(Evaluation):
         )
         git_patch = git_patch_result.stdout
 
-        # Log instance summary
-        summarize_instance(
-            instance_id=instance.id,
-            conversation=conversation,
-            git_patch=git_patch,
-            logger=logger,
-        )
-
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
@@ -364,7 +325,10 @@ class SWEBenchEvaluation(Evaluation):
 
 def main() -> None:
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    try:
+        choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    except ValueError:
+        choices = [str(p) for p in prompt_dir.glob("*.j2")]
     default_prompt_path = prompt_dir / "default.j2"
     assert default_prompt_path.exists(), (
         f"Default prompt {default_prompt_path} not found"
@@ -403,13 +367,13 @@ def main() -> None:
     # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
-    logger.info(f"Using tool preset: {args.tool_preset}")
 
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={},
         prompt_path=args.prompt_path,
@@ -419,9 +383,8 @@ def main() -> None:
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        skip_failed_samples=args.skip_failed_samples,
         workspace_type=args.workspace,
-        tool_preset=args.tool_preset,
-        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer

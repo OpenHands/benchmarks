@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import subprocess
 import sys
 
 import requests
@@ -54,12 +55,31 @@ def _ghcr_token(repo: str, username: str | None, pat: str | None) -> str | None:
     return None
 
 
+def _local_image_exists(image_ref: str) -> bool:
+    """Check if image exists in local Docker daemon."""
+    try:
+        result = subprocess.run(
+            ["docker", "images", "-q", image_ref],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return bool(result.stdout.strip())
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
 def image_exists(
     image_ref: str,
     gh_username: str | None = None,
     gh_pat: str | None = None,  # GitHub PAT with read:packages for private GHCR
     docker_token: str | None = None,  # Docker Hub JWT if you already have one
 ) -> bool:
+    # Check local Docker first
+    if _local_image_exists(image_ref):
+        return True
+
+    # Then check remote registry
     registry, repo, ref = _parse(image_ref)
     headers = {"Accept": ACCEPT}
 

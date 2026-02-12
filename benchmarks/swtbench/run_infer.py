@@ -7,7 +7,6 @@ from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swtbench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -18,18 +17,16 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.agent_server.docker.build import _base_slug
-from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
 
@@ -56,6 +53,10 @@ def get_agent_server_docker_image(
     target: str = "source-minimal",
 ) -> str:
     """Get the agent server Docker image for an instance."""
+    # Importing here because openhands.agent_server.docker.build runs git checks
+    # which fails when installed as a package outside the git repo
+    from openhands.agent_server.docker.build import _base_slug
+
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
         "ghcr.io/all-hands-ai/agent-server"
@@ -169,7 +170,7 @@ class SWTBenchEvaluation(Evaluation):
 
         if self.metadata.workspace_type == "docker":
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
             SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
             logger.info(f"SKIP_BUILD={SKIP_BUILD}")
@@ -183,12 +184,25 @@ class SWTBenchEvaluation(Evaluation):
                     "agent-server image."
                 )
                 # For SWT-bench, we use DockerDevWorkspace with base_image
-                workspace = DockerDevWorkspace(
-                    base_image=official_docker_image,
-                    working_dir="/workspace",
-                    target=build_target,
-                    forward_env=forward_env or [],
-                )
+                # Fall back to pre-built image if build fails
+                try:
+                    workspace = DockerDevWorkspace(
+                        base_image=official_docker_image,
+                        working_dir="/workspace",
+                        target=build_target,
+                        forward_env=forward_env or [],
+                    )
+                except Exception as build_error:
+                    if not image_exists(agent_server_image):
+                        raise RuntimeError(
+                            f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"
+                        )
+                    workspace = DockerWorkspace(
+                        server_image=agent_server_image,
+                        working_dir="/workspace",
+                        forward_env=forward_env or [],
+                    )
+                    logger.info(f"Using pre-built image {agent_server_image}")
             else:
                 workspace = DockerWorkspace(
                     server_image=agent_server_image,
@@ -197,14 +211,13 @@ class SWTBenchEvaluation(Evaluation):
                 )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
             if not image_exists(agent_server_image):
                 raise RuntimeError(
@@ -213,7 +226,7 @@ class SWTBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -256,8 +269,6 @@ class SWTBenchEvaluation(Evaluation):
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -308,7 +319,9 @@ class SWTBenchEvaluation(Evaluation):
         )
         conversation.send_message(instruction)
         # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        run_conversation_with_fake_user_response(
+            conversation, run_timeout=self.metadata.conversation_timeout
+        )
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -332,14 +345,6 @@ class SWTBenchEvaluation(Evaluation):
         )
         git_patch = git_patch_result.stdout
 
-        # Log instance summary
-        summarize_instance(
-            instance_id=instance.id,
-            conversation=conversation,
-            git_patch=git_patch or "",
-            logger=logger,
-        )
-
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
@@ -357,7 +362,10 @@ class SWTBenchEvaluation(Evaluation):
 def main() -> None:
     """Main entry point for SWT-bench evaluation."""
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    try:
+        choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    except ValueError:
+        choices = [str(p) for p in prompt_dir.glob("*.j2")]
     default_prompt_path = prompt_dir / "default.j2"
     assert default_prompt_path.exists(), (
         f"Default prompt {default_prompt_path} not found"
@@ -400,6 +408,7 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={},
         prompt_path=args.prompt_path,
@@ -409,8 +418,8 @@ def main() -> None:
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        skip_failed_samples=args.skip_failed_samples,
         workspace_type=args.workspace,
-        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer
