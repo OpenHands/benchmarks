@@ -42,7 +42,6 @@ dependencies = [
     "lmnr>=0.7.24",
     "multi-swe-bench>=1.1.1",
     "swt-bench @ git+https://github.com/logic-star-ai/swt-bench.git@5fdcd446ff05e248ecfffc19d560a210699f71f8",
-    "rich>=13.8.0",
 ]
 
 [project.scripts]
