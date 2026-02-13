@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -430,6 +431,12 @@ Examples:
                         f"  Combined Accuracy:    {component_scores['combined_accuracy']:.1f}%"
                     )
                     logger.info("=" * 60)
+            # Copy report.json to output.report.json for consistency with other benchmarks
+            # SWE-Bench Multimodal creates report.json in the same directory as the predictions file
+            report_path = output_file.parent / "report.json"
+            dest_report_path = input_file.with_suffix(".report.json")
+            shutil.copy(str(report_path), str(dest_report_path))
+            logger.info(f"Copied report file to: {dest_report_path}")
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))
