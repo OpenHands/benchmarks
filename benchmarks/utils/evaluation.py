@@ -593,8 +593,7 @@ class Evaluation(ABC, BaseModel):
                 session_id=lmnr_session_id,
                 metadata=lmnr_trace_metadata,
             )
-            eval_span_ctx = Laminar.serialize_span_context(eval_span)
-            eval_span.end()
+            eval_span_ctx = Laminar.get_laminar_span_context(eval_span)
 
             if lmnr_datapoint_id is not None and self.metadata.lmnr is not None:
                 trace_id = UUID(int=eval_span.get_span_context().trace_id)
@@ -616,14 +615,12 @@ class Evaluation(ABC, BaseModel):
 
                 # Start Laminar execution span and inject context into os.environ so workspace can pick it up
                 # Escape the serialized context to safely pass as a cli argument
-                lmnr_span = Laminar.start_active_span(
+                exec_span = Laminar.start_active_span(
                     "Execution",
                     span_type="EXECUTOR",  # type: ignore
-                    parent_span_context=Laminar.deserialize_span_context(eval_span_ctx)
-                    if eval_span_ctx
-                    else None,
+                    parent_span_context=eval_span_ctx,
                 )
-                exec_span_ctx = json.dumps(Laminar.serialize_span_context(lmnr_span))
+                exec_span_ctx = json.dumps(Laminar.serialize_span_context(exec_span))
                 os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
 
                 try:
@@ -676,7 +673,7 @@ class Evaluation(ABC, BaseModel):
                 except Exception as e:
                     last_error = e
                     retry_count += 1
-                    lmnr_span.record_exception(e)
+                    exec_span.record_exception(e)
 
                     # Log structured runtime allocation/init failures so we can trace instance -> runtime/pod
                     runtime_id = (
@@ -746,7 +743,8 @@ class Evaluation(ABC, BaseModel):
                                 f"[child] Failed to cleanup workspace for {instance.id}: "
                                 f"{str(cleanup_error)[:50]}"
                             )
-                    lmnr_span.end()
+                    exec_span.end()
+            eval_span.end()
 
             # This should never be reached, but added for type safety
             error_output = self._create_error_output(
