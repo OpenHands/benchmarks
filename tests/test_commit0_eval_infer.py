@@ -1,4 +1,4 @@
-"""Tests for commit0 eval_infer.py."""
+"""Tests for commit0 eval_infer functionality."""
 
 import json
 import tempfile
@@ -33,7 +33,10 @@ def test_output_file_naming():
         expected_output_file = Path(tmpdir) / "output.report.json"
 
         # Process the results
-        process_commit0_results(str(input_file), str(expected_output_file))
+        process_commit0_results(
+            str(input_file),
+            str(expected_output_file),
+        )
 
         # Verify the output file was created
         assert expected_output_file.exists(), (
@@ -75,7 +78,10 @@ def test_output_file_naming_with_different_input_name():
         expected_output_file = Path(tmpdir) / "results.report.json"
 
         # Process the results
-        process_commit0_results(str(input_file), str(expected_output_file))
+        process_commit0_results(
+            str(input_file),
+            str(expected_output_file),
+        )
 
         # Verify the output file was created
         assert expected_output_file.exists(), (

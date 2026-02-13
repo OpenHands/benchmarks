@@ -50,6 +50,8 @@ swebench-infer = "benchmarks.swebench.run_infer:main"
 swtbench-infer = "benchmarks.swtbench.run_infer:main"
 swebench-eval = "benchmarks.swebench.eval_infer:main"
 swtbench-eval = "benchmarks.swtbench.eval_infer:main"
+swtbench-list-images = "benchmarks.swtbench.image_utils:main"
+swtbench-build-eval-images = "benchmarks.swtbench.build_eval_env_images:main"
 gaia-infer = "benchmarks.gaia.run_infer:main"
 gaia-eval = "benchmarks.gaia.eval_infer:main"
 commit0-infer = "benchmarks.commit0.run_infer:main"
@@ -57,6 +59,7 @@ commit0-eval = "benchmarks.commit0.eval_infer:main"
 multiswebench-infer = "benchmarks.multiswebench.run_infer:main"
 multiswebench-eval = "benchmarks.multiswebench.eval_infer:main"
 openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
+openagentsafety-eval = "benchmarks.openagentsafety.eval_infer:main"
 swebenchmultimodal-infer = "benchmarks.swebenchmultimodal.run_infer:main"
 swebenchmultimodal-eval = "benchmarks.swebenchmultimodal.eval_infer:main"
 
@@ -88,6 +91,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+exclude = ["legacy"]
 
 [tool.ruff.format]
 quote-style = "double"

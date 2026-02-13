@@ -1,9 +1,11 @@
+import json
 import os
 from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swtbench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -279,6 +281,7 @@ class SWTBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
@@ -306,11 +309,12 @@ class SWTBenchEvaluation(Evaluation):
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
             "git config --global user.email 'evaluation@openhands.dev' && "
             "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+            "git commit --no-verify -m 'patch'"
         )
 
         # Get git patch
@@ -354,6 +358,7 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate max_attempts
@@ -405,6 +410,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":

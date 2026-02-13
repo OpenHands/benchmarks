@@ -18,6 +18,12 @@ import sys
 from pathlib import Path
 from time import monotonic
 
+from benchmarks.swtbench.config import EVAL_DEFAULTS
+from benchmarks.swtbench.image_utils import (
+    compute_required_images,
+    ensure_swt_bench_repo,
+)
+from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
@@ -26,56 +32,7 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 
-
-def patch_swt_bench_for_micromamba(swt_bench_dir: Path) -> None:
-    """
-    Ensure the cached swt-bench checkout uses micromamba for env creation.
-    Applies small, idempotent text replacements to the upstream sources.
-    """
-    solver_timeout_s = 600
-    dockerfiles_path = swt_bench_dir / "src" / "dockerfiles.py"
-    exec_spec_path = swt_bench_dir / "src" / "exec_spec.py"
-
-    if not dockerfiles_path.exists() or not exec_spec_path.exists():
-        logger.warning(
-            "swt-bench sources missing expected files; skipping micromamba patch "
-            f"(dockerfiles: {dockerfiles_path.exists()}, exec_spec: {exec_spec_path.exists()})"
-        )
-        return
-
-    dockerfiles_text = dockerfiles_path.read_text()
-    dockerfiles_updated = dockerfiles_text.replace(
-        "RUN conda config --append channels conda-forge\n\nRUN adduser",
-        "RUN conda config --append channels conda-forge\n"
-        "# Use micromamba for faster solver performance during env builds\n"
-        "RUN conda install -n base -c conda-forge -y micromamba \\\n"
-        " && ln -s /opt/miniconda3/bin/micromamba /usr/local/bin/micromamba\n"
-        "ENV MAMBA_ROOT_PREFIX=/opt/miniconda3\n"
-        "ENV MAMBA_EXE=/opt/miniconda3/bin/micromamba\n\n"
-        "RUN adduser",
-    )
-
-    exec_spec_text = exec_spec_path.read_text()
-    replacements = {
-        "conda create -n ": f"timeout {solver_timeout_s}s micromamba create -n ",
-        "conda create -c conda-forge -n ": f"timeout {solver_timeout_s}s micromamba create -c conda-forge -n ",
-        "conda env create --file": f"timeout {solver_timeout_s}s micromamba env create --file",
-        "conda env update -f": f"timeout {solver_timeout_s}s micromamba env update -f",
-        "conda install python=": f"timeout {solver_timeout_s}s micromamba install python=",
-    }
-    for old, new in replacements.items():
-        exec_spec_text = exec_spec_text.replace(old, new)
-
-    if dockerfiles_text != dockerfiles_updated:
-        dockerfiles_path.write_text(dockerfiles_updated)
-        logger.info("Patched swt-bench Dockerfile template to install micromamba.")
-    if exec_spec_path.read_text() != exec_spec_text:
-        exec_spec_path.write_text(exec_spec_text)
-        logger.info(
-            "Patched swt-bench exec_spec to create/update envs with micromamba "
-            "and a %ss timeout on solver calls.",
-            solver_timeout_s,
-        )
+PREBAKED_REGISTRY = "ghcr.io/openhands/swtbench-eval"
 
 
 def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
@@ -109,6 +66,60 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
     return instance_ids
 
 
+def try_pull_prebaked_images(
+    predictions_file: Path,
+    dataset: str,
+    split: str = EVAL_DEFAULTS["split"],
+    registry: str = PREBAKED_REGISTRY,
+) -> None:
+    """
+    Best-effort pull of prebaked base/env images; no-op on failure.
+    """
+    try:
+        base_images, env_images = compute_required_images(
+            predictions_file,
+            dataset,
+            split,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Skipping prebaked image pull (compute failed): %s", exc)
+        return
+
+    tags = sorted(base_images | env_images)
+    if not tags:
+        logger.info("No prebaked images to pull (empty tag set)")
+        return
+
+    registry = registry.rstrip("/")
+    for tag in tags:
+        remote = f"{registry}/{tag}"
+        logger.info("Attempting to pull prebaked image %s", remote)
+        try:
+            pull = subprocess.run(
+                ["docker", "pull", remote],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            logger.warning("Docker not available; skipping prebaked image pull")
+            return
+
+        if pull.returncode != 0:
+            logger.warning("Failed to pull %s: %s", remote, pull.stderr.strip())
+            continue
+
+        # Tag the remote image with the local name expected by the harness.
+        tag_res = subprocess.run(
+            ["docker", "tag", remote, tag],
+            capture_output=True,
+            text=True,
+        )
+        if tag_res.returncode != 0:
+            logger.warning("Failed to tag %s as %s: %s", remote, tag, tag_res.stderr)
+        else:
+            logger.info("Pulled and tagged %s -> %s", remote, tag)
+
+
 def update_report_with_submitted_instances(
     report_path: Path, predictions_path: Path
 ) -> None:
@@ -137,9 +148,7 @@ def update_report_with_submitted_instances(
     )
 
 
-def convert_to_swtbench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> None:
+def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -158,7 +167,7 @@ def convert_to_swtbench_format(
     {
         "instance_id": "sympy__sympy-20590",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "<MODEL_NAME_OR_PATH>"
     }
     """
     logger.info(f"Converting {input_file} to SWT-Bench format: {output_file}")
@@ -201,7 +210,7 @@ def convert_to_swtbench_format(
                 swtbench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name,
+                    "model_name_or_path": MODEL_NAME_OR_PATH,
                 }
 
                 # Write to output file
@@ -226,7 +235,8 @@ def convert_to_swtbench_format(
 
 def run_swtbench_evaluation(
     predictions_file: str,
-    dataset: str = "eth-sri/SWT-bench_Verified_bm25_27k_zsp",
+    # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
+    dataset: str = "princeton-nlp/SWE-bench_Verified",
     workers: str = "12",
 ) -> None:
     """
@@ -242,32 +252,12 @@ def run_swtbench_evaluation(
         dataset: SWT-Bench dataset to evaluate against
         workers: Number of workers to use for evaluation
     """
-    logger.info(f"Running SWT-Bench evaluation on {predictions_file}")
+    use_legacy = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() in ("1", "true", "yes")
+    mode = "legacy-conda" if use_legacy else "prebaked-images"
+    logger.info("Running SWT-Bench evaluation on %s (mode=%s)", predictions_file, mode)
 
     try:
-        # Use a global cache directory for SWT-Bench source
-        cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
-        swt_bench_dir = cache_dir / "swt-bench"
-
-        # Clone SWT-Bench repository if it doesn't exist
-        if not swt_bench_dir.exists():
-            logger.info("Setting up SWT-Bench source in global cache...")
-            cache_dir.mkdir(parents=True, exist_ok=True)
-
-            logger.info("Cloning SWT-Bench repository...")
-            clone_cmd = [
-                "git",
-                "clone",
-                "https://github.com/logic-star-ai/swt-bench.git",
-                str(swt_bench_dir),
-            ]
-            result = subprocess.run(clone_cmd, text=True)
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, clone_cmd)
-
-            logger.info(f"SWT-Bench source installed at {swt_bench_dir}")
-
-        patch_swt_bench_for_micromamba(swt_bench_dir)
+        swt_bench_dir = ensure_swt_bench_repo()
 
         # Get the directory and filename of the predictions file
         predictions_path = Path(predictions_file).resolve()
@@ -308,11 +298,10 @@ def run_swtbench_evaluation(
             dataset,
             "--predictions_path",
             predictions_filename,
-            "--filter_swt",
             "--max_workers",
             str(workers),
             "--run_id",
-            f"eval_{predictions_path.stem}",
+            predictions_path.stem,
         ]
 
         logger.info(f"Using Python executable: {python_executable}")
@@ -361,17 +350,15 @@ def main() -> None:
 Examples:
     uv run swtbench-eval output.jsonl
     uv run swtbench-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Lite
-    uv run swtbench-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
     parser.add_argument("input_file", help="Path to the OpenHands output.jsonl file")
 
+    # Must use SWE-bench dataset because SWT-bench dataset (which is based on SWE-bench) contains a bug in their harness.
     parser.add_argument(
         "--dataset",
-        default="eth-sri/SWT-bench_Verified_bm25_27k_zsp",
-        help="SWT-Bench dataset to evaluate against "
-        "(default: eth-sri/SWT-bench_Verified_bm25_27k_zsp)",
+        help="SWT-Bench dataset to evaluate against",
     )
 
     parser.add_argument(
@@ -387,16 +374,12 @@ Examples:
     )
 
     parser.add_argument(
-        "--model-name",
-        default="OpenHands",
-        help="Model name to use in the model_name_or_path field (default: OpenHands)",
-    )
-
-    parser.add_argument(
         "--workers",
-        default="12",
+        type=int,
         help="Number of workers to use when evaluating",
     )
+
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
 
@@ -418,11 +401,29 @@ Examples:
     logger.info(f"Input file: {input_file}")
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
-    logger.info(f"Model name: {args.model_name}")
+
+    dest_report_path: Path | None = None
 
     try:
         # Convert format
-        convert_to_swtbench_format(str(input_file), str(output_file), args.model_name)
+        convert_to_swtbench_format(str(input_file), str(output_file))
+
+        # Default: use prebaked images; SWTbenCH_FORCE_CONDA opts into legacy flow.
+        use_prebaked = os.getenv("SWTBENCH_FORCE_CONDA", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
+        if use_prebaked:
+            try_pull_prebaked_images(
+                output_file,
+                args.dataset,
+            )
+        else:
+            logger.info(
+                "SWTBENCH_FORCE_CONDA set; skipping prebaked image pull "
+                "and using legacy (pre-mamba) evaluation flow"
+            )
 
         if not args.skip_evaluation:
             eval_phase_start = monotonic()
@@ -435,14 +436,14 @@ Examples:
             cache_dir = Path.home() / ".cache" / "openhands" / "swt-bench"
             swt_bench_dir = cache_dir / "swt-bench"
             report_dir = swt_bench_dir / "evaluation_results"
-            run_id = f"eval_{output_file.stem}"
-            model_name_safe = args.model_name.replace("/", "__")
-            report_file = report_dir / f"{model_name_safe}.{run_id}.json"
+            run_id = output_file.stem
+            report_file = report_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
 
             target_dir = input_file.parent
             target_file = target_dir / "output.report.json"
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
+            dest_report_path = target_file
             update_report_with_submitted_instances(target_file, output_file)
 
             # Update Laminar datapoints with evaluation scores
@@ -461,6 +462,7 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        print(json.dumps({"report_json": str(dest_report_path or "")}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")

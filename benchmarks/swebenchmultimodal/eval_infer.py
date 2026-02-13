@@ -15,7 +15,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
+from benchmarks.swebenchmultimodal.config import EVAL_DEFAULTS
+from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
@@ -23,10 +26,140 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 
+# Path to ambiguity annotations relative to this file
+ANNOTATIONS_FILE = Path(__file__).parent / "ambiguity_annotations.json"
 
-def convert_to_swebench_format(
-    input_file: str, output_file: str, model_name: str = "OpenHands"
-) -> None:
+
+def load_ambiguity_annotations() -> dict[str, Any]:
+    """Load the ambiguity annotations for SWE-bench Multimodal instances."""
+    if not ANNOTATIONS_FILE.exists():
+        logger.warning(f"Ambiguity annotations file not found: {ANNOTATIONS_FILE}")
+        return {}
+
+    with open(ANNOTATIONS_FILE, "r") as f:
+        data = json.load(f)
+
+    return data.get("annotations", {})
+
+
+def calculate_component_scores(
+    report_json_path: Path,
+) -> dict[str, float]:
+    """
+    Calculate solveable_accuracy, unsolveable_accuracy, and combined_accuracy.
+
+    Args:
+        report_json_path: Path to the report.json file from evaluation
+
+    Returns:
+        Dictionary with component scores:
+        - solveable_accuracy: % of SOLVEABLE instances resolved
+        - unsolveable_accuracy: % of non-SOLVEABLE instances resolved
+        - combined_accuracy: % of all instances resolved (standard accuracy)
+    """
+    # Load annotations
+    annotations = load_ambiguity_annotations()
+    if not annotations:
+        logger.warning("No annotations loaded, cannot calculate component scores")
+        return {}
+
+    # Load report.json
+    if not report_json_path.exists():
+        logger.warning(f"Report file not found: {report_json_path}")
+        return {}
+
+    with open(report_json_path, "r") as f:
+        report = json.load(f)
+
+    resolved_ids = set(report.get("resolved_ids", []))
+    total_instances = report.get("total_instances", 0)
+
+    # Separate instances into solveable and unsolveable
+    solveable_ids = set()
+    unsolveable_ids = set()
+
+    for instance_id, annotation in annotations.items():
+        keywords = annotation.get("keywords", [])
+        if "SOLVEABLE" in keywords:
+            solveable_ids.add(instance_id)
+        else:
+            unsolveable_ids.add(instance_id)
+
+    # Calculate metrics
+    solveable_resolved = len(resolved_ids & solveable_ids)
+    unsolveable_resolved = len(resolved_ids & unsolveable_ids)
+    total_resolved = len(resolved_ids)
+
+    solveable_total = len(solveable_ids)
+    unsolveable_total = len(unsolveable_ids)
+
+    # Calculate accuracies as percentages
+    solveable_accuracy = (
+        (solveable_resolved / solveable_total * 100) if solveable_total > 0 else 0.0
+    )
+    unsolveable_accuracy = (
+        (unsolveable_resolved / unsolveable_total * 100)
+        if unsolveable_total > 0
+        else 0.0
+    )
+    combined_accuracy = (
+        (total_resolved / total_instances * 100) if total_instances > 0 else 0.0
+    )
+
+    logger.info("Component scores calculation:")
+    logger.info(
+        f"  SOLVEABLE: {solveable_resolved}/{solveable_total} = {solveable_accuracy:.1f}%"
+    )
+    logger.info(
+        f"  UNSOLVEABLE: {unsolveable_resolved}/{unsolveable_total} = {unsolveable_accuracy:.1f}%"
+    )
+    logger.info(
+        f"  Combined: {total_resolved}/{total_instances} = {combined_accuracy:.1f}%"
+    )
+
+    return {
+        "solveable_accuracy": round(solveable_accuracy, 1),
+        "unsolveable_accuracy": round(unsolveable_accuracy, 1),
+        "combined_accuracy": round(combined_accuracy, 1),
+        "solveable_resolved": solveable_resolved,
+        "solveable_total": solveable_total,
+        "unsolveable_resolved": unsolveable_resolved,
+        "unsolveable_total": unsolveable_total,
+    }
+
+
+def update_report_with_component_scores(report_json_path: Path) -> dict[str, float]:
+    """
+    Calculate component scores and update the report.json with them.
+
+    Args:
+        report_json_path: Path to the report.json file
+
+    Returns:
+        The component scores dictionary
+    """
+    scores = calculate_component_scores(report_json_path)
+
+    if not scores:
+        return {}
+
+    # Load existing report
+    with open(report_json_path, "r") as f:
+        report = json.load(f)
+
+    # Add component scores to report
+    report["component_scores"] = scores
+
+    # Write updated report
+    with open(report_json_path, "w") as f:
+        json.dump(report, f, indent=4)
+
+    logger.info(f"Updated report.json with component scores: {scores}")
+
+    return scores
+
+
+def convert_to_swebench_format(input_file: str, output_file: str) -> None:
     """
     Convert OpenHands output.jsonl to SWE-Bench prediction format.
 
@@ -45,7 +178,7 @@ def convert_to_swebench_format(
     {
         "instance_id": "django__django-11333",
         "model_patch": "diff --git a/file.py b/file.py\n...",
-        "model_name_or_path": "OpenHands"
+        "model_name_or_path": "<MODEL_NAME_OR_PATH>"
     }
     """
     logger.info(f"Converting {input_file} to SWE-Bench format: {output_file}")
@@ -88,7 +221,7 @@ def convert_to_swebench_format(
                 swebench_entry = {
                     "instance_id": instance_id,
                     "model_patch": git_patch,
-                    "model_name_or_path": model_name,
+                    "model_name_or_path": MODEL_NAME_OR_PATH,
                 }
 
                 # Write to output file
@@ -107,9 +240,6 @@ def convert_to_swebench_format(
         f"{error_count} errors"
     )
 
-    if converted_count == 0:
-        raise ValueError("No valid entries were converted")
-
 
 def run_swebench_multimodal_evaluation(
     predictions_file: str,
@@ -117,7 +247,7 @@ def run_swebench_multimodal_evaluation(
     split: str = "dev",
     workers: str = "12",
     run_id: str | None = None,
-) -> None:
+) -> Path | None:
     """
     Run SWE-Bench Multimodal evaluation on the predictions file.
 
@@ -127,67 +257,74 @@ def run_swebench_multimodal_evaluation(
         split: Dataset split to use (default: dev)
         workers: Number of workers to use for evaluation
         run_id: Optional run ID for the evaluation
+
+    Returns:
+        Path to the generated report.json file, or None if not found
     """
     logger.info(f"Running SWE-Bench Multimodal evaluation on {predictions_file}")
 
+    # Get the directory of the predictions file
+    predictions_path = Path(predictions_file)
+    predictions_dir = predictions_path.parent
+    predictions_filename = predictions_path.name
+
+    # Default for run_id if not provided
+    run_id = run_id or predictions_path.stem
+
+    # Run SWE-Bench Multimodal evaluation using UV environment
+    # The key difference from regular SWE-Bench is the --modal true flag
+    cmd = [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "swebench.harness.run_evaluation",
+        "--dataset_name",
+        dataset,
+        "--split",
+        split,
+        "--predictions_path",
+        predictions_filename,
+        "--max_workers",
+        str(workers),
+        "--modal",
+        "true",
+        "--run_id",
+        run_id,
+    ]
+
+    logger.info(f"Running command: {' '.join(cmd)}")
+    logger.info(f"Working directory: {predictions_dir}")
+    logger.info("SWE-Bench Multimodal evaluation output:")
+    print("-" * 80)
+
     try:
-        # Get the directory of the predictions file
-        predictions_path = Path(predictions_file)
-        predictions_dir = predictions_path.parent
-        predictions_filename = predictions_path.name
-
-        # Generate run_id if not provided
-        if run_id is None:
-            run_id = f"eval_{predictions_path.stem}"
-
-        # Run SWE-Bench Multimodal evaluation using UV environment
-        # The key difference from regular SWE-Bench is the --modal true flag
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "swebench.harness.run_evaluation",
-            "--dataset_name",
-            dataset,
-            "--split",
-            split,
-            "--predictions_path",
-            predictions_filename,
-            "--max_workers",
-            str(workers),
-            "--modal",
-            "true",
-            "--run_id",
-            run_id,
-        ]
-
-        logger.info(f"Running command: {' '.join(cmd)}")
-        logger.info(f"Working directory: {predictions_dir}")
-        logger.info("SWE-Bench Multimodal evaluation output:")
-        print("-" * 80)
-
-        # Stream output directly to console, running from predictions file directory
         result = subprocess.run(cmd, text=True, cwd=predictions_dir)
-
-        print("-" * 80)
-        if result.returncode == 0:
-            logger.info("SWE-Bench Multimodal evaluation completed successfully")
-        else:
-            logger.error(
-                f"SWE-Bench Multimodal evaluation failed with return code {result.returncode}"
-            )
-            raise subprocess.CalledProcessError(result.returncode, cmd)
-
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         logger.error(
             "SWE-Bench evaluation command not found. "
             "Make sure SWE-Bench is properly installed."
         )
-        raise
-    except Exception as e:
-        logger.error(f"Error running SWE-Bench Multimodal evaluation: {e}")
-        raise
+        raise e
+
+    print("-" * 80)
+    if result.returncode == 0:
+        logger.info("SWE-Bench Multimodal evaluation completed successfully")
+    else:
+        logger.error(
+            f"SWE-Bench Multimodal evaluation failed with return code {result.returncode}"
+        )
+        raise subprocess.CalledProcessError(result.returncode, cmd)
+
+    # SWE-Bench multimodal writes its summary to <MODEL_NAME_OR_PATH>.<run_id>.json
+    report_path = predictions_dir / f"{MODEL_NAME_OR_PATH}.{run_id}.json"
+    if not report_path.exists():
+        raise FileNotFoundError(
+            f"Expected report file not found: {report_path}. "
+            "SWE-Bench harness output naming may have changed."
+        )
+    logger.info(f"Found report.json at: {report_path}")
+    return report_path
 
 
 def main() -> None:
@@ -199,7 +336,6 @@ def main() -> None:
 Examples:
     uv run swebenchmultimodal-eval output.jsonl
     uv run swebenchmultimodal-eval /path/to/output.jsonl --dataset princeton-nlp/SWE-bench_Multimodal
-    uv run swebenchmultimodal-eval output.jsonl --model-name "MyModel-v1.0"
         """,
     )
 
@@ -207,15 +343,12 @@ Examples:
 
     parser.add_argument(
         "--dataset",
-        default="princeton-nlp/SWE-bench_Multimodal",
-        help="SWE-Bench dataset to evaluate against "
-        "(default: princeton-nlp/SWE-bench_Multimodal)",
+        help="SWE-Bench dataset to evaluate against",
     )
 
     parser.add_argument(
         "--split",
-        default="dev",
-        help="Dataset split to use (default: dev)",
+        help="Dataset split to use",
     )
 
     parser.add_argument(
@@ -231,16 +364,12 @@ Examples:
     )
 
     parser.add_argument(
-        "--model-name",
-        default="openhands",
-        help="Model name to use in the model_name_or_path field (default: openhands)",
-    )
-
-    parser.add_argument(
         "--workers",
-        default="12",
+        type=int,
         help="Number of workers to use when evaluating",
     )
+
+    parser.set_defaults(**EVAL_DEFAULTS)
 
     parser.add_argument(
         "--run-id",
@@ -268,18 +397,40 @@ Examples:
     logger.info(f"Output file: {output_file}")
     logger.info(f"Dataset: {args.dataset}")
     logger.info(f"Split: {args.split}")
-    logger.info(f"Model name: {args.model_name}")
 
     try:
         # Convert format
-        convert_to_swebench_format(str(input_file), str(output_file), args.model_name)
+        convert_to_swebench_format(str(input_file), str(output_file))
 
+        report_path = None
         if not args.skip_evaluation:
             # Run multimodal evaluation
-            run_swebench_multimodal_evaluation(
+            report_path = run_swebench_multimodal_evaluation(
                 str(output_file), args.dataset, args.split, args.workers, args.run_id
             )
 
+            # Calculate component scores if we have a report
+            if report_path:
+                logger.info(
+                    "Calculating component scores (solveable/unsolveable accuracy)..."
+                )
+                component_scores = update_report_with_component_scores(report_path)
+                if component_scores:
+                    logger.info("=" * 60)
+                    logger.info("COMPONENT SCORES SUMMARY")
+                    logger.info("=" * 60)
+                    logger.info(
+                        f"  Solveable Accuracy:   {component_scores['solveable_accuracy']:.1f}% "
+                        f"({component_scores['solveable_resolved']}/{component_scores['solveable_total']})"
+                    )
+                    logger.info(
+                        f"  Unsolveable Accuracy: {component_scores['unsolveable_accuracy']:.1f}% "
+                        f"({component_scores['unsolveable_resolved']}/{component_scores['unsolveable_total']})"
+                    )
+                    logger.info(
+                        f"  Combined Accuracy:    {component_scores['combined_accuracy']:.1f}%"
+                    )
+                    logger.info("=" * 60)
             # Copy report.json to output.report.json for consistency with other benchmarks
             # SWE-Bench Multimodal creates report.json in the same directory as the predictions file
             report_path = output_file.parent / "report.json"
@@ -297,6 +448,10 @@ Examples:
         generate_cost_report(str(input_file))
 
         logger.info("Script completed successfully!")
+        if not args.skip_evaluation and report_path:
+            print(json.dumps({"report_json": str(report_path)}))
+        else:
+            print(json.dumps({"report_json": ""}))
 
     except Exception as e:
         logger.error(f"Script failed: {e}")
