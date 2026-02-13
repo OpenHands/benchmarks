@@ -18,7 +18,7 @@ def construct_eval_output_dir(
     dataset_name: str,
     model_name: str,
     max_iterations: int,
-    eval_note: str,
+    eval_note: str | None,
 ) -> str:
     """Construct the structured evaluation output directory path."""
     # Format: eval_out/<dataset>-<split>/<agent_config>/

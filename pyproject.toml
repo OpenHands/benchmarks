@@ -59,6 +59,7 @@ commit0-eval = "benchmarks.commit0.eval_infer:main"
 multiswebench-infer = "benchmarks.multiswebench.run_infer:main"
 multiswebench-eval = "benchmarks.multiswebench.eval_infer:main"
 openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
+openagentsafety-eval = "benchmarks.openagentsafety.eval_infer:main"
 swebenchmultimodal-infer = "benchmarks.swebenchmultimodal.run_infer:main"
 swebenchmultimodal-eval = "benchmarks.swebenchmultimodal.eval_infer:main"
 
@@ -90,6 +91,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+exclude = ["legacy"]
 
 [tool.ruff.format]
 quote-style = "double"

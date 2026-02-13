@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable
 
+from benchmarks.swtbench.config import EVAL_DEFAULTS
 from openhands.sdk import get_logger
 
 
@@ -87,9 +89,15 @@ def compute_required_images(
     from src.dataset import load_swebench_dataset  # type: ignore[import-not-found]
     from src.exec_spec import make_exec_spec  # type: ignore[import-not-found]
 
-    dataset_entries = load_swebench_dataset(
-        name=dataset, split=split, is_swt=True, filter_swt=True
-    )
+    # Change to swt-bench directory for dataset loading (required for filter files)
+    cwd = os.getcwd()
+    try:
+        os.chdir(swt_bench_dir)
+        dataset_entries = load_swebench_dataset(
+            name=dataset, split=split, is_swt=True, filter_swt=True
+        )
+    finally:
+        os.chdir(cwd)
     entries_by_id = {entry["instance_id"]: entry for entry in dataset_entries}
 
     missing = [iid for iid in instance_ids if iid not in entries_by_id]
@@ -130,8 +138,9 @@ def main() -> None:
         description="List SWT-bench base/env images required for a predictions file."
     )
     parser.add_argument("output_jsonl", type=Path, help="Path to output.jsonl")
-    parser.add_argument("--dataset", required=True, help="Dataset name")
-    parser.add_argument("--split", default="test", help="Dataset split")
+    parser.add_argument("--dataset", help="Dataset name")
+    parser.add_argument("--split", help="Dataset split")
+    parser.set_defaults(**EVAL_DEFAULTS)
     parser.add_argument(
         "--format",
         choices=["plain", "json"],
