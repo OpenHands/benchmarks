@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
@@ -369,19 +369,20 @@ class Evaluation(ABC, BaseModel):
             pending_instances: dict[Future, PendingInstance] = {}
             try:
                 for index, inst in enumerate(instances_to_process):
-                    datapoint_id, lmnr_span_ctx = (
-                        LaminarService.get().create_evaluation_datapoint(
-                            self.metadata.lmnr.eval_id,
-                            inst.id,
-                            self.metadata.model_dump(mode="json"),
-                            index,
-                            session_id=self._laminar_session_id,
-                            trace_metadata=self._laminar_trace_meta,
-                        )
+                    datapoint_id = LaminarService.get().create_evaluation_datapoint(
+                        self.metadata.lmnr.eval_id,
+                        inst.id,
+                        self.metadata.model_dump(mode="json"),
+                        index,
                     )
 
                     fut = pool.submit(
-                        self._process_one_mp, inst, lmnr_span_ctx, attempt
+                        self._process_one_mp,
+                        inst,
+                        attempt,
+                        lmnr_session_id=self._laminar_session_id,
+                        lmnr_trace_metadata=self._laminar_trace_meta,
+                        lmnr_datapoint_id=datapoint_id,
                     )
                     futures.append(fut)
                     pending_instances[fut] = PendingInstance(
@@ -557,7 +558,12 @@ class Evaluation(ABC, BaseModel):
 
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance, eval_span_ctx: str | None, critic_attempt: int
+        self,
+        instance: EvalInstance,
+        critic_attempt: int,
+        lmnr_session_id: str | None = None,
+        lmnr_trace_metadata: dict[str, Any] | None = None,
+        lmnr_datapoint_id: UUID | None = None,
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
@@ -577,6 +583,27 @@ class Evaluation(ABC, BaseModel):
         # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
         with redirect_stdout_stderr(log_file):
             logger.info("[child] start id=%s", instance.id)
+
+            # Create root "Evaluation" span in the child so the timeline
+            # reflects actual execution start, then update the datapoint
+            # with the span's trace_id.
+            eval_span = Laminar.start_active_span(
+                "Evaluation",
+                span_type="EVALUATION",  # type: ignore
+                session_id=lmnr_session_id,
+                metadata=lmnr_trace_metadata,
+            )
+            eval_span_ctx = Laminar.serialize_span_context(eval_span)
+            eval_span.end()
+
+            if lmnr_datapoint_id is not None and self.metadata.lmnr is not None:
+                trace_id = UUID(int=eval_span.get_span_context().trace_id)
+                LaminarService.get().initialize()
+                LaminarService.get().update_datapoint_trace_id(
+                    eval_id=self.metadata.lmnr.eval_id,
+                    datapoint_id=lmnr_datapoint_id,
+                    trace_id=trace_id,
+                )
 
             retry_count = 0
             runtime_failure_count = 0
