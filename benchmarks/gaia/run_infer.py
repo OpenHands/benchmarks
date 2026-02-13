@@ -40,6 +40,8 @@ from openhands.sdk import (
     TextContent,
     get_logger,
 )
+from openhands.sdk.event import ActionEvent
+from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
@@ -432,6 +434,8 @@ For example: if you want to search for a research paper on Arxiv, either use the
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
         """Extract the last agent message/thought from conversation history.
 
+        This method searches for agent output from either MessageEvent or FinishAction.
+
         Note: When using RemoteConversation (with DockerWorkspace), there's a race
           condition where the final MessageEvent might not appear in the events list
           immediately after run() completes, due to WebSocket event streaming.
@@ -467,50 +471,34 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 )
 
             for event in reversed(events):
-                if isinstance(event, MessageEvent) and event.source == "agent":
-                    logger.info(
-                        f"Found agent MessageEvent on attempt {attempt + 1}: "
-                        f"{type(event).__name__}"
-                    )
-                    # Try different event types
+                if not hasattr(event, "source") or event.source != "agent":
+                    continue
+
+                # Extract text from either MessageEvent or FinishAction
+                text = None
+                if isinstance(event, MessageEvent):
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
-                        return content.text
+                        text = content.text
+                elif isinstance(event, ActionEvent) and isinstance(
+                    event.action, FinishAction
+                ):
+                    text = event.action.message
 
-            # Check for alternative output sources before retrying
-            if attempt == 0:
-                # Check for finish events that might contain output
-                finish_events = [
-                    e for e in events if "finish" in type(e).__name__.lower()
-                ]
-                if finish_events:
-                    logger.info(f"Found {len(finish_events)} finish events")
-                    for event in reversed(finish_events):
-                        output = getattr(event, "output", None)
-                        if output:
-                            logger.info(
-                                f"Found output in {type(event).__name__}: "
-                                f"{str(output)[:100]}"
-                            )
-                            return str(output)
-
-                # Check for error events
-                error_events = [
-                    e for e in events if "error" in type(e).__name__.lower()
-                ]
-                if error_events:
-                    logger.warning(
-                        f"Found {len(error_events)} error events: "
-                        f"{[type(e).__name__ for e in error_events]}"
+                if text:
+                    logger.info(
+                        f"Found agent output on attempt {attempt + 1}: "
+                        f"{type(event).__name__} - {text[:100]}..."
                     )
+                    return text
 
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
                 current_delay = retry_delay * (retry_backoff**attempt)
                 current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
-                    "Agent MessageEvent not found yet, "
+                    "Agent MessageEvent or FinishAction not found yet, "
                     f"waiting {current_delay:.1f}s before retry..."
                 )
                 time.sleep(current_delay)
