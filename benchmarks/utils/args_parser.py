@@ -84,4 +84,14 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=3,
         help="Maximum retries for instances that throw exceptions (default: 3)",
     )
+    parser.add_argument(
+        "--tool-preset",
+        type=str,
+        default="default",
+        choices=["default", "gemini", "planning"],
+        help=(
+            "Tool preset for file editing. 'default' uses FileEditorTool, "
+            "'gemini' uses read_file/write_file/edit/list_directory (default: default)"
+        ),
+    )
     return parser

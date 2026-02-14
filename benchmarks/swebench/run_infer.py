@@ -30,15 +30,41 @@ from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
+    ToolPresetType,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk.tool import Tool
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
+
+
+def get_tools_for_preset(preset: ToolPresetType, enable_browser: bool = False) -> list[Tool]:
+    """Get the list of tools for the given preset.
+
+    Args:
+        preset: The tool preset to use (default, gemini, or planning).
+        enable_browser: Whether to include browser tools.
+
+    Returns:
+        List of Tool instances for the given preset.
+    """
+    if preset == "gemini":
+        from openhands.tools.preset.gemini import get_gemini_tools
+
+        return get_gemini_tools(enable_browser=enable_browser)
+    elif preset == "planning":
+        from openhands.tools.preset.planning import get_planning_tools
+
+        # Planning preset doesn't support browser tools
+        return get_planning_tools()
+    else:  # default
+        from openhands.tools.preset.default import get_default_tools
+
+        return get_default_tools(enable_browser=enable_browser)
 
 
 def get_instruction(
@@ -228,7 +254,8 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_default_tools(
+        tools = get_tools_for_preset(
+            preset=self.metadata.tool_preset,
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
@@ -367,6 +394,7 @@ def main() -> None:
     # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
+    logger.info(f"Using tool preset: {args.tool_preset}")
 
     metadata = EvalMetadata(
         llm=llm,
@@ -383,6 +411,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        tool_preset=args.tool_preset,
     )
 
     # Run orchestrator with a simple JSONL writer
