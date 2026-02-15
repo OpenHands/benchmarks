@@ -42,7 +42,9 @@ from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 logger = get_logger(__name__)
 
 
-def get_tools_for_preset(preset: ToolPresetType, enable_browser: bool = False) -> list[Tool]:
+def get_tools_for_preset(
+    preset: ToolPresetType, enable_browser: bool = False
+) -> list[Tool]:
     """Get the list of tools for the given preset.
 
     Args:
