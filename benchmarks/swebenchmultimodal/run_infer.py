@@ -37,9 +37,11 @@ from openhands.sdk import (
     ImageContent,
     Message,
     TextContent,
+    Tool,
     get_logger,
 )
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
@@ -253,6 +255,8 @@ class SWEBenchEvaluation(Evaluation):
             # Enable browser tools for frontend development tasks
             enable_browser=True,
         )
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -472,6 +476,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer

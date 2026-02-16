@@ -21,8 +21,9 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
 
@@ -423,6 +424,9 @@ class OpenAgentSafetyEvaluation(Evaluation):
             enable_browser=False,
         )
 
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
+
         # Create agent
         agent = Agent(llm=self.metadata.llm, tools=tools)
 
@@ -581,6 +585,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        enable_delegation=args.enable_delegation,
     )
 
     # Initial cleanup
