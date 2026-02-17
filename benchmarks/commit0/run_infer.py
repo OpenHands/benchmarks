@@ -245,6 +245,12 @@ class Commit0Evaluation(Evaluation):
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
         logger.info(f"Cloned repository: {instance.data['repo']}")
 
+        # Reset to ensure clean state at HEAD
+        reset_cmd = f"cd /workspace/{workspace_dir_name} && git reset --hard HEAD"
+        res = workspace.execute_command(reset_cmd, timeout=60)
+        if res.exit_code != 0:
+            raise RuntimeError(f"Failed to reset repo: {res.stderr}")
+
         # Create new branch
         branch_cmd = f"cd /workspace/{workspace_dir_name} && git checkout -b openhands"
         res = workspace.execute_command(branch_cmd, timeout=600)

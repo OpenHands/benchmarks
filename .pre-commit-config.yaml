@@ -37,3 +37,11 @@ repos:
         pass_filenames: true
         always_run: false
         exclude: ^legacy/
+      - id: validate-git-reset
+        name: Validate git reset after clone/checkout
+        entry: uv
+        args: [run, python, benchmarks/scripts/validate_git_reset.py]
+        language: system
+        types_or: [python, shell]
+        pass_filenames: true
+        always_run: false

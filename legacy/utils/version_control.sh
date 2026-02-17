@@ -17,12 +17,15 @@ checkout_eval_branch() {
     current_branch=$(git rev-parse --abbrev-ref HEAD)
     echo "Current version is: $current_branch"
     echo "Check out OpenHands to version: $COMMIT_HASH"
+    # git reset is not needed here - this checkout targets a specific commit hash
+    # and is used for version control within the development environment
     if ! git checkout $COMMIT_HASH; then
         echo "Failed to check out to $COMMIT_HASH"
         exit 1
     fi
 
     echo "Revert changes in evaluation folder"
+    # git reset is not needed - restoring evaluation folder from current branch
     git checkout $current_branch -- evaluation
 
     # Trap the EXIT signal to checkout original branch
@@ -36,6 +39,7 @@ checkout_original_branch() {
         return 0
     fi
     echo "Checkout back to original branch $current_branch"
+    # git reset is not needed - restoring to original branch after evaluation
     git checkout $current_branch
 }
 

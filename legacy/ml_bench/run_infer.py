@@ -122,6 +122,11 @@ def initialize_runtime(
     obs = runtime.run_action(action)
     assert obs.exit_code == 0
 
+    action = CmdRunAction(command=f'cd /workspace/{repo_name} && git reset --hard HEAD')
+    logger.info(action, extra={'msg_type': 'ACTION'})
+    obs = runtime.run_action(action)
+    assert obs.exit_code == 0
+
     action = CmdRunAction(command=f'chmod -R 777 /workspace/{repo_name}')
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
