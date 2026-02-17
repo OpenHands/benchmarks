@@ -238,8 +238,10 @@ class Commit0Evaluation(Evaluation):
             )
 
         # Clone the repository to the specific directory
+        # Use --depth 1 for shallow clone to prevent agents from accessing git history
+        # and exploiting it to retrieve original implementations (reward hacking prevention)
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        clone_cmd = f"cd /workspace/ && git clone -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
+        clone_cmd = f"cd /workspace/ && git clone --depth 1 -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
         res = workspace.execute_command(clone_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
