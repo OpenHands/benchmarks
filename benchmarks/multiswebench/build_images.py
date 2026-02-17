@@ -8,15 +8,16 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+import json
 import os
 from pathlib import Path
 
+from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
     get_build_parser,
 )
-from benchmarks.utils.dataset import get_dataset
 from openhands.sdk import get_logger
 
 
@@ -37,7 +38,7 @@ def get_official_docker_image(
 
     # For Multi-SWE-Bench, the image naming depends on the language
     repo = instance["repo"]
-    version = instance["version"]
+    version = instance.get("version", "")
 
     if LANGUAGE == "python":
         # Use SWE-bench style naming for Python
@@ -52,7 +53,7 @@ def get_official_docker_image(
         else:
             org = instance.get("org", repo)
             repo_name = repo
-        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:base"
+        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:base".lower()
 
     logger.debug(f"Multi-SWE-Bench image: {official_image_name}")
     return official_image_name
@@ -79,12 +80,16 @@ def extract_custom_tag(base_image: str) -> str:
 
 def get_base_images_from_dataset(dataset_name: str, split: str) -> list[str]:
     """Get all unique base images from the dataset."""
-    dataset = get_dataset(dataset_name, split)
+    local_path = download_and_concat_dataset(dataset_name, LANGUAGE)
     base_images = set()
 
-    for _, row in dataset.iterrows():
-        image = get_official_docker_image(row.to_dict())
-        base_images.add(image)
+    with open(local_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            instance = json.loads(line)
+            image = get_official_docker_image(instance)
+            base_images.add(image)
 
     return list(base_images)
 
@@ -107,6 +112,7 @@ def main():
         build_dir=Path(
             args.output_dir or default_build_output_dir(args.dataset, args.split)
         ),
+        base_image_to_custom_tag_fn=extract_custom_tag,
         max_workers=args.num_workers,
         dry_run=False,
     )

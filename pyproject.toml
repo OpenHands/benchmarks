@@ -42,10 +42,13 @@ dependencies = [
     "lmnr>=0.7.24",
     "multi-swe-bench>=1.1.1",
     "swt-bench @ git+https://github.com/logic-star-ai/swt-bench.git@5fdcd446ff05e248ecfffc19d560a210699f71f8",
-]
+    "nemo_evaluator",
+    ]
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
+generate-llm-config = "benchmarks.scripts.generate_llm_config:main"
+run-benchmark = "benchmarks.scripts.run_benchmark:main"
 swebench-infer = "benchmarks.swebench.run_infer:main"
 swtbench-infer = "benchmarks.swtbench.run_infer:main"
 swebench-eval = "benchmarks.swebench.eval_infer:main"
@@ -69,11 +72,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["benchmarks"]
+include = ["benchmarks", "benchmarks*", "nemo_evaluator", "nemo_evaluator*"]
 
 [tool.setuptools]
 # Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
 py-modules = ["sitecustomize"]
+
+[tool.setuptools.package-data]
+nemo_evaluator = ["**/*.yml"]
+benchmarks = ["**/*.j2", "**/Dockerfile*", "**/*.json"]
 
 [dependency-groups]
 dev = [
@@ -91,7 +98,6 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-exclude = ["legacy"]
 
 [tool.ruff.format]
 quote-style = "double"

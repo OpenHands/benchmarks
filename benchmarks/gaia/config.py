@@ -10,6 +10,7 @@ INFER_DEFAULTS = {
     "split": "validation",
     "level": "2023_all",
     "num_workers": 30,
+    "critic": "pass",
 }
 
 # Build defaults (used by build_images.py)

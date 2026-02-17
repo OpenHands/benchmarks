@@ -120,6 +120,7 @@ def process_commit0_results(input_file: str, output_file: str) -> None:
 
     # Generate report
     report = {
+        "benchmark": "commit0",
         "total_instances": 16,  # Fixed as per requirement
         "submitted_instances": len(completed_ids),
         "completed_instances": len(completed_ids),

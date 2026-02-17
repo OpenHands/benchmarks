@@ -1,5 +1,11 @@
+import os
+
 OUTPUT_FILENAME = "output.jsonl"
-EVAL_AGENT_SERVER_IMAGE = "ghcr.io/openhands/eval-agent-server"
+
+# Image name for agent server (can be overridden via env var)
+EVAL_AGENT_SERVER_IMAGE = os.getenv(
+    "OPENHANDS_EVAL_AGENT_SERVER_IMAGE", "ghcr.io/openhands/eval-agent-server"
+)
 
 # Model identifier used in swebench-style prediction entries.
 # The swebench harness uses this value to create log directory structures

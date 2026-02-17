@@ -10,8 +10,10 @@ Usage:
 """
 
 import argparse
+import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
@@ -59,8 +61,8 @@ def run_multi_swebench_evaluation(
         # Create config file for Multi-SWE-Bench
         config_file = work_dir / "config.json"
 
-        # Handle dataset path - download if it's a ByteDance-Seed/Multi-SWE-bench dataset
-        if dataset_name.startswith("ByteDance-Seed/Multi-SWE-bench"):
+        # Handle dataset path - download if it's Multi-SWE-Bench
+        if "multi-swe-bench" in dataset_name.lower():
             logger.info(f"Downloading Multi-SWE-bench dataset for language: {lang}")
             dataset_path = download_and_concat_dataset(dataset_name, lang)
         else:
@@ -73,17 +75,39 @@ def run_multi_swebench_evaluation(
         # Run the Multi-SWE-Bench evaluation
         logger.info("Running Multi-SWE-Bench evaluation harness...")
 
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "multi_swe_bench.harness.run_evaluation",
+        # Try uv first, fall back to current Python interpreter
+        try:
+            uv_check = subprocess.run(
+                ["uv", "--version"],
+                capture_output=True,
+                text=True,
+            )
+            uv_available = uv_check.returncode == 0
+        except FileNotFoundError:
+            uv_available = False
+
+        if uv_available:
+            cmd = [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "multi_swe_bench.harness.run_evaluation",
+            ]
+        else:
+            logger.info("uv not available, using current Python interpreter")
+            cmd = [
+                sys.executable,
+                "-m",
+                "multi_swe_bench.harness.run_evaluation",
+            ]
+
+        cmd.extend([
             "--config",
             str(config_file.resolve()),
             "--mode",
             "evaluation",
-        ]
+        ])
 
         logger.info(f"Evaluation command: {' '.join(cmd)}")
 
@@ -96,11 +120,13 @@ def run_multi_swebench_evaluation(
             error_msg = f"Evaluation failed with return code {result.returncode}"
             print(f"ERROR: {error_msg}")
             logger.error(error_msg)
+            raise subprocess.CalledProcessError(result.returncode, cmd)
 
     except Exception as e:
         error_msg = f"Error running evaluation: {e}"
         print(f"ERROR: {error_msg}")
         logger.error(error_msg)
+        raise
 
 
 def main():
@@ -140,9 +166,16 @@ def main():
         logger.info(f"Results saved to {results_file}")
 
         # Move the report file to the output location
-        output_report_path = args.input_file.with_suffix(".report.json")
+        output_report_path = Path(args.input_file).with_suffix(".report.json")
         shutil.move(str(results_file), str(output_report_path))
         logger.info(f"Report moved to {output_report_path}")
+
+        # Add benchmark field to the report
+        with open(output_report_path, "r") as f:
+            report_data = json.load(f)
+        report_data["benchmark"] = f"multiswebench-{args.lang}"
+        with open(output_report_path, "w") as f:
+            json.dump(report_data, f, indent=4)
 
         # Update Laminar datapoints with evaluation scores
         LaminarService.get().update_evaluation_scores(

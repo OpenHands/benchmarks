@@ -1,6 +1,7 @@
 """Build OpenAgentSafety Docker image from vendor/software-agent-sdk"""
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -31,6 +32,16 @@ def get_vendor_sdk_commit() -> str:
     return result.stdout.strip()
 
 
+def get_image_name() -> str:
+    image_name = os.getenv("EVAL_AGENT_SERVER_IMAGE", "openagentsafety-agent-server")
+    tag_prefix = os.getenv("IMAGE_TAG_PREFIX")
+    if tag_prefix:
+        tag = f"{tag_prefix}-openagentsafety"
+    else:
+        tag = get_vendor_sdk_commit()
+    return f"{image_name}:{tag}"
+
+
 def check_image_exists(image_name: str) -> bool:
     """Check if a Docker image exists locally."""
     result = subprocess.run(
@@ -48,12 +59,13 @@ def build_workspace_image(force_rebuild: bool = False, no_cache: bool = False) -
         force_rebuild: if True, ignore existing images and rebuild.
         no_cache: if True, pass --no-cache to docker build to avoid layer cache.
     """
-    sdk_commit = get_vendor_sdk_commit()
-    image_name = f"openagentsafety-agent-server:{sdk_commit}"
+    image_name = get_image_name()
 
     if not force_rebuild and check_image_exists(image_name):
         logger.info(f"#### Using existing image: {image_name}")
         return image_name
+    
+    sdk_commit = get_vendor_sdk_commit()
 
     logger.info(f"#### Building Docker image: {image_name}")
     logger.info(f"#### SDK version: {sdk_commit}")

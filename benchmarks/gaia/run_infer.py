@@ -28,7 +28,8 @@ from benchmarks.utils.evaluation_utils import (
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
     LLM,
     Agent,
@@ -44,7 +45,7 @@ from openhands.sdk.event import ActionEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -153,12 +154,29 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
-            # Use DockerDevWorkspace with base image (same as main branch)
-            workspace = DockerDevWorkspace(
-                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                working_dir="/workspace",
-                forward_env=forward_env or [],
-            )
+            # Use DockerDevWorkspace with base image
+            # Fall back to pre-built image if build fails
+            try:
+                workspace = DockerDevWorkspace(
+                    base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                    working_dir="/workspace",
+                    forward_env=forward_env or [],
+                )
+            except Exception as build_error:
+                build_target = os.getenv("GAIA_BUILD_TARGET", "binary-minimal")
+                agent_server_image = (
+                    f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-{build_target}"
+                )
+                if not image_exists(agent_server_image):
+                    raise RuntimeError(
+                        f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"
+                    )
+                workspace = DockerWorkspace(
+                    server_image=agent_server_image,
+                    working_dir="/workspace",
+                    forward_env=forward_env or [],
+                )
+                logger.info(f"Using pre-built image {agent_server_image}")
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image
             # GAIA uses a universal agent server image (one image for all instances)
@@ -171,9 +189,8 @@ class GAIAEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
             )
 
             if not image_exists(agent_server_image):
@@ -184,7 +201,7 @@ class GAIAEvaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with GAIA image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -351,7 +368,9 @@ class GAIAEvaluation(Evaluation):
         else:
             conversation.send_message(instruction)
         # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        run_conversation_with_fake_user_response(
+            conversation, run_timeout=self.metadata.conversation_timeout
+        )
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)
@@ -553,12 +572,7 @@ def main() -> None:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
     # Load LLM config
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     # Construct dataset description
@@ -579,12 +593,15 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={"level": args.level},
         eval_limit=args.n_limit,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
+        skip_failed_samples=args.skip_failed_samples,
         workspace_type=args.workspace,
     )
 

@@ -18,6 +18,13 @@ class EvalMetadata(BaseModel):
     dataset: str
     dataset_split: str = Field(default="test")
     max_iterations: int
+    conversation_timeout: float = Field(
+        default=3600.0,
+        ge=0,
+        description=(
+            "Timeout in seconds for a single Conversation.run() call (remote workspaces). "
+        ),
+    )
     eval_output_dir: str
     details: dict[str, Any] | None = None
     prompt_path: str | None = Field(
@@ -47,6 +54,13 @@ class EvalMetadata(BaseModel):
         default=3,
         ge=0,
         description="Maximum number of retries for instances that throw exceptions",
+    )
+    skip_failed_samples: bool = Field(
+        default=True,
+        description=(
+            "If True, failed samples are skipped and treated as not solved. "
+            "If False, the entire evaluation fails on the first failed sample."
+        ),
     )
     workspace_type: Literal["docker", "remote"] = Field(
         default="docker",
