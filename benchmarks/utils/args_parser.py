@@ -84,4 +84,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=3,
         help="Maximum retries for instances that throw exceptions (default: 3)",
     )
+    parser.add_argument(
+        "--enable-delegation",
+        action="store_true",
+        default=False,
+        help="Enable sub-agent delegation tools for the agent",
+    )
     return parser
