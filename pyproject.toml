@@ -62,6 +62,8 @@ openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
 openagentsafety-eval = "benchmarks.openagentsafety.eval_infer:main"
 swebenchmultimodal-infer = "benchmarks.swebenchmultimodal.run_infer:main"
 swebenchmultimodal-eval = "benchmarks.swebenchmultimodal.eval_infer:main"
+terminalbench-infer = "benchmarks.terminalbench.run_infer:main"
+terminalbench-eval = "benchmarks.terminalbench.eval_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
