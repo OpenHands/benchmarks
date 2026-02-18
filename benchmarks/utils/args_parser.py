@@ -90,4 +90,24 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=False,
         help="Enable sub-agent delegation tools for the agent",
     )
+    parser.add_argument(
+        "--enable-condenser",
+        action="store_true",
+        help="Enable the context condenser to manage conversation history",
+    )
+    parser.add_argument(
+        "--disable-condenser",
+        action="store_true",
+        help="Disable the context condenser",
+    )
+    parser.add_argument(
+        "--condenser-max-size",
+        type=int,
+        help="Maximum number of events before the condenser activates",
+    )
+    parser.add_argument(
+        "--condenser-keep-first",
+        type=int,
+        help="Number of initial events to always keep when condensing",
+    )
     return parser

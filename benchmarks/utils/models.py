@@ -72,6 +72,20 @@ class EvalMetadata(BaseModel):
         default=False,
         description="Enable sub-agent delegation tools for the agent",
     )
+    enable_condenser: bool = Field(
+        default=True,
+        description="Enable the context condenser to manage conversation history",
+    )
+    condenser_max_size: int = Field(
+        default=80,
+        ge=1,
+        description="Maximum number of events before the condenser activates",
+    )
+    condenser_keep_first: int = Field(
+        default=4,
+        ge=0,
+        description="Number of initial events to always keep when condensing",
+    )
     lmnr: LaminarEvalMetadata | None = Field(
         default=None,
         description="Laminar evaluation metadata",
