@@ -33,9 +33,9 @@ from benchmarks.utils.models import (
     ToolPresetType,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, get_logger
-from openhands.sdk.tool import Tool
+from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
@@ -261,6 +261,8 @@ class SWEBenchEvaluation(Evaluation):
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -414,6 +416,7 @@ def main() -> None:
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         tool_preset=args.tool_preset,
+        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer

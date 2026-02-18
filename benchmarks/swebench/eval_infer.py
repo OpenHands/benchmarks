@@ -261,11 +261,10 @@ Examples:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=EVAL_DEFAULTS["timeout"],
-        help=f"Timeout in seconds for evaluation (default: {EVAL_DEFAULTS['timeout']})",
+        help="Timeout in seconds for evaluation",
     )
 
-    # Apply EVAL_DEFAULTS from config (for dataset, split, workers)
+    # Apply EVAL_DEFAULTS from config (for dataset, split, workers, modal, timeout)
     parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()

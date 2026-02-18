@@ -38,11 +38,13 @@ from openhands.sdk import (
     Message,
     MessageEvent,
     TextContent,
+    Tool,
     get_logger,
 )
 from openhands.sdk.event import ActionEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
@@ -304,6 +306,8 @@ class GAIAEvaluation(Evaluation):
 
         # Create agent
         tools = get_default_tools(enable_browser=True)
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         tavily_api_key = os.getenv("TAVILY_API_KEY", "")
         assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
         agent = Agent(
@@ -586,6 +590,7 @@ def main() -> None:
         critic=critic,
         selected_instances_file=args.select,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
     )
 
     # Create evaluator

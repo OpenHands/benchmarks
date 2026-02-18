@@ -72,6 +72,10 @@ class EvalMetadata(BaseModel):
         le=16,
         description="Maximum resource factor to use after retries.",
     )
+    enable_delegation: bool = Field(
+        default=False,
+        description="Enable sub-agent delegation tools for the agent",
+    )
     lmnr: LaminarEvalMetadata | None = Field(
         default=None,
         description="Laminar evaluation metadata",

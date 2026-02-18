@@ -94,4 +94,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
             "'gemini' uses read_file/write_file/edit/list_directory (default: default)"
         ),
     )
+    parser.add_argument(
+        "--enable-delegation",
+        action="store_true",
+        default=False,
+        help="Enable sub-agent delegation tools for the agent",
+    )
     return parser

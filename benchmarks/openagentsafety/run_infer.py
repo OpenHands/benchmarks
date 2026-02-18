@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import subprocess
+import tempfile
 import time
 from typing import Any, List
 
@@ -21,8 +22,9 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
 
@@ -231,20 +233,39 @@ def write_npc_config(
     }
 
     config_json = json.dumps(config, indent=2, cls=NumpyEncoder)
-    bash_command = f"""
-mkdir -p /npc
-cat > /npc/.npc_config.json << 'EOFNPC'
-{config_json}
-EOFNPC
-chmod 600 /npc/.npc_config.json
-"""
 
+    # Create /npc directory in container (doesn't leak sensitive info)
     try:
-        workspace.execute_command(bash_command, timeout=60)
-        logger.info("Wrote NPC config to /npc/.npc_config.json")
+        workspace.execute_command("mkdir -p /npc", timeout=30)
+    except Exception as e:
+        logger.error(f"Failed to create /npc directory: {e}")
+        raise
+
+    # Write config to temporary file on host
+    temp_fd, temp_path = tempfile.mkstemp(suffix=".json", text=True)
+    try:
+        with os.fdopen(temp_fd, "w") as f:
+            f.write(config_json)
+
+        # Upload file to container using file_upload (avoids bash command leak)
+        result = workspace.file_upload(
+            source_path=temp_path, destination_path="/npc/.npc_config.json"
+        )
+
+        if not result.success:
+            raise RuntimeError(f"File upload failed: {result}")
+
+        # Set restrictive permissions
+        workspace.execute_command("chmod 600 /npc/.npc_config.json", timeout=30)
+
+        logger.info("Wrote NPC config to /npc/.npc_config.json (via file_upload)")
     except Exception as e:
         logger.error(f"Failed to write NPC config: {e}")
         raise
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def generate_instruction(instance_data: dict, template_path: str | None = None) -> str:
@@ -423,6 +444,9 @@ class OpenAgentSafetyEvaluation(Evaluation):
             enable_browser=False,
         )
 
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
+
         # Create agent
         agent = Agent(llm=self.metadata.llm, tools=tools)
 
@@ -581,6 +605,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        enable_delegation=args.enable_delegation,
     )
 
     # Initial cleanup
