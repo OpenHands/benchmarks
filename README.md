@@ -117,6 +117,25 @@ After setting up the environment and configuring your LLM, see the individual be
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
+## Rich Logging
+
+Enable enhanced console output with color-coded, structured logs:
+
+```bash
+export RICH_LOGGING=1   # Enable rich logs (default: disabled)
+export NO_COLOR=1       # Disable colors if needed
+```
+
+Rich logging shows real-time tool calls, agent messages, and a summary at the end of each instance:
+
+```
+10:30:45 [django-12345]  TOOL   │ ▶ bash #1 cmd='ls -la'
+10:30:46 [django-12345]  TOOL   │   └─ ok
+OK patch=NONEMPTY msgs(a/u)=8/3 tool_calls=12 errors(agent/conv)=0/0 end=finish_tool
+```
+
+File logging (`logs/instance_<id>.log`) is unaffected by this setting.
+
 ## Triggering Cloud Evals from This Repo
 
 This repo exposes a manual GitHub Actions workflow that dispatches the `run-eval.yml` workflow in the Software Agent SDK. It is useful when you want to launch evals from the benchmarks repo without switching to the SDK repo.
