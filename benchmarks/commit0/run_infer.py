@@ -31,6 +31,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -303,10 +304,21 @@ class Commit0Evaluation(Evaluation):
         tools = get_default_tools(enable_browser=False)
         if self.metadata.enable_delegation:
             tools.append(Tool(name=DelegateTool.name))
+
+        # Create condenser if enabled
+        condenser = None
+        if self.metadata.enable_condenser:
+            condenser = LLMSummarizingCondenser(
+                llm=self.metadata.llm.model_copy(update={"service_id": "condenser"}),
+                max_size=self.metadata.condenser_max_size,
+                keep_first=self.metadata.condenser_keep_first,
+            )
+
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            condenser=condenser,
         )
 
         assert isinstance(workspace, RemoteWorkspace)

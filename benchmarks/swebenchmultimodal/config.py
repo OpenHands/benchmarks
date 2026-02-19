@@ -9,8 +9,8 @@ Default values aligned with evaluation repository (OpenHands/evaluation).
 # when it exceeds max_size and replacing dropped events with an LLM-generated summary.
 CONDENSER_DEFAULTS = {
     "enable_condenser": True,
-    "condenser_max_size": 80,  # Maximum number of events before condensing
-    "condenser_keep_first": 4,  # Number of initial events to always keep
+    "condenser_max_size": 240,  # Maximum number of events before condensing
+    "condenser_keep_first": 2,  # Number of initial events to always keep
 }
 
 # Inference defaults (used by run_infer.py)

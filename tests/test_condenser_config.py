@@ -1,5 +1,13 @@
 """Tests for condenser configuration in benchmarks."""
 
+from benchmarks.commit0.config import (
+    CONDENSER_DEFAULTS as COMMIT0_CONDENSER_DEFAULTS,
+    INFER_DEFAULTS as COMMIT0_INFER_DEFAULTS,
+)
+from benchmarks.gaia.config import (
+    CONDENSER_DEFAULTS as GAIA_CONDENSER_DEFAULTS,
+    INFER_DEFAULTS as GAIA_INFER_DEFAULTS,
+)
 from benchmarks.swebench.config import CONDENSER_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swebenchmultimodal.config import (
     CONDENSER_DEFAULTS as SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS,
@@ -21,8 +29,8 @@ def test_condenser_defaults_in_swebench_config():
     assert "condenser_max_size" in CONDENSER_DEFAULTS
     assert "condenser_keep_first" in CONDENSER_DEFAULTS
     assert CONDENSER_DEFAULTS["enable_condenser"] is True
-    assert CONDENSER_DEFAULTS["condenser_max_size"] == 80
-    assert CONDENSER_DEFAULTS["condenser_keep_first"] == 4
+    assert CONDENSER_DEFAULTS["condenser_max_size"] == 240
+    assert CONDENSER_DEFAULTS["condenser_keep_first"] == 2
 
 
 def test_condenser_defaults_in_swtbench_config():
@@ -31,8 +39,8 @@ def test_condenser_defaults_in_swtbench_config():
     assert "condenser_max_size" in SWTBENCH_CONDENSER_DEFAULTS
     assert "condenser_keep_first" in SWTBENCH_CONDENSER_DEFAULTS
     assert SWTBENCH_CONDENSER_DEFAULTS["enable_condenser"] is True
-    assert SWTBENCH_CONDENSER_DEFAULTS["condenser_max_size"] == 80
-    assert SWTBENCH_CONDENSER_DEFAULTS["condenser_keep_first"] == 4
+    assert SWTBENCH_CONDENSER_DEFAULTS["condenser_max_size"] == 240
+    assert SWTBENCH_CONDENSER_DEFAULTS["condenser_keep_first"] == 2
 
 
 def test_condenser_defaults_in_swebenchmultimodal_config():
@@ -41,8 +49,28 @@ def test_condenser_defaults_in_swebenchmultimodal_config():
     assert "condenser_max_size" in SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS
     assert "condenser_keep_first" in SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS
     assert SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS["enable_condenser"] is True
-    assert SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS["condenser_max_size"] == 80
-    assert SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS["condenser_keep_first"] == 4
+    assert SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS["condenser_max_size"] == 240
+    assert SWEBENCHMULTIMODAL_CONDENSER_DEFAULTS["condenser_keep_first"] == 2
+
+
+def test_condenser_defaults_in_gaia_config():
+    """Test that condenser defaults are properly defined in gaia config."""
+    assert "enable_condenser" in GAIA_CONDENSER_DEFAULTS
+    assert "condenser_max_size" in GAIA_CONDENSER_DEFAULTS
+    assert "condenser_keep_first" in GAIA_CONDENSER_DEFAULTS
+    assert GAIA_CONDENSER_DEFAULTS["enable_condenser"] is True
+    assert GAIA_CONDENSER_DEFAULTS["condenser_max_size"] == 240
+    assert GAIA_CONDENSER_DEFAULTS["condenser_keep_first"] == 2
+
+
+def test_condenser_defaults_in_commit0_config():
+    """Test that condenser defaults are properly defined in commit0 config."""
+    assert "enable_condenser" in COMMIT0_CONDENSER_DEFAULTS
+    assert "condenser_max_size" in COMMIT0_CONDENSER_DEFAULTS
+    assert "condenser_keep_first" in COMMIT0_CONDENSER_DEFAULTS
+    assert COMMIT0_CONDENSER_DEFAULTS["enable_condenser"] is True
+    assert COMMIT0_CONDENSER_DEFAULTS["condenser_max_size"] == 240
+    assert COMMIT0_CONDENSER_DEFAULTS["condenser_keep_first"] == 2
 
 
 def test_condenser_defaults_in_infer_defaults():
@@ -61,6 +89,16 @@ def test_condenser_defaults_in_infer_defaults():
     assert "condenser_max_size" in SWEBENCHMULTIMODAL_INFER_DEFAULTS
     assert "condenser_keep_first" in SWEBENCHMULTIMODAL_INFER_DEFAULTS
     assert SWEBENCHMULTIMODAL_INFER_DEFAULTS["enable_condenser"] is True
+
+    assert "enable_condenser" in GAIA_INFER_DEFAULTS
+    assert "condenser_max_size" in GAIA_INFER_DEFAULTS
+    assert "condenser_keep_first" in GAIA_INFER_DEFAULTS
+    assert GAIA_INFER_DEFAULTS["enable_condenser"] is True
+
+    assert "enable_condenser" in COMMIT0_INFER_DEFAULTS
+    assert "condenser_max_size" in COMMIT0_INFER_DEFAULTS
+    assert "condenser_keep_first" in COMMIT0_INFER_DEFAULTS
+    assert COMMIT0_INFER_DEFAULTS["enable_condenser"] is True
 
 
 def test_eval_metadata_accepts_condenser_params():
@@ -93,8 +131,8 @@ def test_eval_metadata_condenser_defaults():
     )
     # Should use default values defined in EvalMetadata
     assert metadata.enable_condenser is True
-    assert metadata.condenser_max_size == 80
-    assert metadata.condenser_keep_first == 4
+    assert metadata.condenser_max_size == 240
+    assert metadata.condenser_keep_first == 2
 
 
 def test_args_parser_has_condenser_args():

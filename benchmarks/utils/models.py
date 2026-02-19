@@ -77,12 +77,12 @@ class EvalMetadata(BaseModel):
         description="Enable the context condenser to manage conversation history",
     )
     condenser_max_size: int = Field(
-        default=80,
+        default=240,
         ge=1,
         description="Maximum number of events before the condenser activates",
     )
     condenser_keep_first: int = Field(
-        default=4,
+        default=2,
         ge=0,
         description="Number of initial events to always keep when condensing",
     )
