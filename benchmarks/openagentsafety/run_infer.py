@@ -15,6 +15,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.openagentsafety.build_images import build_workspace_image
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -536,6 +537,12 @@ class OpenAgentSafetyEvaluation(Evaluation):
         else:
             logger.warning(f"No evaluator_code for {instance.id}")
             eval_result = {"error": "No evaluator code provided"}
+
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            logger=logger,
+        )
 
         # Collect cost metrics from LLM
         metrics = None

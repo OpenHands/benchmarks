@@ -16,6 +16,7 @@ from benchmarks.gaia.config import INFER_DEFAULTS
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -368,6 +369,12 @@ class GAIAEvaluation(Evaluation):
         logger.info(
             f"Instance {instance.id}: score={score}, "
             f"model_answer='{model_answer}', ground_truth='{ground_truth}'"
+        )
+
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            logger=logger,
         )
 
         # Collect history
