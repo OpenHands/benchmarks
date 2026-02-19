@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from benchmarks.utils.console_logging import print_trajectory_line
 from openhands.sdk import Event, get_logger
 from openhands.sdk.event import ActionEvent
-
-from benchmarks.utils.console_logging import print_trajectory_line
 
 
 logger = get_logger(__name__)

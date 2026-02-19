@@ -5,7 +5,8 @@ import os
 import re
 import sys
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
 
 if TYPE_CHECKING:
     from openhands.sdk import Event
@@ -129,7 +130,11 @@ def _extract_tool_input_preview(event: "Event") -> str:
             v = getattr(action, attr)
             if isinstance(v, str) and v.strip():
                 return f" {label}={_truncate(_one_line(v), 120)!r}"
-    for attr, label in (("new_string", "new"), ("new_str", "new"), ("old_string", "old")):
+    for attr, label in (
+        ("new_string", "new"),
+        ("new_str", "new"),
+        ("old_string", "old"),
+    ):
         if hasattr(action, attr):
             v = getattr(action, attr)
             if isinstance(v, str) and v.strip():
@@ -182,7 +187,9 @@ def format_trajectory_line(
         is_error = bool(getattr(obs, "is_error", False))
         if exit_code is not None:
             if exit_code == 0:
-                prefix = _format_box_prefix(short_id=short_id, tag="TOOL", tag_bg=BG_BLUE)
+                prefix = _format_box_prefix(
+                    short_id=short_id, tag="TOOL", tag_bg=BG_BLUE
+                )
                 return f"{prefix}   {WHITE}└─ ok{RESET}"
             prefix = _format_box_prefix(short_id=short_id, tag="WARN", tag_bg=BG_YELLOW)
             return f"{prefix}   {YELLOW}└─ exit={exit_code}{RESET}"
@@ -239,7 +246,7 @@ def print_trajectory_line(
         line = format_trajectory_line(
             event, short_id=short_id, tool_call_index=tool_call_index
         )
-        if line:
+        if line and sys.__stdout__ is not None:
             print(line, file=sys.__stdout__)
             sys.__stdout__.flush()
     except Exception:
@@ -277,7 +284,9 @@ class _ColorFormatter(logging.Formatter):
     def __init__(self, instance_id: str) -> None:
         super().__init__()
         self._short_id = (
-            instance_id.split("__")[-1][:20] if "__" in instance_id else instance_id[:20]
+            instance_id.split("__")[-1][:20]
+            if "__" in instance_id
+            else instance_id[:20]
         )
 
     def format(self, record: logging.LogRecord) -> str:
@@ -396,7 +405,8 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
             ),
             file=sys.__stdout__,
         )
-        sys.__stdout__.flush()
+        if sys.__stdout__ is not None:
+            sys.__stdout__.flush()
     else:
         # Original startup message style
         root_logger.info(
@@ -433,7 +443,7 @@ def _ansi(enabled: bool, code: str) -> str:
 def summarize_instance(
     *,
     instance_id: str,
-    conversation: object,
+    conversation: Any,
     git_patch: str | None = None,
     commit_exit_code: int = 0,
     repo_has_changes: bool = False,
@@ -441,9 +451,9 @@ def summarize_instance(
 ) -> None:
     """Log a summary line for a completed instance"""
     # Lazy imports to avoid circular dependencies
+    from openhands.sdk.conversation.state import ConversationExecutionStatus
     from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
     from openhands.sdk.event.conversation_error import ConversationErrorEvent
-    from openhands.sdk.conversation.state import ConversationExecutionStatus
     from openhands.sdk.tool.builtins.finish import FinishAction
 
     if logger is None:
@@ -455,7 +465,6 @@ def summarize_instance(
     except Exception:
         events = []
 
-    n_events = len(events)
     n_tool_calls = sum(
         isinstance(e, ActionEvent)
         and getattr(e, "source", None) == "agent"
@@ -490,7 +499,8 @@ def summarize_instance(
 
     # Check if agent used finish tool
     finished_with_finish = any(
-        isinstance(e, ActionEvent) and isinstance(getattr(e, "action", None), FinishAction)
+        isinstance(e, ActionEvent)
+        and isinstance(getattr(e, "action", None), FinishAction)
         for e in events
     )
 
@@ -565,8 +575,7 @@ def summarize_instance(
         )
     else:
         logger.info(
-            "[INSTANCE] %s msgs(a/u)=%d/%d tool_calls=%s "
-            "errors(agent/conv)=%s end=%s",
+            "[INSTANCE] %s msgs(a/u)=%d/%d tool_calls=%s errors(agent/conv)=%s end=%s",
             health_tag,
             n_agent_msgs,
             n_user_msgs,
@@ -574,4 +583,3 @@ def summarize_instance(
             errors_tag,
             reason_tag,
         )
-
