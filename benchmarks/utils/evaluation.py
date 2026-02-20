@@ -341,7 +341,6 @@ class Evaluation(ABC, BaseModel):
             attempt_outputs: List[EvalOutput] = []
 
             def attempt_on_result(instance: EvalInstance, out: EvalOutput) -> None:
-                attempt_outputs.append(out)
                 # Write to attempt-specific file
                 attempt_file = os.path.join(
                     self.metadata.eval_output_dir,
@@ -361,6 +360,13 @@ class Evaluation(ABC, BaseModel):
                         on_result(instance, out)
                     except Exception as cb_err:
                         logger.warning("on_result callback failed: %s", cb_err)
+
+                # Release heavy history data from memory now that it's
+                # persisted to disk. The critic and aggregator read history
+                # from the attempt files, not from this in-memory list.
+                out.history = []
+
+                attempt_outputs.append(out)
 
             # Run evaluation for this attempt
             pool = ProcessPoolExecutor(max_workers=self.num_workers)
