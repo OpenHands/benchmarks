@@ -120,10 +120,11 @@ class MultiSWEBenchEvaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up Multi-SWE-bench evaluation data")
 
-        # Check if this is a ByteDance-Seed/Multi-SWE-bench dataset that needs downloading
-        dataset_path = self.metadata.dataset
-        if dataset_path.startswith("ByteDance-Seed/Multi-SWE-bench"):
-            metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
+        metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
+        dataset_path = metadata.dataset
+        
+        # Check if this is a Multi-SWE-bench dataset that needs language filtering
+        if "Multi-SWE-bench" in dataset_path or "Multi-SWE-Bench" in dataset_path:
             logger.info(
                 f"Downloading Multi-SWE-bench dataset for language: {metadata.lang}"
             )
@@ -140,15 +141,27 @@ class MultiSWEBenchEvaluation(Evaluation):
             format_data_for_inference(downloaded_path, formatted_path)
             dataset_path = formatted_path
             logger.info(f"Using formatted dataset: {dataset_path}")
+        else:
+            # For non-Multi-SWE-bench datasets (e.g., local files), use get_dataset
+            from benchmarks.utils.dataset import get_dataset
+            logger.info(f"Loading dataset {metadata.dataset}")
+            
+            df = get_dataset(
+                dataset_name=metadata.dataset,
+                split=metadata.dataset_split,
+                eval_limit=self.metadata.eval_limit if self.metadata.eval_limit > 0 else None,
+                selected_instances_file=metadata.selected_instances_file,
+            )
 
-        # Load dataset using direct JSON loading to handle complex nested structures
-        logger.info(f"Loading dataset {dataset_path}")
-        data = []
-        with open(dataset_path, "r") as f:
-            for line in f:
-                data.append(json.loads(line))
+        # Load dataset from the local file (for Multi-SWE-bench path)
+        if "Multi-SWE-bench" in metadata.dataset or "Multi-SWE-Bench" in metadata.dataset:
+            logger.info(f"Loading dataset {dataset_path}")
+            data = []
+            with open(dataset_path, "r") as f:
+                for line in f:
+                    data.append(json.loads(line))
 
-        df = pd.DataFrame(data)
+            df = pd.DataFrame(data)
 
         # Filter out instances with NaN instance_id before applying limits
         original_count = len(df)
@@ -358,8 +371,22 @@ class MultiSWEBenchEvaluation(Evaluation):
             f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
         )
 
-        # git reset
-        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
+        # Get base_commit first - handle both SWE-Bench and Multi-SWE-Bench data formats
+        if "base" in instance.data and isinstance(instance.data["base"], dict):
+            # SWE-Bench format: {"base": {"sha": "..."}}
+            base_commit = instance.data["base"]["sha"]
+        elif "base_commit" in instance.data:
+            # Multi-SWE-Bench format: {"base_commit": "..."}
+            base_commit = instance.data["base_commit"]
+        else:
+            raise ValueError(
+                f"No base commit found in instance data. Available keys: {list(instance.data.keys())}"
+            )
+        
+        logger.info("base_commit: %s", base_commit)
+
+        # git reset to base_commit (not just --hard which stays on current commit)
+        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard {base_commit}")
         assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
         metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
@@ -384,17 +411,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             "git commit --no-verify -m 'patch'"
         )
 
-        # Get git patch - handle both SWE-Bench and Multi-SWE-Bench data formats
-        if "base" in instance.data and isinstance(instance.data["base"], dict):
-            # SWE-Bench format: {"base": {"sha": "..."}}
-            base_commit = instance.data["base"]["sha"]
-        elif "base_commit" in instance.data:
-            # Multi-SWE-Bench format: {"base_commit": "..."}
-            base_commit = instance.data["base_commit"]
-        else:
-            raise ValueError(
-                f"No base commit found in instance data. Available keys: {list(instance.data.keys())}"
-            )
+        # Get git patch (base_commit already extracted earlier)
         git_patch_result = workspace.execute_command(
             (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
         )

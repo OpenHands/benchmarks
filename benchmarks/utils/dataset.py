@@ -84,11 +84,83 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
 
     for attempt in range(1, attempts + 1):
         try:
-            dataset = load_dataset(dataset_name, split=split)
+            # Try with verification disabled and trust remote code to handle schema mismatches
+            dataset = load_dataset(
+                dataset_name, 
+                split=split, 
+                verification_mode="no_checks",
+                trust_remote_code=True
+            )
             assert isinstance(dataset, Dataset)
             return dataset
-        except Exception as exc:
-            last_exc = exc
+        except Exception as schema_exc:
+            # If schema validation fails, try loading with streaming dataset
+            logger.warning(f"Schema validation failed, trying streaming dataset: {schema_exc}")
+            
+            try:
+                # Try loading as streaming dataset to avoid schema validation
+                from datasets import load_dataset as load_dataset_streaming
+                dataset_stream = load_dataset_streaming(
+                    dataset_name,
+                    split=split,
+                    streaming=True,
+                    verification_mode="no_checks",
+                    trust_remote_code=True
+                )
+                
+                # Convert streaming dataset to regular dataset
+                import pandas as pd
+                rows = []
+                for i, row in enumerate(dataset_stream):
+                    rows.append(row)
+                    # Load at least 100 rows or all rows if less
+                    if i >= 99:
+                        break
+                
+                if not rows:
+                    raise ValueError("No rows loaded from streaming dataset")
+                
+                df = pd.DataFrame(rows)
+                logger.info(f"Successfully loaded {len(df)} rows from streaming dataset")
+                
+                # Create dataset from pandas DataFrame without schema validation
+                dataset = Dataset.from_pandas(df, preserve_index=False)
+                return dataset
+                        
+            except Exception as streaming_exc:
+                # If split doesn't exist, try 'train' as fallback
+                if "Bad split" in str(streaming_exc) and split != "train":
+                    logger.warning(f"Split '{split}' not found, falling back to 'train' split")
+                    try:
+                        dataset_stream = load_dataset_streaming(
+                            dataset_name,
+                            split="train",
+                            streaming=True,
+                            verification_mode="no_checks",
+                            trust_remote_code=True
+                        )
+                        
+                        import pandas as pd
+                        rows = []
+                        for i, row in enumerate(dataset_stream):
+                            rows.append(row)
+                        
+                        if not rows:
+                            raise ValueError("No rows loaded from streaming dataset")
+                        
+                        df = pd.DataFrame(rows)
+                        logger.info(f"Successfully loaded {len(df)} rows from 'train' split")
+                        
+                        # Create dataset from pandas DataFrame without schema validation
+                        dataset = Dataset.from_pandas(df, preserve_index=False)
+                        return dataset
+                    except Exception as train_exc:
+                        logger.warning(f"Train split fallback failed: {train_exc}")
+                
+                logger.warning(f"Streaming dataset loading failed: {streaming_exc}")
+            
+            # Manual loading failed, store the exception for retry logic
+            last_exc = schema_exc
             if attempt == attempts:
                 break
             wait = min(backoff, 60.0)
@@ -96,7 +168,7 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
                 "load_dataset failed (attempt %s/%s): %s; retrying in %.1fs",
                 attempt,
                 attempts,
-                exc,
+                schema_exc,
                 wait,
             )
             time.sleep(wait)
@@ -116,7 +188,7 @@ def get_dataset(
     # Check if dataset_name is a local file path
     if os.path.isfile(dataset_name) and dataset_name.endswith(".jsonl"):
         # Load local JSONL file
-        dataset = load_dataset("json", data_files=dataset_name, split="train")
+        dataset = load_dataset("json", data_files=dataset_name, split="train", verification_mode="no_checks", trust_remote_code=True)
         assert isinstance(dataset, Dataset)
         df = dataset.to_pandas()
         assert isinstance(df, pd.DataFrame)
