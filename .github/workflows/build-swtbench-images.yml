@@ -60,8 +60,8 @@ on:
         type: string
 
 concurrency:
-  group: build-swt-bench-${{ github.ref }}
-  cancel-in-progress: false
+  group: build-swt-bench-images
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
@@ -134,7 +134,38 @@ jobs:
         run: |
           make build
 
+      - name: "Preflight: prune cache and verify BuildKit disk"
+        run: |
+          set -euo pipefail
+          KEEP_GB=60
+          echo "Pruning BuildKit cache (target max-storage ${KEEP_GB} GiB, no filters)..."
+          # Prefer newer max-storage flag; fall back to keep-storage if not supported.
+          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g; then
+            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
+          fi
+
+          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
+            LINE=$(tail -n1 /tmp/buildkit_df)
+            TOTAL=$(echo "$LINE" | awk '{print $2}')
+            USED=$(echo "$LINE" | awk '{print $3}')
+            FREE=$(echo "$LINE" | awk '{print $4}')
+            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
+              PCT=$(( 100 * USED / TOTAL ))
+              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
+              MIN=$((75 * 1024 * 1024 * 1024))
+              if [ "$FREE" -lt "$MIN" ]; then
+                echo "::error::Not enough free space on /var/lib/buildkit (${FREE} bytes free, need >= ${MIN})"
+                exit 1
+              fi
+            else
+              echo "Warning: unable to parse df output for /var/lib/buildkit"
+            fi
+          else
+            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
+
       - name: Build and push SWT-Bench images
+        timeout-minutes: 30
         run: |
           set -euo pipefail
 
@@ -181,9 +212,11 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          BUILDKIT_RESET_ON_FAILURE: 1
 
       - name: Build prebaked eval env images
         if: ${{ inputs.build-eval-env == 'true' }}
+        timeout-minutes: 60
         run: |
           set -euo pipefail
 
