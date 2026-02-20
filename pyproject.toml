@@ -46,6 +46,7 @@ dependencies = [
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
+validate-git-reset = "benchmarks.scripts.validate_git_reset:main"
 swebench-infer = "benchmarks.swebench.run_infer:main"
 swtbench-infer = "benchmarks.swtbench.run_infer:main"
 swebench-eval = "benchmarks.swebench.eval_infer:main"

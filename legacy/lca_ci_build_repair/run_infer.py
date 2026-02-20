@@ -132,6 +132,11 @@ def initialize_runtime(
     obs = runtime.run_action(action)
     assert obs.exit_code == 0
 
+    action = CmdRunAction(command='git reset --hard HEAD')
+    logger.info(action, extra={'msg_type': 'ACTION'})
+    obs = runtime.run_action(action)
+    assert obs.exit_code == 0
+
     script_dir = os.path.dirname(
         os.path.abspath(__file__)
     )  # Get the absolute path of the script
