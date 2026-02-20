@@ -264,6 +264,17 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "problem_statement": "Test problem",
             },
         )
+    elif benchmark_name == "swefficiency":
+        return EvalInstance(
+            id="test-instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test-instance-1",
+                "base_commit": "abc123",
+                "version": "1.0",
+                "problem_statement": "Test problem for swefficiency",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -370,6 +381,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             prompt_path=prompt_path,
             critic=PassCritic(),
             lang="java",
+        )
+    elif benchmark_name == "swefficiency":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "swefficiency"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="swefficiency/swefficiency",
+            dataset_split="test",
+            details={"test": True},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
         )
     else:
         # Generic metadata for unknown benchmarks
