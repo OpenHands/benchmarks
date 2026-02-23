@@ -1,0 +1,13 @@
+uv run python -m benchmarks.agentic_code_search.rollouts_swesmith \
+    --dataset adityasoni17/SWE-smith-py-code-search \
+    --split train \
+    --llm-config-path .llm_config/qwen3_cso_14b.json \
+    --system_prompt_file benchmarks/agentic_code_search/prompts/system_prompt_custom_finish2.j2 \
+    --user_prompt_file benchmarks/agentic_code_search/prompts/file_module_custom_finish.j2 \
+    --tools terminal localization_finish \
+    --max-iterations 6 \
+    --num-workers 16 \
+    --output-dir ./sft_data \
+    --n-limit 15111 \
+    --runtime local \
+    --workspace_base_dir /tmp/testbed/
