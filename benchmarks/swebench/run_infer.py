@@ -35,6 +35,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
+from openhands.sdk.agent import ACPAgent
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -139,12 +140,20 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
 
+        For ACPAgent, ANTHROPIC_API_KEY is forwarded to the container.
+
         Args:
             instance: The evaluation instance to prepare workspace for.
             resource_factor: Resource factor for runtime allocation (default: 1).
                            Higher values allocate more CPU/memory resources.
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
+        # Forward ANTHROPIC_API_KEY for ACPAgent (Claude Code needs it inside the container)
+        if self.metadata.agent_type == "acp":
+            forward_env = list(forward_env or [])
+            if "ANTHROPIC_API_KEY" not in forward_env:
+                forward_env.append("ANTHROPIC_API_KEY")
+
         official_docker_image = get_official_docker_image(instance.id)
         build_target = constants.DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
@@ -257,24 +266,23 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_tools_for_preset(
-            preset=self.metadata.tool_preset,
-            # Disable browser tools in CLI mode
-            enable_browser=False,
-        )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-            # TODO: we can enable condenser and security analyzer later
-            # and have them configurable via EvalMetadata
-            # condenser=get_default_condenser(
-            #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
-            # ),
-            # security_analyzer=LLMSecurityAnalyzer(),
-        )
+        if self.metadata.agent_type == "acp":
+            agent = ACPAgent(
+                acp_command=["claude-code-acp"],
+            )
+        else:
+            tools = get_tools_for_preset(
+                preset=self.metadata.tool_preset,
+                # Disable browser tools in CLI mode
+                enable_browser=False,
+            )
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+            )
 
         assert isinstance(workspace, RemoteWorkspace)
 
@@ -426,6 +434,7 @@ def main() -> None:
         workspace_type=args.workspace,
         tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
     )
 
     # Run orchestrator with a simple JSONL writer

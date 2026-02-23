@@ -100,4 +100,11 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=False,
         help="Enable sub-agent delegation tools for the agent",
     )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        default="default",
+        choices=["default", "acp"],
+        help="Agent type: 'default' for standard Agent, 'acp' for ACPAgent (Claude Code via ACP)",
+    )
     return parser
