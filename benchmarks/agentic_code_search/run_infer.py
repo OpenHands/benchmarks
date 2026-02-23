@@ -28,6 +28,7 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk.context.view import ActionBatch
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.critic import PassCritic
 from openhands.sdk.event import ActionEvent
@@ -62,7 +63,7 @@ def get_parser():
         ArgumentParser instance
     """
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    default_prompt_path = prompt_dir / "file_module.j2"
+    default_prompt_path = prompt_dir / "file_module_custom_finish.j2"
     assert default_prompt_path.exists(), (
         f"Default prompt path file {default_prompt_path} not found"
     )
@@ -151,6 +152,12 @@ def get_parser():
         type=str,
         default="/tmp/testbed/",
         help="Base directory for local workspaces (ignored for remote workspaces)",
+    )
+    parser.add_argument(
+        "--remind_agent",
+        default=False,
+        action="store_true",
+        help="Whether to remind agent to submit its answer before the last step (set to True only for closed-source/API-based LLMs like GPT-5)",
     )
     return parser
 
@@ -686,17 +693,47 @@ class AgenticCodeSearchEvaluation(Evaluation):
             logger.debug("Event: %s", ev)
 
         assert isinstance(workspace, LocalWorkspace)
+        max_iterations = self.metadata.max_iterations
+        add_reminder = False
+        if (
+            self.metadata.details is not None
+            and isinstance(self.metadata.details, dict)
+            and self.metadata.details.get("remind_agent", False)
+        ):
+            max_iterations -= (
+                1  # reserve the last step for reminding the agent to submit its answer
+            )
+            add_reminder = True
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
             callbacks=[_log_event],
-            max_iteration_per_run=self.metadata.max_iterations,
+            max_iteration_per_run=max_iterations,
         )
         conversation.send_message(instruction)
         try:
             conversation.run()
         except Exception as e:
             logger.error(f"Error during conversation run: {e}")
+        finally:
+            action_batch = ActionBatch.from_events(conversation.state.events)
+            # Count unique LLM responses (steps)
+            num_steps = len(action_batch.batches)
+            if (
+                add_reminder
+                and num_steps + 1 == self.metadata.max_iterations
+                and get_structured_locations(conversation.state.events) is None
+            ):
+                conversation.send_message(
+                    "You have exhausted the maximum number of steps allowed for this task. You MUST strictly call the localization_finish tool with your final answer in the next step and MUST NOT use any other tool to explore the repository further."
+                )
+                try:
+                    conversation.max_iteration_per_run = 1  # allow only 1 more step for the agent to call the finish tool after max steps warning
+                    conversation.run()
+                except Exception as e:
+                    logger.error(
+                        f"Error during conversation run after max steps warning: {e}"
+                    )
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
         raw_prediction = ""
         if "localization_finish" not in tool_names:
@@ -795,6 +832,7 @@ def main():
             "user_prompt_file": args.user_prompt_file,
             "tools": args.tools,
             "enable_sdk_default_tools": args.enable_sdk_default_tools,
+            "remind_agent": args.remind_agent,
             # "num_steps_in_prompt": args.num_steps_in_prompt if args.num_steps_in_prompt > 0 else args.max_iterations,
         },
         prompt_path="",
