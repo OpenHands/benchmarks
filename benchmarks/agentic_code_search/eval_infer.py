@@ -123,7 +123,7 @@ def f1_reward_function(predicted_set, true_set):
 def compute_metrics(predictions, ground_truth, stats=None):
     all_instance_ids = set(predictions.keys()).union(set(ground_truth.keys()))
     total_instances = len(all_instance_ids)
-    print(len(ground_truth), len(predictions))
+    # print(len(ground_truth), len(predictions))
     print(f"Total instances to evaluate: {total_instances}")
 
     # Initialize accumulators for all metrics at all levels
