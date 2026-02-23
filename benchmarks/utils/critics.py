@@ -168,8 +168,9 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
             for line_num, line in enumerate(f, 1):
                 try:
                     data = json.loads(line.strip())
-                    output = EvalOutput.model_validate(data)
-                    completed_instances.add(output.instance_id)
+                    # output = EvalOutput.model_validate(data)
+                    completed_instances.add(data["instance_id"])
+                    # completed_instances.add(output.instance_id)
 
                 except json.JSONDecodeError as e:
                     logger.warning(

@@ -217,3 +217,10 @@ workspace/
 # Evaluation outputs
 eval_outputs/
 builds/
+qwen3*/
+sonnet*/
+sft*/
+logs/
+gpt*/
+claude*/
+agentic_code_search_oss_outputs/

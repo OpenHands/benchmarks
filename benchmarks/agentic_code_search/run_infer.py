@@ -2,14 +2,19 @@ import json
 import os
 import shutil
 import time
+import uuid
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Optional, Tuple
 
-import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.utils.dataset import prepare_dataset
+from benchmarks.agentic_code_search.custom_agent import CustomAgent
+from benchmarks.agentic_code_search.localization_finish import (
+    LocalizationFinishAction,
+    LocalizationFinishTool,
+)
+from benchmarks.utils.dataset import get_dataset
 
 # from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.evaluation import Evaluation
@@ -25,7 +30,8 @@ from benchmarks.utils.models import (
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.critic import PassCritic
-from openhands.sdk.tool import Tool
+from openhands.sdk.event import ActionEvent
+from openhands.sdk.tool import Tool, register_tool
 from openhands.sdk.workspace import LocalWorkspace, RemoteWorkspace
 from openhands.tools.file_editor import FileEditorTool
 from openhands.tools.glob import GlobTool
@@ -36,13 +42,16 @@ from openhands.tools.terminal import TerminalTool
 
 
 logger = get_logger(__name__)
+register_tool(LocalizationFinishTool.name, LocalizationFinishTool)
 
+# NOTE: Finish and Think tools are included by default if enable_sdk_default_tools is True, else you can only include the below tools in your agent
 TOOL_MAP = {
     "grep": GrepTool,
     "terminal": TerminalTool,
     "glob": GlobTool,
     "file_editor": FileEditorTool,
     "planning_file_editor": PlanningFileEditorTool,
+    "localization_finish": LocalizationFinishTool,
 }
 
 
@@ -59,11 +68,12 @@ def get_parser():
     )
     parser = ArgumentParser(description="Run inference on code localization dataset")
     parser.add_argument(
-        "--dataset_file",
+        "--dataset",
         type=str,
         required=True,
-        help="Path of the prepared dataset JSONL file.",
+        help="Name of HuggingFace dataset",
     )
+    parser.add_argument("--split", type=str, default="test", help="Dataset split")
     parser.add_argument(
         "--system_prompt_file",
         type=str,
@@ -84,7 +94,12 @@ def get_parser():
         default=[],
         help="List of tool names to enable for the agent (e.g.: grep, terminal, glob)",
     )
-    parser.add_argument("--split", type=str, default="test", help="Dataset split")
+    parser.add_argument(
+        "--enable_sdk_default_tools",
+        default=False,
+        action="store_true",
+        help="Whether to enable OpenHands SDK default tools -- Think and Finish tools (do not set to true if using custom finish tool)",
+    )
     parser.add_argument(
         "--llm-config-path",
         type=str,
@@ -94,9 +109,15 @@ def get_parser():
     parser.add_argument(
         "--max-iterations",
         type=int,
-        default=25,
-        help="Maximum steps allowed for the agent",
+        default=10,
+        help="Maximum steps allowed for the agent.",
     )
+    # parser.add_argument(
+    #     "--num_steps_in_prompt",
+    #     type=int,
+    #     default=-1,
+    #     help="Max. number of steps shown to agent (defaults to max-iterations if not set). You can use this to allow some cushioning between the max steps allowed via prompt vs actual max iterations.",
+    # )
     parser.add_argument(
         "--num-workers", type=int, default=1, help="Number of evaluation workers"
     )
@@ -112,7 +133,6 @@ def get_parser():
         default=-1,
         help="Limit number of instances to evaluate",
     )
-
     parser.add_argument(
         "--runtime",
         type=str,
@@ -129,7 +149,7 @@ def get_parser():
     parser.add_argument(
         "--workspace_base_dir",
         type=str,
-        default="/tmp/workspace/",
+        default="/tmp/testbed/",
         help="Base directory for local workspaces (ignored for remote workspaces)",
     )
     return parser
@@ -161,8 +181,6 @@ def f1_reward_function(predicted_set, true_set):
     tp = len(predicted_set & true_set)
     precision = tp / len(predicted_set) if predicted_set else 0.0
     recall = tp / len(true_set) if true_set else 0.0
-    if not predicted_set and not true_set:
-        return 0.0
     return (
         0.0
         if precision + recall == 0
@@ -283,7 +301,7 @@ def process_raw_output(raw_output: str, repo_dir: str):
     return all_found_files, all_found_modules, all_found_entities
 
 
-def reward_function(final_message: str, instance: dict) -> dict:
+def reward_function_str_parse(final_message: str, instance: dict) -> dict:
     try:
         gt_files = []
         gt_modules = []
@@ -365,20 +383,179 @@ def reward_function(final_message: str, instance: dict) -> dict:
         }
 
 
+def parse_structured_outputs(
+    structured_locations: List[dict],
+) -> Tuple[List[str], List[str], List[str]]:
+    """
+    Process structured location outputs and extract files, modules, and entities.
+
+    Args:
+        structured_locations: List of dicts with 'file', 'class_name', 'function_name' keys
+        Returns:
+            Tuple of (all_found_files, all_found_modules, all_found_entities) where each is a list of strs
+
+    Example structured input format:
+        [
+            {'file': 'path/to/file1.py', 'class_name': 'MyClass', 'function_name': 'my_method'},
+            {'file': 'path/to/file2.py', 'class_name': None, 'function_name': 'standalone_function'},
+            {'file': 'path/to/file1.py', 'class_name': None, 'function_name': 'global_function'},
+            {'file': 'path/to/file2.py', 'class_name': 'AnotherClass', 'function_name': None},
+            {'file': 'path/to/file3.py', 'class_name': None, 'function_name': None}
+        ]
+
+    Example output:
+        [['path/to/file1.py', 'path/to/file2.py', 'path/to/file3.py'], ['path/to/file1.py:MyClass', 'path/to/file2.py:AnotherClass', 'path/to/file1.py:global_function', 'path/to/file2.py:standalone_function'], ['path/to/file1.py:MyClass.my_method', 'path/to/file2.py:standalone_function', 'path/to/file1.py:global_function', 'path/to/file2.py:AnotherClass']]
+    """
+
+    # Strict sanity check: if there are duplicates in the output, return an empty output so that it is penalized with 0 reward?
+    all_found_files = []
+    all_found_modules = []
+    all_found_entities = []
+
+    for location in structured_locations:
+        file_path = location.get("file", None)
+        class_name = location.get("class_name", None)
+        function_name = location.get("function_name", None)
+
+        # NOTE: Ideally the case of file_path being None should raise an error from the agent-sdk but adding here for safety
+        if file_path is None or file_path.strip() == "":
+            continue
+
+        all_found_files.append(file_path)
+
+        module = None
+        if class_name:
+            module = f"{file_path}:{class_name}"
+        elif function_name:
+            module = f"{file_path}:{function_name}"
+
+        if module:
+            all_found_modules.append(module)
+
+        entity = None
+        if class_name and function_name:
+            entity = f"{file_path}:{class_name}.{function_name}"
+        elif function_name:
+            entity = f"{file_path}:{function_name}"
+
+        if entity:
+            all_found_entities.append(entity)
+
+    all_found_files = list(set(all_found_files))
+    all_found_modules = list(set(all_found_modules))
+    all_found_entities = list(set(all_found_entities))
+    return all_found_files, all_found_modules, all_found_entities
+
+
+def reward_function_tool_parse(
+    structured_locations: Optional[List[Dict[str, Any]]], instance: dict
+) -> dict:
+    try:
+        gt_files = []
+        gt_modules = []
+        gt_entities = []
+
+        for change in instance.get("file_changes", []):
+            if "file" in change:
+                gt_files.append(change["file"])
+            if "changes" in change:
+                edited_modules = change["changes"].get("edited_modules", [])
+                edited_modules = [] if edited_modules is None else edited_modules
+                for module in edited_modules:
+                    gt_modules.append(module)
+
+                edited_entities = change["changes"].get("edited_entities", [])
+                edited_entities = [] if edited_entities is None else edited_entities
+                for entity in edited_entities:
+                    gt_entities.append(entity)
+        gt_files = set(gt_files)
+        gt_modules = set(gt_modules)
+        gt_entities = set(gt_entities)
+
+        if structured_locations is not None:
+            predicted_files, predicted_modules, predicted_entities = (
+                parse_structured_outputs(structured_locations)
+            )
+            predicted_files, predicted_modules, predicted_entities = (
+                set(predicted_files),
+                set(predicted_modules),
+                set(predicted_entities),
+            )
+        else:
+            predicted_files, predicted_modules, predicted_entities = set(), set(), set()
+
+        file_f1_score = f1_reward_function(predicted_files, gt_files)
+        module_f1_score = f1_reward_function(predicted_modules, gt_modules)
+        entity_f1_score = f1_reward_function(predicted_entities, gt_entities)
+
+        return {
+            "file_reward": file_f1_score,
+            "module_reward": module_f1_score,
+            "entity_reward": entity_f1_score,
+            "prediction": {
+                "files": list(predicted_files),
+                "modules": list(predicted_modules),
+                "entities": list(predicted_entities),
+            },
+            "ground_truth": {
+                "files": list(gt_files),
+                "modules": list(gt_modules),
+                "entities": list(gt_entities),
+            },
+        }
+
+    except Exception as e:
+        print(f"Error computing reward: {e}")
+        return {
+            "file_reward": 0,
+            "module_reward": 0,
+            "entity_reward": 0,
+            "prediction": {},
+            "ground_truth": {},
+        }
+
+
+def get_structured_locations(events) -> Optional[List[Dict[str, Any]]]:
+    """Extract structured locations from LocalizationFinishAction in events.
+    Args:
+        events: List of conversation events to search through.
+    Returns:
+        List of location dicts with 'file', 'class', 'function' keys, or None if not found.
+    """
+    # Find the last LocalizationFinishAction
+    try:
+        for event in reversed(events):
+            if (
+                isinstance(event, ActionEvent)
+                and event.source == "agent"
+                and isinstance(event.action, LocalizationFinishAction)
+            ):
+                # Extract structured locations from the action
+                locations = []
+                for loc in event.action.locations:
+                    locations.append(
+                        {
+                            "file": loc.file,
+                            "class_name": loc.class_name,
+                            "function_name": loc.function_name,
+                        }
+                    )
+                return locations
+    except Exception as _:
+        pass
+    return None
+
+
 class AgenticCodeSearchEvaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up agentic code search evaluation.")
 
         # Load dataset
-        instance_data = []
-        with open(self.metadata.dataset, "r") as f:
-            for line in f:
-                data = json.loads(line.strip())
-                instance_data.append(data)
-        # convert list to pandas dataframe
-        dataset = pd.DataFrame(instance_data)
-        dataset = prepare_dataset(
-            dataset, self.metadata.eval_limit, self.metadata.selected_instances_file
+        dataset = get_dataset(
+            dataset_name=self.metadata.dataset,
+            split=self.metadata.dataset_split,
+            eval_limit=self.metadata.eval_limit,
+            selected_instances_file=self.metadata.selected_instances_file,
         )
 
         instances: List[EvalInstance] = []
@@ -406,14 +583,14 @@ class AgenticCodeSearchEvaluation(Evaluation):
             working_dir = Path(self.metadata.details["workspace_base_dir"]).resolve()
             # instance_dir_name = f"{repo_name.replace('/', '_')}_{instance_id}"
             # working_dir = output_dir / instance_dir_name
-            repo_dir = working_dir / instance.id
-            repo_dir = str(repo_dir)
+            uuid_str = str(uuid.uuid4())[:8]
+            repo_dir = f"{str(working_dir)}/{uuid_str}/{repo_name.replace('/', '_')}_{instance.id}"
             # delete repo_dir if it already exists
             try:
                 shutil.rmtree(repo_dir)
             except Exception as _:
                 pass
-            # create repo_dir if it does not exist
+            # create repo_dir
             os.makedirs(repo_dir, exist_ok=True)
             workspace: RemoteWorkspace | LocalWorkspace = LocalWorkspace(
                 working_dir=repo_dir
@@ -451,7 +628,7 @@ class AgenticCodeSearchEvaluation(Evaluation):
     ) -> EvalOutput:
         """
         Steps:
-        1. Prepare the prompt using Jinja2 template
+        1. Prepare the user prompt and the system prompt using Jinja2 template
         2. Create agent with the prompt
         3. Run the agent in a conversation until max iterations or task completion
         4. Collect and return the output
@@ -480,8 +657,16 @@ class AgenticCodeSearchEvaluation(Evaluation):
             if isinstance(self.metadata.details, dict)
             else None
         )
+
+        # create agent
+        agent_cls = (
+            CustomAgent
+            if self.metadata.details is not None
+            and not self.metadata.details.get("enable_sdk_default_tools", False)
+            else Agent
+        )
         if system_prompt_path is None or system_prompt_path == "":
-            agent = Agent(
+            agent = agent_cls(
                 llm=self.metadata.llm,
                 tools=tools,
             )
@@ -491,7 +676,7 @@ class AgenticCodeSearchEvaluation(Evaluation):
             assert os.path.isfile(system_prompt_path), (
                 f"System prompt file {system_prompt_path} does not exist"
             )
-            agent = Agent(
+            agent = agent_cls(
                 llm=self.metadata.llm,
                 tools=tools,
                 system_prompt_filename=str(system_prompt_path),
@@ -508,12 +693,29 @@ class AgenticCodeSearchEvaluation(Evaluation):
             max_iteration_per_run=self.metadata.max_iterations,
         )
         conversation.send_message(instruction)
-        conversation.run()
+        try:
+            conversation.run()
+        except Exception as e:
+            logger.error(f"Error during conversation run: {e}")
         history = list(map(lambda event: event.model_dump(), conversation.state.events))
-        finish_message = get_agent_final_response(conversation.state.events)
-        if finish_message == "":
-            logger.info("No final response from agent.")
-        reward_dict = reward_function(finish_message, instance.data)
+        raw_prediction = ""
+        if "localization_finish" not in tool_names:
+            finish_message = get_agent_final_response(conversation.state.events)
+            raw_prediction = finish_message if finish_message is not None else ""
+            if finish_message == "":
+                logger.info("No final response from agent.")
+            reward_dict = reward_function_str_parse(finish_message, instance.data)
+        else:
+            structured_locations = get_structured_locations(conversation.state.events)
+            raw_prediction = (
+                json.dumps(structured_locations)
+                if structured_locations is not None
+                else ""
+            )
+            reward_dict = reward_function_tool_parse(
+                structured_locations, instance.data
+            )
+
         if (
             self.metadata.details is not None
             and self.metadata.details["runtime"] == "local"
@@ -542,7 +744,7 @@ class AgenticCodeSearchEvaluation(Evaluation):
             instance_id=instance.id,
             test_result={
                 "reward": reward_dict,
-                "raw_prediction": finish_message,
+                "raw_prediction": raw_prediction,
                 "wall_time_seconds": eval_time_elapsed,
                 "num_steps": num_steps,
                 "num_tool_calls": num_tool_calls,
@@ -567,11 +769,12 @@ def main():
     with open(llm_config_path, "r") as f:
         llm_config = f.read()
     llm = LLM.model_validate_json(llm_config)
+    # drop_params=True should be set in config to drop unsupported params like temperature
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     structured_output_dir = construct_eval_output_dir(
         base_dir=args.output_dir,
-        dataset_name=f"agentic_code_search_{args.dataset_file.split('/')[-1].split('.jsonl')[0]}",
+        dataset_name=f"agentic_code_search_{args.dataset.split('/')[-1]}",
         model_name=llm.model,
         max_iterations=args.max_iterations,
         eval_note="",
@@ -579,7 +782,7 @@ def main():
 
     metadata = EvalMetadata(
         llm=llm,
-        dataset=args.dataset_file,
+        dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
@@ -591,6 +794,8 @@ def main():
             else None,
             "user_prompt_file": args.user_prompt_file,
             "tools": args.tools,
+            "enable_sdk_default_tools": args.enable_sdk_default_tools,
+            # "num_steps_in_prompt": args.num_steps_in_prompt if args.num_steps_in_prompt > 0 else args.max_iterations,
         },
         prompt_path="",
         eval_limit=args.n_limit,
