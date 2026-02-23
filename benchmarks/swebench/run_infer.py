@@ -321,13 +321,8 @@ class SWEBenchEvaluation(Evaluation):
             workspace_path=workspace.working_dir,
         )
         conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages.
-        # ACPAgent completes the full task in a single turn (no FinishAction),
-        # so we skip fake user responses for it.
-        max_fake = 0 if self.metadata.agent_type == "acp" else 10
-        run_conversation_with_fake_user_response(
-            conversation, max_fake_responses=max_fake
-        )
+        # Run conversation with fake user responses to handle agent messages
+        run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -417,11 +412,7 @@ def main() -> None:
         eval_note=args.note,
     )
 
-    # Create critic instance from parsed arguments.
-    # ACPAgent doesn't emit FinishAction, so override to empty_patch_critic
-    # which only requires a non-empty git patch (not FinishAction).
-    if args.agent_type == "acp" and args.critic == "finish_with_patch":
-        args.critic = "empty_patch_critic"
+    # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
     logger.info(f"Using tool preset: {args.tool_preset}")
