@@ -286,6 +286,14 @@ class SWEBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
+        # For ACPAgent, create Claude Code settings to allow tool use
+        # without interactive permission prompts (no human in the loop).
+        if self.metadata.agent_type == "acp":
+            settings_json = '{"permissions":{"allow":["Edit","Read","Bash"]}}'
+            workspace.execute_command(
+                f"mkdir -p ~/.claude && echo '{settings_json}' > ~/.claude/settings.json"
+            )
+
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
 
