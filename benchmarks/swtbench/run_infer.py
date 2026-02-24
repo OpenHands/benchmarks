@@ -1,10 +1,13 @@
+import json
 import os
 from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swtbench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -23,8 +26,9 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.agent_server.docker.build import _base_slug
-from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
+from openhands.sdk import LLM, Agent, Conversation, Tool, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
 
@@ -251,6 +255,8 @@ class SWTBenchEvaluation(Evaluation):
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -279,6 +285,7 @@ class SWTBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
@@ -306,11 +313,12 @@ class SWTBenchEvaluation(Evaluation):
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
             "git config --global user.email 'evaluation@openhands.dev' && "
             "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+            "git commit --no-verify -m 'patch'"
         )
 
         # Get git patch
@@ -322,6 +330,14 @@ class SWTBenchEvaluation(Evaluation):
             f"git diff failed: {git_patch_result.stderr}"
         )
         git_patch = git_patch_result.stdout
+
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
 
         out = EvalOutput(
             instance_id=instance.id,
@@ -354,6 +370,7 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate n_critic_runs
@@ -397,6 +414,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer
@@ -405,6 +423,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":

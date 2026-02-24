@@ -12,6 +12,8 @@ Example:
 import sys
 from pathlib import Path
 
+from benchmarks.swebench import constants
+from benchmarks.swebench.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     BuildOutput,
     build_all_images,
@@ -26,19 +28,19 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
-# Repos that require the docutils/roman wrapper layer
-WRAPPED_REPOS = {"sphinx-doc"}
 
 
 def get_official_docker_image(
     instance_id: str,
-    docker_image_prefix="docker.io/swebench/",
+    docker_image_prefix: str = constants.DOCKER_IMAGE_PREFIX,
 ) -> str:
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
     repo, name = instance_id.split("__")
     official_image_name = docker_image_prefix.rstrip("/")
-    official_image_name += f"/sweb.eval.x86_64.{repo}_1776_{name}:latest".lower()
+    official_image_name += (
+        f"/sweb.eval.x86_64.{repo}_1776_{name}:{constants.DOCKER_IMAGE_TAG}".lower()
+    )
     logger.debug(f"Official SWE-Bench image: {official_image_name}")
     return official_image_name
 
@@ -60,12 +62,12 @@ def should_wrap_custom_tag(custom_tag: str) -> bool:
     prefix = "sweb.eval.x86_64."
     if custom_tag.startswith(prefix):
         custom_tag = custom_tag[len(prefix) :]
-    return custom_tag.split("_", 1)[0] in WRAPPED_REPOS
+    return custom_tag.split("_", 1)[0] in constants.WRAPPED_REPOS
 
 
 def should_wrap_instance_id(instance_id: str) -> bool:
     repo = instance_id.split("__")[0]
-    return repo in WRAPPED_REPOS
+    return repo in constants.WRAPPED_REPOS
 
 
 def collect_unique_base_images(
@@ -157,6 +159,7 @@ def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:
 
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
+    parser.set_defaults(**BUILD_DEFAULTS)
     args = parser.parse_args(argv)
 
     base_images: list[str] = collect_unique_base_images(

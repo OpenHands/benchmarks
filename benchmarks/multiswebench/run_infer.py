@@ -15,6 +15,7 @@ from benchmarks.multiswebench.download_dataset import download_and_concat_datase
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -32,8 +33,9 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
@@ -303,6 +305,8 @@ class MultiSWEBenchEvaluation(Evaluation):
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -331,6 +335,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
@@ -371,11 +376,12 @@ class MultiSWEBenchEvaluation(Evaluation):
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
             "git config --global user.email 'evaluation@openhands.dev' && "
             "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+            "git commit --no-verify -m 'patch'"
         )
 
         # Get git patch - handle both SWE-Bench and Multi-SWE-Bench data formats
@@ -396,6 +402,14 @@ class MultiSWEBenchEvaluation(Evaluation):
             f"git diff failed: {git_patch_result.stderr}"
         )
         git_patch = git_patch_result.stdout
+
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
@@ -480,6 +494,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer
@@ -491,9 +506,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
-
-    # Output the result file path for the rollout script
-    print(f"### OUTPUT FILE: {evaluator.output_path} ###")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":

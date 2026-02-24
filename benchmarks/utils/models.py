@@ -13,6 +13,10 @@ from openhands.sdk.utils.models import OpenHandsModel
 logger = get_logger(__name__)
 
 
+# Tool preset type for selecting which file editing toolset to use
+ToolPresetType = Literal["default", "gemini", "planning"]
+
+
 class EvalMetadata(BaseModel):
     llm: LLM
     dataset: str
@@ -68,9 +72,21 @@ class EvalMetadata(BaseModel):
         le=16,
         description="Maximum resource factor to use after retries.",
     )
+    enable_delegation: bool = Field(
+        default=False,
+        description="Enable sub-agent delegation tools for the agent",
+    )
     lmnr: LaminarEvalMetadata | None = Field(
         default=None,
         description="Laminar evaluation metadata",
+    )
+    tool_preset: ToolPresetType = Field(
+        default="default",
+        description=(
+            "Tool preset for file editing. 'default' uses FileEditorTool, "
+            "'gemini' uses read_file/write_file/edit/list_directory, "
+            "'planning' uses planning-mode tools."
+        ),
     )
 
 

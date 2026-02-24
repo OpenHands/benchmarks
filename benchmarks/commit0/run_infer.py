@@ -12,7 +12,9 @@ from benchmarks.commit0.build_images import (
     extract_custom_tag,
     get_base_docker_image,
 )
+from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -29,8 +31,9 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
@@ -110,9 +113,9 @@ class Commit0Evaluation(Evaluation):
         self,
         metadata: EvalMetadata,
         num_workers: int = 1,
-        repo_split: str = "lite",
-        dataset_name: str = "wentingzhao/commit0_combined",
-        dataset_split: str = "test",
+        repo_split: str | None = None,
+        dataset_name: str | None = None,
+        dataset_split: str | None = None,
     ):
         super().__init__(metadata=metadata, num_workers=num_workers)
         # Store additional parameters in metadata.details for access in methods
@@ -120,9 +123,9 @@ class Commit0Evaluation(Evaluation):
             metadata.details = {}
         metadata.details.update(
             {
-                "repo_split": repo_split,
-                "dataset_name": dataset_name,
-                "dataset_split": dataset_split,
+                "repo_split": repo_split or INFER_DEFAULTS["repo_split"],
+                "dataset_name": dataset_name or INFER_DEFAULTS["dataset"],
+                "dataset_split": dataset_split or INFER_DEFAULTS["split"],
             }
         )
 
@@ -130,9 +133,9 @@ class Commit0Evaluation(Evaluation):
         logger.info("Setting up Commit0 evaluation data")
 
         details = self.metadata.details or {}
-        dataset_name = details.get("dataset_name", "wentingzhao/commit0_combined")
-        dataset_split = details.get("dataset_split", "test")
-        repo_split = details.get("repo_split", "lite")
+        dataset_name = details.get("dataset_name", INFER_DEFAULTS["dataset"])
+        dataset_split = details.get("dataset_split", INFER_DEFAULTS["split"])
+        repo_split = details.get("repo_split", INFER_DEFAULTS["repo_split"])
 
         dataset = load_dataset(dataset_name, split=dataset_split)
         df = commit0_setup(dataset, repo_split)
@@ -237,8 +240,10 @@ class Commit0Evaluation(Evaluation):
             )
 
         # Clone the repository to the specific directory
+        # Use --depth 1 for shallow clone to prevent agents from accessing git history
+        # and exploiting it to retrieve original implementations (reward hacking prevention)
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        clone_cmd = f"cd /workspace/ && git clone -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
+        clone_cmd = f"cd /workspace/ && git clone --depth 1 -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
         res = workspace.execute_command(clone_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
@@ -297,6 +302,8 @@ class Commit0Evaluation(Evaluation):
         repo_path = f"/workspace/{workspace_dir_name}"
 
         tools = get_default_tools(enable_browser=False)
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -316,6 +323,7 @@ class Commit0Evaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         instruction = get_instruction(
@@ -330,11 +338,12 @@ class Commit0Evaluation(Evaluation):
 
         # Complete runtime: git add, commit, diff, run tests
         workspace.execute_command(f"cd {repo_path} && git add .", timeout=600)
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
             'git config --global user.email "evaluation@openhands.dev" && '
             'git config --global user.name "OpenHands Evaluation" && '
-            'git commit -m "openhands edits"',
+            'git commit --no-verify -m "openhands edits"',
             timeout=600,
         )
 
@@ -504,6 +513,14 @@ class Commit0Evaluation(Evaluation):
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
 
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
+
         # Save workspace as zip (if supported by workspace implementation)
         zip_dest = os.path.join(
             self.metadata.eval_output_dir, "repos", repo_name, f"{repo_name}.zip"
@@ -592,11 +609,10 @@ def main() -> None:
     parser.add_argument(
         "--repo-split",
         type=str,
-        default="lite",
         help="all, lite, or each repo name",
     )
-    # Override the default dataset for commit0
-    parser.set_defaults(dataset="wentingzhao/commit0_combined")
+    # Apply INFER_DEFAULTS from config (matches evaluation repository values.yaml)
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate n_critic_runs
@@ -638,6 +654,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
     )
 
     evaluator = Commit0Evaluation(
@@ -651,6 +668,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":

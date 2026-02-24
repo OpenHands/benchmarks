@@ -11,7 +11,8 @@
   "exclude": [
     ".venv/**",
     "**/__pycache__",
-    "**/.pytest_cache"
+    "**/.pytest_cache",
+    "legacy/**"
   ],
   "pythonPath": ".venv/bin/python",
   "venvPath": ".",

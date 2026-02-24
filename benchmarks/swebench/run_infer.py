@@ -1,17 +1,21 @@
+import json
 import os
 from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmarks.swebench import constants
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
     should_wrap_instance_id,
     wrap_image,
 )
+from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -27,15 +31,43 @@ from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
+    ToolPresetType,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
+from openhands.tools.delegate import DelegateTool
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
+
+
+def get_tools_for_preset(
+    preset: ToolPresetType, enable_browser: bool = False
+) -> list[Tool]:
+    """Get the list of tools for the given preset.
+
+    Args:
+        preset: The tool preset to use (default, gemini, or planning).
+        enable_browser: Whether to include browser tools.
+
+    Returns:
+        List of Tool instances for the given preset.
+    """
+    if preset == "gemini":
+        from openhands.tools.preset.gemini import get_gemini_tools
+
+        return get_gemini_tools(enable_browser=enable_browser)
+    elif preset == "planning":
+        from openhands.tools.preset.planning import get_planning_tools
+
+        # Planning preset doesn't support browser tools
+        return get_planning_tools()
+    else:  # default
+        from openhands.tools.preset.default import get_default_tools
+
+        return get_default_tools(enable_browser=enable_browser)
 
 
 def get_instruction(
@@ -114,10 +146,12 @@ class SWEBenchEvaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = constants.DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
-        suffix = f"-{build_target}" if build_target != "binary" else ""
+        suffix = (
+            f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
+        )
         base_agent_image = (
             f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
         )
@@ -183,10 +217,15 @@ class SWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(constants.DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                    "RUNTIME_API_URL", constants.DEFAULT_RUNTIME_API_URL
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
@@ -218,10 +257,13 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_default_tools(
+        tools = get_tools_for_preset(
+            preset=self.metadata.tool_preset,
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -250,6 +292,7 @@ class SWEBenchEvaluation(Evaluation):
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
+            delete_on_close=True,
         )
 
         logger.info("repo_path: %s", repo_path)
@@ -277,11 +320,12 @@ class SWEBenchEvaluation(Evaluation):
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
         # git commit
+        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
         workspace.execute_command(
             f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit -m 'patch'"
+            f"git config --global user.email '{constants.GIT_USER_EMAIL}' && "
+            f"git config --global user.name '{constants.GIT_USER_NAME}' && "
+            f"git commit --no-verify -m '{constants.GIT_COMMIT_MESSAGE}'"
         )
 
         # Get git patch
@@ -293,6 +337,14 @@ class SWEBenchEvaluation(Evaluation):
             f"git diff failed: {git_patch_result.stderr}"
         )
         git_patch = git_patch_result.stdout
+
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch,
+            logger=logger,
+        )
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
@@ -325,6 +377,7 @@ def main() -> None:
         choices=choices,
         help="Path to prompt template file",
     )
+    parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
     # Validate n_critic_runs
@@ -354,6 +407,7 @@ def main() -> None:
     # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
+    logger.info(f"Using tool preset: {args.tool_preset}")
 
     metadata = EvalMetadata(
         llm=llm,
@@ -370,6 +424,8 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        tool_preset=args.tool_preset,
+        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer
@@ -381,6 +437,8 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
+    # Emit machine-readable path for callers
+    print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 
 if __name__ == "__main__":
