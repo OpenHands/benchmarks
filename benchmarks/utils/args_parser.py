@@ -104,7 +104,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         "--agent-type",
         type=str,
         default="default",
-        choices=["default", "acp"],
-        help="Agent type: 'default' for standard Agent, 'acp' for ACPAgent (Claude Code via ACP)",
+        choices=["default", "acp", "acp-codex"],
+        help="Agent type: 'default' for standard Agent, 'acp' for ACPAgent (Claude Code), 'acp-codex' for ACPAgent (Codex)",
     )
     return parser

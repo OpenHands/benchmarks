@@ -140,7 +140,7 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
 
-        For ACPAgent, ANTHROPIC_API_KEY is forwarded to the container.
+        For ACPAgent, the provider API key is forwarded to the container.
 
         Args:
             instance: The evaluation instance to prepare workspace for.
@@ -148,11 +148,15 @@ class SWEBenchEvaluation(Evaluation):
                            Higher values allocate more CPU/memory resources.
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
-        # Forward ANTHROPIC_API_KEY for ACPAgent (Claude Code needs it inside the container)
+        # Forward the correct API key for each ACP agent type
         if self.metadata.agent_type == "acp":
             forward_env = list(forward_env or [])
             if "ANTHROPIC_API_KEY" not in forward_env:
                 forward_env.append("ANTHROPIC_API_KEY")
+        elif self.metadata.agent_type == "acp-codex":
+            forward_env = list(forward_env or [])
+            if "OPENAI_API_KEY" not in forward_env:
+                forward_env.append("OPENAI_API_KEY")
 
         official_docker_image = get_official_docker_image(instance.id)
         build_target = constants.DEFAULT_BUILD_TARGET
@@ -266,10 +270,13 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        if self.metadata.agent_type == "acp":
-            agent = ACPAgent(
-                acp_command=["claude-code-acp"],
+        if self.metadata.agent_type in ("acp", "acp-codex"):
+            acp_command = (
+                ["codex-acp"]
+                if self.metadata.agent_type == "acp-codex"
+                else ["claude-code-acp"]
             )
+            agent = ACPAgent(acp_command=acp_command)
         else:
             tools = get_tools_for_preset(
                 preset=self.metadata.tool_preset,
@@ -286,7 +293,7 @@ class SWEBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        # For ACPAgent, create Claude Code settings to allow tool use
+        # For Claude Code ACP, create settings to allow tool use
         # without interactive permission prompts (no human in the loop).
         if self.metadata.agent_type == "acp":
             settings_json = '{"permissions":{"allow":["Edit","Read","Bash"]}}'
