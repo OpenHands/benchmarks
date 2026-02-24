@@ -434,9 +434,9 @@ Here is the task:
 For example: if you want to search for a research paper on Arxiv, either use the search engine tool with specific keywords or navigate to arxiv.org and then use its interface.
 """  # noqa: E501
         instruction += "IMPORTANT: You should NEVER ask for Human Help.\n"
-        instruction += "IMPORTANT: Please encapsulate your final answer (answer ONLY) within <solution> and </solution> and report it back to users via a message, instead of the 'finish' tool. Your answer will be evaluated using string matching approaches so it important that you STRICTLY adhere to the output formatting instructions specified in the task (e.g., alphabetization, sequencing, units, rounding, decimal places, etc.)\n"  # noqa: E501
+        instruction += "IMPORTANT: Please provide your final answer (answer ONLY) clearly. You may optionally use <solution> and </solution> tags to mark your answer, but this is not required. If you don't use tags, put your answer at the beginning of your response, followed by any explanation. Your answer will be evaluated using string matching approaches so it is important that you STRICTLY adhere to the output formatting instructions specified in the task (e.g., alphabetization, sequencing, units, rounding, decimal places, etc.)\n"  # noqa: E501
         instruction += (
-            "For example: The answer to the question is <solution> 42 </solution>.\n"
+            "For example: The answer to the question is <solution> 42 </solution>, or simply: 42\n"
         )
         instruction += "IMPORTANT: Your final answer should be a number OR as few words as possible OR a comma separated list of numbers and/or strings. If you are asked for a number, express it numerically (i.e., with digits rather than words), do not use commas, and do not include units such as $ or percent signs unless specified otherwise. If you are asked for a string, don't use articles, neither abbreviations (e.g. for cities). If you are asked for a comma separated list, apply the above rules depending of whether the element to be put in the list is a number or a string.\n"  # noqa: E501
 
@@ -535,13 +535,59 @@ For example: if you want to search for a research paper on Arxiv, either use the
         return ""
 
     def _parse_solution_tag(self, text: str) -> str:
-        """Parse solution from <solution>...</solution> tags."""
-        matches = re.findall(r"<solution>(.*?)</solution>", text, re.DOTALL)
+        """Parse solution from <solution>...</solution> tags, or extract answer intelligently.
+        
+        This function tries multiple strategies to extract the answer:
+        1. Look for <solution> tags (preferred, but optional)
+        2. Look for explicit answer patterns ("The answer is X")
+        3. Extract first line if followed by explanation (common pattern)
+        4. Extract first paragraph if short and answer-like
+        5. Fall back to full text (last resort)
+        """
+        # Strategy 1: Look for <solution> tags (preferred but optional)
+        matches = re.findall(r"<solution>(.*?)</solution>", text, re.DOTALL | re.IGNORECASE)
         if matches:
-            return matches[-1].strip()  # Return last match
-        else:
-            logger.warning(f"No <solution> tag found in: {text[:200]}...")
-            return text  # Return raw text as fallback
+            return matches[-1].strip()
+        
+        # Strategy 2: Look for explicit answer patterns
+        answer_patterns = [
+            r"(?:the answer is|answer:|final answer:)\s*[:\-]?\s*(.+?)(?:\n|$)",
+            r"(?:therefore|thus|so),?\s+(?:the answer is)?\s*[:\-]?\s*(.+?)(?:\n|$)",
+        ]
+        for pattern in answer_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                candidate = matches[-1].strip()
+                # If this looks like a clean answer (short, no long explanation), use it
+                if len(candidate) < 200 and '\n' not in candidate:
+                    logger.info(f"Extracted answer from pattern: {candidate[:100]}...")
+                    return candidate
+        
+        # Strategy 3: Extract first line if followed by explanation
+        # Common pattern: "Answer\n\nExplanation..."
+        lines = text.strip().split('\n')
+        if len(lines) >= 2:
+            first_line = lines[0].strip()
+            # Check if first line looks like an answer (short, not empty)
+            if first_line and len(first_line) < 100:
+                second_line = lines[1].strip()
+                # If second line is empty or starts with uppercase (explanation), use first line
+                if not second_line or (second_line and second_line[0].isupper()):
+                    logger.info(f"Extracted first line as answer: {first_line[:100]}...")
+                    return first_line
+        
+        # Strategy 4: Extract first paragraph if short and answer-like
+        paragraphs = re.split(r'\n\n+', text.strip())
+        if len(paragraphs) >= 2:
+            first_para = paragraphs[0].strip()
+            # If first paragraph is short and doesn't end with colon (not a heading)
+            if len(first_para) < 100 and not first_para.endswith(':'):
+                logger.info(f"Extracted first paragraph as answer: {first_para[:100]}...")
+                return first_para
+        
+        # Strategy 5: Fall back to full text (last resort)
+        logger.warning(f"No clean answer extraction possible, returning full text: {text[:200]}...")
+        return text
 
 
 def main() -> None:
