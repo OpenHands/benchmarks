@@ -122,7 +122,12 @@ def f1_reward_function(predicted_set, true_set):
 
 def compute_metrics(predictions, ground_truth, stats=None):
     all_instance_ids = set(predictions.keys()).union(set(ground_truth.keys()))
-    total_instances = len(all_instance_ids)
+    # total_instances = len(all_instance_ids)
+
+    # hard-code the total instances - locagent faces errors on 2 of SWE-Bench Pro instances due to which HF data has 264 instances only.
+    # Instances are 274 and not 300 for SWE-Bench Lite because we primarily compare against LocAgent baseline and they discard these instances from evals since they produce empty ground truth outputs.
+    TOTAL_INSTANCE_MAP = {"Lite": 274, "Pro": 266, "Verified": 500}
+    total_instances = TOTAL_INSTANCE_MAP[args.variant]
     # print(len(ground_truth), len(predictions))
     print(f"Total instances to evaluate: {total_instances}")
 
@@ -243,11 +248,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output_file",
         type=str,
+        required=True,
         help="Path the JSONL file containing the agent outputs",
     )
     parser.add_argument(
         "--variant",
         type=str,
+        required=True,
         choices=["Lite", "Verified", "Pro"],
         help="Which variant of SWE-Bench test dataset to evaluate on (Lite, Verified, or Pro)",
     )
