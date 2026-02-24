@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import List
 
@@ -42,6 +43,15 @@ logger = get_logger(__name__)
 
 # Build target type for SWT-bench (same as SWE-bench)
 DEFAULT_BUILD_TARGET = "source-minimal"
+
+
+def _local_docker_image_exists(image_tag: str) -> bool:
+    """Check if a Docker image exists in the local Docker daemon."""
+    result = subprocess.run(
+        ["docker", "image", "inspect", image_tag],
+        capture_output=True,
+    )
+    return result.returncode == 0
 
 
 def get_instruction(
@@ -152,16 +162,32 @@ class SWTBenchEvaluation(Evaluation):
         )
 
         if self.metadata.workspace_type == "docker":
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-            if not SKIP_BUILD:
+            skip_build_env = os.getenv("SKIP_BUILD")
+            if skip_build_env is not None:
+                skip_build = skip_build_env.lower() in ("1", "true", "yes")
+            else:
+                # Auto-detect: skip if the image already exists locally
+                skip_build = _local_docker_image_exists(agent_server_image)
+                if skip_build:
+                    logger.info(
+                        f"Image {agent_server_image} found locally, skipping build."
+                    )
+                else:
+                    logger.info(
+                        f"Image {agent_server_image} not found locally, "
+                        "will build automatically."
+                    )
+
+            logger.info(f"SKIP_BUILD={skip_build}")
+            if not skip_build:
                 logger.info(
                     f"Building workspace from {official_docker_image} "
                     f"for instance {instance.id}. "
                     "This may take a while...\n"
-                    "You can run benchmarks/swtbench/build_images.py and set "
-                    "SKIP_BUILD=1 to skip building and use pre-built "
-                    "agent-server image."
+                    "To pre-build images in bulk, run:\n"
+                    "  uv run python -m benchmarks.swtbench.build_images "
+                    "--dataset <dataset> --split <split>\n"
+                    "Then set SKIP_BUILD=1 to skip building."
                 )
                 output = build_image(
                     base_image=official_docker_image,

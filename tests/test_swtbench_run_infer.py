@@ -1,7 +1,7 @@
 """Tests for SWT-bench run_infer module.
 
 Tests verify that SWT-bench uses the same image building approach as SWE-bench,
-ensuring Docker workspace mode properly builds images when SKIP_BUILD=0.
+and that Docker workspace mode auto-builds images when they are missing locally.
 """
 
 import os
@@ -12,6 +12,7 @@ import pytest
 from benchmarks.swtbench.run_infer import (
     DEFAULT_BUILD_TARGET,
     SWTBenchEvaluation,
+    _local_docker_image_exists,
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.models import EvalInstance, EvalMetadata
@@ -73,6 +74,24 @@ class TestSWTBenchImageTagGeneration:
         assert "source-minimal" in expected_tag
 
 
+class TestLocalDockerImageExists:
+    """Tests for _local_docker_image_exists helper."""
+
+    @patch("benchmarks.swtbench.run_infer.subprocess.run")
+    def test_returns_true_when_image_exists(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        assert _local_docker_image_exists("some-image:tag") is True
+        mock_run.assert_called_once_with(
+            ["docker", "image", "inspect", "some-image:tag"],
+            capture_output=True,
+        )
+
+    @patch("benchmarks.swtbench.run_infer.subprocess.run")
+    def test_returns_false_when_image_missing(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1)
+        assert _local_docker_image_exists("missing-image:tag") is False
+
+
 class TestSWTBenchPrepareWorkspace:
     """Tests for SWT-bench workspace preparation."""
 
@@ -110,13 +129,11 @@ class TestSWTBenchPrepareWorkspace:
 
     @patch("benchmarks.swtbench.run_infer.build_image")
     @patch("benchmarks.swtbench.run_infer.DockerWorkspace")
-    def test_prepare_workspace_calls_build_image_when_skip_build_false(
+    def test_prepare_workspace_builds_when_skip_build_explicitly_false(
         self, mock_docker_workspace, mock_build_image, mock_metadata, mock_instance
     ):
         """Verify prepare_workspace calls build_image when SKIP_BUILD=0."""
-        # Set SKIP_BUILD=0
         with patch.dict(os.environ, {"SKIP_BUILD": "0"}):
-            # Mock build_image to return successful output
             from benchmarks.utils.build_utils import BuildOutput
             from benchmarks.utils.version import SDK_SHORT_SHA
 
@@ -127,46 +144,105 @@ class TestSWTBenchPrepareWorkspace:
                 error=None,
             )
 
-            # Mock DockerWorkspace
             mock_workspace_instance = MagicMock()
             mock_workspace_instance.execute_command = MagicMock(
                 return_value=MagicMock(exit_code=0, stderr="", stdout="")
             )
             mock_docker_workspace.return_value = mock_workspace_instance
 
-            # Create evaluation and call prepare_workspace
             evaluation = SWTBenchEvaluation(metadata=mock_metadata, num_workers=1)
             _ = evaluation.prepare_workspace(mock_instance)
 
-            # Verify build_image was called
             mock_build_image.assert_called_once()
             call_args = mock_build_image.call_args
             assert call_args.kwargs["push"] is False
             assert "astropy" in call_args.kwargs["base_image"].lower()
 
     @patch("benchmarks.swtbench.run_infer.DockerWorkspace")
-    def test_prepare_workspace_skips_build_when_skip_build_true(
+    def test_prepare_workspace_skips_build_when_skip_build_explicitly_true(
         self, mock_docker_workspace, mock_metadata, mock_instance
     ):
         """Verify prepare_workspace skips build_image when SKIP_BUILD=1."""
-        # Set SKIP_BUILD=1 (default)
         with patch.dict(os.environ, {"SKIP_BUILD": "1"}):
-            # Mock DockerWorkspace
             mock_workspace_instance = MagicMock()
             mock_workspace_instance.execute_command = MagicMock(
                 return_value=MagicMock(exit_code=0, stderr="", stdout="")
             )
             mock_docker_workspace.return_value = mock_workspace_instance
 
-            # Create evaluation and call prepare_workspace
             evaluation = SWTBenchEvaluation(metadata=mock_metadata, num_workers=1)
 
-            # build_image should not be called since SKIP_BUILD=1
             with patch("benchmarks.swtbench.run_infer.build_image") as mock_build:
                 _ = evaluation.prepare_workspace(mock_instance)
                 mock_build.assert_not_called()
 
-            # DockerWorkspace should still be created
+            mock_docker_workspace.assert_called_once()
+
+    @patch("benchmarks.swtbench.run_infer._local_docker_image_exists", return_value=False)
+    @patch("benchmarks.swtbench.run_infer.build_image")
+    @patch("benchmarks.swtbench.run_infer.DockerWorkspace")
+    def test_auto_builds_when_skip_build_unset_and_image_missing(
+        self,
+        mock_docker_workspace,
+        mock_build_image,
+        mock_local_exists,
+        mock_metadata,
+        mock_instance,
+    ):
+        """When SKIP_BUILD is not set and image is missing locally, auto-build."""
+        # Remove SKIP_BUILD from env entirely
+        env = os.environ.copy()
+        env.pop("SKIP_BUILD", None)
+        with patch.dict(os.environ, env, clear=True):
+            from benchmarks.utils.build_utils import BuildOutput
+            from benchmarks.utils.version import SDK_SHORT_SHA
+
+            expected_tag = f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-sweb.eval.x86_64.astropy_1776_astropy-13977-source-minimal"
+            mock_build_image.return_value = BuildOutput(
+                base_image="docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-13977:latest",
+                tags=[expected_tag],
+                error=None,
+            )
+
+            mock_workspace_instance = MagicMock()
+            mock_workspace_instance.execute_command = MagicMock(
+                return_value=MagicMock(exit_code=0, stderr="", stdout="")
+            )
+            mock_docker_workspace.return_value = mock_workspace_instance
+
+            evaluation = SWTBenchEvaluation(metadata=mock_metadata, num_workers=1)
+            _ = evaluation.prepare_workspace(mock_instance)
+
+            # Should auto-build since image is not found locally
+            mock_build_image.assert_called_once()
+            mock_local_exists.assert_called_once()
+
+    @patch("benchmarks.swtbench.run_infer._local_docker_image_exists", return_value=True)
+    @patch("benchmarks.swtbench.run_infer.DockerWorkspace")
+    def test_skips_build_when_skip_build_unset_and_image_exists_locally(
+        self,
+        mock_docker_workspace,
+        mock_local_exists,
+        mock_metadata,
+        mock_instance,
+    ):
+        """When SKIP_BUILD is not set and image exists locally, skip build."""
+        env = os.environ.copy()
+        env.pop("SKIP_BUILD", None)
+        with patch.dict(os.environ, env, clear=True):
+            mock_workspace_instance = MagicMock()
+            mock_workspace_instance.execute_command = MagicMock(
+                return_value=MagicMock(exit_code=0, stderr="", stdout="")
+            )
+            mock_docker_workspace.return_value = mock_workspace_instance
+
+            evaluation = SWTBenchEvaluation(metadata=mock_metadata, num_workers=1)
+
+            with patch("benchmarks.swtbench.run_infer.build_image") as mock_build:
+                _ = evaluation.prepare_workspace(mock_instance)
+                mock_build.assert_not_called()
+
+            mock_local_exists.assert_called_once()
             mock_docker_workspace.assert_called_once()
 
 
