@@ -274,7 +274,7 @@ class SWEBenchEvaluation(Evaluation):
             acp_command = (
                 ["codex-acp"]
                 if self.metadata.agent_type == "acp-codex"
-                else ["claude-code-acp"]
+                else ["claude-agent-acp"]
             )
             agent = ACPAgent(acp_command=acp_command)
         else:
