@@ -88,11 +88,11 @@ class EvalMetadata(BaseModel):
             "'planning' uses planning-mode tools."
         ),
     )
-    agent_type: Literal["default", "acp", "acp-codex"] = Field(
+    agent_type: Literal["default", "acp-claude", "acp-codex"] = Field(
         default="default",
         description=(
             "Agent type to use: 'default' for standard Agent, "
-            "'acp' for ACPAgent with Claude Code, "
+            "'acp-claude' for ACPAgent with Claude Code, "
             "'acp-codex' for ACPAgent with Codex"
         ),
     )

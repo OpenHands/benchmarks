@@ -149,7 +149,7 @@ class SWEBenchEvaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
         # Forward the correct API key for each ACP agent type
-        if self.metadata.agent_type == "acp":
+        if self.metadata.agent_type == "acp-claude":
             forward_env = list(forward_env or [])
             if "ANTHROPIC_API_KEY" not in forward_env:
                 forward_env.append("ANTHROPIC_API_KEY")
@@ -270,7 +270,7 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        if self.metadata.agent_type in ("acp", "acp-codex"):
+        if self.metadata.agent_type in ("acp-claude", "acp-codex"):
             acp_command = (
                 ["codex-acp"]
                 if self.metadata.agent_type == "acp-codex"
@@ -295,7 +295,7 @@ class SWEBenchEvaluation(Evaluation):
 
         # For Claude Code ACP, create settings to allow tool use
         # without interactive permission prompts (no human in the loop).
-        if self.metadata.agent_type == "acp":
+        if self.metadata.agent_type == "acp-claude":
             settings_json = '{"permissions":{"allow":["Edit","Read","Bash"]}}'
             workspace.execute_command(
                 f"mkdir -p ~/.claude && echo '{settings_json}' > ~/.claude/settings.json"
