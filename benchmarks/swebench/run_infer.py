@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -369,13 +369,19 @@ class SWEBenchEvaluation(Evaluation):
             logger=logger,
         )
 
+        # Build test_result with git patch and optional ACP agent metadata
+        test_result: dict[str, Any] = {
+            "git_patch": git_patch,
+        }
+        if isinstance(agent, ACPAgent):
+            test_result["acp_agent_name"] = agent.agent_name
+            test_result["acp_agent_version"] = agent.agent_version
+
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result={
-                "git_patch": git_patch,
-            },
+            test_result=test_result,
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
