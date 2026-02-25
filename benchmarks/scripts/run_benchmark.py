@@ -97,7 +97,7 @@ def _build_eval_cmd(args: argparse.Namespace, output_jsonl: Path) -> list[str]:
         cmd.extend(["--dataset", args.dataset])
 
     if benchmark == "swebench":
-        cmd.extend(["--run-id", "eval"])
+        cmd.extend(["--run-id", output_jsonl.stem])
     if benchmark in ("swebench", "swebenchmultimodal"):
         if args.modal is True:
             cmd.append("--modal")
