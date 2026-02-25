@@ -610,7 +610,6 @@ def main() -> None:
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
-        skip_failed_samples=args.skip_failed_samples,
         workspace_type=args.workspace,
     )
 

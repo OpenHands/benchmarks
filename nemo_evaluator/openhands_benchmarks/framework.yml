@@ -27,7 +27,6 @@ defaults:
     --max-attempts {{config.params.extra.max_attempts}}
     --instance-max-retries {{config.params.extra.instance_max_retries}}
     {% if config.params.limit_samples is not none %}--n-limit {{config.params.limit_samples}}{% endif %}
-    {% if config.params.extra.skip_failed_samples %}--skip-failed-samples{% endif %}
     {% if config.params.extra.level is defined and config.params.extra.level is not none %}--level {{config.params.extra.level}}{% endif %}
     {% if config.params.extra.repo_split is defined and config.params.extra.repo_split is not none %}--repo-split {{config.params.extra.repo_split}}{% endif %}
     {% if config.params.extra.language is defined and config.params.extra.language is not none %}--language {{config.params.extra.language}}{% endif %}
@@ -47,7 +46,6 @@ defaults:
         max_steps: 100
         max_attempts: 3
         instance_max_retries: 3
-        skip_failed_samples: false
   target:
     api_endpoint:
       adapter_config:

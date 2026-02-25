@@ -65,9 +65,6 @@ def _build_infer_cmd(args: argparse.Namespace, llm_config_path: Path) -> list[st
         cmd.extend(["--note", args.note])
     if args.n_limit is not None:
         cmd.extend(["--n-limit", str(args.n_limit)])
-    if args.skip_failed_samples:
-        cmd.append("--skip-failed-samples")
-
     # ----- Benchmark-specific inference args -----
 
     # GAIA requires --level (e.g. 2023_level1, 2023_all)
@@ -139,7 +136,6 @@ def main() -> None:
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--instance-max-retries", type=int, default=3)
     parser.add_argument("--n-limit", type=int, default=None)
-    parser.add_argument("--skip-failed-samples", action="store_true")
 
     # GAIA
     parser.add_argument("--level", type=str, default="2023_all",

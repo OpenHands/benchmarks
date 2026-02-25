@@ -85,8 +85,19 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Maximum retries for instances that throw exceptions (default: 3)",
     )
     parser.add_argument(
-        "--skip-failed-samples",
+        "--tool-preset",
+        type=str,
+        default="default",
+        choices=["default", "gemini", "planning"],
+        help=(
+            "Tool preset for file editing. 'default' uses FileEditorTool, "
+            "'gemini' uses read_file/write_file/edit/list_directory (default: default)"
+        ),
+    )
+    parser.add_argument(
+        "--enable-delegation",
         action="store_true",
-        help="Skip failed samples and treat as not solved",
+        default=False,
+        help="Enable sub-agent delegation tools for the agent",
     )
     return parser

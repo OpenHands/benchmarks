@@ -52,13 +52,6 @@ class EvalMetadata(BaseModel):
         ge=0,
         description="Maximum number of retries for instances that throw exceptions",
     )
-    skip_failed_samples: bool = Field(
-        default=True,
-        description=(
-            "If True, failed samples are skipped and treated as not solved. "
-            "If False, the entire evaluation fails on the first failed sample."
-        ),
-    )
     workspace_type: Literal["docker", "remote"] = Field(
         default="docker",
         description="Type of workspace to use, e.g., 'docker' or 'remote'",

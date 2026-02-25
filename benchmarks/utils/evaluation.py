@@ -56,15 +56,6 @@ class PendingInstance:
 OnResult = Callable[[EvalInstance, EvalOutput], None]
 
 
-class SampleFailedError(Exception):
-    """Raised when a sample fails and skip_failed_samples=False."""
-
-    def __init__(self, instance_id: str, error: str):
-        self.instance_id = instance_id
-        self.error = error
-        super().__init__(f"Sample {instance_id} failed: {error}")
-
-
 class Evaluation(ABC, BaseModel):
     """Abstract orchestrator for instance processing (process-based)."""
 
@@ -438,10 +429,6 @@ class Evaluation(ABC, BaseModel):
                             instance, out = fut.result()
                             pending_info = pending_instances.get(fut)
 
-                            # Fail fast if skip_failed_samples=False and sample errored
-                            if out.error and not self.metadata.skip_failed_samples:
-                                raise SampleFailedError(instance.id, out.error)
-
                             # Add Laminar metadata to EvalOutput
                             if out.metadata is None:
                                 out.metadata = self.metadata.model_copy(deep=True)
@@ -453,9 +440,6 @@ class Evaluation(ABC, BaseModel):
                             )
 
                             attempt_on_result(instance, out)
-                        except SampleFailedError:
-                            # Re-raise to fail the entire evaluation
-                            raise
                         except Exception as e:
                             logger.error(
                                 f"Unexpected error from worker process: {str(e)[:50]}",
