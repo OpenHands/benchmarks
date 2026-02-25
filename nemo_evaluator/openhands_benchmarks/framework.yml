@@ -245,8 +245,7 @@ evaluations:
           extra:
             benchmark: swebenchmultimodal
             dataset: princeton-nlp/SWE-bench_Multimodal
-            split: dev  # test spit did not work
-            modal: false
+            split: dev  # test split did not work
 
   # OpenAgentSafety benchmark
   - name: openagentsafety

@@ -246,7 +246,6 @@ def run_swebench_multimodal_evaluation(
     split: str = "dev",
     workers: str = "12",
     run_id: str | None = None,
-    modal: bool = True,
 ) -> Path | None:
     """
     Run SWE-Bench Multimodal evaluation on the predictions file.
@@ -271,9 +270,12 @@ def run_swebench_multimodal_evaluation(
     # Default for run_id if not provided
     run_id = run_id or predictions_path.stem
 
+    # Run SWE-Bench Multimodal evaluation using UV environment
     # The key difference from regular SWE-Bench is the --modal true flag
     cmd = [
-        sys.executable,
+        "uv",
+        "run",
+        "python",
         "-m",
         "swebench.harness.run_evaluation",
         "--dataset_name",
@@ -284,11 +286,11 @@ def run_swebench_multimodal_evaluation(
         predictions_filename,
         "--max_workers",
         str(workers),
+        "--modal",
+        "true",
         "--run_id",
         run_id,
     ]
-    if modal:
-        cmd.extend(["--modal", "true"])
 
     logger.info(f"Running command: {' '.join(cmd)}")
     logger.info(f"Working directory: {predictions_dir}")
@@ -366,13 +368,6 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
-    parser.add_argument(
-        "--modal",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Use Modal for evaluation (default: True). Use --no-modal for local evaluation.",
-    )
-
     parser.set_defaults(**EVAL_DEFAULTS)
 
     parser.add_argument(
@@ -410,7 +405,7 @@ Examples:
         if not args.skip_evaluation:
             # Run multimodal evaluation
             report_path = run_swebench_multimodal_evaluation(
-                str(output_file), args.dataset, args.split, args.workers, args.run_id, args.modal
+                str(output_file), args.dataset, args.split, args.workers, args.run_id
             )
 
             # Calculate component scores if we have a report
