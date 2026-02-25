@@ -475,7 +475,6 @@ def main() -> None:
         dataset_split=args.split,
         lang=args.lang,
         max_iterations=args.max_iterations,
-        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={},
         prompt_path=args.prompt_path,

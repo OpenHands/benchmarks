@@ -50,7 +50,6 @@ def _build_infer_cmd(args: argparse.Namespace, llm_config_path: Path) -> list[st
         str(llm_config_path),
         "--workspace", args.workspace,
         "--max-iterations", str(args.max_iterations),
-        "--conversation-timeout", str(args.conversation_timeout),
         "--num-workers", str(args.num_workers),
         "--output-dir", str(args.output_dir),
         "--max-attempts", str(args.max_attempts),
@@ -134,7 +133,6 @@ def main() -> None:
     parser.add_argument("--split", type=str, default=None)
     parser.add_argument("--workspace", type=str, default="docker")
     parser.add_argument("--max-iterations", type=int, default=100)
-    parser.add_argument("--conversation-timeout", type=float, default=3600.0)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--note", type=str, default="")
     parser.add_argument("--output-dir", type=str, required=True)

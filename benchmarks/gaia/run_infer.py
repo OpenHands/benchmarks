@@ -603,7 +603,6 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
-        conversation_timeout=args.conversation_timeout,
         eval_output_dir=structured_output_dir,
         details={"level": args.level},
         eval_limit=args.n_limit,

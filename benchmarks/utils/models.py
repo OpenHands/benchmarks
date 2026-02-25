@@ -22,13 +22,6 @@ class EvalMetadata(BaseModel):
     dataset: str
     dataset_split: str = Field(default="test")
     max_iterations: int
-    conversation_timeout: float = Field(
-        default=3600.0,
-        ge=0,
-        description=(
-            "Timeout in seconds for a single Conversation.run() call (remote workspaces). "
-        ),
-    )
     eval_output_dir: str
     details: dict[str, Any] | None = None
     prompt_path: str | None = Field(

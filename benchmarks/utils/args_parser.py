@@ -49,14 +49,6 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=500,
         help="Maximum iterations (default: 500)",
     )
-    parser.add_argument(
-        "--conversation-timeout",
-        type=float,
-        default=3600.0,
-        help=(
-            "Timeout (seconds) for a single Conversation.run() call on remote workspaces "
-        ),
-    )
     parser.add_argument("--num-workers", type=int, help="Number of inference workers")
     parser.add_argument("--note", type=str, help="Optional evaluation note")
     parser.add_argument(

@@ -21,7 +21,6 @@ defaults:
     {% if config.params.extra.split is defined and config.params.extra.split is not none %}--split {{config.params.extra.split}}{% endif %}
     --workspace {{config.params.extra.workspace}}
     --max-iterations {{config.params.extra.max_steps}}
-    --conversation-timeout {{config.params.extra.conversation_timeout}}
     --num-workers {{config.params.parallelism}}
     --note {{config.type}}
     --output-dir {{config.output_dir}}
@@ -46,7 +45,6 @@ defaults:
       extra:
         workspace: docker
         max_steps: 100
-        conversation_timeout: 28000
         max_attempts: 3
         instance_max_retries: 3
         skip_failed_samples: false
