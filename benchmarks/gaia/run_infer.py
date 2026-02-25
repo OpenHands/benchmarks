@@ -27,11 +27,10 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
-    LLM,
     Agent,
     Conversation,
     Event,
@@ -160,7 +159,7 @@ class GAIAEvaluation(Evaluation):
                     working_dir="/workspace",
                     forward_env=forward_env or [],
                 )
-            except Exception as build_error:
+            except Exception:
                 build_target = os.getenv("GAIA_BUILD_TARGET", "binary-minimal")
                 agent_server_image = (
                     f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-{build_target}"

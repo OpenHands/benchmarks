@@ -6,8 +6,8 @@ import base64
 import json
 import os
 import sys
-import traceback
 import time
+import traceback
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from contextlib import contextmanager

@@ -55,7 +55,9 @@ def main() -> None:
     )
     parser.add_argument("--temperature", type=float, help="Sampling temperature")
     parser.add_argument("--top-p", type=float, help="Nucleus sampling (top-p)")
-    parser.add_argument("--max-completion-tokens", type=int, help="Max completion tokens")
+    parser.add_argument(
+        "--max-completion-tokens", type=int, help="Max completion tokens"
+    )
     parser.add_argument("--timeout", type=int, help="API timeout in seconds")
     parser.add_argument("--max-retries", type=int, help="Max API call retries")
     parser.add_argument(

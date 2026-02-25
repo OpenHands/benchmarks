@@ -17,15 +17,15 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
-from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
+from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
@@ -192,7 +192,7 @@ class SWTBenchEvaluation(Evaluation):
                         target=build_target,
                         forward_env=forward_env or [],
                     )
-                except Exception as build_error:
+                except Exception:
                     if not image_exists(agent_server_image):
                         raise RuntimeError(
                             f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"

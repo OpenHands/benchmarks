@@ -48,13 +48,20 @@ def _build_infer_cmd(args: argparse.Namespace, llm_config_path: Path) -> list[st
     cmd = [
         INFER_ENTRYPOINTS[args.benchmark],
         str(llm_config_path),
-        "--workspace", args.workspace,
-        "--max-iterations", str(args.max_iterations),
-        "--num-workers", str(args.num_workers),
-        "--output-dir", str(args.output_dir),
-        "--max-attempts", str(args.max_attempts),
-        "--max-retries", str(args.instance_max_retries),
-        "--critic", BENCHMARK_CRITIC.get(args.benchmark, "finish_with_patch"),
+        "--workspace",
+        args.workspace,
+        "--max-iterations",
+        str(args.max_iterations),
+        "--num-workers",
+        str(args.num_workers),
+        "--output-dir",
+        str(args.output_dir),
+        "--max-attempts",
+        str(args.max_attempts),
+        "--max-retries",
+        str(args.instance_max_retries),
+        "--critic",
+        BENCHMARK_CRITIC.get(args.benchmark, "finish_with_patch"),
     ]
     if args.dataset:
         cmd.extend(["--dataset", args.dataset])
@@ -115,7 +122,9 @@ def main() -> None:
     # LLM config generation args
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--api-base-url", type=str, required=True)
-    parser.add_argument("--api-key-env", type=str, default=None, help="Env var name for API key")
+    parser.add_argument(
+        "--api-key-env", type=str, default=None, help="Env var name for API key"
+    )
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top-p", type=float, default=1.0)
     parser.add_argument("--max-completion-tokens", type=int, default=4096)
@@ -138,14 +147,26 @@ def main() -> None:
     parser.add_argument("--n-limit", type=int, default=None)
 
     # GAIA
-    parser.add_argument("--level", type=str, default="2023_all",
-                        help="GAIA level (e.g. 2023_level1, 2023_all)")
+    parser.add_argument(
+        "--level",
+        type=str,
+        default="2023_all",
+        help="GAIA level (e.g. 2023_level1, 2023_all)",
+    )
     # commit0
-    parser.add_argument("--repo-split", type=str, default="lite",
-                        help="commit0 repo split (lite, all, or repo name)")
+    parser.add_argument(
+        "--repo-split",
+        type=str,
+        default="lite",
+        help="commit0 repo split (lite, all, or repo name)",
+    )
     # multiswebench
-    parser.add_argument("--language", type=str, default=None,
-                        help="multiswebench language (java, python, go, c)")
+    parser.add_argument(
+        "--language",
+        type=str,
+        default=None,
+        help="multiswebench language (java, python, go, c)",
+    )
     # swebench/swebenchmultimodal
     parser.add_argument(
         "--modal",
@@ -195,7 +216,10 @@ def main() -> None:
     # 4) Find output.jsonl and run evaluation
     output_files = sorted(output_dir.rglob("output.jsonl"))
     if not output_files:
-        print(f"ERROR: Inference did not produce output.jsonl under {output_dir}", file=sys.stderr)
+        print(
+            f"ERROR: Inference did not produce output.jsonl under {output_dir}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     output_jsonl = output_files[-1]  # Use the latest one

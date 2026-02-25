@@ -24,14 +24,14 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
@@ -208,7 +208,7 @@ class Commit0Evaluation(Evaluation):
                     raise RuntimeError(
                         f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"
                     )
-                
+
                 workspace = DockerWorkspace(
                     server_image=agent_server_image,
                     working_dir="/workspace",

@@ -24,7 +24,6 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (

@@ -26,7 +26,7 @@ from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
@@ -395,13 +395,13 @@ class OpenAgentSafetyEvaluation(Evaluation):
         # Try to build image on-the-fly, fall back to pre-built if build fails
         try:
             server_image = build_workspace_image()
-        except Exception as build_error:
+        except Exception:
             server_image = get_image_name()
-            
+
             if not check_image_exists(server_image):
                 raise RuntimeError(
                     f"On-the-fly build failed and pre-built image {server_image} does not exist"
-            )
+                )
             logger.info(f"Using pre-built image {server_image}")
 
         workspace = DockerWorkspace(
@@ -608,8 +608,12 @@ def generate_report(output_jsonl: str, report_path: str, model_name: str) -> Non
     with open(report_path, "w") as f:
         json.dump(report, f, indent=4)
 
-    logger.info("Report written to %s (%d completed, %d errors)",
-                report_path, len(completed_ids), len(error_ids))
+    logger.info(
+        "Report written to %s (%d completed, %d errors)",
+        report_path,
+        len(completed_ids),
+        len(error_ids),
+    )
 
 
 def main() -> None:
@@ -716,9 +720,7 @@ def main() -> None:
     evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
 
     # Generate .report.json for nemo_evaluator compatibility
-    report_path = os.path.join(
-        metadata.eval_output_dir, "output.report.json"
-    )
+    report_path = os.path.join(metadata.eval_output_dir, "output.report.json")
     generate_report(evaluator.output_path, report_path, llm.model)
 
     # Final cleanup

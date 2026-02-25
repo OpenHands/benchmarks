@@ -64,7 +64,7 @@ def build_workspace_image(force_rebuild: bool = False, no_cache: bool = False) -
     if not force_rebuild and check_image_exists(image_name):
         logger.info(f"#### Using existing image: {image_name}")
         return image_name
-    
+
     sdk_commit = get_vendor_sdk_commit()
 
     logger.info(f"#### Building Docker image: {image_name}")
