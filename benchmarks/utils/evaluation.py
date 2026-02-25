@@ -380,7 +380,6 @@ class Evaluation(ABC, BaseModel):
             # Run evaluation for this attempt
             pool = ProcessPoolExecutor(
                 max_workers=self.num_workers,
-                max_tasks_per_child=MAX_TASKS_PER_CHILD,
             )
             futures: list[Future] = []
             # Consolidated tracking: maps future -> PendingInstance
