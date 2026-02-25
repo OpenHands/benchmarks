@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -182,7 +183,12 @@ def main() -> None:
         output_path=str(llm_config_path),
     )
 
-    # 2) Run inference
+    # 2) Write NeMo metadata (so output.py can identify the benchmark)
+    (output_dir / "nemo_metadata.json").write_text(
+        json.dumps({"benchmark": args.benchmark}) + "\n"
+    )
+
+    # 3) Run inference
     # multiswebench reads LANGUAGE env var at module level for Docker image naming
     if args.benchmark == "multiswebench" and args.language:
         os.environ["LANGUAGE"] = args.language
@@ -192,7 +198,7 @@ def main() -> None:
     if ret != 0:
         sys.exit(ret)
 
-    # 3) Find output.jsonl and run evaluation
+    # 4) Find output.jsonl and run evaluation
     output_files = sorted(output_dir.rglob("output.jsonl"))
     if not output_files:
         print(f"ERROR: Inference did not produce output.jsonl under {output_dir}", file=sys.stderr)

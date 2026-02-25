@@ -10,7 +10,6 @@ Usage:
 """
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys
@@ -169,13 +168,6 @@ def main():
         output_report_path = Path(args.input_file).with_suffix(".report.json")
         shutil.move(str(results_file), str(output_report_path))
         logger.info(f"Report moved to {output_report_path}")
-
-        # Add benchmark field to the report
-        with open(output_report_path, "r") as f:
-            report_data = json.load(f)
-        report_data["benchmark"] = f"multiswebench-{args.lang}"
-        with open(output_report_path, "w") as f:
-            json.dump(report_data, f, indent=4)
 
         # Update Laminar datapoints with evaluation scores
         LaminarService.get().update_evaluation_scores(

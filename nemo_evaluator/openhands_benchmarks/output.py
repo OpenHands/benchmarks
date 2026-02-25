@@ -24,8 +24,15 @@ def parse_output(output_dir: str) -> EvaluationResult:
 
     report = json.loads(report_files[0].read_text(encoding="utf-8"))
 
-    # Get benchmark name from report
-    task_name = report["benchmark"]
+    # Get benchmark name from metadata written by run_benchmark.py
+    metadata_file = output_path / "nemo_metadata.json"
+    if not metadata_file.exists():
+        raise FileNotFoundError(
+            f"nemo_metadata.json not found in {output_dir}. "
+            "Make sure the benchmark was run via run_benchmark.py."
+        )
+    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    task_name = metadata["benchmark"]
 
     # All benchmarks have these common fields in their report
     resolved = report.get("resolved_instances", 0)

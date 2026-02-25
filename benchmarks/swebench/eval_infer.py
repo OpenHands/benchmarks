@@ -335,16 +335,6 @@ Examples:
             shutil.move(str(report_path), str(dest_report_path))
             logger.info(f"Moved report file to: {dest_report_path}")
 
-            # Add benchmark field to the report
-            with open(dest_report_path, "r") as f:
-                report_data = json.load(f)
-            if isinstance(args.dataset, str) and "/" in args.dataset:
-                report_data["benchmark"] = args.dataset.split("/")[-1].lower()
-            else:
-                report_data["benchmark"] = str(args.dataset).lower()
-            with open(dest_report_path, "w") as f:
-                json.dump(report_data, f, indent=4)
-
             # Update Laminar datapoints with evaluation scores
             LaminarService.get().update_evaluation_scores(
                 str(input_file), str(dest_report_path)

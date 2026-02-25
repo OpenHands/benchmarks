@@ -459,13 +459,6 @@ Examples:
             logger.info(f"Moved evaluation report to: {target_file}")
             dest_report_path = target_file
 
-            # Add benchmark field to the report
-            with open(target_file, "r") as f:
-                report_data = json.load(f)
-            report_data["benchmark"] = "swtbench"
-            with open(target_file, "w") as f:
-                json.dump(report_data, f, indent=4)
-
             update_report_with_submitted_instances(target_file, output_file)
 
             # Update Laminar datapoints with evaluation scores

@@ -147,7 +147,6 @@ def update_report_with_component_scores(report_json_path: Path) -> dict[str, flo
         report = json.load(f)
 
     # Add component scores to report
-    report["benchmark"] = "swebench-multimodal"
     report["component_scores"] = scores
 
     # Write updated report
@@ -450,15 +449,6 @@ Examples:
                     "Calculating component scores (solveable/unsolveable accuracy)..."
                 )
                 component_scores = update_report_with_component_scores(report_path)
-                # Export a .report.json artifact so framework parsers
-                # can discover benchmark results consistently across benchmarks.
-                with open(report_path, "r") as f:
-                    report_data = json.load(f)
-                report_data["benchmark"] = "swebench-multimodal"
-                dest_report_path = input_file.with_suffix(".report.json")
-                with open(dest_report_path, "w") as f:
-                    json.dump(report_data, f, indent=4)
-                logger.info(f"Wrote report artifact to: {dest_report_path}")
                 if component_scores:
                     logger.info("=" * 60)
                     logger.info("COMPONENT SCORES SUMMARY")

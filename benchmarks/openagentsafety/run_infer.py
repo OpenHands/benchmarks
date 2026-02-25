@@ -589,7 +589,6 @@ def generate_report(output_jsonl: str, report_path: str, model_name: str) -> Non
 
     submitted_ids = completed_ids + error_ids
     report = {
-        "benchmark": "openagentsafety",
         "model_name_or_path": model_name,
         "total_instances": len(submitted_ids),
         "submitted_instances": len(submitted_ids),
