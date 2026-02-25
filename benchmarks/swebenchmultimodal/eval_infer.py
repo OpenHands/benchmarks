@@ -419,7 +419,12 @@ Examples:
         if not args.skip_evaluation:
             # Run multimodal evaluation
             report_path = run_swebench_multimodal_evaluation(
-                str(output_file), args.dataset, args.split, args.workers, args.run_id, args.modal
+                str(output_file),
+                args.dataset,
+                args.split,
+                args.workers,
+                args.run_id,
+                args.modal,
             )
 
             # Calculate component scores if we have a report
