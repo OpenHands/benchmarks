@@ -20,7 +20,7 @@ from openhands.sdk.tool.builtins.finish import FinishAction
 
 
 if TYPE_CHECKING:
-    from openhands.sdk.conversation.base import BaseConversation
+    from openhands.sdk.conversation import BaseConversation, RemoteConversation
 
 logger = get_logger(__name__)
 
@@ -117,7 +117,7 @@ def _agent_sent_message(events: list[Event]) -> bool:
 
 
 def run_conversation_with_fake_user_response(
-    conversation: "BaseConversation",
+    conversation: RemoteConversation,
     fake_user_response_fn: FakeUserResponseFn = fake_user_response,
     max_fake_responses: int = 10,
 ) -> None:
@@ -144,8 +144,8 @@ def run_conversation_with_fake_user_response(
     fake_response_count = 0
 
     while True:
-        # Run the conversation (timeout only applies to RemoteConversation)
-        conversation.run(timeout=run_timeout)  # type: ignore[call-arg]
+        # Run the conversation
+        conversation.run(timeout=run_timeout)
 
         # Check the execution status
         status = conversation.state.execution_status
