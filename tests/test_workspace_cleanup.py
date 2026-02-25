@@ -60,7 +60,7 @@ def test_workspace_cleanup_called_on_success():
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
     result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+        test_instance, critic_attempt=1
     )
 
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -111,7 +111,7 @@ def test_workspace_cleanup_called_on_failure():
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
     result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+        test_instance, critic_attempt=1
     )
 
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -171,7 +171,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
     result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+        test_instance, critic_attempt=1
     )
 
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -241,7 +241,7 @@ def test_workspace_cleanup_with_retries():
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
     result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+        test_instance, critic_attempt=1
     )
 
     assert len(workspaces_created) == 3
