@@ -270,35 +270,8 @@ def run_swtbench_evaluation(
         shutil.copy2(predictions_file, swt_predictions_file)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
-        # but using the uv environment's python executable which has all dependencies
-        benchmarks_dir = Path(__file__).parent.parent.parent
-
-        # Get the python executable from the uv environment, fall back to current interpreter
-        try:
-            uv_result = subprocess.run(
-                [
-                    "uv",
-                    "run",
-                    "--directory",
-                    str(benchmarks_dir),
-                    "python",
-                    "-c",
-                    "import sys; print(sys.executable)",
-                ],
-                capture_output=True,
-                text=True,
-                cwd=benchmarks_dir,
-            )
-            uv_available = uv_result.returncode == 0 and uv_result.stdout.strip()
-        except FileNotFoundError:
-            uv_available = False
-            uv_result = None
-
-        if uv_available:
-            python_executable = uv_result.stdout.strip()
-        else:
-            python_executable = sys.executable
-            logger.info("uv not available, using current Python interpreter")
+        # but using the current python executable which has all dependencies
+        python_executable = sys.executable
 
         # Set up environment with PYTHONPATH to include swt-bench directory
         env = os.environ.copy()

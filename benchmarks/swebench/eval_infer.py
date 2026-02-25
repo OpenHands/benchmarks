@@ -143,34 +143,10 @@ def run_swebench_evaluation(
         predictions_dir = predictions_path.parent
         predictions_filename = predictions_path.name
 
-        # Try uv first, fall back to current Python interpreter
-        try:
-            uv_check = subprocess.run(
-                ["uv", "--version"],
-                capture_output=True,
-                text=True,
-            )
-            uv_available = uv_check.returncode == 0
-        except FileNotFoundError:
-            uv_available = False
-
-        if uv_available:
-            cmd = [
-                "uv",
-                "run",
-                "python",
-                "-m",
-                "swebench.harness.run_evaluation",
-            ]
-        else:
-            logger.info("uv not available, using current Python interpreter")
-            cmd = [
-                sys.executable,
-                "-m",
-                "swebench.harness.run_evaluation",
-            ]
-
-        cmd.extend([
+        cmd = [
+            sys.executable,
+            "-m",
+            "swebench.harness.run_evaluation",
             "--dataset_name",
             dataset,
             "--predictions_path",
@@ -179,7 +155,7 @@ def run_swebench_evaluation(
             str(workers),
             "--run_id",
             run_id,
-        ])
+        ]
 
         # Add parameters
         cmd.extend(["--split", split])
