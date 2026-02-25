@@ -119,7 +119,6 @@ def run_conversation_with_fake_user_response(
     conversation: "BaseConversation",
     fake_user_response_fn: FakeUserResponseFn = fake_user_response,
     max_fake_responses: int = 10,
-    run_timeout: float | None = None,
 ) -> None:
     """Run a conversation with automatic fake user responses.
 
@@ -138,7 +137,6 @@ def run_conversation_with_fake_user_response(
             Defaults to fake_user_response.
         max_fake_responses: Maximum number of fake responses to send before
             stopping. This prevents infinite loops.
-        run_timeout: Optional timeout in seconds for conversation.run() calls
     """
 
     fake_response_count = 0
