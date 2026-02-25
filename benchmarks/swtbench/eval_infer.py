@@ -69,7 +69,7 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
 def try_pull_prebaked_images(
     predictions_file: Path,
     dataset: str,
-    split: str,
+    split: str = EVAL_DEFAULTS["split"],
     registry: str = PREBAKED_REGISTRY,
 ) -> None:
     """
@@ -148,9 +148,7 @@ def update_report_with_submitted_instances(
     )
 
 
-def convert_to_swtbench_format(
-    input_file: str, output_file: str
-) -> None:
+def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
     """
     Convert OpenHands output.jsonl to SWT-Bench prediction format.
 
@@ -404,7 +402,6 @@ Examples:
             try_pull_prebaked_images(
                 output_file,
                 args.dataset,
-                args.split,
             )
         else:
             logger.info(
@@ -431,7 +428,6 @@ Examples:
             shutil.move(str(report_file), str(target_file))
             logger.info(f"Moved evaluation report to: {target_file}")
             dest_report_path = target_file
-
             update_report_with_submitted_instances(target_file, output_file)
 
             # Update Laminar datapoints with evaluation scores
