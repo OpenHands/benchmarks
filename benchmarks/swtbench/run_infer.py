@@ -360,10 +360,7 @@ class SWTBenchEvaluation(Evaluation):
 def main() -> None:
     """Main entry point for SWT-bench evaluation."""
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    try:
-        choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
-    except ValueError:
-        choices = [str(p) for p in prompt_dir.glob("*.j2")]
+    choices = [str(p) for p in prompt_dir.glob("*.j2")]
     default_prompt_path = prompt_dir / "default.j2"
     assert default_prompt_path.exists(), (
         f"Default prompt {default_prompt_path} not found"
