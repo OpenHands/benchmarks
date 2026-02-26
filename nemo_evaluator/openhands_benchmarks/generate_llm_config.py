@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 
@@ -19,9 +20,20 @@ def generate_config(
     llm_config: dict[str, object] = {"model": model}
 
     if api_base_url:
-        llm_config["base_url"] = api_base_url
+        # Strip /chat/completions suffix for LiteLLM compatibility
+        base_url = api_base_url.rstrip("/")
+        if base_url.endswith("/chat/completions"):
+            base_url = base_url.removesuffix("/chat/completions")
+        llm_config["base_url"] = base_url
     if api_key_env:
-        llm_config["api_key_env"] = api_key_env
+        # Resolve env var name to actual API key
+        api_key = os.environ.get(api_key_env, "")
+        if not api_key:
+            raise ValueError(
+                f"Environment variable {api_key_env} is not set or empty. "
+                f"Please set it with your API key."
+            )
+        llm_config["api_key"] = api_key
     if temperature is not None:
         llm_config["temperature"] = temperature
     if top_p is not None:
