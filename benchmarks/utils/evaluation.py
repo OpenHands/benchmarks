@@ -401,6 +401,13 @@ class Evaluation(ABC, BaseModel):
                     total=len(futures), desc=f"Attempt {attempt}", leave=False
                 )
 
+                # Track progress for deadlock detection
+                timed_out_count = 0
+                last_progress_time = time.monotonic()
+                no_progress_timeout = int(
+                    os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800")
+                )
+
                 while pending:
                     # Wait for any future to complete, with short timeout to check
                     # for per-instance timeouts
@@ -413,6 +420,7 @@ class Evaluation(ABC, BaseModel):
                     # Process completed futures
                     for fut in done:
                         progress.update(1)
+                        last_progress_time = time.monotonic()
                         try:
                             instance, out = fut.result()
                             pending_info = pending_instances.get(fut)
@@ -447,6 +455,8 @@ class Evaluation(ABC, BaseModel):
                     for fut in timed_out_futures:
                         pending.discard(fut)
                         progress.update(1)
+                        timed_out_count += 1
+                        last_progress_time = time.monotonic()
                         pending_info = pending_instances.get(fut)
                         if pending_info:
                             inst = pending_info.instance
@@ -477,10 +487,54 @@ class Evaluation(ABC, BaseModel):
                         # starting. Running workers will continue until pool shutdown.
                         fut.cancel()
 
+                    # Deadlock detection: if no progress for too long, force terminate
+                    time_since_progress = now - last_progress_time
+                    if pending and time_since_progress > no_progress_timeout:
+                        deadlocked_count = len(pending)
+                        logger.error(
+                            f"DEADLOCK DETECTED: No progress for "
+                            f"{time_since_progress / 60:.1f} minutes with "
+                            f"{deadlocked_count} pending instances. "
+                            f"Force terminating stuck workers."
+                        )
+                        for fut in list(pending):
+                            pending_info = pending_instances.get(fut)
+                            if pending_info:
+                                inst = pending_info.instance
+                                error_output = self._create_error_output(
+                                    inst,
+                                    RuntimeError(
+                                        f"Worker deadlock detected after "
+                                        f"{time_since_progress / 60:.1f} minutes "
+                                        f"of no progress"
+                                    ),
+                                    attempt,
+                                )
+                                if error_output.metadata is None:
+                                    error_output.metadata = self.metadata.model_copy(
+                                        deep=True
+                                    )
+                                if self.metadata.lmnr is not None:
+                                    error_output.metadata.lmnr = LaminarEvalMetadata(
+                                        eval_id=self.metadata.lmnr.eval_id,
+                                        datapoint_id=pending_info.datapoint_id,
+                                    )
+                                attempt_on_result(inst, error_output)
+                            progress.update(1)
+                        timed_out_count += deadlocked_count
+                        pending.clear()
+
                 progress.close()
 
-                # Normal completion - shutdown gracefully
-                pool.shutdown(wait=True)
+                # Shutdown pool - force terminate if we had timeouts/deadlocks
+                if timed_out_count > 0:
+                    logger.warning(
+                        f"{timed_out_count} instances timed out or deadlocked. "
+                        f"Force terminating zombie workers."
+                    )
+                    self._cleanup_pool(pool, futures, wait=False)
+                else:
+                    pool.shutdown(wait=True)
             except KeyboardInterrupt:
                 logger.warning("KeyboardInterrupt received, shutting down workers...")
                 self._cleanup_pool(pool, futures, wait=False)
