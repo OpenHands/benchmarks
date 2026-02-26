@@ -50,8 +50,8 @@ dependencies = [
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
-generate-llm-config = "benchmarks.scripts.generate_llm_config:main"
-run-benchmark = "benchmarks.scripts.run_benchmark:main"
+generate-llm-config = "nemo_evaluator.openhands_benchmarks.generate_llm_config:main"
+run-benchmark = "nemo_evaluator.openhands_benchmarks.run_benchmark:main"
 swebench-infer = "benchmarks.swebench.run_infer:main"
 swtbench-infer = "benchmarks.swtbench.run_infer:main"
 swebench-eval = "benchmarks.swebench.eval_infer:main"

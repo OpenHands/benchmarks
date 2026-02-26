@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from benchmarks.scripts.generate_llm_config import generate_config
+from nemo_evaluator.openhands_benchmarks.generate_llm_config import generate_config
 
 
 INFER_ENTRYPOINTS = {

@@ -7,7 +7,7 @@ framework:
 
 defaults:
   command: >-
-    python3 -m benchmarks.scripts.run_benchmark
+    python3 -m nemo_evaluator.openhands_benchmarks.run_benchmark
     --model openai/{{target.api_endpoint.model_id}}
     --api-base-url {{target.api_endpoint.url}}
     {% if target.api_endpoint.api_key_name is not none %}--api-key-env {{target.api_endpoint.api_key_name}}{% endif %}
