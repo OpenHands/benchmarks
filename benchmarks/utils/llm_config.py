@@ -10,7 +10,7 @@ def load_llm_config(config_path: str | Path) -> LLM:
     if not config_path.is_file():
         raise ValueError(f"LLM config file {config_path} does not exist")
 
-    with config_path.open("r") as f:
+    with config_path.open("r", encoding="utf-8") as f:
         llm_config = f.read()
 
     return LLM.model_validate_json(llm_config)
