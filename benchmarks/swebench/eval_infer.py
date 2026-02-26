@@ -117,11 +117,11 @@ def convert_to_swebench_format(input_file: str, output_file: str) -> None:
 def run_swebench_evaluation(
     predictions_file: str,
     run_id: str,
-    dataset: str = EVAL_DEFAULTS["dataset"],
-    workers: int = EVAL_DEFAULTS["workers"],
-    split: str = EVAL_DEFAULTS["split"],
-    modal: bool = EVAL_DEFAULTS["modal"],
-    timeout: int = EVAL_DEFAULTS["timeout"],
+    dataset: str,
+    workers: int,
+    split: str,
+    modal: bool,
+    timeout: int,
 ) -> None:
     """
     Run SWE-Bench evaluation on the predictions file.
@@ -261,11 +261,10 @@ Examples:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=EVAL_DEFAULTS["timeout"],
-        help=f"Timeout in seconds for evaluation (default: {EVAL_DEFAULTS['timeout']})",
+        help="Timeout in seconds for evaluation",
     )
 
-    # Apply EVAL_DEFAULTS from config (for dataset, split, workers)
+    # Apply EVAL_DEFAULTS from config (for dataset, split, workers, modal, timeout)
     parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()

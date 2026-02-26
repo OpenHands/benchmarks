@@ -16,6 +16,7 @@ EVAL_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Multimodal",
     "split": "dev",
     "workers": 12,
+    "modal": True,
 }
 
 # Build defaults (used by build_images.py)

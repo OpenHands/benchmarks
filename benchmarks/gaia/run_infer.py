@@ -16,6 +16,7 @@ from benchmarks.gaia.config import INFER_DEFAULTS
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -27,8 +28,8 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
-from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import (
     Agent,
@@ -38,9 +39,13 @@ from openhands.sdk import (
     Message,
     MessageEvent,
     TextContent,
+    Tool,
     get_logger,
 )
+from openhands.sdk.event import ActionEvent
+from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
@@ -302,6 +307,8 @@ class GAIAEvaluation(Evaluation):
 
         # Create agent
         tools = get_default_tools(enable_browser=True)
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         tavily_api_key = os.getenv("TAVILY_API_KEY", "")
         assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
         agent = Agent(
@@ -362,6 +369,12 @@ class GAIAEvaluation(Evaluation):
         logger.info(
             f"Instance {instance.id}: score={score}, "
             f"model_answer='{model_answer}', ground_truth='{ground_truth}'"
+        )
+
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            logger=logger,
         )
 
         # Collect history
@@ -432,6 +445,8 @@ For example: if you want to search for a research paper on Arxiv, either use the
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
         """Extract the last agent message/thought from conversation history.
 
+        This method searches for agent output from either MessageEvent or FinishAction.
+
         Note: When using RemoteConversation (with DockerWorkspace), there's a race
           condition where the final MessageEvent might not appear in the events list
           immediately after run() completes, due to WebSocket event streaming.
@@ -467,50 +482,34 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 )
 
             for event in reversed(events):
-                if isinstance(event, MessageEvent) and event.source == "agent":
-                    logger.info(
-                        f"Found agent MessageEvent on attempt {attempt + 1}: "
-                        f"{type(event).__name__}"
-                    )
-                    # Try different event types
+                if not hasattr(event, "source") or event.source != "agent":
+                    continue
+
+                # Extract text from either MessageEvent or FinishAction
+                text = None
+                if isinstance(event, MessageEvent):
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
-                        return content.text
+                        text = content.text
+                elif isinstance(event, ActionEvent) and isinstance(
+                    event.action, FinishAction
+                ):
+                    text = event.action.message
 
-            # Check for alternative output sources before retrying
-            if attempt == 0:
-                # Check for finish events that might contain output
-                finish_events = [
-                    e for e in events if "finish" in type(e).__name__.lower()
-                ]
-                if finish_events:
-                    logger.info(f"Found {len(finish_events)} finish events")
-                    for event in reversed(finish_events):
-                        output = getattr(event, "output", None)
-                        if output:
-                            logger.info(
-                                f"Found output in {type(event).__name__}: "
-                                f"{str(output)[:100]}"
-                            )
-                            return str(output)
-
-                # Check for error events
-                error_events = [
-                    e for e in events if "error" in type(e).__name__.lower()
-                ]
-                if error_events:
-                    logger.warning(
-                        f"Found {len(error_events)} error events: "
-                        f"{[type(e).__name__ for e in error_events]}"
+                if text:
+                    logger.info(
+                        f"Found agent output on attempt {attempt + 1}: "
+                        f"{type(event).__name__} - {text[:100]}..."
                     )
+                    return text
 
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
                 current_delay = retry_delay * (retry_backoff**attempt)
                 current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
-                    "Agent MessageEvent not found yet, "
+                    "Agent MessageEvent or FinishAction not found yet, "
                     f"waiting {current_delay:.1f}s before retry..."
                 )
                 time.sleep(current_delay)
@@ -592,6 +591,7 @@ def main() -> None:
         critic=critic,
         selected_instances_file=args.select,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
     )
 
     # Create evaluator

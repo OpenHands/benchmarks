@@ -69,7 +69,7 @@ def _load_prediction_instance_ids(predictions_file: Path) -> list[str]:
 def try_pull_prebaked_images(
     predictions_file: Path,
     dataset: str,
-    split: str = EVAL_DEFAULTS["split"],
+    split: str,
     registry: str = PREBAKED_REGISTRY,
 ) -> None:
     """
@@ -418,6 +418,7 @@ Examples:
             try_pull_prebaked_images(
                 output_file,
                 args.dataset,
+                args.split,
             )
         else:
             logger.info(
