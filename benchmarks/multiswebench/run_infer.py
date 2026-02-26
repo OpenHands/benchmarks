@@ -14,7 +14,7 @@ from benchmarks.multiswebench.build_images import (
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -212,36 +212,12 @@ class MultiSWEBenchEvaluation(Evaluation):
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            SKIP_BUILD = os.getenv("MULTI_SWE_BENCH_SKIP_BUILD", "0").lower() in (
-                "1",
-                "true",
-                "yes",
+            ensure_local_image(
+                agent_server_image=agent_server_image,
+                base_image=official_docker_image,
+                custom_tag=custom_tag,
+                target=build_target,
             )
-            logger.info(f"MULTI_SWE_BENCH_SKIP_BUILD={SKIP_BUILD}")
-            if not SKIP_BUILD:
-                logger.info(
-                    f"Building workspace from {official_docker_image} "
-                    f"for instance {instance.id}. "
-                    "This may take a while...\n"
-                    "You can run benchmarks/multiswebench/build_images.py and set "
-                    "MULTI_SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
-                    "agent-server image."
-                )
-                output = build_image(
-                    base_image=official_docker_image,
-                    target_image=EVAL_AGENT_SERVER_IMAGE,
-                    custom_tag=custom_tag,
-                    target=build_target,
-                    push=False,
-                )
-                logger.info(f"Image build output: {output}")
-                assert output.error is None, f"Image build failed: {output.error}"
-                if agent_server_image not in output.tags:
-                    raise RuntimeError(
-                        f"Built image tags {output.tags} do not include expected tag "
-                        f"{agent_server_image}"
-                    )
-
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",

@@ -24,7 +24,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import create_docker_workspace, image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -36,7 +36,7 @@ from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -188,15 +188,16 @@ class Commit0Evaluation(Evaluation):
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
-            # Build agent-server image from base commit0 image
-            workspace = DockerDevWorkspace(
-                base_image=base_docker_image,
-                working_dir="/workspace",
-                target=build_target,
-                forward_env=forward_env or [],
+            custom_tag = extract_custom_tag(base_docker_image)
+            suffix = f"-{build_target}" if build_target != "binary" else ""
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            logger.info(
-                f"Building workspace from {base_docker_image}. This may take a while..."
+            workspace = create_docker_workspace(
+                agent_server_image=agent_server_image,
+                base_image=base_docker_image,
+                build_target=build_target,
+                forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
