@@ -200,6 +200,74 @@ class Evaluation(ABC, BaseModel):
                 e,
             )
 
+    def _cleanup_workspace(
+        self,
+        workspace: RemoteWorkspace,
+        instance: EvalInstance,
+    ) -> None:
+        """Clean up workspace with timeout to prevent deadlocks.
+
+        This method wraps cleanup operations in a signal-based timeout to prevent
+        workers from hanging forever if the runtime API is unresponsive. Without
+        this timeout, workers can block in the finally block waiting for HTTP
+        calls that never complete, causing the entire evaluation job to deadlock.
+
+        Args:
+            workspace: The remote workspace to clean up
+            instance: The evaluation instance being processed
+        """
+        import signal
+
+        def _cleanup_timeout_handler(signum, frame):
+            raise TimeoutError("Cleanup operation timed out")
+
+        cleanup_timeout = int(os.getenv("CLEANUP_TIMEOUT", "120"))
+        old_handler = signal.signal(signal.SIGALRM, _cleanup_timeout_handler)
+
+        logger.info(
+            "[child] %s: entering cleanup (timeout=%ds)",
+            instance.id,
+            cleanup_timeout,
+        )
+        try:
+            signal.alarm(cleanup_timeout)
+
+            logger.info(
+                "[child] %s: starting conversation archive capture",
+                instance.id,
+            )
+            try:
+                self._capture_conversation_archive(workspace, instance)
+            except Exception as archive_error:
+                logger.warning(
+                    "[child] Failed to capture conversation archive for %s: %s",
+                    instance.id,
+                    archive_error,
+                )
+
+            logger.info(
+                "[child] %s: starting workspace cleanup (runtime stop)",
+                instance.id,
+            )
+            try:
+                workspace.__exit__(None, None, None)
+                logger.info("[child] %s: cleanup complete", instance.id)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "[child] Failed to cleanup workspace for %s: %s",
+                    instance.id,
+                    str(cleanup_error)[:50],
+                )
+        except TimeoutError:
+            logger.error(
+                "[child] Cleanup timed out after %ds for %s. Runtime may be orphaned.",
+                cleanup_timeout,
+                instance.id,
+            )
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+
     # --- Runner ---
     def run(
         self,
@@ -704,65 +772,8 @@ class Evaluation(ABC, BaseModel):
                             error_output.runtime_runs = runtime_runs
                         return instance, error_output
                 finally:
-                    # Ensure workspace cleanup happens regardless of success or failure.
-                    # Use a timeout to prevent blocking forever if the runtime API
-                    # is unresponsive (e.g., 503 errors during infrastructure overload).
-                    # Without this timeout, workers can hang in the finally block
-                    # waiting for cleanup HTTP calls that never complete, causing
-                    # the entire evaluation job to deadlock.
                     if workspace is not None:
-                        import signal
-
-                        def _cleanup_timeout_handler(signum, frame):
-                            raise TimeoutError("Cleanup operation timed out")
-
-                        cleanup_timeout = int(os.getenv("CLEANUP_TIMEOUT", "120"))
-                        old_handler = signal.signal(
-                            signal.SIGALRM, _cleanup_timeout_handler
-                        )
-                        logger.info(
-                            "[child] %s: entering cleanup (timeout=%ds)",
-                            instance.id,
-                            cleanup_timeout,
-                        )
-                        try:
-                            signal.alarm(cleanup_timeout)
-                            logger.info(
-                                "[child] %s: starting conversation archive capture",
-                                instance.id,
-                            )
-                            try:
-                                self._capture_conversation_archive(workspace, instance)
-                            except Exception as archive_error:
-                                logger.warning(
-                                    "[child] Failed to capture conversation archive for %s: %s",
-                                    instance.id,
-                                    archive_error,
-                                )
-                            logger.info(
-                                "[child] %s: starting workspace cleanup (runtime stop)",
-                                instance.id,
-                            )
-                            try:
-                                # Use the context manager protocol for cleanup
-                                workspace.__exit__(None, None, None)
-                                logger.info(
-                                    "[child] %s: cleanup complete",
-                                    instance.id,
-                                )
-                            except Exception as cleanup_error:
-                                logger.warning(
-                                    f"[child] Failed to cleanup workspace for {instance.id}: "
-                                    f"{str(cleanup_error)[:50]}"
-                                )
-                        except TimeoutError:
-                            logger.error(
-                                f"[child] Cleanup timed out after {cleanup_timeout}s for "
-                                f"{instance.id}. Runtime may be orphaned."
-                            )
-                        finally:
-                            signal.alarm(0)
-                            signal.signal(signal.SIGALRM, old_handler)
+                        self._cleanup_workspace(workspace, instance)
                     lmnr_span.end()
 
             # This should never be reached, but added for type safety
