@@ -78,7 +78,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["benchmarks", "benchmarks*", "nemo_evaluator", "nemo_evaluator*"]
+include = ["benchmarks*", "nemo_evaluator*"]
 
 [tool.setuptools]
 # Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
