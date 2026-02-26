@@ -17,7 +17,6 @@ def slow_worker_sync(instance_id: str, sleep_time: float) -> tuple[str, dict]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.asyncio
 async def test_asyncio_semaphore_concurrency():
     """Test that asyncio.Semaphore correctly limits concurrent tasks."""
     max_workers = 2
@@ -136,9 +135,7 @@ async def test_asyncio_wait_returns_completed_first():
     results = []
 
     while pending:
-        done, pending = await asyncio.wait(
-            pending, return_when=asyncio.FIRST_COMPLETED
-        )
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             results.append(task.result())
 

@@ -12,7 +12,7 @@ import asyncio
 import base64
 import json
 import os
-import sys
+import threading
 import time
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -617,6 +617,7 @@ class Evaluation(ABC, BaseModel):
         log_file = os.path.join(log_dir, f"instance_{instance.id}.output.log")
 
         # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
+        # Uses thread-local storage so each worker thread has its own redirect.
         with redirect_stdout_stderr(log_file):
             logger.info("[worker] start id=%s", instance.id)
 
@@ -629,8 +630,9 @@ class Evaluation(ABC, BaseModel):
             while retry_count <= max_retries:
                 workspace = None
 
-                # Start Laminar execution span and inject context into os.environ so workspace can pick it up
-                # Escape the serialized context to safely pass as a cli argument
+                # Start Laminar execution span and inject context into
+                # thread-local os.environ.  We use a lock to avoid races
+                # between threads that read/write the same env-var key.
                 lmnr_span = Laminar.start_active_span(
                     "Execution",
                     span_type="EXECUTOR",  # type: ignore
@@ -639,7 +641,8 @@ class Evaluation(ABC, BaseModel):
                     else None,
                 )
                 exec_span_ctx = json.dumps(Laminar.serialize_span_context(lmnr_span))
-                os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
+                with _lmnr_env_lock:
+                    os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
 
                 try:
                     # Calculate resource factor based on runtime failures
@@ -772,7 +775,15 @@ class Evaluation(ABC, BaseModel):
             return instance, error_output
 
 
-# ---------- Logging helper for thread workers ------------------------------------
+# ---------- Thread-safety helpers ------------------------------------------------
+
+# Lock to serialise writes to os.environ["LMNR_SPAN_CONTEXT"].
+# The env-var is read by prepare_workspace(); the lock ensures the value set by
+# one thread isn't overwritten by another before the workspace picks it up.
+_lmnr_env_lock = threading.Lock()
+
+# Thread-local storage for per-thread stdout/stderr redirect.
+_thread_local = threading.local()
 
 
 def setup_instance_logging(log_dir: str, instance_id: str) -> None:
@@ -789,34 +800,82 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
 
 @contextmanager
 def redirect_stdout_stderr(log_file_path: str):
-    """Context manager to redirect stdout/stderr to a log file.
+    """Context manager to redirect stdout/stderr to a per-thread log file.
 
-    This captures all print() statements, SDK visualizations, and any other
-    output that goes to stdout/stderr.
+    This is thread-safe: each thread gets its own log file via a
+    ThreadLocalWriter wrapper that delegates writes to the file stored in
+    threading.local().  The global sys.stdout / sys.stderr are replaced
+    *once* (idempotently) with the wrapper; individual threads then just
+    swap the file object in their thread-local slot.
 
     Args:
         log_file_path: Path to the log file where output should be redirected
     """
-    # Save original stdout/stderr
-    original_stdout = sys.stdout
-    original_stderr = sys.stderr
+    import sys as _sys  # local ref to avoid capturing module-level sys
+
     log_file = None
+    had_previous = hasattr(_thread_local, "log_file")
+    previous_file = getattr(_thread_local, "log_file", None)
 
     try:
-        # Open log file in append mode with line buffering
-        log_file = open(log_file_path, "a", buffering=1, encoding="utf-8")
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
-        # Redirect stdout and stderr
-        sys.stdout = log_file
-        sys.stderr = log_file
+        # Open a per-thread log file
+        log_file = open(log_file_path, "a", buffering=1, encoding="utf-8")
+        _thread_local.log_file = log_file
+
+        # Install thread-local writers on the *first* call only.
+        # Subsequent threads reuse the same wrapper objects.
+        if not isinstance(_sys.stdout, _ThreadLocalWriter):
+            _sys.stdout = _ThreadLocalWriter(_sys.stdout)  # type: ignore[assignment]
+            _sys.stderr = _ThreadLocalWriter(_sys.stderr)  # type: ignore[assignment]
 
         yield
 
     finally:
-        # Restore original stdout/stderr
-        sys.stdout = original_stdout
-        sys.stderr = original_stderr
+        # Restore this thread's slot to whatever it was before
+        if had_previous:
+            _thread_local.log_file = previous_file
+        elif hasattr(_thread_local, "log_file"):
+            del _thread_local.log_file
 
-        # Close the log file if it was opened
+        # Close the log file
         if log_file is not None and not log_file.closed:
             log_file.close()
+
+
+class _ThreadLocalWriter:
+    """A sys.stdout / sys.stderr replacement that writes to a per-thread file.
+
+    If the current thread has set ``_thread_local.log_file``, writes go there.
+    Otherwise writes fall through to the original stream (usually the real
+    terminal stdout / stderr).
+    """
+
+    def __init__(self, original):
+        self._original = original
+
+    # --- file-like API used by print() and the logging module -----------------
+
+    def write(self, s: str) -> int:
+        target = getattr(_thread_local, "log_file", None) or self._original
+        try:
+            return target.write(s)
+        except ValueError:
+            # Handle "I/O operation on closed file" gracefully –
+            # fall back to original stream instead of crashing.
+            return self._original.write(s)
+
+    def flush(self) -> None:
+        target = getattr(_thread_local, "log_file", None) or self._original
+        try:
+            target.flush()
+        except ValueError:
+            self._original.flush()
+
+    # --- forward attribute access for anything else (encoding, fileno, etc.) --
+
+    def __getattr__(self, name: str):
+        target = getattr(_thread_local, "log_file", None) or self._original
+        return getattr(target, name)
