@@ -720,8 +720,17 @@ class Evaluation(ABC, BaseModel):
                         old_handler = signal.signal(
                             signal.SIGALRM, _cleanup_timeout_handler
                         )
+                        logger.info(
+                            "[child] %s: entering cleanup (timeout=%ds)",
+                            instance.id,
+                            cleanup_timeout,
+                        )
                         try:
                             signal.alarm(cleanup_timeout)
+                            logger.info(
+                                "[child] %s: starting conversation archive capture",
+                                instance.id,
+                            )
                             try:
                                 self._capture_conversation_archive(workspace, instance)
                             except Exception as archive_error:
@@ -730,11 +739,15 @@ class Evaluation(ABC, BaseModel):
                                     instance.id,
                                     archive_error,
                                 )
+                            logger.info(
+                                "[child] %s: starting workspace cleanup (runtime stop)",
+                                instance.id,
+                            )
                             try:
                                 # Use the context manager protocol for cleanup
                                 workspace.__exit__(None, None, None)
-                                logger.debug(
-                                    "[child] cleaned up workspace for id=%s",
+                                logger.info(
+                                    "[child] %s: cleanup complete",
                                     instance.id,
                                 )
                             except Exception as cleanup_error:
