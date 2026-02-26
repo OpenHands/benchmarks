@@ -23,9 +23,10 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.agent_server.docker.build import _base_slug
-from openhands.sdk import LLM, Agent, Conversation, __version__, get_logger
+from openhands.sdk import Agent, Conversation, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
@@ -365,12 +366,7 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
