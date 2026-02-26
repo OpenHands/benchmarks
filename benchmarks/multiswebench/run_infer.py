@@ -121,9 +121,9 @@ class MultiSWEBenchEvaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up Multi-SWE-bench evaluation data")
 
-        # Check if this is a ByteDance-Seed/Multi-SWE-bench dataset that needs downloading
+        # Check if this is a Multi-SWE-Bench dataset that needs downloading
         dataset_path = self.metadata.dataset
-        if dataset_path.startswith("ByteDance-Seed/Multi-SWE-bench"):
+        if dataset_path.startswith("bytedance-research/Multi-SWE-Bench"):
             metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
             logger.info(
                 f"Downloading Multi-SWE-bench dataset for language: {metadata.lang}"
