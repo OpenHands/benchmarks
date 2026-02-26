@@ -717,7 +717,9 @@ class Evaluation(ABC, BaseModel):
                             raise TimeoutError("Cleanup operation timed out")
 
                         cleanup_timeout = int(os.getenv("CLEANUP_TIMEOUT", "120"))
-                        old_handler = signal.signal(signal.SIGALRM, _cleanup_timeout_handler)
+                        old_handler = signal.signal(
+                            signal.SIGALRM, _cleanup_timeout_handler
+                        )
                         try:
                             signal.alarm(cleanup_timeout)
                             try:
@@ -732,7 +734,8 @@ class Evaluation(ABC, BaseModel):
                                 # Use the context manager protocol for cleanup
                                 workspace.__exit__(None, None, None)
                                 logger.debug(
-                                    "[child] cleaned up workspace for id=%s", instance.id
+                                    "[child] cleaned up workspace for id=%s",
+                                    instance.id,
                                 )
                             except Exception as cleanup_error:
                                 logger.warning(
