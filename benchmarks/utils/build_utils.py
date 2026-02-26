@@ -20,6 +20,7 @@ from typing import Callable
 from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
+from benchmarks.swebench.constants import TargetType
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.buildx_utils import (
     buildkit_disk_usage,
@@ -278,7 +279,7 @@ def build_image(
     base_image: str,
     target_image: str,
     custom_tag: str,
-    target: str = "source-minimal",
+    target: TargetType = "source-minimal",
     push: bool = False,
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
@@ -315,7 +316,7 @@ def _build_with_logging(
     base_image: str,
     target_image: str,
     custom_tag: str = "",
-    target: str = "source-minimal",
+    target: TargetType = "source-minimal",
     push: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
@@ -408,7 +409,7 @@ def default_build_output_dir(
 
 def build_all_images(
     base_images: list[str],
-    target: str,
+    target: TargetType,
     build_dir: Path,
     image: str = EVAL_AGENT_SERVER_IMAGE,
     push: bool = False,
