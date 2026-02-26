@@ -45,8 +45,10 @@ dependencies = [
     "swt-bench @ git+https://github.com/logic-star-ai/swt-bench.git@5fdcd446ff05e248ecfffc19d560a210699f71f8",
     # See https://github.com/OpenHands/benchmarks/issues/449
     "hf-xet>=1.1.10,<2.0",
-    "nemo_evaluator",
 ]
+
+[project.optional-dependencies]
+nemo = ["nemo_evaluator"]
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
