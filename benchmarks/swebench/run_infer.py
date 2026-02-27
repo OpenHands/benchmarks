@@ -13,6 +13,7 @@ from benchmarks.swebench.build_images import (
     wrap_image,
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
+from benchmarks.utils.acp import get_acp_forward_env
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -148,15 +149,7 @@ class SWEBenchEvaluation(Evaluation):
                            Higher values allocate more CPU/memory resources.
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
-        # Forward the correct API key for each ACP agent type
-        if self.metadata.agent_type == "acp-claude":
-            forward_env = list(forward_env or [])
-            if "ANTHROPIC_API_KEY" not in forward_env:
-                forward_env.append("ANTHROPIC_API_KEY")
-        elif self.metadata.agent_type == "acp-codex":
-            forward_env = list(forward_env or [])
-            if "OPENAI_API_KEY" not in forward_env:
-                forward_env.append("OPENAI_API_KEY")
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
 
         official_docker_image = get_official_docker_image(instance.id)
         build_target = constants.DEFAULT_BUILD_TARGET
