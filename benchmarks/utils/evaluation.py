@@ -464,6 +464,11 @@ class Evaluation(ABC, BaseModel):
         ) -> Tuple[EvalInstance, EvalOutput]:
             """Process one instance with semaphore-based concurrency control."""
             async with semaphore:
+                # Reset start_time to NOW so the timeout counts from when the
+                # instance actually begins running, not from when it was queued.
+                task = asyncio.current_task()
+                if task and task in pending_instances:
+                    pending_instances[task].start_time = time.monotonic()
                 # Run the sync processing function in a thread
                 return await asyncio.to_thread(
                     self._process_one_sync, inst, lmnr_span_ctx, attempt
@@ -535,6 +540,20 @@ class Evaluation(ABC, BaseModel):
                         exc_info=True,
                         stack_info=True,
                     )
+                    # Create error output so the instance is not silently lost
+                    if pending_info:
+                        error_output = self._create_error_output(
+                            pending_info.instance, e, attempt
+                        )
+                        if error_output.metadata is None:
+                            error_output.metadata = self.metadata.model_copy(deep=True)
+                        if self.metadata.lmnr is not None:
+                            error_output.metadata.lmnr = LaminarEvalMetadata(
+                                eval_id=self.metadata.lmnr.eval_id,
+                                datapoint_id=pending_info.datapoint_id,
+                            )
+                        await on_result(pending_info.instance, error_output)
+                        attempt_outputs.append(error_output)
 
             # Check for per-instance timeouts
             now = time.monotonic()
@@ -764,7 +783,12 @@ class Evaluation(ABC, BaseModel):
                                 f"[worker] Failed to cleanup workspace for {instance.id}: "
                                 f"{str(cleanup_error)[:50]}"
                             )
-                    lmnr_span.end()
+                    try:
+                        lmnr_span.end()
+                    except Exception:
+                        # contextvars tokens created in the main thread cannot
+                        # be detached from a worker thread — safe to ignore.
+                        pass
 
             # This should never be reached, but added for type safety
             error_output = self._create_error_output(
