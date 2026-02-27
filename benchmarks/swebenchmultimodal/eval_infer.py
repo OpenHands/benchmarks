@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -247,6 +246,7 @@ def run_swebench_multimodal_evaluation(
     split: str = "dev",
     workers: str = "12",
     run_id: str | None = None,
+    modal: bool = True,
 ) -> Path | None:
     """
     Run SWE-Bench Multimodal evaluation on the predictions file.
@@ -271,7 +271,6 @@ def run_swebench_multimodal_evaluation(
     # Default for run_id if not provided
     run_id = run_id or predictions_path.stem
 
-    # Run SWE-Bench Multimodal evaluation using UV environment
     # The key difference from regular SWE-Bench is the --modal true flag
     cmd = [
         "uv",
@@ -287,11 +286,11 @@ def run_swebench_multimodal_evaluation(
         predictions_filename,
         "--max_workers",
         str(workers),
-        "--modal",
-        "true",
         "--run_id",
         run_id,
     ]
+    if modal:
+        cmd.extend(["--modal", "true"])
 
     logger.info(f"Running command: {' '.join(cmd)}")
     logger.info(f"Working directory: {predictions_dir}")
@@ -369,6 +368,20 @@ Examples:
         help="Number of workers to use when evaluating",
     )
 
+    parser.add_argument(
+        "--modal",
+        dest="modal",
+        action="store_true",
+        help="Use Modal for evaluation",
+    )
+
+    parser.add_argument(
+        "--no-modal",
+        dest="modal",
+        action="store_false",
+        help="Do not use Modal for evaluation",
+    )
+
     parser.set_defaults(**EVAL_DEFAULTS)
 
     parser.add_argument(
@@ -406,7 +419,12 @@ Examples:
         if not args.skip_evaluation:
             # Run multimodal evaluation
             report_path = run_swebench_multimodal_evaluation(
-                str(output_file), args.dataset, args.split, args.workers, args.run_id
+                str(output_file),
+                args.dataset,
+                args.split,
+                args.workers,
+                args.run_id,
+                args.modal,
             )
 
             # Calculate component scores if we have a report
@@ -431,12 +449,6 @@ Examples:
                         f"  Combined Accuracy:    {component_scores['combined_accuracy']:.1f}%"
                     )
                     logger.info("=" * 60)
-            # Copy report.json to output.report.json for consistency with other benchmarks
-            # SWE-Bench Multimodal creates report.json in the same directory as the predictions file
-            report_path = output_file.parent / "report.json"
-            dest_report_path = input_file.with_suffix(".report.json")
-            shutil.copy(str(report_path), str(dest_report_path))
-            logger.info(f"Copied report file to: {dest_report_path}")
 
         # Generate cost report as final step
         generate_cost_report(str(input_file))

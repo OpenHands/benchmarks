@@ -264,6 +264,17 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "problem_statement": "Test problem",
             },
         )
+    elif benchmark_name == "swefficiency":
+        return EvalInstance(
+            id="test-instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test-instance-1",
+                "base_commit": "abc123",
+                "version": "1.0",
+                "problem_statement": "Test problem for swefficiency",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -371,6 +382,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             critic=PassCritic(),
             lang="java",
         )
+    elif benchmark_name == "swefficiency":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "swefficiency"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="swefficiency/swefficiency",
+            dataset_split="test",
+            details={"test": True},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
     else:
         # Generic metadata for unknown benchmarks
         return EvalMetadata(
@@ -448,13 +477,19 @@ def test_benchmark_metrics_collection(
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
     # Mock common dependencies to avoid actual LLM calls
+    # swebench uses get_tools_for_preset instead of get_default_tools
+    tools_mock_target = (
+        f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
+        if benchmark_name == "swebench"
+        else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
+    )
     with (
         patch(
             f"benchmarks.{benchmark_name}.run_infer.Conversation",
             return_value=mock_conversation,
         ),
         patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
-        patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools"),
+        patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
@@ -529,13 +564,19 @@ def test_metrics_with_zero_cost(mock_workspace):
     # Setup mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
+    # swebench uses get_tools_for_preset instead of get_default_tools
+    tools_mock_target = (
+        f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
+        if benchmark_name == "swebench"
+        else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
+    )
     with (
         patch(
             f"benchmarks.{benchmark_name}.run_infer.Conversation",
             return_value=mock_conversation,
         ),
         patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
-        patch(f"benchmarks.{benchmark_name}.run_infer.get_default_tools"),
+        patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         if benchmark_name == "swebench":

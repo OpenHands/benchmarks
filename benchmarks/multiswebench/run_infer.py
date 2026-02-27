@@ -15,6 +15,7 @@ from benchmarks.multiswebench.download_dataset import download_and_concat_datase
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -26,6 +27,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -120,9 +122,9 @@ class MultiSWEBenchEvaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up Multi-SWE-bench evaluation data")
 
-        # Check if this is a ByteDance-Seed/Multi-SWE-bench dataset that needs downloading
+        # Check if this is a Multi-SWE-Bench dataset that needs downloading
         dataset_path = self.metadata.dataset
-        if dataset_path.startswith("ByteDance-Seed/Multi-SWE-bench"):
+        if dataset_path.startswith("bytedance-research/Multi-SWE-Bench"):
             metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
             logger.info(
                 f"Downloading Multi-SWE-bench dataset for language: {metadata.lang}"
@@ -410,6 +412,14 @@ class MultiSWEBenchEvaluation(Evaluation):
         )
         git_patch = git_patch_result.stdout
 
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
+
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
@@ -453,12 +463,7 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (

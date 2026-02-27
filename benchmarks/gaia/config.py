@@ -20,6 +20,7 @@ INFER_DEFAULTS = {
     "level": "2023_all",
     "num_workers": 30,
     **CONDENSER_DEFAULTS,
+    "critic": "pass",
 }
 
 # Build defaults (used by build_images.py)
