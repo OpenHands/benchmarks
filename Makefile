@@ -54,7 +54,7 @@ lint:
 
 pre-commit:
 	@$(ECHO) "$(YELLOW)Run pre-commit...$(RESET)"
-	uv run pre-commit run --all-files
+	@uv run pre-commit run --all-files
 	@$(ECHO) "$(GREEN)Pre-commit run successfully.$(RESET)"
 
 clean:
@@ -73,6 +73,6 @@ help:
 	@$(ECHO) "  $(GREEN)build$(RESET)                Setting up env"
 	@$(ECHO) "  $(GREEN)format$(RESET)               Format code with ruff"
 	@$(ECHO) "  $(GREEN)lint$(RESET)                 Lint code with ruff"
-	@$(ECHO) "  $(GREEN)pre-commit$(RESET)           Run the pre-commit"
+	@$(ECHO) "  $(GREEN)pre-commit$(RESET)           Run pre-commit hooks"
 	@$(ECHO) "  $(GREEN)clean$(RESET)                Clean up cache files"
 	@$(ECHO) "  $(GREEN)help$(RESET)                 Show this help message"
