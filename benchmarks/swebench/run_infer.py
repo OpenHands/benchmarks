@@ -282,6 +282,12 @@ class SWEBenchEvaluation(Evaluation):
                 llm=self.metadata.llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
+                # TODO(#463): enable condenser and security analyzer
+                # and have them configurable via EvalMetadata
+                # condenser=get_default_condenser(
+                #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
+                # ),
+                # security_analyzer=LLMSecurityAnalyzer(),
             )
 
         assert isinstance(workspace, RemoteWorkspace)
