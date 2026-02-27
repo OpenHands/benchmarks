@@ -13,7 +13,12 @@ from benchmarks.swebench.build_images import (
     wrap_image,
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
-from benchmarks.utils.acp import get_acp_forward_env
+from benchmarks.utils.acp import (
+    get_acp_command,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -263,13 +268,8 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        if self.metadata.agent_type in ("acp-claude", "acp-codex"):
-            acp_command = (
-                ["codex-acp"]
-                if self.metadata.agent_type == "acp-codex"
-                else ["claude-agent-acp"]
-            )
-            agent = ACPAgent(acp_command=acp_command)
+        if is_acp_agent(self.metadata.agent_type):
+            agent = ACPAgent(acp_command=get_acp_command(self.metadata.agent_type))
         else:
             tools = get_tools_for_preset(
                 preset=self.metadata.tool_preset,
@@ -286,13 +286,7 @@ class SWEBenchEvaluation(Evaluation):
 
         assert isinstance(workspace, RemoteWorkspace)
 
-        # For Claude Code ACP, create settings to allow tool use
-        # without interactive permission prompts (no human in the loop).
-        if self.metadata.agent_type == "acp-claude":
-            settings_json = '{"permissions":{"allow":["Edit","Read","Bash"]}}'
-            workspace.execute_command(
-                f"mkdir -p ~/.claude && echo '{settings_json}' > ~/.claude/settings.json"
-            )
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
