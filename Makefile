@@ -71,7 +71,7 @@ help:
 	@$(ECHO) ""
 	@$(ECHO) "$(UNDERLINE)Commands:$(RESET)"
 	@$(ECHO) "  $(GREEN)build$(RESET)                Setting up env"
-	@$(ECHO) "  $(GREEN)format$(RESET)               Format code with uv format"
+	@$(ECHO) "  $(GREEN)format$(RESET)               Format code with ruff"
 	@$(ECHO) "  $(GREEN)lint$(RESET)                 Lint code with ruff"
 	@$(ECHO) "  $(GREEN)pre-commit$(RESET)           Run the pre-commit"
 	@$(ECHO) "  $(GREEN)clean$(RESET)                Clean up cache files"
