@@ -8,6 +8,7 @@ YELLOW := \033[33m
 RED := \033[31m
 CYAN := \033[36m
 RESET := \033[0m
+UNDERLINE := \033[4m
 
 # Required uv version
 REQUIRED_UV_VERSION := 0.8.13
@@ -51,9 +52,27 @@ lint:
 	@uv run ruff check --fix
 	@$(ECHO) "$(GREEN)Linting completed.$(RESET)"
 
+pre-commit:
+	@$(ECHO) "$(YELLOW)Run pre-commit...$(RESET)"
+	uv run pre-commit run --all-files
+	@$(ECHO) "$(GREEN)Pre-commit run successfully.$(RESET)"
+
 clean:
 	@$(ECHO) "$(YELLOW)Cleaning up cache files...$(RESET)"
 	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@rm -rf .pytest_cache .ruff_cache .mypy_cache 2>/dev/null || true
 	@$(ECHO) "$(GREEN)Cache files cleaned.$(RESET)"
+
+help:
+	@$(ECHO) "$(CYAN)OpenHands Benchmarks Makefile$(RESET)"
+	@$(ECHO) ""
+	@$(ECHO) "$(UNDERLINE)Usage:$(RESET) make <COMMAND>"
+	@$(ECHO) ""
+	@$(ECHO) "$(UNDERLINE)Commands:$(RESET)"
+	@$(ECHO) "  $(GREEN)build$(RESET)                Setting up env"
+	@$(ECHO) "  $(GREEN)format$(RESET)               Format code with uv format"
+	@$(ECHO) "  $(GREEN)lint$(RESET)                 Lint code with ruff"
+	@$(ECHO) "  $(GREEN)pre-commit$(RESET)           Run the pre-commit"
+	@$(ECHO) "  $(GREEN)clean$(RESET)                Clean up cache files"
+	@$(ECHO) "  $(GREEN)help$(RESET)                 Show this help message"
