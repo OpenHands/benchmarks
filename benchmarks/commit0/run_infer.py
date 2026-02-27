@@ -32,7 +32,7 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
+from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
@@ -311,7 +311,7 @@ class Commit0Evaluation(Evaluation):
         condenser = None
         if self.metadata.enable_condenser:
             condenser = LLMSummarizingCondenser(
-                llm=self.metadata.llm.model_copy(update={"service_id": "condenser"}),
+                llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
                 max_size=self.metadata.condenser_max_size,
                 keep_first=self.metadata.condenser_keep_first,
             )

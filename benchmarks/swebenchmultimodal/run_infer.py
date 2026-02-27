@@ -264,7 +264,7 @@ class SWEBenchEvaluation(Evaluation):
         condenser = None
         if self.metadata.enable_condenser:
             condenser = LLMSummarizingCondenser(
-                llm=self.metadata.llm.model_copy(update={"service_id": "condenser"}),
+                llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
                 max_size=self.metadata.condenser_max_size,
                 keep_first=self.metadata.condenser_keep_first,
             )

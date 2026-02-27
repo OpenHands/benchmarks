@@ -27,7 +27,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.agent_server.docker.build import _base_slug
-from openhands.sdk import LLM, Agent, Conversation, Tool, __version__, get_logger
+from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
@@ -264,7 +264,7 @@ class SWTBenchEvaluation(Evaluation):
         condenser = None
         if self.metadata.enable_condenser:
             condenser = LLMSummarizingCondenser(
-                llm=self.metadata.llm.model_copy(update={"service_id": "condenser"}),
+                llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
                 max_size=self.metadata.condenser_max_size,
                 keep_first=self.metadata.condenser_keep_first,
             )
