@@ -263,8 +263,7 @@ class SWEBenchEvaluation(Evaluation):
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
+        tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
