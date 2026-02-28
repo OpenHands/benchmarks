@@ -114,7 +114,6 @@ def create_docker_workspace(
             logger.info(f"Building workspace from {base_image}...")
         return DockerDevWorkspace(
             base_image=base_image,
-            server_image=None,
             working_dir=working_dir,
             target=build_target,
             forward_env=forward_env or [],
