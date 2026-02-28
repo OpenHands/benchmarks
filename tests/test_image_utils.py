@@ -98,7 +98,6 @@ class TestCreateDockerWorkspace:
             )
             spy.assert_called_once_with(
                 base_image="base:latest",
-                server_image=None,
                 working_dir="/workspace",
                 target="source-minimal",
                 forward_env=["FOO"],
