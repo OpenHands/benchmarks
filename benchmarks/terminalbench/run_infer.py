@@ -161,11 +161,18 @@ def convert_harbor_to_eval_output(
             f"Expected Harbor output structure with trials/ subdirectory."
         )
 
+    # Check if trials directory has any trial subdirectories
+    if not any(trials_dir.iterdir()):
+        raise RuntimeError(
+            f"Harbor trials directory is empty: {trials_dir}. "
+            f"No trial subdirectories found - Harbor may not have run any tasks."
+        )
+
     trajectory_files = list(trials_dir.glob("*/trajectory.json"))
     if not trajectory_files:
         raise RuntimeError(
-            f"No trajectory files found in {trials_dir}. "
-            f"Expected trajectory.json files in trial subdirectories."
+            f"No trajectory.json files found in trial subdirectories of {trials_dir}. "
+            f"Trial directories exist but are missing trajectory files."
         )
 
     logger.info(f"Found {len(trajectory_files)} trajectory files in {trials_dir}")
@@ -230,7 +237,11 @@ def convert_harbor_to_eval_output(
 
         except (json.JSONDecodeError, OSError) as e:
             logger.error(f"Failed to process trajectory file {traj_file}: {e}")
-            # Record error for this trajectory instead of silently skipping
+            # Record error for this trajectory instead of silently skipping.
+            # Use directory name for instance_id since we cannot parse the JSON
+            # to get session_id. This is documented: if session_id differs from
+            # directory name in JSON, error entries use directory name while
+            # success entries use session_id from JSON.
             errors.append({
                 "instance_id": traj_file.parent.name,
                 "error": str(e),
