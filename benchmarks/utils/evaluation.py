@@ -317,6 +317,11 @@ class Evaluation(ABC, BaseModel):
         critic = self.metadata.critic
         all_outputs: List[EvalOutput] = []
 
+        # Parse timeout config once, outside retry loop (env var won't change between attempts)
+        no_progress_timeout = int(
+            os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800")
+        )
+
         for attempt in range(1, self.metadata.max_attempts + 1):
             self.current_attempt = attempt
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
@@ -404,9 +409,6 @@ class Evaluation(ABC, BaseModel):
                 # Track progress for deadlock detection
                 timed_out_count = 0
                 last_progress_time = time.monotonic()
-                no_progress_timeout = int(
-                    os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800")
-                )
 
                 while pending:
                     # Wait for any future to complete, with short timeout to check
@@ -526,7 +528,11 @@ class Evaluation(ABC, BaseModel):
 
                 progress.close()
 
-                # Shutdown pool - force terminate if we had timeouts/deadlocks
+                # Shutdown pool - force terminate if we had timeouts/deadlocks.
+                # Force termination is necessary because zombie workers (stuck in
+                # deadlock or infinite loop) won't respond to graceful shutdown
+                # signals. Without force termination, the entire evaluation would
+                # hang waiting for workers that will never complete.
                 if timed_out_count > 0:
                     logger.warning(
                         f"{timed_out_count} instances timed out or deadlocked. "
