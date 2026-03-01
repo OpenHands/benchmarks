@@ -507,14 +507,16 @@ class Evaluation(ABC, BaseModel):
                     # Deadlock detection: if no progress for too long, force terminate
                     time_since_progress = now - last_progress_time
                     if pending and time_since_progress > no_progress_timeout:
-                        deadlocked_count = len(pending)
                         logger.error(
                             f"DEADLOCK DETECTED: No progress for "
                             f"{time_since_progress / 60:.1f} minutes with "
-                            f"{deadlocked_count} pending instances. "
+                            f"{len(pending)} pending instances. "
                             f"Force terminating stuck workers."
                         )
                         for fut in list(pending):
+                            # Increment per-instance for consistency with per-instance
+                            # timeout handling above (line 484)
+                            timed_out_count += 1
                             pending_info = pending_instances.get(fut)
                             if pending_info:
                                 inst = pending_info.instance
@@ -530,7 +532,6 @@ class Evaluation(ABC, BaseModel):
                                 )
                                 attempt_on_result(inst, error_output)
                             progress.update(1)
-                        timed_out_count += deadlocked_count
                         pending.clear()
 
                 progress.close()
