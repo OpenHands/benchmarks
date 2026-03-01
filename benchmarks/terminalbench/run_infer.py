@@ -148,32 +148,25 @@ def convert_harbor_to_eval_output(
     logger.info(f"Converting harbor output from {harbor_output_dir}")
 
     results: list[dict] = []
+    errors: list[dict] = []
 
-    # Look for trajectory files in harbor output
-    # Harbor typically stores trajectories in trials/*/trajectory.json
-    trajectory_patterns = [
-        harbor_output_dir / "trials" / "*" / "trajectory.json",
-        harbor_output_dir / "*" / "trajectory.json",
-        harbor_output_dir / "trajectory.json",
-    ]
-
-    trajectory_files: list[Path] = []
-    for pattern in trajectory_patterns:
-        trajectory_files.extend(Path(pattern.parent).glob(pattern.name))
-
-    # Also check for results.json which summarizes all trials
-    results_file = harbor_output_dir / "results.json"
-    if results_file.exists():
-        with open(results_file) as f:
-            harbor_results = json.load(f)
-            logger.info(f"Found harbor results file with {len(harbor_results)} entries")
-
-    if not trajectory_files and not results_file.exists():
-        logger.warning(
-            f"No trajectory files found in {harbor_output_dir}. "
-            "Looking for any JSON files..."
+    # Harbor stores trajectories in trials/*/trajectory.json
+    # Fail fast if structure is unexpected rather than silently scanning
+    trials_dir = harbor_output_dir / "trials"
+    if not trials_dir.exists():
+        raise RuntimeError(
+            f"Harbor trials directory not found: {trials_dir}. "
+            f"Expected Harbor output structure with trials/ subdirectory."
         )
-        trajectory_files = list(harbor_output_dir.rglob("*.json"))
+
+    trajectory_files = list(trials_dir.glob("*/trajectory.json"))
+    if not trajectory_files:
+        raise RuntimeError(
+            f"No trajectory files found in {trials_dir}. "
+            f"Expected trajectory.json files in trial subdirectories."
+        )
+
+    logger.info(f"Found {len(trajectory_files)} trajectory files in {trials_dir}")
 
     for traj_file in trajectory_files:
         if traj_file.name in ["results.json", "metadata.json"]:
@@ -228,13 +221,35 @@ def convert_harbor_to_eval_output(
 
         except (json.JSONDecodeError, OSError) as e:
             logger.error(f"Failed to process trajectory file {traj_file}: {e}")
+            # Record error for this trajectory instead of silently skipping
+            errors.append({
+                "instance_id": traj_file.parent.name,
+                "error": str(e),
+                "test_result": {},
+            })
+
+    # Fail if no trajectories were successfully processed
+    if not results and not errors:
+        raise RuntimeError(
+            f"No trajectories processed from {harbor_output_dir}"
+        )
+
+    if not results and errors:
+        raise RuntimeError(
+            f"All {len(errors)} trajectories failed to parse from {harbor_output_dir}"
+        )
 
     # Write results to output.jsonl
     with open(eval_output_path, "w") as f:
         for entry in results:
             f.write(json.dumps(entry) + "\n")
+        # Also write error entries so they appear in evaluation
+        for entry in errors:
+            f.write(json.dumps(entry) + "\n")
 
-    logger.info(f"Wrote {len(results)} entries to {eval_output_path}")
+    logger.info(
+        f"Wrote {len(results)} successful + {len(errors)} failed entries to {eval_output_path}"
+    )
 
 
 def load_task_ids_from_file(filepath: str) -> list[str]:

@@ -28,11 +28,3 @@ HARBOR_DEFAULTS = {
     # Default timeout for agent execution (in seconds)
     "timeout": 3600,  # 1 hour
 }
-
-# Terminal-Bench task categories (for reference)
-TASK_CATEGORIES = [
-    "hello-world",
-    "basic",
-    "intermediate",
-    "advanced",
-]
