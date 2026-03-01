@@ -30,9 +30,10 @@ OUTPUT_FILENAME = "output.jsonl"
 
 def check_harbor_installed() -> bool:
     """Check if harbor CLI is installed and available."""
+    harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
     try:
         result = subprocess.run(
-            ["harbor", "--version"],
+            [harbor_exe, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -65,10 +66,11 @@ def run_harbor_evaluation(
     """
     harbor_output_dir = Path(output_dir) / "harbor_output"
     harbor_output_dir.mkdir(parents=True, exist_ok=True)
+    harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
 
     # Build harbor command
     cmd = [
-        "harbor",
+        harbor_exe,
         "run",
         "-d",
         dataset,
@@ -195,6 +197,15 @@ def convert_harbor_to_eval_output(
                     }
                 )
 
+            # Extract instruction from the first user step in the trajectory.
+            # Terminal-Bench ATIF format always starts with a user message
+            # containing the task instruction.
+            instruction = ""
+            for step in steps:
+                if step.get("source") == "user":
+                    instruction = step.get("message", "")
+                    break
+
             # Create eval output entry
             eval_entry = {
                 "instance_id": instance_id,
@@ -203,9 +214,7 @@ def convert_harbor_to_eval_output(
                     "total_steps": len(steps),
                     "final_metrics": final_metrics,
                 },
-                "instruction": (
-                    steps[0].get("message", "") if steps else ""
-                ),  # First user message
+                "instruction": instruction,
                 "error": None,
                 "history": history,
                 "metrics": {
