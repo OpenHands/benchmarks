@@ -59,14 +59,13 @@ def process_terminalbench_results(
     """
     logger.info(f"Processing {input_file} to generate report: {output_file}")
 
-    completed_ids: list[str] = []
-    resolved_ids: list[str] = []
-    unresolved_ids: list[str] = []
-    incomplete_ids: list[str] = []
-    error_ids: list[str] = []
-
-    completed_seen: set[str] = set()
-    incomplete_seen: set[str] = set()
+    # Use sets for O(1) lookup and automatic deduplication
+    # Convert to sorted lists only when building final report
+    completed_ids: set[str] = set()
+    resolved_ids: set[str] = set()
+    unresolved_ids: set[str] = set()
+    incomplete_ids: set[str] = set()
+    error_ids: set[str] = set()
 
     # Aggregate metrics
     total_cost_usd = 0.0
@@ -88,7 +87,7 @@ def process_terminalbench_results(
                     logger.warning(f"Line {line_num}: Missing instance_id")
                     continue
 
-                if instance_id in completed_seen:
+                if instance_id in completed_ids:
                     logger.warning(
                         f"Line {line_num}: Duplicate instance_id {instance_id}"
                     )
@@ -97,9 +96,8 @@ def process_terminalbench_results(
                 # Check for errors
                 error = data.get("error")
                 if error:
-                    error_ids.append(instance_id)
-                    incomplete_ids.append(instance_id)
-                    incomplete_seen.add(instance_id)
+                    error_ids.add(instance_id)
+                    incomplete_ids.add(instance_id)
                     continue
 
                 # Extract test result
@@ -111,13 +109,12 @@ def process_terminalbench_results(
                 is_resolved = passed is True
 
                 # Add to completed instances
-                completed_ids.append(instance_id)
-                completed_seen.add(instance_id)
+                completed_ids.add(instance_id)
 
                 if is_resolved:
-                    resolved_ids.append(instance_id)
+                    resolved_ids.add(instance_id)
                 else:
-                    unresolved_ids.append(instance_id)
+                    unresolved_ids.add(instance_id)
 
                 # Aggregate metrics
                 metrics = data.get("metrics", {})
@@ -156,18 +153,17 @@ def process_terminalbench_results(
                     instance_id = data.get("instance_id")
                     if not instance_id:
                         continue
-                    if instance_id in completed_seen or instance_id in incomplete_seen:
+                    if instance_id in completed_ids or instance_id in incomplete_ids:
                         continue
 
-                    incomplete_ids.append(instance_id)
-                    incomplete_seen.add(instance_id)
-                    error_ids.append(instance_id)
+                    incomplete_ids.add(instance_id)
+                    error_ids.add(instance_id)
                 except (json.JSONDecodeError, Exception) as e:
                     logger.error(f"Error file line {line_num}: {e}")
 
-    submitted_ids = completed_ids + incomplete_ids
+    submitted_ids = completed_ids | incomplete_ids
 
-    # Generate report
+    # Generate report - convert sets to sorted lists for consistent output
     report = {
         "total_instances": len(submitted_ids),
         "submitted_instances": len(submitted_ids),
@@ -176,12 +172,12 @@ def process_terminalbench_results(
         "resolved_instances": len(resolved_ids),
         "unresolved_instances": len(unresolved_ids),
         "error_instances": len(error_ids),
-        "submitted_ids": submitted_ids,
-        "completed_ids": completed_ids,
-        "incomplete_ids": incomplete_ids,
-        "resolved_ids": resolved_ids,
-        "unresolved_ids": unresolved_ids,
-        "error_ids": error_ids,
+        "submitted_ids": sorted(submitted_ids),
+        "completed_ids": sorted(completed_ids),
+        "incomplete_ids": sorted(incomplete_ids),
+        "resolved_ids": sorted(resolved_ids),
+        "unresolved_ids": sorted(unresolved_ids),
+        "error_ids": sorted(error_ids),
         # Aggregate metrics
         "aggregate_metrics": {
             "total_cost_usd": total_cost_usd,
