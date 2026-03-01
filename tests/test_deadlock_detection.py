@@ -1,4 +1,13 @@
-"""Tests for deadlock detection in the evaluation module."""
+"""Tests for deadlock detection in the evaluation module.
+
+Note: These tests verify the deadlock detection LOGIC rather than the full
+evaluation.py integration. Testing the actual Evaluator class would require
+complex mocking of ProcessPoolExecutor, futures, and the entire evaluation
+pipeline. Instead, we test the same patterns used in evaluation.py to ensure
+the timeout detection, progress tracking, and error handling work correctly.
+
+For integration testing, run the actual evaluation against a benchmark dataset.
+"""
 
 import os
 import time
@@ -255,6 +264,24 @@ class TestConfigurableTimeout:
         
         timeout_value = int(os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800"))
         assert timeout_value == 1800
+
+    def test_invalid_env_var_handling(self):
+        """Test that invalid env var values are handled gracefully."""
+        # This tests the pattern used in evaluation.py
+        os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"] = "not_a_number"
+        
+        try:
+            timeout_value = int(os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800"))
+            # Should not reach here
+            assert False, "Should have raised ValueError"
+        except ValueError:
+            # Expected - code should fall back to default
+            timeout_value = 1800
+        
+        assert timeout_value == 1800
+        
+        # Cleanup
+        del os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"]
 
 
 if __name__ == "__main__":

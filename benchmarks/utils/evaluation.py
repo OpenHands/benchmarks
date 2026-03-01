@@ -146,6 +146,24 @@ class Evaluation(ABC, BaseModel):
             instance=instance.data,
         )
 
+    def _create_error_output_with_metadata(
+        self,
+        instance: EvalInstance,
+        error: Exception,
+        attempt: int,
+        datapoint_id: str | None,
+    ) -> EvalOutput:
+        """Create an EvalOutput with proper metadata for timeout/deadlock errors."""
+        error_output = self._create_error_output(instance, error, attempt)
+        if error_output.metadata is None:
+            error_output.metadata = self.metadata.model_copy(deep=True)
+        if self.metadata.lmnr is not None:
+            error_output.metadata.lmnr = LaminarEvalMetadata(
+                eval_id=self.metadata.lmnr.eval_id,
+                datapoint_id=datapoint_id,
+            )
+        return error_output
+
     def _capture_conversation_archive(
         self,
         workspace: RemoteWorkspace,
@@ -318,9 +336,15 @@ class Evaluation(ABC, BaseModel):
         all_outputs: List[EvalOutput] = []
 
         # Parse timeout config once, outside retry loop (env var won't change between attempts)
-        no_progress_timeout = int(
-            os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800")
-        )
+        try:
+            no_progress_timeout = int(
+                os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800")
+            )
+        except ValueError:
+            logger.warning(
+                "Invalid EVALUATION_NO_PROGRESS_TIMEOUT value, using default 1800s"
+            )
+            no_progress_timeout = 1800
 
         for attempt in range(1, self.metadata.max_attempts + 1):
             self.current_attempt = attempt
@@ -466,24 +490,15 @@ class Evaluation(ABC, BaseModel):
                                 f"Instance {inst.id} timed out after "
                                 f"{self.instance_timeout}s"
                             )
-                            error_output = self._create_error_output(
+                            error_output = self._create_error_output_with_metadata(
                                 inst,
                                 TimeoutError(
                                     f"Instance did not complete within "
                                     f"{self.instance_timeout}s timeout"
                                 ),
                                 attempt,
+                                pending_info.datapoint_id,
                             )
-                            if error_output.metadata is None:
-                                error_output.metadata = self.metadata.model_copy(
-                                    deep=True
-                                )
-                            # metadata is guaranteed non-None after the above assignment
-                            if self.metadata.lmnr is not None:
-                                error_output.metadata.lmnr = LaminarEvalMetadata(
-                                    eval_id=self.metadata.lmnr.eval_id,
-                                    datapoint_id=pending_info.datapoint_id,
-                                )
                             attempt_on_result(inst, error_output)
                         # Note: fut.cancel() only prevents unstarted futures from
                         # starting. Running workers will continue until pool shutdown.
@@ -503,7 +518,7 @@ class Evaluation(ABC, BaseModel):
                             pending_info = pending_instances.get(fut)
                             if pending_info:
                                 inst = pending_info.instance
-                                error_output = self._create_error_output(
+                                error_output = self._create_error_output_with_metadata(
                                     inst,
                                     RuntimeError(
                                         f"Worker deadlock detected after "
@@ -511,16 +526,8 @@ class Evaluation(ABC, BaseModel):
                                         f"of no progress"
                                     ),
                                     attempt,
+                                    pending_info.datapoint_id,
                                 )
-                                if error_output.metadata is None:
-                                    error_output.metadata = self.metadata.model_copy(
-                                        deep=True
-                                    )
-                                if self.metadata.lmnr is not None:
-                                    error_output.metadata.lmnr = LaminarEvalMetadata(
-                                        eval_id=self.metadata.lmnr.eval_id,
-                                        datapoint_id=pending_info.datapoint_id,
-                                    )
                                 attempt_on_result(inst, error_output)
                             progress.update(1)
                         timed_out_count += deadlocked_count
