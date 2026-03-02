@@ -18,7 +18,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import create_docker_workspace, image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -31,7 +31,7 @@ from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -171,30 +171,12 @@ class SWTBenchEvaluation(Evaluation):
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
             )
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-            if not SKIP_BUILD:
-                logger.info(
-                    f"Building workspace from {official_docker_image} "
-                    f"for instance {instance.id}. "
-                    "This may take a while...\n"
-                    "You can run benchmarks/swtbench/build_images.py and set "
-                    "SKIP_BUILD=1 to skip building and use pre-built "
-                    "agent-server image."
-                )
-                # For SWT-bench, we use DockerDevWorkspace with base_image
-                workspace = DockerDevWorkspace(
-                    base_image=official_docker_image,
-                    working_dir="/workspace",
-                    target=build_target,
-                    forward_env=forward_env or [],
-                )
-            else:
-                workspace = DockerWorkspace(
-                    server_image=agent_server_image,
-                    working_dir="/workspace",
-                    forward_env=forward_env or [],
-                )
+            workspace = create_docker_workspace(
+                agent_server_image=agent_server_image,
+                base_image=official_docker_image,
+                build_target=build_target,
+                forward_env=forward_env,
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)

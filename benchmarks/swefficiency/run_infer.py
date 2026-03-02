@@ -11,7 +11,7 @@ from benchmarks.swefficiency import constants
 from benchmarks.swefficiency.config import DOCKER_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swefficiency.workspace import ResourceLimitedDockerWorkspace
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -208,30 +208,12 @@ class SWEfficiencyEvaluation(Evaluation):
         logger.info(f"Agent server image: {agent_server_image}")
 
         if self.metadata.workspace_type == "docker":
-            # Build agent-server image from base swefficiency image
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "0").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-
-            if not SKIP_BUILD:
-                logger.info(
-                    f"Building workspace from {base_docker_image} "
-                    f"for instance {instance.id}. "
-                    "This may take a while..."
-                )
-                output = build_image(
-                    base_image=base_docker_image,
-                    target_image=EVAL_AGENT_SERVER_IMAGE,
-                    custom_tag=custom_tag,
-                    target=build_target,
-                    push=False,
-                )
-                logger.info(f"Image build output: {output}")
-                assert output.error is None, f"Image build failed: {output.error}"
-                if agent_server_image not in output.tags:
-                    raise RuntimeError(
-                        f"Built image tags {output.tags} do not include expected tag "
-                        f"{agent_server_image}"
-                    )
+            ensure_local_image(
+                agent_server_image=agent_server_image,
+                base_image=base_docker_image,
+                custom_tag=custom_tag,
+                target=build_target,
+            )
 
             # Get CPU group for resource limiting
             cpu_group = self._acquire_cpu_group()

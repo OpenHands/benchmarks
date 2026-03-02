@@ -20,14 +20,14 @@ class TestLoadLLMConfigValidConfigs:
 
     def test_minimal_valid_config(self, tmp_path: Path) -> None:
         """Minimal config with only required 'model' field loads correctly."""
-        config = {"model": "gpt-4"}
+        config = {"model": "gpt-4o"}
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config))
 
         llm = load_llm_config(config_path)
 
         assert isinstance(llm, LLM)
-        assert llm.model == "gpt-4"
+        assert llm.model == "gpt-4o"
 
     def test_full_valid_config(self, tmp_path: Path) -> None:
         """Config with all common fields loads correctly."""
@@ -211,7 +211,7 @@ class TestLoadLLMConfigEdgeCases:
     def test_config_with_extra_fields_loads(self, tmp_path: Path) -> None:
         """Config with unknown extra fields should still load (pydantic default)."""
         config = {
-            "model": "gpt-4",
+            "model": "gpt-4o",
             "unknown_field": "value",
             "another_unknown": 123,
         }
@@ -220,11 +220,11 @@ class TestLoadLLMConfigEdgeCases:
 
         # Should not raise - pydantic by default ignores extra fields
         llm = load_llm_config(config_path)
-        assert llm.model == "gpt-4"
+        assert llm.model == "gpt-4o"
 
     def test_unicode_in_config(self, tmp_path: Path) -> None:
         """Config with unicode characters loads correctly."""
-        config = {"model": "gpt-4", "api_key": "key-with-émojis-🔑"}
+        config = {"model": "gpt-4o", "api_key": "key-with-émojis-🔑"}
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config, ensure_ascii=False))
 
