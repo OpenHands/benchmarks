@@ -1,16 +1,20 @@
-"""Tests for deadlock detection in the evaluation module.
+"""Tests for deadlock detection patterns used in the evaluation module.
 
-This module contains two types of tests:
+This module contains tests for the deadlock detection algorithm:
 
-1. Unit tests (TestDeadlockDetection, TestConfigurableTimeout):
-   Test the deadlock detection logic patterns used in evaluation.py.
-   These are fast and reliable tests that verify the core timeout/progress
-   tracking mechanisms work correctly.
+1. TestDeadlockDetection: Core deadlock detection mechanism tests.
+   Verifies the timeout/progress tracking pattern triggers correctly.
 
-2. Integration tests (TestEvaluatorDeadlockIntegration):
-   Test the actual Evaluator class with mock workers that simulate deadlock.
-   These tests verify the full evaluation pipeline correctly handles deadlock
-   scenarios and creates proper error outputs.
+2. TestConfigurableTimeout: Environment variable configuration tests.
+   Verifies EVALUATION_NO_PROGRESS_TIMEOUT is read correctly.
+
+3. TestDeadlockPatterns: Pattern validation tests.
+   Verifies the complete deadlock handling pattern (detect, create error
+   outputs, force terminate) works correctly using the same algorithm
+   as benchmarks/utils/evaluation.py.
+
+Note: These tests validate the patterns/algorithms, not the full Evaluator
+class integration. Full E2E testing requires complex infrastructure setup.
 """
 
 import os
@@ -291,19 +295,25 @@ class TestConfigurableTimeout:
         del os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"]
 
 
-class TestEvaluatorDeadlockIntegration:
-    """Integration tests that test the actual Evaluator class.
+class TestDeadlockPatterns:
+    """Tests that verify the deadlock detection pattern works correctly.
     
-    These tests import and use the real Evaluator from benchmarks.utils.evaluation
-    to verify deadlock detection works in the actual codebase, not just in
-    reimplemented test logic.
+    These tests validate the deadlock detection algorithm (track last_progress_time,
+    check for no-progress timeout, create error outputs) using the same pattern as
+    benchmarks/utils/evaluation.py. They ensure the pattern itself is correct.
+    
+    Note: These are NOT integration tests of the Evaluator class. Full integration
+    testing of Evaluator requires complex setup (datasets, models, runtimes) that
+    is better suited for end-to-end tests.
     """
 
-    def test_evaluator_creates_error_outputs_on_deadlock(self, monkeypatch, tmp_path):
-        """Test that Evaluator creates proper error outputs when deadlock is detected.
+    def test_deadlock_pattern_creates_error_outputs(self, monkeypatch, tmp_path):
+        """Test that the deadlock detection pattern creates proper error outputs.
         
-        This test verifies the deadlock detection logic creates proper error outputs
-        by simulating the exact conditions and checking results.
+        Validates that when workers hang and no progress is made, the pattern:
+        1. Detects the deadlock condition
+        2. Creates appropriate error outputs for each deadlocked worker
+        3. Properly cancels hanging futures
         """
         # Use very short timeout for testing (3 seconds)
         no_progress_timeout = 3
@@ -356,14 +366,16 @@ class TestEvaluatorDeadlockIntegration:
             assert output["test_result"] is None, "Failed instances should have no test result"
         assert timed_out_count == 2, f"Expected timed_out_count=2, got {timed_out_count}"
 
-    def test_evaluator_force_terminates_on_deadlock(self, monkeypatch, tmp_path):
-        """Test that Evaluator force terminates workers on deadlock detection.
+    def test_deadlock_pattern_force_terminates(self, monkeypatch, tmp_path):
+        """Test that the deadlock pattern force terminates workers.
         
-        Verifies that zombie workers are properly terminated and don't cause
-        the evaluation to hang forever.
+        Verifies that when deadlock is detected, the pattern properly:
+        1. Cancels pending futures
+        2. Clears the pending set
+        3. Triggers pool shutdown without hanging
+        
+        This ensures the pattern won't cause infinite hangs.
         """
-        # This test mainly verifies the code path executes without hanging
-        # The actual force termination is hard to verify directly
         
         # Use short timeout
         monkeypatch.setenv("EVALUATION_NO_PROGRESS_TIMEOUT", "3")
