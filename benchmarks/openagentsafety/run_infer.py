@@ -28,6 +28,7 @@ from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
 
@@ -446,6 +447,9 @@ class OpenAgentSafetyEvaluation(Evaluation):
         tools = get_default_tools(
             enable_browser=False,
         )
+
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
 
         # Create agent
         agent = Agent(llm=self.metadata.llm, tools=tools)

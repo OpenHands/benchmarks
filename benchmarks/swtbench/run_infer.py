@@ -27,6 +27,7 @@ from benchmarks.utils.models import (
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace
 
@@ -238,6 +239,8 @@ class SWTBenchEvaluation(Evaluation):
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
         agent = Agent(
             llm=self.metadata.llm,
             tools=tools,
@@ -382,6 +385,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
     )
 
     # Run orchestrator with a simple JSONL writer
