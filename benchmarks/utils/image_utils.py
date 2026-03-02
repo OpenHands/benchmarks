@@ -120,7 +120,6 @@ def create_docker_workspace(
         )
 
 
-
 def remote_image_exists(
     image_ref: str,
     gh_username: str | None = None,
