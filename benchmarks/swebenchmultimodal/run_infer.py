@@ -24,7 +24,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -186,7 +186,7 @@ class SWEBenchEvaluation(Evaluation):
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
-            if not image_exists(agent_server_image):
+            if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
                     "make sure to build, push it, and make it public accessible before using remote workspace."
