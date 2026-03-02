@@ -477,12 +477,7 @@ def test_benchmark_metrics_collection(
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
     # Mock common dependencies to avoid actual LLM calls
-    # swebench uses get_tools_for_preset instead of get_default_tools
-    tools_mock_target = (
-        f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name == "swebench"
-        else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
-    )
+    tools_mock_target = f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
     with (
         patch(
             f"benchmarks.{benchmark_name}.run_infer.Conversation",
