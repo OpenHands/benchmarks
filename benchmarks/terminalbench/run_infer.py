@@ -231,17 +231,17 @@ def convert_harbor_to_eval_output(
         except (json.JSONDecodeError, OSError) as e:
             logger.error(f"Failed to process trajectory file {traj_file}: {e}")
             # Record error for this trajectory instead of silently skipping
-            errors.append({
-                "instance_id": traj_file.parent.name,
-                "error": str(e),
-                "test_result": {},
-            })
+            errors.append(
+                {
+                    "instance_id": traj_file.parent.name,
+                    "error": str(e),
+                    "test_result": {},
+                }
+            )
 
     # Fail if no trajectories were successfully processed
     if not results and not errors:
-        raise RuntimeError(
-            f"No trajectories processed from {harbor_output_dir}"
-        )
+        raise RuntimeError(f"No trajectories processed from {harbor_output_dir}")
 
     if not results and errors:
         raise RuntimeError(

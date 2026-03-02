@@ -1,22 +1,10 @@
 """Terminal-Bench configuration defaults."""
 
-# Default inference settings
+# Default inference settings (only include values actually used by argparse)
 INFER_DEFAULTS = {
     "dataset": "terminal-bench-2",
-    "split": "test",
     "output_dir": "./evaluation_outputs",
-    "n_limit": None,  # No limit by default
     "num_workers": 1,
-    "max_iterations": 100,
-    "max_attempts": 1,
-    "max_retries": 3,
-    "workspace": "docker",  # docker or remote
-}
-
-# Default evaluation settings
-EVAL_DEFAULTS = {
-    "dataset": "terminal-bench-2",
-    "split": "test",
 }
 
 # Harbor configuration defaults

@@ -139,7 +139,8 @@ def process_terminalbench_results(
             except Exception as e:
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
-    # Check for error file
+    # Check for separate error file (used in manual workflows where errors
+    # are extracted to a separate file for analysis/retry)
     error_path = Path(input_file).with_name(f"{Path(input_file).stem}_errors.jsonl")
     if error_path.exists():
         with open(error_path) as error_file:
