@@ -261,10 +261,20 @@ Examples:
         )
 
         # Update Laminar datapoints with evaluation scores
-        LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
+        # Wrap in try/except to ensure evaluation succeeds even if telemetry fails
+        try:
+            LaminarService.get().update_evaluation_scores(
+                str(input_file), str(output_file)
+            )
+        except Exception as e:
+            logger.warning(f"Laminar update failed (non-critical): {e}")
 
         # Generate cost report as final step
-        generate_cost_report(str(input_file))
+        # Wrap in try/except to ensure evaluation succeeds even if cost reporting fails
+        try:
+            generate_cost_report(str(input_file))
+        except Exception as e:
+            logger.warning(f"Cost report generation failed (non-critical): {e}")
 
         logger.info("Script completed successfully!")
         print(json.dumps({"report_json": str(output_file)}))
