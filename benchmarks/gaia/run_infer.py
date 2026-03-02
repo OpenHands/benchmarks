@@ -565,7 +565,6 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
-    # Load LLM config
     llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
