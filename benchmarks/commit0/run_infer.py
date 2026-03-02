@@ -24,7 +24,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.image_utils import create_docker_workspace, image_exists
+from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -213,7 +213,7 @@ class Commit0Evaluation(Evaluation):
                 f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
             )
 
-            if not image_exists(agent_server_image):
+            if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry. "
                     "Run 'benchmarks/commit0/build_images.py --push' to build and push it first."

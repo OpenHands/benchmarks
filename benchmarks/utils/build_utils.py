@@ -27,7 +27,7 @@ from benchmarks.utils.buildx_utils import (
     maybe_reset_buildkit,
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
-from benchmarks.utils.image_utils import image_exists, local_image_exists
+from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
 from openhands.agent_server.docker.build import BuildOptions, TargetType, build
 from openhands.sdk import get_logger
 
@@ -300,7 +300,7 @@ def build_image(
     )
     for t in opts.all_tags:
         # Check if image exists or not
-        if image_exists(t):
+        if remote_image_exists(t):
             logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
