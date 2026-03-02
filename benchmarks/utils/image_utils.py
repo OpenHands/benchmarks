@@ -120,12 +120,13 @@ def create_docker_workspace(
         )
 
 
-def image_exists(
+def remote_image_exists(
     image_ref: str,
     gh_username: str | None = None,
     gh_pat: str | None = None,  # GitHub PAT with read:packages for private GHCR
     docker_token: str | None = None,  # Docker Hub JWT if you already have one
 ) -> bool:
+    """Check if a Docker image exists in a remote registry."""
     registry, repo, ref = _parse(image_ref)
     headers = {"Accept": ACCEPT}
 
@@ -167,5 +168,5 @@ if __name__ == "__main__":
     gh_user = sys.argv[2] if len(sys.argv) > 2 else None
     gh_pat = sys.argv[3] if len(sys.argv) > 3 else None
 
-    ok = image_exists(image, gh_username=gh_user, gh_pat=gh_pat)
+    ok = remote_image_exists(image, gh_username=gh_user, gh_pat=gh_pat)
     print(f"{image} -> {'✅ exists' if ok else '❌ not found or unauthorized'}")
