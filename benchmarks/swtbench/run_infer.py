@@ -372,7 +372,7 @@ def main() -> None:
         dataset_name=dataset_description,
         model_name=llm.model,
         max_iterations=args.max_iterations,
-        eval_note="SWT-" + args.note,
+        eval_note=f"SWT-{args.note}" if args.note else None,
     )
 
     critic = create_critic(args)
