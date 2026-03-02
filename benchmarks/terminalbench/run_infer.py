@@ -16,6 +16,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from pydantic import SecretStr
+
 from benchmarks.terminalbench.config import HARBOR_DEFAULTS, INFER_DEFAULTS
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.report_costs import generate_cost_report
@@ -95,8 +97,6 @@ def run_harbor_evaluation(
     env = os.environ.copy()
     if llm.api_key:
         # api_key can be str or SecretStr
-        from pydantic import SecretStr
-
         if isinstance(llm.api_key, SecretStr):
             env["LLM_API_KEY"] = llm.api_key.get_secret_value()
         else:

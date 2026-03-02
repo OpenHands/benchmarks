@@ -117,22 +117,28 @@ def process_terminalbench_results(
                     unresolved_ids.add(instance_id)
 
                 # Aggregate metrics
+                # Use explicit None check to handle zero values correctly
+                # (using `or` would incorrectly fallback when value is 0)
                 metrics = data.get("metrics", {})
                 final_metrics = test_result.get("final_metrics", {})
 
-                cost = metrics.get("total_cost_usd") or final_metrics.get(
-                    "total_cost_usd", 0.0
-                )
-                prompt_tokens = metrics.get("total_prompt_tokens") or final_metrics.get(
-                    "total_prompt_tokens", 0
-                )
-                completion_tokens = metrics.get(
-                    "total_completion_tokens"
-                ) or final_metrics.get("total_completion_tokens", 0)
+                cost = metrics.get("total_cost_usd")
+                if cost is None:
+                    cost = final_metrics.get("total_cost_usd", 0.0)
 
-                total_cost_usd += cost or 0.0
-                total_prompt_tokens += prompt_tokens or 0
-                total_completion_tokens += completion_tokens or 0
+                prompt_tokens = metrics.get("total_prompt_tokens")
+                if prompt_tokens is None:
+                    prompt_tokens = final_metrics.get("total_prompt_tokens", 0)
+
+                completion_tokens = metrics.get("total_completion_tokens")
+                if completion_tokens is None:
+                    completion_tokens = final_metrics.get("total_completion_tokens", 0)
+
+                total_cost_usd += cost if cost is not None else 0.0
+                total_prompt_tokens += prompt_tokens if prompt_tokens is not None else 0
+                total_completion_tokens += (
+                    completion_tokens if completion_tokens is not None else 0
+                )
 
             except json.JSONDecodeError as e:
                 logger.error(f"Line {line_num}: Invalid JSON - {e}")
