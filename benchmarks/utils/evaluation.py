@@ -346,6 +346,13 @@ class Evaluation(ABC, BaseModel):
             )
             no_progress_timeout = 1800
 
+        if no_progress_timeout <= 0:
+            logger.warning(
+                f"Invalid EVALUATION_NO_PROGRESS_TIMEOUT={no_progress_timeout}, "
+                "using default 1800s"
+            )
+            no_progress_timeout = 1800
+
         for attempt in range(1, self.metadata.max_attempts + 1):
             self.current_attempt = attempt
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
