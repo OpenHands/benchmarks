@@ -23,7 +23,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import create_docker_workspace, image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -34,7 +34,7 @@ from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -186,35 +186,17 @@ class Commit0Evaluation(Evaluation):
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
-            # Try to build agent-server image from base commit0 image
-            # Fall back to pre-built image if build fails
-            try:
-                workspace = DockerDevWorkspace(
-                    base_image=base_docker_image,
-                    working_dir="/workspace",
-                    target=build_target,
-                    forward_env=forward_env or [],
-                )
-                logger.info(
-                    f"Building workspace from {base_docker_image}. This may take a while..."
-                )
-            except Exception:
-                custom_tag = extract_custom_tag(base_docker_image)
-                suffix = f"-{build_target}" if build_target != "binary" else ""
-                agent_server_image = (
-                    f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-                )
-                if not image_exists(agent_server_image):
-                    raise RuntimeError(
-                        f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"
-                    )
-
-                workspace = DockerWorkspace(
-                    server_image=agent_server_image,
-                    working_dir="/workspace",
-                    forward_env=forward_env or [],
-                )
-                logger.info(f"Using pre-built image {agent_server_image}")
+            custom_tag = extract_custom_tag(base_docker_image)
+            suffix = f"-{build_target}" if build_target != "binary" else ""
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+            )
+            workspace = create_docker_workspace(
+                agent_server_image=agent_server_image,
+                base_image=base_docker_image,
+                build_target=build_target,
+                forward_env=forward_env,
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:

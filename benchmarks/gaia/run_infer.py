@@ -26,7 +26,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import create_docker_workspace, image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
@@ -42,7 +42,7 @@ from openhands.sdk import (
 )
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -151,29 +151,15 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
-            # Use DockerDevWorkspace with base image
-            # Fall back to pre-built image if build fails
-            try:
-                workspace = DockerDevWorkspace(
-                    base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                    working_dir="/workspace",
-                    forward_env=forward_env or [],
-                )
-            except Exception:
-                build_target = os.getenv("GAIA_BUILD_TARGET", "binary-minimal")
-                agent_server_image = (
-                    f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-{build_target}"
-                )
-                if not image_exists(agent_server_image):
-                    raise RuntimeError(
-                        f"On-the-fly build failed and pre-built image {agent_server_image} does not exist"
-                    )
-                workspace = DockerWorkspace(
-                    server_image=agent_server_image,
-                    working_dir="/workspace",
-                    forward_env=forward_env or [],
-                )
-                logger.info(f"Using pre-built image {agent_server_image}")
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
+            )
+            workspace = create_docker_workspace(
+                agent_server_image=agent_server_image,
+                base_image="nikolaik/python-nodejs:python3.12-nodejs22",
+                build_target="binary",
+                forward_env=forward_env,
+            )
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image
             # GAIA uses a universal agent server image (one image for all instances)

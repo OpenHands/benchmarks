@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import base64
+import os
 import subprocess
 import sys
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from openhands.sdk.workspace import TargetType
+    from openhands.workspace import DockerDevWorkspace, DockerWorkspace
 
 import requests
+
+from openhands.sdk import get_logger
+
+
+logger = get_logger(__name__)
 
 
 ACCEPT = ",".join(
@@ -55,18 +69,56 @@ def _ghcr_token(repo: str, username: str | None, pat: str | None) -> str | None:
     return None
 
 
-def _local_image_exists(image_ref: str) -> bool:
-    """Check if image exists in local Docker daemon."""
+def local_image_exists(image: str) -> bool:
+    """Check if a Docker image exists in the local Docker daemon."""
     try:
         result = subprocess.run(
-            ["docker", "images", "-q", image_ref],
+            ["docker", "image", "inspect", image],
             capture_output=True,
-            text=True,
-            timeout=10,
+            check=False,
+            timeout=5,
         )
-        return bool(result.stdout.strip())
-    except (subprocess.SubprocessError, FileNotFoundError):
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning(f"Failed to check if image {image} exists: {e}")
         return False
+
+
+def create_docker_workspace(
+    agent_server_image: str,
+    base_image: str,
+    build_target: TargetType,
+    working_dir: str = "/workspace",
+    forward_env: list[str] | None = None,
+) -> DockerWorkspace | DockerDevWorkspace:
+    """Create a Docker workspace, building the image only if not already available.
+
+    Returns DockerWorkspace when a pre-built image is found locally,
+    DockerDevWorkspace otherwise (which builds on-the-fly).
+    Set FORCE_BUILD=1 to skip auto-detection and always build.
+    """
+    from openhands.workspace import DockerDevWorkspace, DockerWorkspace
+
+    force_build = os.getenv("FORCE_BUILD", "0").lower() in ("1", "true", "yes")
+    if not force_build and local_image_exists(agent_server_image):
+        logger.info(f"Using pre-built image {agent_server_image}")
+        return DockerWorkspace(
+            server_image=agent_server_image,
+            working_dir=working_dir,
+            forward_env=forward_env or [],
+        )
+    else:
+        if force_build:
+            logger.info(f"FORCE_BUILD set, building workspace from {base_image}...")
+        else:
+            logger.info(f"Building workspace from {base_image}...")
+        return DockerDevWorkspace(
+            base_image=base_image,
+            working_dir=working_dir,
+            target=build_target,
+            forward_env=forward_env or [],
+        )
+
 
 
 def image_exists(
@@ -76,7 +128,7 @@ def image_exists(
     docker_token: str | None = None,  # Docker Hub JWT if you already have one
 ) -> bool:
     # Check local Docker first
-    if _local_image_exists(image_ref):
+    if local_image_exists(image_ref):
         return True
 
     # Then check remote registry

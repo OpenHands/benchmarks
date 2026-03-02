@@ -14,7 +14,7 @@ from benchmarks.swebench.build_images import (
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -131,38 +131,24 @@ class SWEBenchEvaluation(Evaluation):
         agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-            if not SKIP_BUILD:
-                logger.info(
-                    f"Building workspace from {official_docker_image} "
-                    f"for instance {instance.id}. "
-                    "This may take a while...\n"
-                    "You can run benchmarks/swebench/build_images.py and set "
-                    "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
-                    "agent-server image."
-                )
-                output = build_image(
-                    base_image=official_docker_image,
-                    target_image=EVAL_AGENT_SERVER_IMAGE,
-                    custom_tag=custom_tag,
-                    target=build_target,
-                    push=False,
-                )
-                logger.info(f"Image build output: {output}")
-                assert output.error is None, f"Image build failed: {output.error}"
-                if base_agent_image not in output.tags:
+            built = ensure_local_image(
+                agent_server_image=base_agent_image,
+                base_image=official_docker_image,
+                custom_tag=custom_tag,
+                target=build_target,
+            )
+            if built and wrap_needed:
+                wrapped_result = wrap_image(base_agent_image, push=False)
+                if wrapped_result.error:
                     raise RuntimeError(
-                        f"Built image tags {output.tags} do not include expected tag "
-                        f"{base_agent_image}"
+                        "Wrapped image build failed: "
+                        f"{wrapped_result.error}; log={wrapped_result.log_path}"
                     )
-                if wrap_needed:
-                    wrapped_result = wrap_image(base_agent_image, push=False)
-                    if wrapped_result.error:
-                        raise RuntimeError(
-                            "Wrapped image build failed: "
-                            f"{wrapped_result.error}; log={wrapped_result.log_path}"
-                        )
+            elif not built and wrap_needed:
+                logger.info(
+                    f"Using pre-built image {base_agent_image} "
+                    "(assumed already wrapped)"
+                )
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
