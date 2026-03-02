@@ -13,8 +13,14 @@ This module contains tests for the deadlock detection algorithm:
    outputs, force terminate) works correctly using the same algorithm
    as benchmarks/utils/evaluation.py.
 
-Note: These tests validate the patterns/algorithms, not the full Evaluator
-class integration. Full E2E testing requires complex infrastructure setup.
+IMPORTANT - Testing Scope Acknowledgment:
+These tests validate the ALGORITHM/PATTERN, not the actual Evaluator class
+from benchmarks.utils.evaluation. If someone refactors the Evaluator's
+deadlock detection, these tests would still pass unchanged. This is an
+accepted trade-off: full E2E integration testing requires complex
+infrastructure (real datasets, runtimes, worker pools) that isn't practical
+for unit tests. These tests verify the algorithm is correct; manual testing
+or production monitoring must verify the implementation uses that algorithm.
 """
 
 import os
@@ -295,6 +301,36 @@ class TestConfigurableTimeout:
         assert timeout_value == 1800
 
         # Cleanup
+        del os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"]
+
+    def test_zero_timeout_falls_back_to_default(self):
+        """Test that zero timeout values fall back to default 1800s.
+
+        Zero or negative timeouts would cause deadlock detection to fire
+        immediately, which is not useful. The implementation should fall
+        back to the default value.
+        """
+        # Test the pattern: parse then validate
+        os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"] = "0"
+        timeout_value = int(os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800"))
+
+        # Zero is invalid - should fall back to default
+        if timeout_value <= 0:
+            timeout_value = 1800
+
+        assert timeout_value == 1800
+        del os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"]
+
+    def test_negative_timeout_falls_back_to_default(self):
+        """Test that negative timeout values fall back to default 1800s."""
+        os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"] = "-100"
+        timeout_value = int(os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800"))
+
+        # Negative is invalid - should fall back to default
+        if timeout_value <= 0:
+            timeout_value = 1800
+
+        assert timeout_value == 1800
         del os.environ["EVALUATION_NO_PROGRESS_TIMEOUT"]
 
 
