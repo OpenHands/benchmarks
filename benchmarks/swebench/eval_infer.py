@@ -143,12 +143,8 @@ def run_swebench_evaluation(
         predictions_dir = predictions_path.parent
         predictions_filename = predictions_path.name
 
-        # Run SWE-Bench evaluation using global python (not UV environment)
-        # since swebench is installed globally
         cmd = [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "swebench.harness.run_evaluation",
             "--dataset_name",
