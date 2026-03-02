@@ -27,7 +27,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -201,7 +201,7 @@ class SWEfficiencyEvaluation(Evaluation):
         # Build agent server image tag
         suffix = f"-{build_target}" if build_target != "binary" else ""
         agent_server_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
         )
 
         logger.info(f"Base image: {base_docker_image}")
@@ -238,25 +238,20 @@ class SWEfficiencyEvaluation(Evaluation):
 
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            # For remote, use SDK_SHORT_SHA from env if available
-            remote_agent_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
-            )
-            if not image_exists(remote_agent_image):
+            if not image_exists(agent_server_image):
                 raise RuntimeError(
-                    f"Agent server image {remote_agent_image} does not exist in container registry, "
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
                     "make sure to build, push it, and make it public accessible before using remote workspace."
                 )
 
             logger.info(
-                f"Using remote workspace with image {remote_agent_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"Using remote workspace with image {agent_server_image} "
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
 
             workspace = APIRemoteWorkspace(
@@ -264,7 +259,7 @@ class SWEfficiencyEvaluation(Evaluation):
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
                 ),
                 runtime_api_key=runtime_api_key,
-                server_image=remote_agent_image,
+                server_image=agent_server_image,
                 target_type="source",
                 forward_env=forward_env or [],
                 resource_factor=resource_factor,
