@@ -139,7 +139,10 @@ def process_terminalbench_results(
             except Exception as e:
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
-    # Check for error file
+    # Check for separate error file (optional - for manual error file creation).
+    # Note: run_infer.py writes errors inline to the main output file, so this
+    # code path typically doesn't trigger. It exists to support manual workflows
+    # where errors are extracted to a separate file for analysis.
     error_path = Path(input_file).with_name(f"{Path(input_file).stem}_errors.jsonl")
     if error_path.exists():
         with open(error_path) as error_file:
