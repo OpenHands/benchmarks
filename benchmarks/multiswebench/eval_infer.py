@@ -61,7 +61,7 @@ def run_multi_swebench_evaluation(
         config_file = work_dir / "config.json"
 
         # Handle dataset path - download if it's Multi-SWE-Bench
-        if "multi-swe-bench" in dataset_name.lower():
+        if dataset_name.startswith("bytedance-research/Multi-SWE-Bench"):
             logger.info(f"Downloading Multi-SWE-bench dataset for language: {lang}")
             dataset_path = download_and_concat_dataset(dataset_name, lang)
         else:
