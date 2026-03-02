@@ -70,7 +70,7 @@ help:
 	@$(ECHO) "$(UNDERLINE)Usage:$(RESET) make <COMMAND>"
 	@$(ECHO) ""
 	@$(ECHO) "$(UNDERLINE)Commands:$(RESET)"
-@$(ECHO) "  $(GREEN)build$(RESET)                Set up development environment"
+	@$(ECHO) "  $(GREEN)build$(RESET)                Set up development environment"
 	@$(ECHO) "  $(GREEN)format$(RESET)               Format code with ruff"
 	@$(ECHO) "  $(GREEN)lint$(RESET)                 Lint code with ruff"
 	@$(ECHO) "  $(GREEN)pre-commit$(RESET)           Run pre-commit hooks"
