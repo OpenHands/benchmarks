@@ -31,7 +31,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
     Agent,
     Conversation,
@@ -163,7 +163,7 @@ class SWEBenchEvaluation(Evaluation):
 
         if self.metadata.workspace_type == "docker":
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
             ensure_local_image(
                 agent_server_image=agent_server_image,
@@ -178,14 +178,13 @@ class SWEBenchEvaluation(Evaluation):
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
             if not image_exists(agent_server_image):
                 raise RuntimeError(
@@ -194,7 +193,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
