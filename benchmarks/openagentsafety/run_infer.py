@@ -397,11 +397,8 @@ class OpenAgentSafetyEvaluation(Evaluation):
         # Try to build image on-the-fly, fall back to pre-built if build fails
         try:
             server_image = build_workspace_image()
-        try:
-            server_image = build_workspace_image()
         except (subprocess.CalledProcessError, RuntimeError) as e:
             logger.warning(f"On-the-fly build failed: {e}")
-            server_image = get_image_name()
             server_image = get_image_name()
 
             if not check_image_exists(server_image):

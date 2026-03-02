@@ -34,15 +34,21 @@ EVAL_ENTRYPOINTS = {
 # Benchmark-specific inference parameters.
 # Each entry maps a benchmark name to a function that returns a list of
 # (flag, value) tuples to append to the inference command.
-BENCHMARK_INFER_PARAMS: dict[str, Callable[[argparse.Namespace], list[tuple[str, str]]]] = {
+BENCHMARK_INFER_PARAMS: dict[
+    str, Callable[[argparse.Namespace], list[tuple[str, str]]]
+] = {
     "gaia": lambda args: [("--level", args.level)] if args.level else [],
-    "commit0": lambda args: [("--repo-split", args.repo_split)] if args.repo_split else [],
+    "commit0": lambda args: [("--repo-split", args.repo_split)]
+    if args.repo_split
+    else [],
     "multiswebench": lambda args: [("--lang", args.language)] if args.language else [],
 }
 
 # Benchmark-specific evaluation parameters.
 # Each entry returns a list of (flag, value) tuples. Empty value = bare flag.
-BENCHMARK_EVAL_PARAMS: dict[str, Callable[[argparse.Namespace, Path], list[tuple[str, str]]]] = {
+BENCHMARK_EVAL_PARAMS: dict[
+    str, Callable[[argparse.Namespace, Path], list[tuple[str, str]]]
+] = {
     "swebench": lambda args, out: [
         *([("--dataset", args.dataset)] if args.dataset else []),
         ("--run-id", out.stem),

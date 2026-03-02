@@ -2474,7 +2474,7 @@ requires-dist = [
     { name = "lmnr", specifier = ">=0.7.24" },
     { name = "modal", specifier = ">=1.1.4" },
     { name = "multi-swe-bench", marker = "sys_platform != 'darwin'", specifier = ">=1.1.1" },
-    { name = "nemo-evaluator", marker = "extra == 'nemo'" },
+    { name = "nemo-evaluator", marker = "extra == 'nemo'", specifier = ">=0.1.92,<0.2" },
     { name = "openhands-agent-server", editable = "vendor/software-agent-sdk/openhands-agent-server" },
     { name = "openhands-sdk", editable = "vendor/software-agent-sdk/openhands-sdk" },
     { name = "openhands-tools", editable = "vendor/software-agent-sdk/openhands-tools" },
