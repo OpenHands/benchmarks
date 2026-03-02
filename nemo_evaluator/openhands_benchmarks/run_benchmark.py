@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from nemo_evaluator.openhands_benchmarks.generate_llm_config import generate_config
@@ -28,6 +29,15 @@ EVAL_ENTRYPOINTS = {
     "swtbench": "swtbench-eval",
     "swebenchmultimodal": "swebenchmultimodal-eval",
     # openagentsafety doesn't have a separate eval entrypoint
+}
+
+# Benchmark-specific inference parameters.
+# Each entry maps a benchmark name to a function that returns a list of
+# (flag, value) tuples to append to the inference command.
+BENCHMARK_INFER_PARAMS: dict[str, Callable[[argparse.Namespace], list[tuple[str, str]]]] = {
+    "gaia": lambda args: [("--level", args.level)] if args.level else [],
+    "commit0": lambda args: [("--repo-split", args.repo_split)] if args.repo_split else [],
+    "multiswebench": lambda args: [("--lang", args.language)] if args.language else [],
 }
 
 # Patch-based benchmarks use "finish_with_patch" (requires git patch).
@@ -73,18 +83,9 @@ def _build_infer_cmd(args: argparse.Namespace, llm_config_path: Path) -> list[st
     if args.n_limit is not None:
         cmd.extend(["--n-limit", str(args.n_limit)])
     # ----- Benchmark-specific inference args -----
-
-    # GAIA requires --level (e.g. 2023_level1, 2023_all)
-    if args.benchmark == "gaia" and args.level:
-        cmd.extend(["--level", args.level])
-
-    # commit0 requires --repo-split (e.g. lite, all)
-    if args.benchmark == "commit0" and args.repo_split:
-        cmd.extend(["--repo-split", args.repo_split])
-
-    # multiswebench requires --lang (e.g. java, python, go, c)
-    if args.benchmark == "multiswebench" and args.language:
-        cmd.extend(["--lang", args.language])
+    if args.benchmark in BENCHMARK_INFER_PARAMS:
+        for flag, value in BENCHMARK_INFER_PARAMS[args.benchmark](args):
+            cmd.extend([flag, value])
 
     return cmd
 
