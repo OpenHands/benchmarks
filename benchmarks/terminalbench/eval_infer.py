@@ -134,11 +134,10 @@ def process_terminalbench_results(
                 if completion_tokens is None:
                     completion_tokens = final_metrics.get("total_completion_tokens", 0)
 
-                total_cost_usd += cost if cost is not None else 0.0
-                total_prompt_tokens += prompt_tokens if prompt_tokens is not None else 0
-                total_completion_tokens += (
-                    completion_tokens if completion_tokens is not None else 0
-                )
+                # After the None checks above, these values are guaranteed to be non-None
+                total_cost_usd += cost
+                total_prompt_tokens += prompt_tokens
+                total_completion_tokens += completion_tokens
 
             except json.JSONDecodeError as e:
                 logger.error(f"Line {line_num}: Invalid JSON - {e}")
@@ -259,29 +258,24 @@ Examples:
             str(input_file),
             str(output_file),
         )
-
-        # Update Laminar datapoints with evaluation scores
-        # Wrap in try/except to ensure evaluation succeeds even if telemetry fails
-        try:
-            LaminarService.get().update_evaluation_scores(
-                str(input_file), str(output_file)
-            )
-        except Exception as e:
-            logger.warning(f"Laminar update failed (non-critical): {e}")
-
-        # Generate cost report as final step
-        # Wrap in try/except to ensure evaluation succeeds even if cost reporting fails
-        try:
-            generate_cost_report(str(input_file))
-        except Exception as e:
-            logger.warning(f"Cost report generation failed (non-critical): {e}")
-
-        logger.info("Script completed successfully!")
-        print(json.dumps({"report_json": str(output_file)}))
-
     except Exception as e:
         logger.error(f"Script failed: {e}")
         sys.exit(1)
+
+    # Non-critical telemetry and reporting - wrap in try/except so expensive
+    # multi-hour evaluations don't fail at the telemetry step after completing
+    try:
+        LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
+    except Exception as e:
+        logger.warning(f"Laminar update failed (non-critical): {e}")
+
+    try:
+        generate_cost_report(str(input_file))
+    except Exception as e:
+        logger.warning(f"Cost report generation failed (non-critical): {e}")
+
+    logger.info("Script completed successfully!")
+    print(json.dumps({"report_json": str(output_file)}))
 
 
 if __name__ == "__main__":
