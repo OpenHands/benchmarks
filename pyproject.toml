@@ -48,7 +48,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-nemo = ["nemo_evaluator"]
+nemo = ["nemo_evaluator>=0.1.92,<0.2"]
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
