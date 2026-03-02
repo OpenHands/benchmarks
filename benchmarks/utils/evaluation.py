@@ -530,7 +530,7 @@ class Evaluation(ABC, BaseModel):
                         )
                         for fut in list(pending):
                             # Increment per-instance for consistency with per-instance
-                            # timeout handling above (line 484)
+                            # timeout handling above (line 491)
                             timed_out_count += 1
                             pending_info = pending_instances.get(fut)
                             if pending_info is None:
