@@ -151,7 +151,7 @@ class Evaluation(ABC, BaseModel):
         instance: EvalInstance,
         error: Exception,
         attempt: int,
-        datapoint_id: str | None,
+        datapoint_id: UUID | None,
     ) -> EvalOutput:
         """Create an EvalOutput with proper metadata for timeout/deadlock errors."""
         error_output = self._create_error_output(instance, error, attempt)

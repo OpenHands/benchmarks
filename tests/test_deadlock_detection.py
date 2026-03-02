@@ -20,9 +20,6 @@ class integration. Full E2E testing requires complex infrastructure setup.
 import os
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-from dataclasses import dataclass
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
