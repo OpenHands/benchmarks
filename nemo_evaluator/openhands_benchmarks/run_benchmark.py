@@ -40,6 +40,31 @@ BENCHMARK_INFER_PARAMS: dict[str, Callable[[argparse.Namespace], list[tuple[str,
     "multiswebench": lambda args: [("--lang", args.language)] if args.language else [],
 }
 
+# Benchmark-specific evaluation parameters.
+# Each entry returns a list of (flag, value) tuples. Empty value = bare flag.
+BENCHMARK_EVAL_PARAMS: dict[str, Callable[[argparse.Namespace, Path], list[tuple[str, str]]]] = {
+    "swebench": lambda args, out: [
+        *([("--dataset", args.dataset)] if args.dataset else []),
+        ("--run-id", out.stem),
+        *([("--modal", "")] if args.modal is True else []),
+        *([("--no-modal", "")] if args.modal is False else []),
+    ],
+    "swebenchmultimodal": lambda args, _: [
+        *([("--dataset", args.dataset)] if args.dataset else []),
+    ],
+    "multiswebench": lambda args, _: [
+        *([("--dataset", args.dataset)] if args.dataset else []),
+        *([("--lang", args.language)] if args.language else []),
+    ],
+}
+
+# Benchmark-specific environment variables to set before inference.
+BENCHMARK_ENV_VARS: dict[str, Callable[[argparse.Namespace], dict[str, str]]] = {
+    "multiswebench": lambda args: (
+        {"LANGUAGE": args.language} if args.language else {}
+    ),
+}
+
 # Patch-based benchmarks use "finish_with_patch" (requires git patch).
 # gaia and openagentsafety use "pass" (accept any completed output).
 BENCHMARK_CRITIC = {
@@ -98,21 +123,12 @@ def _build_eval_cmd(args: argparse.Namespace, output_jsonl: Path) -> list[str]:
 
     cmd = [EVAL_ENTRYPOINTS[benchmark], str(output_jsonl)]
 
-    if benchmark in ("swebench", "swebenchmultimodal") and args.dataset:
-        cmd.extend(["--dataset", args.dataset])
-
-    if benchmark == "swebench":
-        cmd.extend(["--run-id", output_jsonl.stem])
-    if benchmark == "swebench":
-        if args.modal is True:
-            cmd.append("--modal")
-        elif args.modal is False:
-            cmd.append("--no-modal")
-
-    if benchmark == "multiswebench" and args.dataset:
-        cmd.extend(["--dataset", args.dataset])
-        if args.language:
-            cmd.extend(["--lang", args.language])
+    if benchmark in BENCHMARK_EVAL_PARAMS:
+        for flag, value in BENCHMARK_EVAL_PARAMS[benchmark](args, output_jsonl):
+            if value:
+                cmd.extend([flag, value])
+            else:
+                cmd.append(flag)
 
     return cmd
 
@@ -205,9 +221,8 @@ def main() -> None:
     )
 
     # 3) Run inference
-    # multiswebench reads LANGUAGE env var at module level for Docker image naming
-    if args.benchmark == "multiswebench" and args.language:
-        os.environ["LANGUAGE"] = args.language
+    if args.benchmark in BENCHMARK_ENV_VARS:
+        os.environ.update(BENCHMARK_ENV_VARS[args.benchmark](args))
 
     infer_cmd = _build_infer_cmd(args, llm_config_path)
     ret = subprocess.call(infer_cmd)
