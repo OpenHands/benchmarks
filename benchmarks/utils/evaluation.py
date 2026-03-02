@@ -484,22 +484,30 @@ class Evaluation(ABC, BaseModel):
                         timed_out_count += 1
                         last_progress_time = time.monotonic()
                         pending_info = pending_instances.get(fut)
-                        if pending_info:
-                            inst = pending_info.instance
+                        if pending_info is None:
+                            # This indicates a bookkeeping bug - future is in pending
+                            # but not tracked in pending_instances. Log and skip.
                             logger.error(
-                                f"Instance {inst.id} timed out after "
-                                f"{self.instance_timeout}s"
+                                "BUG: Timed out future missing from pending_instances. "
+                                "Error output will not be created for this instance."
                             )
-                            error_output = self._create_error_output_with_metadata(
-                                inst,
-                                TimeoutError(
-                                    f"Instance did not complete within "
-                                    f"{self.instance_timeout}s timeout"
-                                ),
-                                attempt,
-                                pending_info.datapoint_id,
-                            )
-                            attempt_on_result(inst, error_output)
+                            fut.cancel()
+                            continue
+                        inst = pending_info.instance
+                        logger.error(
+                            f"Instance {inst.id} timed out after "
+                            f"{self.instance_timeout}s"
+                        )
+                        error_output = self._create_error_output_with_metadata(
+                            inst,
+                            TimeoutError(
+                                f"Instance did not complete within "
+                                f"{self.instance_timeout}s timeout"
+                            ),
+                            attempt,
+                            pending_info.datapoint_id,
+                        )
+                        attempt_on_result(inst, error_output)
                         # Note: fut.cancel() only prevents unstarted futures from
                         # starting. Running workers will continue until pool shutdown.
                         fut.cancel()
@@ -518,19 +526,27 @@ class Evaluation(ABC, BaseModel):
                             # timeout handling above (line 484)
                             timed_out_count += 1
                             pending_info = pending_instances.get(fut)
-                            if pending_info:
-                                inst = pending_info.instance
-                                error_output = self._create_error_output_with_metadata(
-                                    inst,
-                                    RuntimeError(
-                                        f"Worker deadlock detected after "
-                                        f"{time_since_progress / 60:.1f} minutes "
-                                        f"of no progress"
-                                    ),
-                                    attempt,
-                                    pending_info.datapoint_id,
+                            if pending_info is None:
+                                # This indicates a bookkeeping bug - future is in pending
+                                # but not tracked in pending_instances. Log and skip.
+                                logger.error(
+                                    "BUG: Deadlocked future missing from pending_instances. "
+                                    "Error output will not be created for this instance."
                                 )
-                                attempt_on_result(inst, error_output)
+                                progress.update(1)
+                                continue
+                            inst = pending_info.instance
+                            error_output = self._create_error_output_with_metadata(
+                                inst,
+                                RuntimeError(
+                                    f"Worker deadlock detected after "
+                                    f"{time_since_progress / 60:.1f} minutes "
+                                    f"of no progress"
+                                ),
+                                attempt,
+                                pending_info.datapoint_id,
+                            )
+                            attempt_on_result(inst, error_output)
                             progress.update(1)
                         pending.clear()
 
