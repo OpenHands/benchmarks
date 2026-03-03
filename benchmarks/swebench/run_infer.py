@@ -200,7 +200,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(image tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
                 os.getenv(
