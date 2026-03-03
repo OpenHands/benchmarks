@@ -65,6 +65,8 @@ openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
 openagentsafety-eval = "benchmarks.openagentsafety.eval_infer:main"
 swebenchmultimodal-infer = "benchmarks.swebenchmultimodal.run_infer:main"
 swebenchmultimodal-eval = "benchmarks.swebenchmultimodal.eval_infer:main"
+swebenchmultilingual-infer = "benchmarks.swebenchmultilingual.run_infer:main"
+swebenchmultilingual-eval = "benchmarks.swebenchmultilingual.eval_infer:main"
 swefficiency-infer = "benchmarks.swefficiency.run_infer:main"
 
 [build-system]
