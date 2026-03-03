@@ -39,10 +39,13 @@ SDK_SHORT_SHA = SDK_SHA[:7]
 _deprecated_sdk_short_sha = os.getenv("SDK_SHORT_SHA")
 if _deprecated_sdk_short_sha is not None:
     import warnings
+
     warnings.warn(
         "SDK_SHORT_SHA environment variable is deprecated. Use IMAGE_TAG_PREFIX instead.",
         DeprecationWarning,
         stacklevel=2,
     )
 
-IMAGE_TAG_PREFIX = os.getenv("IMAGE_TAG_PREFIX") or _deprecated_sdk_short_sha or SDK_SHORT_SHA
+IMAGE_TAG_PREFIX = (
+    os.getenv("IMAGE_TAG_PREFIX") or _deprecated_sdk_short_sha or SDK_SHORT_SHA
+)
