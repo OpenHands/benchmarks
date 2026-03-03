@@ -1,8 +1,8 @@
 """Utilities for ACP (Agent Communication Protocol) agent support."""
 
+import base64
 import json
 import os
-import tempfile
 
 from benchmarks.utils.laminar import LMNR_ENV_VARS
 from openhands.sdk import get_logger
@@ -82,20 +82,16 @@ def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
         return
 
     settings = {"permissions": {"allow": ["Edit", "Read", "Bash"]}}
+    settings_json = json.dumps(settings)
 
-    workspace.execute_command("mkdir -p ~/.claude")
-
-    # Write via file_upload to avoid shell injection risks.
-    fd, tmp_path = tempfile.mkstemp(suffix=".json", text=True)
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(settings, f)
-        result = workspace.file_upload(tmp_path, "~/.claude/settings.json")
-        if not result.success:
-            raise RuntimeError(
-                f"Failed to upload Claude settings: {result}"
-            )
-        logger.info("Wrote Claude ACP settings to ~/.claude/settings.json")
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    # Use execute_command with base64 encoding to safely write the file,
+    # avoiding both shell injection and file_upload issues with tilde expansion.
+    encoded = base64.b64encode(settings_json.encode()).decode()
+    result = workspace.execute_command(
+        f"mkdir -p ~/.claude && echo '{encoded}' | base64 -d > ~/.claude/settings.json"
+    )
+    if result.exit_code != 0:
+        raise RuntimeError(
+            f"Failed to write Claude settings: {result.stderr}"
+        )
+    logger.info("Wrote Claude ACP settings to ~/.claude/settings.json")
