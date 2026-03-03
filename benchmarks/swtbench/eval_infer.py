@@ -268,7 +268,6 @@ def run_swtbench_evaluation(
         shutil.copy2(predictions_file, swt_predictions_file)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
-        # but using the current python executable which has all dependencies
         python_executable = sys.executable
 
         # Set up environment with PYTHONPATH to include swt-bench directory

@@ -1,6 +1,5 @@
 import json
 import os
-from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
@@ -13,7 +12,7 @@ from benchmarks.swebench.build_images import (
     wrap_image,
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -201,7 +200,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(image tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
                 os.getenv(
@@ -348,21 +347,8 @@ class SWEBenchEvaluation(Evaluation):
 
 
 def main() -> None:
-    prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
-
     parser = get_parser()
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
-    )
+    add_prompt_path_argument(parser, __file__)
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 

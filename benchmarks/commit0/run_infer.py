@@ -1,7 +1,6 @@
 import json
 import os
 from collections import Counter
-from pathlib import Path
 from typing import Any, List
 
 from commit0.harness.constants import SPLIT
@@ -13,7 +12,7 @@ from benchmarks.commit0.build_images import (
     get_base_docker_image,
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -592,21 +591,8 @@ class Commit0Evaluation(Evaluation):
 
 
 def main() -> None:
-    prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
-
     parser = get_parser()
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
-    )
+    add_prompt_path_argument(parser, __file__)
     parser.add_argument(
         "--repo-split",
         type=str,
