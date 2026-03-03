@@ -7,6 +7,7 @@ to match the evaluation repository configuration.
 """
 
 import argparse
+from pathlib import Path
 
 from benchmarks.utils.critics import add_critic_args
 
@@ -101,3 +102,31 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Enable sub-agent delegation tools for the agent",
     )
     return parser
+
+
+def add_prompt_path_argument(
+    parser: argparse.ArgumentParser, caller_file: str
+) -> None:
+    """Add --prompt-path argument with choices from the benchmark's prompts/ dir.
+
+    Resolves prompt templates relative to the caller's directory rather than
+    CWD, so the argument works regardless of where the process is launched.
+
+    Args:
+        parser: The argument parser to add the argument to.
+        caller_file: Pass ``__file__`` from the calling module so we can
+            locate its sibling ``prompts/`` directory.
+    """
+    prompt_dir = (Path(caller_file).parent / "prompts").resolve()
+    choices = [str(p) for p in prompt_dir.glob("*.j2")]
+    default_prompt_path = prompt_dir / "default.j2"
+    assert default_prompt_path.exists(), (
+        f"Default prompt {default_prompt_path} not found"
+    )
+    parser.add_argument(
+        "--prompt-path",
+        type=str,
+        default=str(default_prompt_path),
+        choices=choices,
+        help="Path to prompt template file",
+    )
