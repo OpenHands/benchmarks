@@ -1,12 +1,11 @@
 import json
 import os
-from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swtbench.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -338,21 +337,8 @@ class SWTBenchEvaluation(Evaluation):
 
 def main() -> None:
     """Main entry point for SWT-bench evaluation."""
-    prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
-
     parser = get_parser()
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
-    )
+    add_prompt_path_argument(parser, __file__)
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
