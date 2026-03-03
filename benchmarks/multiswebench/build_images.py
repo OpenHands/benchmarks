@@ -87,7 +87,11 @@ def get_base_images_from_dataset(dataset_name: str, split: str) -> list[str]:
         for line in f:
             if not line.strip():
                 continue
-            instance = json.loads(line)
+            try:
+                instance = json.loads(line)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Skipping malformed JSON line: {e}")
+                continue
             image = get_official_docker_image(instance)
             base_images.add(image)
 
