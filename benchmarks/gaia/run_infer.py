@@ -592,6 +592,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
     )

@@ -20,6 +20,7 @@ from typing import Callable
 from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
+from benchmarks.swebench.constants import TargetType
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.buildx_utils import (
     buildkit_disk_usage,
@@ -28,7 +29,6 @@ from benchmarks.utils.buildx_utils import (
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
-from openhands.agent_server.docker.build import BuildOptions, TargetType, build
 from openhands.sdk import get_logger
 
 
@@ -282,6 +282,10 @@ def build_image(
     target: TargetType = "source-minimal",
     push: bool = False,
 ) -> BuildOutput:
+    # Importing here because openhands.agent_server.docker.build runs git checks
+    # which fails when installed as a package outside the git repo
+    from openhands.agent_server.docker.build import BuildOptions, build
+
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
 
