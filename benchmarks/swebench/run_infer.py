@@ -1,6 +1,5 @@
 import json
 import os
-from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
@@ -13,7 +12,7 @@ from benchmarks.swebench.build_images import (
     wrap_image,
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -26,7 +25,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -194,7 +193,7 @@ class SWEBenchEvaluation(Evaluation):
             agent_server_image = (
                 f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
-            if not image_exists(agent_server_image):
+            if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
                     "make sure to build, push it, and make it public accessible before using remote workspace."
@@ -348,21 +347,8 @@ class SWEBenchEvaluation(Evaluation):
 
 
 def main() -> None:
-    prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
-
     parser = get_parser()
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
-    )
+    add_prompt_path_argument(parser, __file__)
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 

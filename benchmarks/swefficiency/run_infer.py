@@ -1,7 +1,6 @@
 import json
 import multiprocessing
 import os
-from pathlib import Path
 from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
@@ -10,7 +9,7 @@ from pydantic import Field
 from benchmarks.swefficiency import constants
 from benchmarks.swefficiency.config import DOCKER_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swefficiency.workspace import ResourceLimitedDockerWorkspace
-from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -21,7 +20,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -243,7 +242,7 @@ class SWEfficiencyEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            if not image_exists(agent_server_image):
+            if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
                     "make sure to build, push it, and make it public accessible before using remote workspace."
@@ -390,21 +389,8 @@ class SWEfficiencyEvaluation(Evaluation):
 
 
 def main() -> None:
-    prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
-
     parser = get_parser()
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
-    )
+    add_prompt_path_argument(parser, __file__)
     parser.add_argument(
         "--num-cpus-per-worker",
         type=int,

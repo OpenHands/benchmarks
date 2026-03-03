@@ -268,24 +268,7 @@ def run_swtbench_evaluation(
         shutil.copy2(predictions_file, swt_predictions_file)
 
         # Run SWT-Bench evaluation by running python directly from the swt-bench directory
-        # but using the uv environment's python executable which has all dependencies
-        benchmarks_dir = Path(__file__).parent.parent.parent
-
-        # Get the python executable from the uv environment
-        python_executable = subprocess.run(
-            [
-                "uv",
-                "run",
-                "--directory",
-                str(benchmarks_dir),
-                "python",
-                "-c",
-                "import sys; print(sys.executable)",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=benchmarks_dir,
-        ).stdout.strip()
+        python_executable = sys.executable
 
         # Set up environment with PYTHONPATH to include swt-bench directory
         env = os.environ.copy()

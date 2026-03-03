@@ -22,7 +22,7 @@ from benchmarks.utils.build_utils import (
     run_docker_build_layer,
 )
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
 
 
@@ -94,7 +94,7 @@ def wrap_image(agent_image: str, push: bool = False) -> BuildOutput:
     For pushes, verify the base tag exists in the registry. For local builds,
     assume the tag is available locally or resolvable by Docker during buildx.
     """
-    if push and not image_exists(agent_image):
+    if push and not remote_image_exists(agent_image):
         return BuildOutput(
             base_image=agent_image,
             tags=[],

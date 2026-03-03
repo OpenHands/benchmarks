@@ -12,6 +12,7 @@ Usage:
 import argparse
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
@@ -74,9 +75,7 @@ def run_multi_swebench_evaluation(
         logger.info("Running Multi-SWE-Bench evaluation harness...")
 
         cmd = [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "multi_swe_bench.harness.run_evaluation",
             "--config",
