@@ -25,7 +25,6 @@ from benchmarks.utils.models import (
     EvalOutput,
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
-from openhands.agent_server.docker.build import _base_slug
 from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
@@ -55,6 +54,10 @@ def get_agent_server_docker_image(
     target: str = "source-minimal",
 ) -> str:
     """Get the agent server Docker image for an instance."""
+    # Importing here because openhands.agent_server.docker.build runs git checks
+    # which fails when installed as a package outside the git repo
+    from openhands.agent_server.docker.build import _base_slug
+
     official_image_name = get_official_docker_image(instance_id, docker_image_prefix)
     return (
         "ghcr.io/all-hands-ai/agent-server"

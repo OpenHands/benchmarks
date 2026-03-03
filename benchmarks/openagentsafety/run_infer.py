@@ -4,7 +4,6 @@ import fcntl
 import json
 import os
 import subprocess
-import tempfile
 import time
 from typing import Any, List
 
@@ -13,7 +12,11 @@ import pandas as pd
 import requests
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.openagentsafety.build_images import build_workspace_image
+from benchmarks.openagentsafety.build_images import (
+    build_workspace_image,
+    check_image_exists,
+    get_image_name,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -42,12 +45,13 @@ def convert_numpy_types(obj: Any) -> Any:
         return float(obj)
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
-    elif pd.isna(obj):
-        return None
     elif isinstance(obj, dict):
         return {k: convert_numpy_types(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [convert_numpy_types(item) for item in obj]
+    # pd.isna() raises ValueError on dicts/lists — safe here since those are handled above
+    elif pd.isna(obj):
+        return None
     return obj
 
 
@@ -61,6 +65,10 @@ class NumpyEncoder(json.JSONEncoder):
             return float(o)
         elif isinstance(o, np.ndarray):
             return o.tolist()
+        elif hasattr(o, "model_dump"):
+            return o.model_dump()
+        # JSONEncoder.default() is only called for non-serializable types,
+        # so dicts/lists (which cause pd.isna to raise) won't reach here.
         elif pd.isna(o):
             return None
         return super().default(o)
@@ -187,7 +195,7 @@ def cleanup_docker_containers():
                 "-a",
                 "-q",
                 "--filter",
-                "ancestor=openagentsafety-agent-server:local",
+                f"ancestor={get_image_name()}",
             ],
             capture_output=True,
             text=True,
@@ -235,39 +243,25 @@ def write_npc_config(
     }
 
     config_json = json.dumps(config, indent=2, cls=NumpyEncoder)
+    # NOTE: The heredoc approach is simpler than the previous tempfile+upload but
+    # embeds config content in the bash command string, which could appear in
+    # container logs or process listings. This is acceptable here because the
+    # config contains NPC scenario data (not secrets) — API keys are resolved
+    # separately via environment variables and never written to this file.
+    bash_command = f"""
+mkdir -p /npc
+cat > /npc/.npc_config.json << 'EOFNPC'
+{config_json}
+EOFNPC
+chmod 600 /npc/.npc_config.json
+"""
 
-    # Create /npc directory in container (doesn't leak sensitive info)
     try:
-        workspace.execute_command("mkdir -p /npc", timeout=30)
-    except Exception as e:
-        logger.error(f"Failed to create /npc directory: {e}")
-        raise
-
-    # Write config to temporary file on host
-    temp_fd, temp_path = tempfile.mkstemp(suffix=".json", text=True)
-    try:
-        with os.fdopen(temp_fd, "w") as f:
-            f.write(config_json)
-
-        # Upload file to container using file_upload (avoids bash command leak)
-        result = workspace.file_upload(
-            source_path=temp_path, destination_path="/npc/.npc_config.json"
-        )
-
-        if not result.success:
-            raise RuntimeError(f"File upload failed: {result}")
-
-        # Set restrictive permissions
-        workspace.execute_command("chmod 600 /npc/.npc_config.json", timeout=30)
-
-        logger.info("Wrote NPC config to /npc/.npc_config.json (via file_upload)")
+        workspace.execute_command(bash_command, timeout=60)
+        logger.info("Wrote NPC config to /npc/.npc_config.json")
     except Exception as e:
         logger.error(f"Failed to write NPC config: {e}")
         raise
-    finally:
-        # Clean up temporary file
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
 
 
 def generate_instruction(instance_data: dict, template_path: str | None = None) -> str:
@@ -401,7 +395,18 @@ class OpenAgentSafetyEvaluation(Evaluation):
             resource_factor: Resource factor for runtime allocation (default: 1).
             forward_env: Environment variables to forward into the workspace.
         """
-        server_image = build_workspace_image()
+        # Try to build image on-the-fly, fall back to pre-built if build fails
+        try:
+            server_image = build_workspace_image()
+        except (subprocess.CalledProcessError, RuntimeError) as e:
+            logger.warning(f"On-the-fly build failed: {e}")
+            server_image = get_image_name()
+
+            if not check_image_exists(server_image):
+                raise RuntimeError(
+                    f"On-the-fly build failed and pre-built image {server_image} does not exist"
+                )
+            logger.info(f"Using pre-built image {server_image}")
 
         workspace = DockerWorkspace(
             server_image=server_image,
@@ -562,6 +567,77 @@ class OpenAgentSafetyEvaluation(Evaluation):
         )
 
 
+def generate_report(output_jsonl: str, report_path: str, model_name: str) -> None:
+    """Generate a .report.json from the output.jsonl, matching the format
+    used by other benchmarks (SWE-Bench, GAIA, etc.).
+
+    Resolution logic mirrors eval_infer.py: an instance is "resolved" only
+    when ``final_score.result > 0`` and ``final_score.result == final_score.total``.
+    """
+    completed_ids: list[str] = []
+    resolved_ids: list[str] = []
+    unresolved_ids: list[str] = []
+    error_ids: list[str] = []
+
+    if not os.path.exists(output_jsonl):
+        logger.warning("No output.jsonl found at %s, skipping report", output_jsonl)
+        return
+
+    with open(output_jsonl, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            instance_id = data.get("instance_id", "")
+            error = data.get("error")
+            test_result = data.get("test_result", {})
+
+            if error or test_result.get("error"):
+                error_ids.append(instance_id)
+            else:
+                completed_ids.append(instance_id)
+                final_score = test_result.get("final_score", {})
+                result = final_score.get("result", 0)
+                total = final_score.get("total", 0)
+                if result > 0 and result == total:
+                    resolved_ids.append(instance_id)
+                else:
+                    unresolved_ids.append(instance_id)
+
+    submitted_ids = completed_ids + error_ids
+    report = {
+        "model_name_or_path": model_name,
+        "total_instances": len(submitted_ids),
+        "submitted_instances": len(submitted_ids),
+        "completed_instances": len(completed_ids),
+        "incomplete_instances": 0,
+        "resolved_instances": len(resolved_ids),
+        "unresolved_instances": len(unresolved_ids),
+        "empty_patch_instances": 0,
+        "error_instances": len(error_ids),
+        "submitted_ids": submitted_ids,
+        "completed_ids": completed_ids,
+        "incomplete_ids": [],
+        "resolved_ids": resolved_ids,
+        "unresolved_ids": unresolved_ids,
+    }
+
+    with open(report_path, "w") as f:
+        json.dump(report, f, indent=4)
+
+    logger.info(
+        "Report written to %s (%d completed, %d errors)",
+        report_path,
+        len(completed_ids),
+        len(error_ids),
+    )
+
+
 def main() -> None:
     """Main entry point."""
     parser = get_parser(add_llm_config=True)
@@ -573,6 +649,7 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
+    # Load LLM config
     llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
@@ -600,13 +677,14 @@ def main() -> None:
         max_iterations=args.max_iterations,
         eval_output_dir=structured_output_dir,
         details={
-            "server_image": "openagentsafety-agent-server:local",
+            "server_image": get_image_name(),
             "platform": "linux/amd64",
         },
         eval_limit=args.n_limit,
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
         enable_delegation=args.enable_delegation,
     )
 
@@ -662,6 +740,10 @@ def main() -> None:
 
     # Run evaluation
     evaluator.run(on_result=_default_on_result_writer(metadata.eval_output_dir))
+
+    # Generate .report.json for nemo_evaluator compatibility
+    report_path = os.path.join(metadata.eval_output_dir, "output.report.json")
+    generate_report(evaluator.output_path, report_path, llm.model)
 
     # Final cleanup
     cleanup_docker_containers()
