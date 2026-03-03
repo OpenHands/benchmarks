@@ -243,7 +243,11 @@ def maybe_prune_buildkit_cache(
     try:
         prune_buildkit_cache(keep_storage_gb=keep_storage_gb, filters=filters)
         return True
-    except subprocess.TimeoutExpired:
+        logger.warning(
+            "BuildKit prune timed out after 600s (10 minutes). Cache remains at %.2f%% usage. "
+            "This is expected with very large caches; builds will continue.",
+            usage_pct,
+        )
         logger.warning(
             "BuildKit prune timed out after 600s. Cache remains at %.2f%% usage.",
             usage_pct,
