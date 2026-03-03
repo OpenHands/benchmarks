@@ -76,7 +76,9 @@ class TestAddPromptPathArgument:
         with pytest.raises(AssertionError, match="default.j2"):
             add_prompt_path_argument(parser, str(caller))
 
-    def test_relative_path_accepted(self, prompt_tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_relative_path_accepted(
+        self, prompt_tree: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Backwards compatibility: relative paths that exist are resolved."""
         monkeypatch.chdir(prompt_tree.parent)
         parser = argparse.ArgumentParser()

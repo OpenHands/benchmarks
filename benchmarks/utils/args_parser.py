@@ -104,9 +104,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     return parser
 
 
-def add_prompt_path_argument(
-    parser: argparse.ArgumentParser, caller_file: str
-) -> None:
+def add_prompt_path_argument(parser: argparse.ArgumentParser, caller_file: str) -> None:
     """Add --prompt-path argument with choices from the benchmark's prompts/ dir.
 
     Resolves prompt templates relative to the caller's directory rather than
@@ -139,8 +137,7 @@ def add_prompt_path_argument(
         if p.is_file():
             return str(p.resolve())
         raise argparse.ArgumentTypeError(
-            f"Prompt template not found: {value!r}. "
-            f"Available: {', '.join(templates)}"
+            f"Prompt template not found: {value!r}. Available: {', '.join(templates)}"
         )
 
     parser.add_argument(
