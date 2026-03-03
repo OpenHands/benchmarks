@@ -497,9 +497,9 @@ def _inject_modal_sitecustomize() -> None:
         )
 
     env_vars = {"PYTHONPATH": "/root"}
-env_vars["IMAGE_TAG_PREFIX"] = _get_image_tag_prefix()
-# Backward compatibility - remove in next major version
-env_vars["SDK_SHORT_SHA"] = env_vars["IMAGE_TAG_PREFIX"]
+    env_vars["IMAGE_TAG_PREFIX"] = _get_image_tag_prefix()
+    # Backward compatibility - remove in next major version
+    env_vars["SDK_SHORT_SHA"] = env_vars["IMAGE_TAG_PREFIX"]
 
     env_vars["EVAL_AGENT_SERVER_IMAGE"] = _get_agent_server_image_repo()
     env_vars["SWEBENCH_IMAGE_TARGET"] = _get_build_target()
