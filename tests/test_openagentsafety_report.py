@@ -41,9 +41,7 @@ def test_mixed_results():
                 "test_result": {"error": "evaluation crashed"},
             },
         ]
-        output_jsonl.write_text(
-            "\n".join(json.dumps(l) for l in lines) + "\n"
-        )
+        output_jsonl.write_text("\n".join(json.dumps(entry) for entry in lines) + "\n")
 
         generate_report(str(output_jsonl), str(report_path), "test-model")
 
@@ -90,12 +88,16 @@ def test_malformed_json_lines_skipped():
         output_jsonl = Path(tmpdir) / "output.jsonl"
         report_path = Path(tmpdir) / "output.report.json"
 
-        content = "not valid json\n" + json.dumps(
-            {
-                "instance_id": "good-1",
-                "test_result": {"final_score": {"result": 1, "total": 1}},
-            }
-        ) + "\n"
+        content = (
+            "not valid json\n"
+            + json.dumps(
+                {
+                    "instance_id": "good-1",
+                    "test_result": {"final_score": {"result": 1, "total": 1}},
+                }
+            )
+            + "\n"
+        )
         output_jsonl.write_text(content)
 
         generate_report(str(output_jsonl), str(report_path), "test-model")
