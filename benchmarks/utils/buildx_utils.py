@@ -174,7 +174,10 @@ def prune_buildkit_cache(
 
     def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         logger.info("Pruning BuildKit cache: %s", " ".join(cmd))
-        proc = subprocess.run(cmd, text=True, capture_output=True)
+        # Add timeout to prevent hangs when pruning large caches (500+ GiB).
+        # With 500 images × 12 workers, BuildKit cache can grow to 600+ GiB,
+        # and `docker buildx prune` can hang indefinitely without a timeout.
+        proc = subprocess.run(cmd, text=True, capture_output=True, timeout=600)
         if proc.stdout:
             logger.info(proc.stdout.strip())
         if proc.stderr:
@@ -238,6 +241,12 @@ def maybe_prune_buildkit_cache(
     try:
         prune_buildkit_cache(keep_storage_gb=keep_storage_gb, filters=filters)
         return True
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "BuildKit prune timed out after 600s. Cache remains at %.2f%% usage.",
+            usage_pct,
+        )
+        return False
     except Exception as e:
         logger.warning("Failed to prune BuildKit cache: %s", e)
         return False
