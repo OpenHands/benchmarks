@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 
+from benchmarks.utils.laminar import LMNR_ENV_VARS
 from openhands.sdk import get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 
@@ -49,6 +50,9 @@ def get_acp_forward_env(
     For non-ACP agent types (e.g. ``"default"``), *forward_env* is returned
     unchanged.  Raises ``ValueError`` if the required API key is not set in
     the current environment.
+
+    For ACP agent types, LMNR_ENV_VARS are also included to enable Laminar
+    tracing within the ACP subprocess.
     """
     env_var = _ACP_ENV_VARS.get(agent_type)
     if env_var is None:
@@ -59,6 +63,12 @@ def get_acp_forward_env(
         if not os.getenv(env_var):
             raise ValueError(f"{env_var} not found in environment")
         forward_env.append(env_var)
+
+    # Include Laminar env vars for tracing in ACP agents
+    for lmnr_var in LMNR_ENV_VARS:
+        if lmnr_var not in forward_env:
+            forward_env.append(lmnr_var)
+
     return forward_env
 
 
