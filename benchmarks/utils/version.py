@@ -1,5 +1,6 @@
 import os
 import subprocess
+import warnings
 from pathlib import Path
 
 
@@ -35,4 +36,21 @@ SDK_SHORT_SHA = SDK_SHA[:7]
 # By default this is the SDK submodule short SHA. Set the IMAGE_TAG_PREFIX
 # environment variable to override (e.g. when using pre-built images from
 # a different SDK revision or a CI-provided tag).
-IMAGE_TAG_PREFIX = os.getenv("IMAGE_TAG_PREFIX", SDK_SHORT_SHA)
+#
+# Backward compatibility: SDK_SHORT_SHA env var is still honored as a
+# fallback when IMAGE_TAG_PREFIX is not set, but is deprecated.
+_image_tag_prefix_env = os.getenv("IMAGE_TAG_PREFIX")
+_sdk_short_sha_env = os.getenv("SDK_SHORT_SHA")
+
+if _image_tag_prefix_env is not None:
+    IMAGE_TAG_PREFIX = _image_tag_prefix_env
+elif _sdk_short_sha_env is not None:
+    warnings.warn(
+        "SDK_SHORT_SHA env var is deprecated for overriding image tags. "
+        "Use IMAGE_TAG_PREFIX instead.",
+        DeprecationWarning,
+        stacklevel=1,
+    )
+    IMAGE_TAG_PREFIX = _sdk_short_sha_env
+else:
+    IMAGE_TAG_PREFIX = SDK_SHORT_SHA

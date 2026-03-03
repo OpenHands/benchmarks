@@ -44,7 +44,11 @@ def _get_image_tag_prefix() -> str:
 
         return IMAGE_TAG_PREFIX
     except Exception:
-        return os.getenv("IMAGE_TAG_PREFIX", "").strip() or "unknown"
+        return (
+            os.getenv("IMAGE_TAG_PREFIX", "").strip()
+            or os.getenv("SDK_SHORT_SHA", "").strip()  # deprecated fallback
+            or "unknown"
+        )
 
 
 def _get_agent_server_image_repo() -> str:
@@ -497,7 +501,11 @@ def _inject_modal_sitecustomize() -> None:
         )
 
     env_vars = {"PYTHONPATH": "/root"}
-    env_vars["IMAGE_TAG_PREFIX"] = _get_image_tag_prefix()
+    image_tag_prefix = _get_image_tag_prefix()
+    env_vars["IMAGE_TAG_PREFIX"] = image_tag_prefix
+    # Backward compatibility: propagate SDK_SHORT_SHA so that any code
+    # running inside Modal that reads this env var continues to work.
+    env_vars["SDK_SHORT_SHA"] = image_tag_prefix
 
     env_vars["EVAL_AGENT_SERVER_IMAGE"] = _get_agent_server_image_repo()
     env_vars["SWEBENCH_IMAGE_TARGET"] = _get_build_target()
