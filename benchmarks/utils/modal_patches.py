@@ -44,7 +44,11 @@ def _get_image_tag_prefix() -> str:
 
         return IMAGE_TAG_PREFIX
     except Exception:
-        return os.getenv("IMAGE_TAG_PREFIX", "").strip() or "unknown"
+        return (
+            os.getenv("IMAGE_TAG_PREFIX", "").strip()
+            or os.getenv("SDK_SHORT_SHA", "").strip()  # deprecated fallback
+            or "unknown"
+        )
 
 
 def _get_agent_server_image_repo() -> str:
