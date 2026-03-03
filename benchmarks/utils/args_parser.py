@@ -112,21 +112,41 @@ def add_prompt_path_argument(
     Resolves prompt templates relative to the caller's directory rather than
     CWD, so the argument works regardless of where the process is launched.
 
+    Users can pass a bare filename (e.g. ``default.j2``), which is resolved
+    against the benchmark's ``prompts/`` directory, or a full path to any
+    ``.j2`` file for backwards compatibility.  The parsed value is always an
+    absolute path so downstream code can rely on it directly.
+
     Args:
         parser: The argument parser to add the argument to.
         caller_file: Pass ``__file__`` from the calling module so we can
             locate its sibling ``prompts/`` directory.
     """
     prompt_dir = (Path(caller_file).parent / "prompts").resolve()
-    choices = [str(p) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
+    templates = sorted(p.name for p in prompt_dir.glob("*.j2"))
+    assert (prompt_dir / "default.j2").exists(), (
+        f"Default prompt {prompt_dir / 'default.j2'} not found"
     )
+
+    def _resolve_prompt(value: str) -> str:
+        """Resolve a filename or path to an absolute prompt template path."""
+        # Accept bare filenames (e.g. "default.j2") and resolve them.
+        candidate = prompt_dir / Path(value).name
+        if candidate.is_file():
+            return str(candidate)
+        # Also accept absolute/relative paths for backwards compatibility.
+        p = Path(value)
+        if p.is_file():
+            return str(p.resolve())
+        raise argparse.ArgumentTypeError(
+            f"Prompt template not found: {value!r}. "
+            f"Available: {', '.join(templates)}"
+        )
+
     parser.add_argument(
         "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
+        type=_resolve_prompt,
+        default=str(prompt_dir / "default.j2"),
+        metavar="{" + ",".join(templates) + "}",
+        help="Prompt template filename (default: default.j2)",
     )
