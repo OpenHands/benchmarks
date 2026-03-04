@@ -303,16 +303,12 @@ def build_image(
         sdk_version=sdk_version,
     )
     for t in opts.all_tags:
-        # Check local Docker first (fast), then remote registry (slow)
-        # This avoids overwhelming the registry with 500+ concurrent HTTP requests
-        # when building large batches (e.g., all SWE-Bench images)
+        # Check local Docker first (fast ~100ms), then remote registry (slow HTTP)
         if local_image_exists(t):
             logger.info("Image %s already exists locally. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
         if remote_image_exists(t):
-            logger.info(
-                "Image %s already exists in remote registry. Skipping build.", t
-            )
+            logger.info("Image %s already exists in registry. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
