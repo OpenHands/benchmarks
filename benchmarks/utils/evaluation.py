@@ -230,6 +230,9 @@ class Evaluation(ABC, BaseModel):
         """
         Determine which instances need processing for a specific attempt.
 
+        State is derived from the on-disk attempt files rather than kept
+        in memory so that a crashed process can resume where it left off.
+
         This method handles all resume scenarios naturally without special cases:
         - New instances: Not completed in attempt 1 yet → include them
         - Resume: Already completed in this attempt → exclude them
@@ -255,7 +258,8 @@ class Evaluation(ABC, BaseModel):
                 inst for inst in all_instances if inst.id not in completed_in_attempt
             ]
         else:
-            # Attempt N: Process what failed in N-1 and isn't completed in N
+            # Attempt N: Retry what failed OR was missing in N-1,
+            # excluding anything already completed in this attempt.
             prev_file = os.path.join(
                 self.metadata.eval_output_dir,
                 f"output.critic_attempt_{attempt - 1}.jsonl",
@@ -264,11 +268,22 @@ class Evaluation(ABC, BaseModel):
                 return []
 
             failed_in_prev = get_failed_instances(prev_file, critic)
-            return [
-                inst
-                for inst in all_instances
-                if inst.id in failed_in_prev and inst.id not in completed_in_attempt
-            ]
+            # Collect everything completed across ALL prior attempts so that
+            # instances which passed in an earlier attempt (and therefore have
+            # no entry in later attempt files) are not mistaken for "missing".
+            all_prior_completed: set = set()
+            for a in range(1, attempt):
+                f = os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{a}.jsonl",
+                )
+                if os.path.exists(f):
+                    all_prior_completed |= get_completed_instances(f)
+            # Instances with no entry in ANY prior attempt (never ran or
+            # crashed before producing output) should also be retried.
+            never_completed = {inst.id for inst in all_instances} - all_prior_completed
+            retry_ids = (failed_in_prev | never_completed) - completed_in_attempt
+            return [inst for inst in all_instances if inst.id in retry_ids]
 
     def _run_iterative_mode(
         self,
