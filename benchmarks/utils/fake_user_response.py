@@ -10,6 +10,7 @@ a fake user response to keep the agent working on the task.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Callable
 
 from openhands.sdk import get_logger
@@ -19,7 +20,7 @@ from openhands.sdk.tool.builtins.finish import FinishAction
 
 
 if TYPE_CHECKING:
-    from openhands.sdk.conversation.base import BaseConversation
+    from openhands.sdk.conversation import BaseConversation, RemoteConversation
 
 logger = get_logger(__name__)
 
@@ -116,7 +117,7 @@ def _agent_sent_message(events: list[Event]) -> bool:
 
 
 def run_conversation_with_fake_user_response(
-    conversation: "BaseConversation",
+    conversation: RemoteConversation,
     fake_user_response_fn: FakeUserResponseFn = fake_user_response,
     max_fake_responses: int = 10,
 ) -> None:
@@ -138,12 +139,13 @@ def run_conversation_with_fake_user_response(
         max_fake_responses: Maximum number of fake responses to send before
             stopping. This prevents infinite loops.
     """
+    run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
 
     fake_response_count = 0
 
     while True:
         # Run the conversation
-        conversation.run()
+        conversation.run(timeout=run_timeout)
 
         # Check the execution status
         status = conversation.state.execution_status
