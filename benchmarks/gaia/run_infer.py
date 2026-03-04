@@ -20,6 +20,7 @@ from benchmarks.utils.acp import (
     get_acp_forward_env,
     is_acp_agent,
     setup_acp_workspace,
+    workspace_keepalive,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
@@ -358,19 +359,20 @@ class GAIAEvaluation(Evaluation):
         )
 
         # Send message and run
-        if image_urls:
-            msg = Message(
-                role="user",
-                content=[
-                    TextContent(text=instruction),
-                    ImageContent(image_urls=image_urls),
-                ],
-            )
-            conversation.send_message(msg)
-        else:
-            conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            if image_urls:
+                msg = Message(
+                    role="user",
+                    content=[
+                        TextContent(text=instruction),
+                        ImageContent(image_urls=image_urls),
+                    ],
+                )
+                conversation.send_message(msg)
+            else:
+                conversation.send_message(instruction)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)

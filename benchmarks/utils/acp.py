@@ -3,6 +3,8 @@
 import base64
 import json
 import os
+import threading
+from contextlib import contextmanager
 
 from benchmarks.utils.laminar import LMNR_ENV_VARS
 from openhands.sdk import get_logger
@@ -95,3 +97,43 @@ def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
             f"Failed to write Claude settings: {result.stderr}"
         )
     logger.info("Wrote Claude ACP settings to ~/.claude/settings.json")
+
+
+@contextmanager
+def workspace_keepalive(
+    agent_type: str, workspace: RemoteWorkspace, interval: int = 300
+):
+    """Keep the runtime workspace alive during ACP agent execution.
+
+    ACP agents (Claude Code, Codex) use their own built-in tools and do not
+    make calls to the workspace while thinking.  Without periodic activity the
+    runtime management system considers the workspace idle and terminates it
+    (default idle timeout ~20 min).
+
+    This context manager spawns a daemon thread that periodically runs a no-op
+    command (``true``) on the workspace to prevent idle termination.
+
+    For non-ACP agent types this is a no-op pass-through.
+    """
+    if not is_acp_agent(agent_type):
+        yield
+        return
+
+    stop = threading.Event()
+
+    def _ping() -> None:
+        while not stop.wait(interval):
+            try:
+                workspace.execute_command("true")
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_ping, daemon=True)
+    t.start()
+    logger.info("Started workspace keep-alive (interval=%ds)", interval)
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=5)
+        logger.info("Stopped workspace keep-alive")

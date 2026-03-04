@@ -18,6 +18,7 @@ from benchmarks.utils.acp import (
     get_acp_forward_env,
     is_acp_agent,
     setup_acp_workspace,
+    workspace_keepalive,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
@@ -344,9 +345,10 @@ class Commit0Evaluation(Evaluation):
             instance=instance.data,
             metadata=self.metadata,
         )
-        conversation.send_message(instruction)
-        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
-        conversation.run(timeout=run_timeout)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            conversation.send_message(instruction)
+            run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+            conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
 

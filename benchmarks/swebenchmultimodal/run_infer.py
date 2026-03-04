@@ -16,6 +16,7 @@ from benchmarks.utils.acp import (
     get_acp_forward_env,
     is_acp_agent,
     setup_acp_workspace,
+    workspace_keepalive,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.build_utils import build_image
@@ -318,71 +319,72 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         # Handle image assets for multimodal instances
-        if "image_assets" in instance.data and instance.data["image_assets"]:
-            try:
-                assets = json.loads(instance.data["image_assets"])
-                if "problem_statement" in assets and assets["problem_statement"]:
-                    image_urls = assets["problem_statement"]
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            if "image_assets" in instance.data and instance.data["image_assets"]:
+                try:
+                    assets = json.loads(instance.data["image_assets"])
+                    if "problem_statement" in assets and assets["problem_statement"]:
+                        image_urls = assets["problem_statement"]
 
-                    # Filter and validate image URLs
-                    valid_urls = []
-                    index_dict = {}
-                    for url in image_urls:
-                        if is_valid_image_url(url):
-                            if url in instruction:
-                                valid_urls.append(url)
-                                idx = instruction.find(url)
-                                index_dict[url] = idx
+                        # Filter and validate image URLs
+                        valid_urls = []
+                        index_dict = {}
+                        for url in image_urls:
+                            if is_valid_image_url(url):
+                                if url in instruction:
+                                    valid_urls.append(url)
+                                    idx = instruction.find(url)
+                                    index_dict[url] = idx
+                                else:
+                                    logger.warning(
+                                        f"Image URL {url} not found in instruction, skipping"
+                                    )
                             else:
-                                logger.warning(
-                                    f"Image URL {url} not found in instruction, skipping"
+                                logger.info(
+                                    f"Image URL {url} is invalid or inaccessible, skipping"
                                 )
+
+                        if valid_urls:
+                            # Sort URLs by their position in the instruction
+                            sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
+                            sorted_urls = [item[0] for item in sorted_urls]
+
+                            # Add image numbering to instruction
+                            modified_instruction = instruction
+                            for idx, url in enumerate(sorted_urls):
+                                modified_instruction = modified_instruction.replace(
+                                    url, f"{url} (Image: {idx + 1})"
+                                )
+
+                            logger.info(
+                                f"Sending instruction with {len(sorted_urls)} valid images"
+                            )
+
+                            # Create message with both text and images
+                            message = Message(
+                                role="user",
+                                content=[
+                                    TextContent(text=modified_instruction),
+                                    ImageContent(image_urls=sorted_urls),
+                                ],
+                            )
+                            conversation.send_message(message)
                         else:
                             logger.info(
-                                f"Image URL {url} is invalid or inaccessible, skipping"
+                                "No valid image URLs found, sending text-only instruction"
                             )
-
-                    if valid_urls:
-                        # Sort URLs by their position in the instruction
-                        sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
-                        sorted_urls = [item[0] for item in sorted_urls]
-
-                        # Add image numbering to instruction
-                        modified_instruction = instruction
-                        for idx, url in enumerate(sorted_urls):
-                            modified_instruction = modified_instruction.replace(
-                                url, f"{url} (Image: {idx + 1})"
-                            )
-
-                        logger.info(
-                            f"Sending instruction with {len(sorted_urls)} valid images"
-                        )
-
-                        # Create message with both text and images
-                        message = Message(
-                            role="user",
-                            content=[
-                                TextContent(text=modified_instruction),
-                                ImageContent(image_urls=sorted_urls),
-                            ],
-                        )
-                        conversation.send_message(message)
+                            conversation.send_message(instruction)
                     else:
-                        logger.info(
-                            "No valid image URLs found, sending text-only instruction"
-                        )
+                        logger.info("No problem_statement images found in image_assets")
                         conversation.send_message(instruction)
-                else:
-                    logger.info("No problem_statement images found in image_assets")
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning(f"Failed to parse image_assets: {e}")
                     conversation.send_message(instruction)
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Failed to parse image_assets: {e}")
+            else:
+                logger.info("No image_assets found, sending text-only instruction")
                 conversation.send_message(instruction)
-        else:
-            logger.info("No image_assets found, sending text-only instruction")
-            conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")

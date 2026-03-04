@@ -11,6 +11,7 @@ from benchmarks.utils.acp import (
     get_acp_forward_env,
     is_acp_agent,
     setup_acp_workspace,
+    workspace_keepalive,
 )
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
@@ -313,9 +314,10 @@ class SWTBenchEvaluation(Evaluation):
             metadata=self.metadata,
             workspace_path=workspace.working_dir,
         )
-        conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            conversation.send_message(instruction)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
