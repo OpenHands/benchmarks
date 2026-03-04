@@ -715,7 +715,6 @@ class Evaluation(ABC, BaseModel):
                                 archive_error,
                             )
                         try:
-                            # Use the context manager protocol for cleanup
                             workspace.__exit__(None, None, None)
                             logger.debug(
                                 "[child] cleaned up workspace for id=%s", instance.id
