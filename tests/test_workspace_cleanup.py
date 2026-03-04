@@ -59,7 +59,7 @@ def test_workspace_cleanup_called_on_success():
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_sync(
+    result_instance, result_output = evaluator._process_one_mp(
         test_instance, None, critic_attempt=1
     )
 
@@ -110,7 +110,7 @@ def test_workspace_cleanup_called_on_failure():
             raise RuntimeError("Test evaluation failure")
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_sync(
+    result_instance, result_output = evaluator._process_one_mp(
         test_instance, None, critic_attempt=1
     )
 
@@ -170,7 +170,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_sync(
+    result_instance, result_output = evaluator._process_one_mp(
         test_instance, None, critic_attempt=1
     )
 
@@ -240,7 +240,7 @@ def test_workspace_cleanup_with_retries():
             )
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_sync(
+    result_instance, result_output = evaluator._process_one_mp(
         test_instance, None, critic_attempt=1
     )
 
