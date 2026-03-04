@@ -265,11 +265,21 @@ class Evaluation(ABC, BaseModel):
                 return []
 
             failed_in_prev = get_failed_instances(prev_file, critic)
-            completed_in_prev = get_completed_instances(prev_file)
-            # Instances with no entry at all in prev attempt (never ran or
+            # Collect everything completed across ALL prior attempts so that
+            # instances which passed in an earlier attempt (and therefore have
+            # no entry in later attempt files) are not mistaken for "missing".
+            all_prior_completed: set = set()
+            for a in range(1, attempt):
+                f = os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{a}.jsonl",
+                )
+                if os.path.exists(f):
+                    all_prior_completed |= get_completed_instances(f)
+            # Instances with no entry in ANY prior attempt (never ran or
             # crashed before producing output) should also be retried.
-            missing_in_prev = {inst.id for inst in all_instances} - completed_in_prev
-            retry_ids = (failed_in_prev | missing_in_prev) - completed_in_attempt
+            never_completed = {inst.id for inst in all_instances} - all_prior_completed
+            retry_ids = (failed_in_prev | never_completed) - completed_in_attempt
             return [inst for inst in all_instances if inst.id in retry_ids]
 
     def _run_iterative_mode(
