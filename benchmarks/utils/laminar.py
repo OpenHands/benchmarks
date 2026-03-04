@@ -105,12 +105,15 @@ class LaminarService:
         index: int,
     ) -> UUID | None:
         """
-        Create a Laminar datapoint.
+        Create a Laminar datapoint without trace linkage.
 
-        The datapoint is registered immediately (for UI visibility and progress
-        tracking) without a trace ID.  The child process will later start the
-        root "Evaluation" span and update the datapoint with the real trace ID,
-        so the timeline accurately reflects when work begins.
+        The datapoint is created immediately for UI visibility, but the trace_id
+        is set later (via update_datapoint_trace_id) when the child process
+        actually starts the evaluation span. This ensures accurate timeline
+        measurement that excludes queue wait time.
+
+        Note: session_id and trace_metadata are intentionally not set here;
+        they are applied when the child process creates the root eval span.
 
         Returns the datapoint_id.
         """
@@ -158,9 +161,11 @@ class LaminarService:
                 trace_id=trace_id,
             )
         except Exception as exc:  # pragma: no cover - defensive logging
-            logger.debug(
-                "Failed to update trace_id for datapoint %s: %s",
+            logger.warning(
+                "Failed to link datapoint %s to trace %s for eval %s: %s",
                 datapoint_id,
+                trace_id,
+                eval_id,
                 exc,
             )
 
