@@ -230,6 +230,9 @@ class Evaluation(ABC, BaseModel):
         """
         Determine which instances need processing for a specific attempt.
 
+        State is derived from the on-disk attempt files rather than kept
+        in memory so that a crashed process can resume where it left off.
+
         This method handles all resume scenarios naturally without special cases:
         - New instances: Not completed in attempt 1 yet → include them
         - Resume: Already completed in this attempt → exclude them
