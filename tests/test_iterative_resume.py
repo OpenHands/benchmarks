@@ -441,6 +441,5 @@ def test_passed_instances_not_retried_in_later_attempts():
         # A must NOT be retried — it passed in attempt 1 and is simply
         # absent from the attempt 2 file because it was never re-run.
         assert result_ids == {"D"}, (
-            f"Expected to retry only D (failed in attempt 2), "
-            f"but got: {result_ids}"
+            f"Expected to retry only D (failed in attempt 2), but got: {result_ids}"
         )
