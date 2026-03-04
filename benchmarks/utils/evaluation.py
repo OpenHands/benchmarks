@@ -4,7 +4,6 @@ Evaluation orchestrator.
 
 import base64
 import json
-import multiprocessing
 import os
 import sys
 import time
@@ -370,15 +369,7 @@ class Evaluation(ABC, BaseModel):
                 attempt_outputs.append(out)
 
             # Run evaluation for this attempt
-            # Use 'spawn' instead of 'fork' to avoid deadlocks when the parent
-            # process has threads (e.g., WebSocket clients, log streamers).
-            # With 'fork', child processes inherit copies of locks that may be
-            # held by threads, causing deadlocks when those locks are needed.
-            # See: https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
-            mp_context = multiprocessing.get_context("spawn")
-            pool = ProcessPoolExecutor(
-                max_workers=self.num_workers, mp_context=mp_context
-            )
+            pool = ProcessPoolExecutor(max_workers=self.num_workers)
             futures: list[Future] = []
             # Consolidated tracking: maps future -> PendingInstance
             pending_instances: dict[Future, PendingInstance] = {}
@@ -724,6 +715,7 @@ class Evaluation(ABC, BaseModel):
                                 archive_error,
                             )
                         try:
+                            # Use the context manager protocol for cleanup
                             workspace.__exit__(None, None, None)
                             logger.debug(
                                 "[child] cleaned up workspace for id=%s", instance.id
