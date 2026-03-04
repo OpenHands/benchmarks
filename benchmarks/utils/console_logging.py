@@ -379,11 +379,21 @@ class _ThreadRoutedFileHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         fh: logging.FileHandler | None = getattr(_logging_local, "file_handler", None)
         if fh is not None:
-            # Apply our formatter and delegate
+            # Apply our formatter and delegate to per-thread file handler
             record_msg = self.format(record)
             try:
                 fh.stream.write(record_msg + "\n")
                 fh.stream.flush()
+            except Exception:
+                pass
+        elif record.levelno >= logging.WARNING:
+            # Fallback for threads without per-thread setup (e.g. main
+            # asyncio event loop thread): write warnings+ to stderr so
+            # timeout errors and write failures aren't silently lost.
+            record_msg = self.format(record)
+            try:
+                sys.__stderr__.write(record_msg + "\n")
+                sys.__stderr__.flush()
             except Exception:
                 pass
 
@@ -412,6 +422,15 @@ class _ThreadRoutedConsoleHandler(logging.Handler):
             try:
                 msg = fmt.format(record)
                 stream.write(msg + "\n")
+                stream.flush()
+            except Exception:
+                pass
+        elif not fmt and stream and record.levelno >= logging.WARNING:
+            # Fallback for threads without per-thread setup (e.g. main
+            # asyncio event loop thread): use a basic format for warnings+.
+            try:
+                basic_msg = f"{record.levelname}: {record.name}: {record.getMessage()}"
+                stream.write(basic_msg + "\n")
                 stream.flush()
             except Exception:
                 pass
