@@ -255,7 +255,8 @@ class Evaluation(ABC, BaseModel):
                 inst for inst in all_instances if inst.id not in completed_in_attempt
             ]
         else:
-            # Attempt N: Process what failed in N-1 and isn't completed in N
+            # Attempt N: Retry what failed OR was missing in N-1,
+            # excluding anything already completed in this attempt.
             prev_file = os.path.join(
                 self.metadata.eval_output_dir,
                 f"output.critic_attempt_{attempt - 1}.jsonl",
@@ -264,11 +265,12 @@ class Evaluation(ABC, BaseModel):
                 return []
 
             failed_in_prev = get_failed_instances(prev_file, critic)
-            return [
-                inst
-                for inst in all_instances
-                if inst.id in failed_in_prev and inst.id not in completed_in_attempt
-            ]
+            completed_in_prev = get_completed_instances(prev_file)
+            # Instances with no entry at all in prev attempt (never ran or
+            # crashed before producing output) should also be retried.
+            missing_in_prev = {inst.id for inst in all_instances} - completed_in_prev
+            retry_ids = (failed_in_prev | missing_in_prev) - completed_in_attempt
+            return [inst for inst in all_instances if inst.id in retry_ids]
 
     def _run_iterative_mode(
         self,
