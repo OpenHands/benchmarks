@@ -1,11 +1,17 @@
 import json
 import os
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swtbench.config import INFER_DEFAULTS
+from benchmarks.utils.acp import (
+    get_acp_command,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -27,6 +33,7 @@ from benchmarks.utils.models import (
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.agent_server.docker.build import _base_slug
 from openhands.sdk import LLM, Agent, Conversation, Tool, __version__, get_logger
+from openhands.sdk.agent import ACPAgent
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -157,6 +164,8 @@ class SWTBenchEvaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
             forward_env: Environment variables to forward into the workspace.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
 
@@ -251,25 +260,24 @@ class SWTBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_default_tools(
-            # Disable browser tools in CLI mode
-            enable_browser=False,
-        )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-            # TODO: we can enable condenser and security analyzer later
-            # and have them configurable via EvalMetadata
-            # condenser=get_default_condenser(
-            #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
-            # ),
-            # security_analyzer=LLMSecurityAnalyzer(),
-        )
+        if is_acp_agent(self.metadata.agent_type):
+            agent = ACPAgent(acp_command=get_acp_command(self.metadata.agent_type))
+        else:
+            tools = get_default_tools(
+                # Disable browser tools in CLI mode
+                enable_browser=False,
+            )
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+            )
 
         assert isinstance(workspace, RemoteWorkspace)
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
@@ -339,12 +347,17 @@ class SWTBenchEvaluation(Evaluation):
             logger=logger,
         )
 
+        test_result: dict[str, Any] = {
+            "git_patch": git_patch,
+        }
+        if isinstance(agent, ACPAgent):
+            test_result["acp_agent_name"] = agent.agent_name
+            test_result["acp_agent_version"] = agent.agent_version
+
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result={
-                "git_patch": git_patch,
-            },
+            test_result=test_result,
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
@@ -415,6 +428,7 @@ def main() -> None:
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
     )
 
     # Run orchestrator with a simple JSONL writer
