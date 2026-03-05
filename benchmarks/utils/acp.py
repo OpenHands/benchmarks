@@ -12,10 +12,11 @@ from openhands.sdk.workspace import RemoteWorkspace
 
 logger = get_logger(__name__)
 
-# Mapping of ACP agent types to the API key env vars they require.
-_ACP_ENV_VARS: dict[str, str] = {
-    "acp-claude": "ANTHROPIC_API_KEY",
-    "acp-codex": "OPENAI_API_KEY",
+# Mapping of ACP agent types to the env vars they require.
+# Both the API key and base URL are needed to route through LiteLLM proxy.
+_ACP_ENV_VARS: dict[str, list[str]] = {
+    "acp-claude": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
+    "acp-codex": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
 }
 
 # Mapping of ACP agent types to their ACP command.
@@ -47,24 +48,27 @@ def get_acp_command(agent_type: str) -> list[str]:
 def get_acp_forward_env(
     agent_type: str, forward_env: list[str] | None = None
 ) -> list[str] | None:
-    """Ensure the required API key env var is forwarded for ACP agent types.
+    """Ensure the required env vars are forwarded for ACP agent types.
 
     For non-ACP agent types (e.g. ``"default"``), *forward_env* is returned
     unchanged.  Raises ``ValueError`` if the required API key is not set in
     the current environment.
 
-    For ACP agent types, LMNR_ENV_VARS are also included to enable Laminar
-    tracing within the ACP subprocess.
+    For ACP agent types, both the API key and base URL are forwarded to enable
+    routing through the LiteLLM proxy. LMNR_ENV_VARS are also included to
+    enable Laminar tracing within the ACP subprocess.
     """
-    env_var = _ACP_ENV_VARS.get(agent_type)
-    if env_var is None:
+    env_vars = _ACP_ENV_VARS.get(agent_type)
+    if env_vars is None:
         return forward_env
 
     forward_env = list(forward_env or [])
-    if env_var not in forward_env:
-        if not os.getenv(env_var):
-            raise ValueError(f"{env_var} not found in environment")
-        forward_env.append(env_var)
+    for env_var in env_vars:
+        if env_var not in forward_env:
+            # Only the API key is strictly required; base URL defaults to provider
+            if "API_KEY" in env_var and not os.getenv(env_var):
+                raise ValueError(f"{env_var} not found in environment")
+            forward_env.append(env_var)
 
     # Include Laminar env vars for tracing in ACP agents
     for lmnr_var in LMNR_ENV_VARS:

@@ -59,15 +59,17 @@ def test_get_acp_command_returns_copy():
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
-def test_forward_env_claude_appends_key():
+def test_forward_env_claude_appends_key_and_base_url():
     result = get_acp_forward_env("acp-claude", [])
-    assert result == ["ANTHROPIC_API_KEY"]
+    assert "ANTHROPIC_API_KEY" in result
+    assert "ANTHROPIC_BASE_URL" in result
 
 
 @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"})
-def test_forward_env_codex_appends_key():
+def test_forward_env_codex_appends_key_and_base_url():
     result = get_acp_forward_env("acp-codex", [])
-    assert result == ["OPENAI_API_KEY"]
+    assert "OPENAI_API_KEY" in result
+    assert "OPENAI_BASE_URL" in result
 
 
 def test_forward_env_default_returns_unchanged():
@@ -83,19 +85,24 @@ def test_forward_env_default_none_returns_none():
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_none_becomes_list():
     result = get_acp_forward_env("acp-claude", None)
-    assert result == ["ANTHROPIC_API_KEY"]
+    assert "ANTHROPIC_API_KEY" in result
+    assert "ANTHROPIC_BASE_URL" in result
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_does_not_duplicate():
-    result = get_acp_forward_env("acp-claude", ["ANTHROPIC_API_KEY"])
-    assert result == ["ANTHROPIC_API_KEY"]
+    result = get_acp_forward_env("acp-claude", ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"])
+    # Should not add duplicates
+    assert result.count("ANTHROPIC_API_KEY") == 1
+    assert result.count("ANTHROPIC_BASE_URL") == 1
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_preserves_existing():
     result = get_acp_forward_env("acp-claude", ["OTHER_VAR"])
-    assert result == ["OTHER_VAR", "ANTHROPIC_API_KEY"]
+    assert "OTHER_VAR" in result
+    assert "ANTHROPIC_API_KEY" in result
+    assert "ANTHROPIC_BASE_URL" in result
 
 
 @patch.dict(os.environ, {}, clear=True)
@@ -111,7 +118,9 @@ def test_forward_env_does_not_mutate_input():
     original = ["FOO"]
     result = get_acp_forward_env("acp-claude", original)
     assert original == ["FOO"]  # not mutated
-    assert result == ["FOO", "ANTHROPIC_API_KEY"]
+    assert "FOO" in result
+    assert "ANTHROPIC_API_KEY" in result
+    assert "ANTHROPIC_BASE_URL" in result
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
