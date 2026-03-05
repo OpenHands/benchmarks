@@ -8,16 +8,22 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+import os
 import sys
 
-from benchmarks.swebenchmultimodal.config import BUILD_DEFAULTS
-from benchmarks.utils.build_utils import (
+
+# Disable rich logging to avoid threading issues with multiprocessing.
+# Rich's RichHandler creates locks and threads that don't play well with fork().
+os.environ.setdefault("LOG_JSON", "1")
+
+from benchmarks.swebenchmultimodal.config import BUILD_DEFAULTS  # noqa: E402
+from benchmarks.utils.build_utils import (  # noqa: E402
     build_all_images,
     default_build_output_dir,
     get_build_parser,
 )
-from benchmarks.utils.dataset import get_dataset
-from openhands.sdk import get_logger
+from benchmarks.utils.dataset import get_dataset  # noqa: E402
+from openhands.sdk import get_logger  # noqa: E402
 
 
 logger = get_logger(__name__)
