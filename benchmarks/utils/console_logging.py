@@ -425,13 +425,14 @@ class _ThreadRoutedConsoleHandler(logging.Handler):
                 stream.flush()
             except Exception:
                 pass
-        elif not fmt and stream and record.levelno >= logging.WARNING:
+        elif not fmt and record.levelno >= logging.WARNING:
             # Fallback for threads without per-thread setup (e.g. main
-            # asyncio event loop thread): use a basic format for warnings+.
+            # asyncio event loop thread): write warnings+ to STDERR to avoid
+            # corrupting stdout (which is used for JSON output parsing).
             try:
                 basic_msg = f"{record.levelname}: {record.name}: {record.getMessage()}"
-                stream.write(basic_msg + "\n")
-                stream.flush()
+                sys.__stderr__.write(basic_msg + "\n")
+                sys.__stderr__.flush()
             except Exception:
                 pass
 
