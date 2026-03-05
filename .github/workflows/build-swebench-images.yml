@@ -62,6 +62,7 @@ env:
   BUILD_BATCH_SIZE: '15'
   BUILDKIT_PRUNE_KEEP_GB: '60'
   BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
+  LOG_JSON: '1'  # Disable rich logging to prevent multiprocessing deadlock
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}
@@ -245,7 +246,6 @@ jobs:
           echo "Running: $CMD"
           eval "$CMD"
         env:
-          LOG_JSON: "1"  # Disable rich logging to prevent multiprocessing deadlock
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
