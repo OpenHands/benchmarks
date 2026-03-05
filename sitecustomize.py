@@ -13,7 +13,8 @@ import sys
 # Disable rich logging to avoid threading issues with multiprocessing.
 # Rich's RichHandler creates locks and threads that don't play well with fork().
 # Set this early before any SDK imports happen.
-os.environ.setdefault("LOG_JSON", "1")
+# Use direct assignment instead of setdefault to ensure it's always set.
+os.environ["LOG_JSON"] = "1"
 
 print("benchmarks sitecustomize imported", file=sys.stderr, flush=True)
 

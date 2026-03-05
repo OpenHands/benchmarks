@@ -14,7 +14,7 @@ import sys
 
 # Disable rich logging to avoid threading issues with multiprocessing.
 # Rich's RichHandler creates locks and threads that don't play well with fork().
-os.environ.setdefault("LOG_JSON", "1")
+os.environ["LOG_JSON"] = "1"
 
 from benchmarks.swebenchmultimodal.config import BUILD_DEFAULTS  # noqa: E402
 from benchmarks.utils.build_utils import (  # noqa: E402

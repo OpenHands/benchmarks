@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Disable rich logging to avoid threading issues with multiprocessing.
 # Rich's RichHandler creates locks and threads that don't play well with fork().
-os.environ.setdefault("LOG_JSON", "1")
+os.environ["LOG_JSON"] = "1"
 
 from benchmarks.multiswebench.download_dataset import (
     download_and_concat_dataset,  # noqa: E402
