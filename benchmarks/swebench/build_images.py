@@ -25,6 +25,11 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
 
+# Suppress verbose build stderr warnings (file copy progress from uv build)
+# The SDK logs every "[stderr] copying..." line as WARNING (75k+ lines total)
+import logging
+
+logging.getLogger("openhands.agent_server.docker.build").setLevel(logging.ERROR)
 
 logger = get_logger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
