@@ -248,6 +248,7 @@ jobs:
           echo "Running: $CMD"
           eval "$CMD"
         env:
+          LOG_JSON: "1"  # Disable rich logging to prevent multiprocessing deadlock
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1

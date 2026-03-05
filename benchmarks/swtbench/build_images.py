@@ -9,21 +9,15 @@ while keeping the SWT entrypoint stable for workflows.
 Note: SWT-bench uses max_workers=16 (vs SWE-bench's 32) via BUILD_DEFAULTS.
 """
 
-import os
 import sys
 
-
-# Disable rich logging to avoid threading issues with multiprocessing.
-# Rich's RichHandler creates locks and threads that don't play well with fork().
-os.environ["LOG_JSON"] = "1"
-
-from benchmarks.swebench.build_images import (  # noqa: E402
+from benchmarks.swebench.build_images import (
     _wrap_if_needed,
     collect_unique_base_images,
     extract_custom_tag,
 )
-from benchmarks.swtbench.config import BUILD_DEFAULTS  # noqa: E402
-from benchmarks.utils.build_utils import (  # noqa: E402
+from benchmarks.swtbench.config import BUILD_DEFAULTS
+from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
     get_build_parser,

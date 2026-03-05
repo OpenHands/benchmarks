@@ -97,6 +97,7 @@ jobs:
 
           echo "✅ GAIA image with MCP layer built and pushed successfully"
         env:
+          LOG_JSON: "1"  # Disable rich logging to prevent multiprocessing deadlock
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 

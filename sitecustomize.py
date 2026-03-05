@@ -10,10 +10,14 @@ import os
 import sys
 
 
+# ============================================================================
+# CENTRALIZED LOG_JSON SETTING
+# ============================================================================
 # Disable rich logging to avoid threading issues with multiprocessing.
 # Rich's RichHandler creates locks and threads that don't play well with fork().
-# Set this early before any SDK imports happen.
-# Use direct assignment instead of setdefault to ensure it's always set.
+# This is set here (sitecustomize.py) as the single source of truth, which is
+# automatically loaded by Python when this directory is on sys.path.
+# For defense in depth, GitHub Actions workflows also set LOG_JSON=1 explicitly.
 os.environ["LOG_JSON"] = "1"
 
 print("benchmarks sitecustomize imported", file=sys.stderr, flush=True)

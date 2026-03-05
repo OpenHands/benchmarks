@@ -9,27 +9,21 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
-import os
 import sys
 from pathlib import Path
 
-
-# Disable rich logging to avoid threading issues with multiprocessing.
-# Rich's RichHandler creates locks and threads that don't play well with fork().
-os.environ["LOG_JSON"] = "1"
-
-from benchmarks.swebench import constants  # noqa: E402
-from benchmarks.swebench.config import BUILD_DEFAULTS  # noqa: E402
-from benchmarks.utils.build_utils import (  # noqa: E402
+from benchmarks.swebench import constants
+from benchmarks.swebench.config import BUILD_DEFAULTS
+from benchmarks.utils.build_utils import (
     BuildOutput,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
     run_docker_build_layer,
 )
-from benchmarks.utils.dataset import get_dataset  # noqa: E402
-from benchmarks.utils.image_utils import remote_image_exists  # noqa: E402
-from openhands.sdk import get_logger  # noqa: E402
+from benchmarks.utils.dataset import get_dataset
+from benchmarks.utils.image_utils import remote_image_exists
+from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)

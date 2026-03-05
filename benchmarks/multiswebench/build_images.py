@@ -12,20 +12,13 @@ import json
 import os
 from pathlib import Path
 
-
-# Disable rich logging to avoid threading issues with multiprocessing.
-# Rich's RichHandler creates locks and threads that don't play well with fork().
-os.environ["LOG_JSON"] = "1"
-
-from benchmarks.multiswebench.download_dataset import (
-    download_and_concat_dataset,  # noqa: E402
-)
-from benchmarks.utils.build_utils import (  # noqa: E402
+from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
+from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
     get_build_parser,
 )
-from openhands.sdk import get_logger  # noqa: E402
+from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
