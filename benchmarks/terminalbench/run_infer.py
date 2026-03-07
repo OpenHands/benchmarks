@@ -51,7 +51,6 @@ def run_harbor_evaluation(
     output_dir: str,
     num_workers: int = 1,
     task_ids: list[str] | None = None,
-    timeout: int = 3600,
 ) -> Path:
     """Run harbor evaluation with openhands-sdk agent.
 
@@ -61,7 +60,6 @@ def run_harbor_evaluation(
         output_dir: Directory to store output files.
         num_workers: Number of parallel workers.
         task_ids: Optional list of specific task IDs to run.
-        timeout: Timeout per task in seconds.
 
     Returns:
         Path to the harbor output directory.
@@ -70,7 +68,8 @@ def run_harbor_evaluation(
     harbor_output_dir.mkdir(parents=True, exist_ok=True)
     harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
 
-    # Build harbor command
+    # Build harbor command using harbor CLI flags.
+    # Use absolute path for --jobs-dir to avoid CWD-relative path issues.
     cmd = [
         harbor_exe,
         "run",
@@ -80,30 +79,27 @@ def run_harbor_evaluation(
         HARBOR_DEFAULTS["agent_name"],
         "-m",
         llm.model,
-        "--output-dir",
-        str(harbor_output_dir),
-        "--max-workers",
+        "--jobs-dir",
+        str(harbor_output_dir.resolve()),
+        "--n-concurrent",
         str(num_workers),
-        "--timeout",
-        str(timeout),
     ]
 
-    # Add specific task IDs if provided
+    # Pass LLM credentials as agent environment variables
+    if llm.api_key:
+        api_key = (
+            llm.api_key.get_secret_value()
+            if isinstance(llm.api_key, SecretStr)
+            else llm.api_key
+        )
+        cmd.extend(["--ae", f"LLM_API_KEY={api_key}"])
+    if llm.base_url:
+        cmd.extend(["--ae", f"LLM_BASE_URL={llm.base_url}"])
+
+    # Add specific task names if provided
     if task_ids:
         for task_id in task_ids:
-            cmd.extend(["--task-id", task_id])
-
-    # Set up environment with LLM credentials
-    env = os.environ.copy()
-    if llm.api_key:
-        # api_key can be str or SecretStr
-        if isinstance(llm.api_key, SecretStr):
-            env["LLM_API_KEY"] = llm.api_key.get_secret_value()
-        else:
-            env["LLM_API_KEY"] = llm.api_key
-    if llm.base_url:
-        env["LLM_BASE_URL"] = llm.base_url
-    env["LLM_MODEL"] = llm.model
+            cmd.extend(["--task-name", task_id])
 
     logger.info(f"Running harbor command: {' '.join(cmd)}")
     logger.info(f"Output directory: {harbor_output_dir}")
@@ -111,10 +107,8 @@ def run_harbor_evaluation(
     try:
         result = subprocess.run(
             cmd,
-            env=env,
             capture_output=True,
             text=True,
-            cwd=str(harbor_output_dir),
         )
 
         if result.returncode != 0:
@@ -134,14 +128,35 @@ def run_harbor_evaluation(
     return harbor_output_dir
 
 
+def _find_job_dir(harbor_output_dir: Path) -> Path:
+    """Find the harbor job directory (timestamp-named) inside the output dir."""
+    # Harbor creates a timestamp-named subdirectory (e.g., 2026-03-07__16-08-47)
+    # containing result.json and trial subdirectories
+    candidates = [
+        d
+        for d in harbor_output_dir.iterdir()
+        if d.is_dir() and (d / "result.json").exists()
+    ]
+    if not candidates:
+        raise RuntimeError(
+            f"No harbor job directory found in {harbor_output_dir}. "
+            f"Expected a timestamp-named directory containing result.json."
+        )
+    # Use the most recent job directory if multiple exist
+    return sorted(candidates)[-1]
+
+
 def convert_harbor_to_eval_output(
     harbor_output_dir: Path,
     eval_output_path: Path,
 ) -> None:
-    """Convert harbor output (ATIF trajectories) to evaluation output format.
+    """Convert harbor output to evaluation output format.
 
-    Harbor stores results as ATIF trajectory JSON files. This function converts
-    them to the standard JSONL format used by the evaluation pipeline.
+    Harbor stores trial results in a job directory structured as:
+        harbor_output/TIMESTAMP/TRIAL_NAME/result.json
+
+    Each trial's result.json contains task_name, verifier_result, agent_result,
+    timing info, and exception details.
 
     Args:
         harbor_output_dir: Path to harbor output directory.
@@ -149,115 +164,101 @@ def convert_harbor_to_eval_output(
     """
     logger.info(f"Converting harbor output from {harbor_output_dir}")
 
+    job_dir = _find_job_dir(harbor_output_dir)
+    logger.info(f"Using harbor job directory: {job_dir}")
+
+    # Find trial result files (each trial dir has a result.json)
+    result_files = list(job_dir.glob("*/result.json"))
+    # Exclude the job-level result.json
+    result_files = [f for f in result_files if f.parent != job_dir]
+
+    if not result_files:
+        raise RuntimeError(
+            f"No trial result files found in {job_dir}. "
+            f"Expected result.json files in trial subdirectories."
+        )
+
+    logger.info(f"Found {len(result_files)} trial results in {job_dir}")
+
     results: list[dict] = []
     errors: list[dict] = []
 
-    # Harbor stores trajectories in trials/*/trajectory.json
-    # Fail fast if structure is unexpected rather than silently scanning
-    trials_dir = harbor_output_dir / "trials"
-    if not trials_dir.exists():
-        raise RuntimeError(
-            f"Harbor trials directory not found: {trials_dir}. "
-            f"Expected Harbor output structure with trials/ subdirectory."
-        )
-
-    trajectory_files = list(trials_dir.glob("*/trajectory.json"))
-    if not trajectory_files:
-        raise RuntimeError(
-            f"No trajectory files found in {trials_dir}. "
-            f"Expected trajectory.json files in trial subdirectories."
-        )
-
-    logger.info(f"Found {len(trajectory_files)} trajectory files in {trials_dir}")
-
-    for traj_file in trajectory_files:
-        if traj_file.name in ["results.json", "metadata.json"]:
-            continue
-
+    for result_file in result_files:
         try:
-            with open(traj_file) as f:
-                trajectory = json.load(f)
+            with open(result_file) as f:
+                trial = json.load(f)
 
-            # Extract instance ID from trajectory or file path
-            instance_id = trajectory.get("session_id") or traj_file.parent.name
+            instance_id = trial.get("task_name", result_file.parent.name)
 
-            # Extract metrics from ATIF trajectory
-            final_metrics = trajectory.get("final_metrics", {})
-            steps = trajectory.get("steps", [])
-
-            # Build history from steps
-            history = []
-            for step in steps:
-                history.append(
+            # Check for exceptions
+            if trial.get("exception_info"):
+                errors.append(
                     {
-                        "step_id": step.get("step_id"),
-                        "source": step.get("source"),
-                        "message": step.get("message"),
-                        "timestamp": step.get("timestamp"),
+                        "instance_id": instance_id,
+                        "error": str(trial["exception_info"]),
+                        "test_result": {},
                     }
                 )
+                continue
 
-            # Extract instruction from the first user step in the trajectory.
-            # Terminal-Bench ATIF format always starts with a user message
-            # containing the task instruction.
-            instruction = ""
-            for step in steps:
-                if step.get("source") == "user":
-                    instruction = step.get("message", "")
-                    break
+            # Extract verifier results
+            verifier_result = trial.get("verifier_result", {})
+            rewards = verifier_result.get("rewards", {})
+            passed = rewards.get("reward", 0.0) > 0
 
-            # Create eval output entry
+            # Extract agent metrics
+            agent_result = trial.get("agent_result", {})
+
             eval_entry = {
                 "instance_id": instance_id,
                 "test_result": {
-                    "trajectory_path": str(traj_file),
-                    "total_steps": len(steps),
-                    "final_metrics": final_metrics,
+                    "trial_name": trial.get("trial_name"),
+                    "trial_uri": trial.get("trial_uri"),
+                    "rewards": rewards,
+                    "passed": passed,
                 },
-                "instruction": instruction,
+                "instruction": "",
                 "error": None,
-                "history": history,
+                "history": [],
                 "metrics": {
-                    "total_prompt_tokens": final_metrics.get("total_prompt_tokens", 0),
-                    "total_completion_tokens": final_metrics.get(
-                        "total_completion_tokens", 0
+                    "total_prompt_tokens": agent_result.get("n_input_tokens") or 0,
+                    "total_completion_tokens": (
+                        agent_result.get("n_output_tokens") or 0
                     ),
-                    "total_cost_usd": final_metrics.get("total_cost_usd", 0.0),
+                    "total_cost_usd": agent_result.get("cost_usd") or 0.0,
                 },
             }
             results.append(eval_entry)
-            logger.info(f"Processed trajectory for instance: {instance_id}")
+            logger.info(
+                f"Processed trial {instance_id}: reward={rewards.get('reward', 'N/A')}"
+            )
 
         except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"Failed to process trajectory file {traj_file}: {e}")
-            # Record error for this trajectory instead of silently skipping
+            logger.error(f"Failed to process result file {result_file}: {e}")
             errors.append(
                 {
-                    "instance_id": traj_file.parent.name,
+                    "instance_id": result_file.parent.name,
                     "error": str(e),
                     "test_result": {},
                 }
             )
 
-    # Fail if no trajectories were successfully processed
     if not results and not errors:
-        raise RuntimeError(f"No trajectories processed from {harbor_output_dir}")
+        raise RuntimeError(f"No trials processed from {harbor_output_dir}")
 
     if not results and errors:
-        raise RuntimeError(
-            f"All {len(errors)} trajectories failed to parse from {harbor_output_dir}"
-        )
+        raise RuntimeError(f"All {len(errors)} trials failed from {harbor_output_dir}")
 
     # Write results to output.jsonl
     with open(eval_output_path, "w") as f:
         for entry in results:
             f.write(json.dumps(entry) + "\n")
-        # Also write error entries so they appear in evaluation
         for entry in errors:
             f.write(json.dumps(entry) + "\n")
 
     logger.info(
-        f"Wrote {len(results)} successful + {len(errors)} failed entries to {eval_output_path}"
+        f"Wrote {len(results)} successful + {len(errors)} failed entries "
+        f"to {eval_output_path}"
     )
 
 
@@ -312,12 +313,6 @@ Examples:
         type=int,
         default=INFER_DEFAULTS["num_workers"],
         help="Number of parallel workers",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=HARBOR_DEFAULTS["timeout"],
-        help="Timeout per task in seconds",
     )
     parser.add_argument(
         "--select",
@@ -382,7 +377,6 @@ Examples:
         "dataset": args.dataset,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "harbor_agent": HARBOR_DEFAULTS["agent_name"],
-        "timeout": args.timeout,
         "note": args.note,
     }
     metadata_path = Path(structured_output_dir) / "metadata.json"
@@ -410,7 +404,6 @@ Examples:
                 output_dir=structured_output_dir,
                 num_workers=args.num_workers,
                 task_ids=task_ids,
-                timeout=args.timeout,
             )
 
             # Convert harbor output to standard format

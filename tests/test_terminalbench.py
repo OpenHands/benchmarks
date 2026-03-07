@@ -206,84 +206,49 @@ class TestProcessTerminalbenchResults:
         assert "resolved_ids" in report
 
 
-class TestConvertHarborOutput:
-    """Tests for harbor output conversion functions."""
-
-    def test_atif_trajectory_parsing(self, tmp_path: Path) -> None:
-        """Test parsing of ATIF trajectory format."""
-        # Create a mock ATIF trajectory
-        trajectory = {
-            "schema_version": "ATIF-v1.5",
-            "session_id": "test-session-123",
-            "agent": {"name": "openhands-sdk", "version": "1.0.0"},
-            "steps": [
-                {
-                    "step_id": 1,
-                    "source": "user",
-                    "message": "Create a file",
-                    "timestamp": "2025-01-01T00:00:00Z",
-                },
-                {
-                    "step_id": 2,
-                    "source": "agent",
-                    "message": "I'll create the file",
-                    "timestamp": "2025-01-01T00:00:01Z",
-                },
-            ],
-            "final_metrics": {
-                "total_prompt_tokens": 500,
-                "total_completion_tokens": 100,
-                "total_cost_usd": 0.005,
-            },
-        }
-
-        traj_file = tmp_path / "trajectory.json"
-        traj_file.write_text(json.dumps(trajectory))
-
-        # Parse the trajectory
-        with open(traj_file) as f:
-            parsed = json.load(f)
-
-        assert parsed["session_id"] == "test-session-123"
-        assert len(parsed["steps"]) == 2
-        assert parsed["final_metrics"]["total_cost_usd"] == 0.005
-
-
 class TestConvertHarborToEvalOutput:
     """Tests for convert_harbor_to_eval_output function."""
 
     def _create_harbor_structure(
-        self, tmp_path: Path, trajectories: list[tuple[str, dict]]
+        self, tmp_path: Path, trials: list[tuple[str, dict]]
     ) -> Path:
-        """Create a mock Harbor output structure."""
-        harbor_dir = tmp_path / "harbor_output"
-        trials_dir = harbor_dir / "trials"
-        trials_dir.mkdir(parents=True)
+        """Create a mock Harbor output structure.
 
-        for trial_name, trajectory in trajectories:
-            trial_dir = trials_dir / trial_name
+        Harbor stores results as:
+            harbor_output/TIMESTAMP/TRIAL_NAME/result.json
+        with a job-level result.json at harbor_output/TIMESTAMP/result.json
+        """
+        harbor_dir = tmp_path / "harbor_output"
+        job_dir = harbor_dir / "2026-01-01__00-00-00"
+        job_dir.mkdir(parents=True)
+
+        # Create job-level result.json
+        (job_dir / "result.json").write_text(json.dumps({"id": "test-job"}))
+
+        for trial_name, trial_result in trials:
+            trial_dir = job_dir / trial_name
             trial_dir.mkdir()
-            (trial_dir / "trajectory.json").write_text(json.dumps(trajectory))
+            (trial_dir / "result.json").write_text(json.dumps(trial_result))
 
         return harbor_dir
 
-    def test_successful_trajectory_parsing(self, tmp_path: Path) -> None:
-        """Test successful parsing of ATIF trajectory."""
-        trajectory = {
-            "session_id": "test-task-1",
-            "steps": [
-                {"step_id": 1, "source": "user", "message": "Do task 1"},
-                {"step_id": 2, "source": "agent", "message": "Done"},
-            ],
-            "final_metrics": {
-                "total_prompt_tokens": 500,
-                "total_completion_tokens": 100,
-                "total_cost_usd": 0.01,
+    def test_successful_trial_parsing(self, tmp_path: Path) -> None:
+        """Test successful parsing of harbor trial result."""
+        trial_result = {
+            "task_name": "hello-world",
+            "trial_name": "hello-world__abc123",
+            "trial_uri": "file:///path/to/trial",
+            "agent_result": {
+                "n_input_tokens": 500,
+                "n_output_tokens": 100,
+                "cost_usd": 0.01,
             },
+            "verifier_result": {"rewards": {"reward": 1.0}},
+            "exception_info": None,
         }
 
         harbor_dir = self._create_harbor_structure(
-            tmp_path, [("trial_001", trajectory)]
+            tmp_path, [("hello-world__abc123", trial_result)]
         )
         output_file = tmp_path / "output.jsonl"
 
@@ -294,99 +259,134 @@ class TestConvertHarborToEvalOutput:
             entries = [json.loads(line) for line in f]
 
         assert len(entries) == 1
-        assert entries[0]["instance_id"] == "test-task-1"
+        assert entries[0]["instance_id"] == "hello-world"
         assert entries[0]["metrics"]["total_cost_usd"] == 0.01
-        assert len(entries[0]["history"]) == 2
+        assert entries[0]["test_result"]["passed"] is True
 
-    def test_malformed_trajectory_handling(self, tmp_path: Path) -> None:
-        """Test handling of malformed trajectory files."""
-        harbor_dir = tmp_path / "harbor_output"
-        trials_dir = harbor_dir / "trials"
-        trial_dir = trials_dir / "bad_trial"
-        trial_dir.mkdir(parents=True)
-
-        # Write invalid JSON
-        (trial_dir / "trajectory.json").write_text("{ invalid json }")
-
-        output_file = tmp_path / "output.jsonl"
-
-        # Should raise RuntimeError since all trajectories failed
-        with pytest.raises(RuntimeError, match="All .* trajectories failed"):
-            convert_harbor_to_eval_output(harbor_dir, output_file)
-
-    def test_mixed_valid_invalid_trajectories(self, tmp_path: Path) -> None:
-        """Test handling mix of valid and invalid trajectories."""
-        valid_trajectory = {
-            "session_id": "good-task",
-            "steps": [{"step_id": 1, "source": "user", "message": "Test"}],
-            "final_metrics": {},
+    def test_failed_trial(self, tmp_path: Path) -> None:
+        """Test parsing of a trial with reward 0."""
+        trial_result = {
+            "task_name": "test-task",
+            "trial_name": "test-task__xyz",
+            "agent_result": {
+                "n_input_tokens": None,
+                "n_output_tokens": None,
+                "cost_usd": None,
+            },
+            "verifier_result": {"rewards": {"reward": 0.0}},
+            "exception_info": None,
         }
 
-        harbor_dir = tmp_path / "harbor_output"
-        trials_dir = harbor_dir / "trials"
-        trials_dir.mkdir(parents=True)
+        harbor_dir = self._create_harbor_structure(
+            tmp_path, [("test-task__xyz", trial_result)]
+        )
+        output_file = tmp_path / "output.jsonl"
 
-        # Create valid trial
-        valid_dir = trials_dir / "valid_trial"
-        valid_dir.mkdir()
-        (valid_dir / "trajectory.json").write_text(json.dumps(valid_trajectory))
+        convert_harbor_to_eval_output(harbor_dir, output_file)
 
-        # Create invalid trial
-        invalid_dir = trials_dir / "invalid_trial"
-        invalid_dir.mkdir()
-        (invalid_dir / "trajectory.json").write_text("not json")
+        with open(output_file) as f:
+            entries = [json.loads(line) for line in f]
 
+        assert len(entries) == 1
+        assert entries[0]["test_result"]["passed"] is False
+        assert entries[0]["metrics"]["total_cost_usd"] == 0.0
+
+    def test_trial_with_exception(self, tmp_path: Path) -> None:
+        """Test handling of a trial with exception."""
+        trial_result = {
+            "task_name": "error-task",
+            "trial_name": "error-task__err",
+            "agent_result": {},
+            "verifier_result": {},
+            "exception_info": {"type": "TimeoutError", "message": "Agent timed out"},
+        }
+
+        harbor_dir = self._create_harbor_structure(
+            tmp_path, [("error-task__err", trial_result)]
+        )
+        output_file = tmp_path / "output.jsonl"
+
+        # Should raise since all trials have exceptions and none succeeded
+        with pytest.raises(RuntimeError, match="All .* trials failed"):
+            convert_harbor_to_eval_output(harbor_dir, output_file)
+
+    def test_mixed_valid_and_exception_trials(self, tmp_path: Path) -> None:
+        """Test handling mix of successful and exception trials."""
+        trials = [
+            (
+                "good-task__abc",
+                {
+                    "task_name": "good-task",
+                    "trial_name": "good-task__abc",
+                    "agent_result": {},
+                    "verifier_result": {"rewards": {"reward": 1.0}},
+                    "exception_info": None,
+                },
+            ),
+            (
+                "bad-task__def",
+                {
+                    "task_name": "bad-task",
+                    "trial_name": "bad-task__def",
+                    "agent_result": {},
+                    "verifier_result": {},
+                    "exception_info": {"type": "Error", "message": "Failed"},
+                },
+            ),
+        ]
+
+        harbor_dir = self._create_harbor_structure(tmp_path, trials)
         output_file = tmp_path / "output.jsonl"
         convert_harbor_to_eval_output(harbor_dir, output_file)
 
         with open(output_file) as f:
             entries = [json.loads(line) for line in f]
 
-        # Should have both the successful and failed entries
         assert len(entries) == 2
         success = [e for e in entries if e.get("error") is None]
         errors = [e for e in entries if e.get("error") is not None]
         assert len(success) == 1
         assert len(errors) == 1
 
-    def test_empty_harbor_output_directory(self, tmp_path: Path) -> None:
-        """Test handling of empty harbor output directory."""
+    def test_empty_job_directory(self, tmp_path: Path) -> None:
+        """Test handling of empty harbor job directory."""
         harbor_dir = tmp_path / "harbor_output"
-        trials_dir = harbor_dir / "trials"
-        trials_dir.mkdir(parents=True)
-        # trials directory exists but has no trial subdirectories
+        job_dir = harbor_dir / "2026-01-01__00-00-00"
+        job_dir.mkdir(parents=True)
+        (job_dir / "result.json").write_text(json.dumps({"id": "test"}))
 
         output_file = tmp_path / "output.jsonl"
 
-        with pytest.raises(RuntimeError, match="No trajectory files found"):
+        with pytest.raises(RuntimeError, match="No trial result files found"):
             convert_harbor_to_eval_output(harbor_dir, output_file)
 
-    def test_missing_trials_directory(self, tmp_path: Path) -> None:
-        """Test handling when trials/ directory doesn't exist."""
+    def test_missing_job_directory(self, tmp_path: Path) -> None:
+        """Test handling when no job directory exists."""
         harbor_dir = tmp_path / "harbor_output"
         harbor_dir.mkdir()
-        # No trials/ subdirectory
 
         output_file = tmp_path / "output.jsonl"
 
-        with pytest.raises(RuntimeError, match="Harbor trials directory not found"):
+        with pytest.raises(RuntimeError, match="No harbor job directory found"):
             convert_harbor_to_eval_output(harbor_dir, output_file)
 
-    def test_trajectory_discovery_finds_all_trials(self, tmp_path: Path) -> None:
-        """Test that trajectory discovery finds all trial subdirectories."""
-        trajectories = [
+    def test_discovery_finds_all_trials(self, tmp_path: Path) -> None:
+        """Test that discovery finds all trial subdirectories."""
+        trials = [
             (
-                f"trial_{i:03d}",
+                f"task-{i}__trial{i}",
                 {
-                    "session_id": f"task-{i}",
-                    "steps": [],
-                    "final_metrics": {},
+                    "task_name": f"task-{i}",
+                    "trial_name": f"task-{i}__trial{i}",
+                    "agent_result": {},
+                    "verifier_result": {"rewards": {"reward": 0.0}},
+                    "exception_info": None,
                 },
             )
             for i in range(5)
         ]
 
-        harbor_dir = self._create_harbor_structure(tmp_path, trajectories)
+        harbor_dir = self._create_harbor_structure(tmp_path, trials)
         output_file = tmp_path / "output.jsonl"
 
         convert_harbor_to_eval_output(harbor_dir, output_file)

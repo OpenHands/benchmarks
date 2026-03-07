@@ -13,6 +13,4 @@ HARBOR_DEFAULTS = {
     "harbor_executable": "harbor",
     # Default agent name for openhands-sdk
     "agent_name": "openhands-sdk",
-    # Default timeout for agent execution (in seconds)
-    "timeout": 3600,  # 1 hour
 }
