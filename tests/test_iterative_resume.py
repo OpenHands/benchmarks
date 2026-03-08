@@ -58,8 +58,8 @@ def test_iterative_resume_with_expanded_n_limit():
     Test that iterative evaluation correctly handles resume when n-limit is expanded.
 
     Scenario:
-    1. First run: Process 50 instances with max_attempts=3
-    2. Second run: Expand to 200 instances with max_attempts=3
+    1. First run: Process 50 instances with n_critic_runs=3
+    2. Second run: Expand to 200 instances with n_critic_runs=3
 
     Expected behavior:
     - The 150 new instances (51-200) should be processed starting from attempt 1
@@ -109,7 +109,7 @@ def test_iterative_resume_with_expanded_n_limit():
             eval_output_dir=tmpdir,
             details={},
             eval_limit=200,
-            max_attempts=3,
+            n_critic_runs=3,
             max_retries=0,
             critic=PassCritic(),
         )
@@ -191,7 +191,7 @@ def test_iterative_resume_with_same_n_limit():
             eval_output_dir=tmpdir,
             details={},
             eval_limit=50,
-            max_attempts=3,
+            n_critic_runs=3,
             max_retries=0,
             critic=PassCritic(),
         )

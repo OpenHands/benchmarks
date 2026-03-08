@@ -81,7 +81,7 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
 
 def aggregate_results(
     output_dir: str,
-    max_attempts: int,
+    n_critic_runs: int,
     critic: "CriticBase",
     final_output_file: str = "output.jsonl",
 ) -> None:
@@ -93,17 +93,17 @@ def aggregate_results(
 
     Args:
         output_dir: Directory containing attempt files
-        max_attempts: Maximum number of attempts
+        n_critic_runs: Maximum number of attempts
         critic: Critic instance to use for evaluation
         final_output_file: Name of the final output file
     """
-    logger.info(f"Aggregating results from {max_attempts} attempts")
+    logger.info(f"Aggregating results from {n_critic_runs} attempts")
 
     # Dictionary to store the best result for each instance
     best_results: dict[EvalInstanceID, EvalOutput] = {}
 
     # Work backwards from the last attempt to the first
-    for attempt in range(max_attempts, 0, -1):
+    for attempt in range(n_critic_runs, 0, -1):
         attempt_file = os.path.join(
             output_dir, f"output.critic_attempt_{attempt}.jsonl"
         )

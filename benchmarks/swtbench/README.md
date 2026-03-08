@@ -26,7 +26,7 @@ requests__requests-5555
 
 2. Run evaluation with the selection file:
 ```bash
-uv run swtbench-infer .llm_config/sonnet-4.json --max-attempts 3 --select instances.txt --n-limit 500 --max-iterations 500 --critic finish_with_patch
+uv run swtbench-infer .llm_config/sonnet-4.json --max-attempts 3 --select instances.txt --n-limit 500 --max-iterations 500 --critic finish_with_patch --n-critic-runs 3
 ```
 
 This will only evaluate the instances listed in the file.
