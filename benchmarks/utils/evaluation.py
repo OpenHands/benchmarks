@@ -42,6 +42,15 @@ logger = get_logger(__name__)
 # Interval in seconds between checking for per-instance timeouts
 TIMEOUT_CHECK_INTERVAL_SECONDS = 60
 
+# Maximum number of tasks a worker process handles before being recycled.
+# This prevents unbounded memory growth from Python heap fragmentation:
+# CPython's pymalloc allocator does not return freed memory to the OS,
+# so long-lived workers accumulate RSS over time. Recycling forces the OS
+# to reclaim all memory held by the old process.
+# The cost of recycling is a process spawn + module re-import (~1-2s),
+# which is negligible compared to per-instance runtime (minutes).
+MAX_TASKS_PER_CHILD = 10
+
 
 @dataclass
 class PendingInstance:
@@ -384,7 +393,9 @@ class Evaluation(ABC, BaseModel):
                 attempt_outputs.append(out)
 
             # Run evaluation for this attempt
-            pool = ProcessPoolExecutor(max_workers=self.num_workers)
+            pool = ProcessPoolExecutor(
+                max_workers=self.num_workers,
+            )
             futures: list[Future] = []
             # Consolidated tracking: maps future -> PendingInstance
             pending_instances: dict[Future, PendingInstance] = {}
