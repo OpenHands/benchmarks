@@ -146,6 +146,24 @@ class Evaluation(ABC, BaseModel):
             instance=instance.data,
         )
 
+    def _create_error_output_with_metadata(
+        self,
+        instance: EvalInstance,
+        error: Exception,
+        attempt: int,
+        datapoint_id: UUID | None,
+    ) -> EvalOutput:
+        """Create an EvalOutput with proper metadata for timeout/deadlock errors."""
+        error_output = self._create_error_output(instance, error, attempt)
+        if error_output.metadata is None:
+            error_output.metadata = self.metadata.model_copy(deep=True)
+        if self.metadata.lmnr is not None:
+            error_output.metadata.lmnr = LaminarEvalMetadata(
+                eval_id=self.metadata.lmnr.eval_id,
+                datapoint_id=datapoint_id,
+            )
+        return error_output
+
     def _capture_conversation_archive(
         self,
         workspace: RemoteWorkspace,
@@ -332,6 +350,24 @@ class Evaluation(ABC, BaseModel):
         critic = self.metadata.critic
         all_outputs: List[EvalOutput] = []
 
+        # Parse timeout config once, outside retry loop (env var won't change between attempts)
+        try:
+            no_progress_timeout = int(
+                os.getenv("EVALUATION_NO_PROGRESS_TIMEOUT", "1800")
+            )
+        except ValueError:
+            logger.warning(
+                "Invalid EVALUATION_NO_PROGRESS_TIMEOUT value, using default 1800s"
+            )
+            no_progress_timeout = 1800
+
+        if no_progress_timeout <= 0:
+            logger.warning(
+                f"Invalid EVALUATION_NO_PROGRESS_TIMEOUT={no_progress_timeout}, "
+                "using default 1800s"
+            )
+            no_progress_timeout = 1800
+
         for attempt in range(1, self.metadata.max_attempts + 1):
             self.current_attempt = attempt
             logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
@@ -417,6 +453,10 @@ class Evaluation(ABC, BaseModel):
                     total=len(futures), desc=f"Attempt {attempt}", leave=False
                 )
 
+                # Track progress for deadlock detection
+                timed_out_count = 0
+                last_progress_time = time.monotonic()
+
                 while pending:
                     # Wait for any future to complete, with short timeout to check
                     # for per-instance timeouts
@@ -429,6 +469,7 @@ class Evaluation(ABC, BaseModel):
                     # Process completed futures
                     for fut in done:
                         progress.update(1)
+                        last_progress_time = time.monotonic()
                         try:
                             instance, out = fut.result()
                             pending_info = pending_instances.get(fut)
@@ -463,40 +504,90 @@ class Evaluation(ABC, BaseModel):
                     for fut in timed_out_futures:
                         pending.discard(fut)
                         progress.update(1)
+                        timed_out_count += 1
+                        last_progress_time = time.monotonic()
                         pending_info = pending_instances.get(fut)
-                        if pending_info:
-                            inst = pending_info.instance
+                        if pending_info is None:
+                            # This indicates a bookkeeping bug - future is in pending
+                            # but not tracked in pending_instances. Log and skip.
                             logger.error(
-                                f"Instance {inst.id} timed out after "
-                                f"{self.instance_timeout}s"
+                                "BUG: Timed out future missing from pending_instances. "
+                                "Error output will not be created for this instance."
                             )
-                            error_output = self._create_error_output(
-                                inst,
-                                TimeoutError(
-                                    f"Instance did not complete within "
-                                    f"{self.instance_timeout}s timeout"
-                                ),
-                                attempt,
-                            )
-                            if error_output.metadata is None:
-                                error_output.metadata = self.metadata.model_copy(
-                                    deep=True
-                                )
-                            # metadata is guaranteed non-None after the above assignment
-                            if self.metadata.lmnr is not None:
-                                error_output.metadata.lmnr = LaminarEvalMetadata(
-                                    eval_id=self.metadata.lmnr.eval_id,
-                                    datapoint_id=pending_info.datapoint_id,
-                                )
-                            attempt_on_result(inst, error_output)
+                            fut.cancel()
+                            continue
+                        inst = pending_info.instance
+                        logger.error(
+                            f"Instance {inst.id} timed out after "
+                            f"{self.instance_timeout}s"
+                        )
+                        error_output = self._create_error_output_with_metadata(
+                            inst,
+                            TimeoutError(
+                                f"Instance did not complete within "
+                                f"{self.instance_timeout}s timeout"
+                            ),
+                            attempt,
+                            pending_info.datapoint_id,
+                        )
+                        attempt_on_result(inst, error_output)
                         # Note: fut.cancel() only prevents unstarted futures from
                         # starting. Running workers will continue until pool shutdown.
                         fut.cancel()
 
+                    # Deadlock detection: if no progress for too long, force terminate
+                    time_since_progress = now - last_progress_time
+                    if pending and time_since_progress > no_progress_timeout:
+                        logger.error(
+                            f"DEADLOCK DETECTED: No progress for "
+                            f"{time_since_progress / 60:.1f} minutes with "
+                            f"{len(pending)} pending instances. "
+                            f"Force terminating stuck workers."
+                        )
+                        for fut in list(pending):
+                            # Increment per-instance for consistency with per-instance
+                            # timeout handling above (line 491)
+                            timed_out_count += 1
+                            pending_info = pending_instances.get(fut)
+                            if pending_info is None:
+                                # This indicates a bookkeeping bug - future is in pending
+                                # but not tracked in pending_instances. Log and skip.
+                                logger.error(
+                                    "BUG: Deadlocked future missing from pending_instances. "
+                                    "Error output will not be created for this instance."
+                                )
+                                progress.update(1)
+                                continue
+                            inst = pending_info.instance
+                            error_output = self._create_error_output_with_metadata(
+                                inst,
+                                RuntimeError(
+                                    f"Worker deadlock detected after "
+                                    f"{time_since_progress / 60:.1f} minutes "
+                                    f"of no progress"
+                                ),
+                                attempt,
+                                pending_info.datapoint_id,
+                            )
+                            attempt_on_result(inst, error_output)
+                            progress.update(1)
+                        pending.clear()
+
                 progress.close()
 
-                # Normal completion - shutdown gracefully
-                pool.shutdown(wait=True)
+                # Shutdown pool - force terminate if we had timeouts/deadlocks.
+                # Force termination is necessary because zombie workers (stuck in
+                # deadlock or infinite loop) won't respond to graceful shutdown
+                # signals. Without force termination, the entire evaluation would
+                # hang waiting for workers that will never complete.
+                if timed_out_count > 0:
+                    logger.warning(
+                        f"{timed_out_count} instances timed out or deadlocked. "
+                        f"Force terminating zombie workers."
+                    )
+                    self._cleanup_pool(pool, futures, wait=False)
+                else:
+                    pool.shutdown(wait=True)
             except KeyboardInterrupt:
                 logger.warning("KeyboardInterrupt received, shutting down workers...")
                 self._cleanup_pool(pool, futures, wait=False)
