@@ -18,6 +18,9 @@ concurrency:
   group: build-gaia-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  LOG_JSON: '1'  # Disable rich logging to prevent multiprocessing deadlock
+
 jobs:
   build-and-push:
     if: >
@@ -96,8 +99,7 @@ jobs:
           eval "$CMD"
 
           echo "✅ GAIA image with MCP layer built and pushed successfully"
-        env:
-          DOCKER_BUILDKIT: 1
+        env:          DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
       - name: Archive build logs
