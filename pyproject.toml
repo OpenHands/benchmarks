@@ -47,8 +47,13 @@ dependencies = [
     "hf-xet>=1.1.10,<2.0",
 ]
 
+[project.optional-dependencies]
+nemo = ["nemo_evaluator>=0.1.92,<0.2"]
+
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
+generate-llm-config = "nemo_evaluator.openhands_benchmarks.generate_llm_config:main"
+run-benchmark = "nemo_evaluator.openhands_benchmarks.run_benchmark:main"
 swebench-infer = "benchmarks.swebench.run_infer:main"
 swtbench-infer = "benchmarks.swtbench.run_infer:main"
 swebench-eval = "benchmarks.swebench.eval_infer:main"
@@ -75,11 +80,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["benchmarks"]
+include = ["benchmarks*", "nemo_evaluator*"]
 
 [tool.setuptools]
 # Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
 py-modules = ["sitecustomize"]
+
+[tool.setuptools.package-data]
+nemo_evaluator = ["**/*.yml"]
+benchmarks = ["**/*.j2", "**/Dockerfile*", "**/*.json"]
 
 [dependency-groups]
 dev = [
@@ -97,7 +106,6 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-exclude = ["legacy"]
 
 [tool.ruff.format]
 quote-style = "double"
