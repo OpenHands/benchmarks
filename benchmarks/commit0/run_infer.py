@@ -12,6 +12,13 @@ from benchmarks.commit0.build_images import (
     get_base_docker_image,
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
+from benchmarks.utils.acp import (
+    get_acp_command,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+    workspace_keepalive,
+)
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -32,6 +39,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
+from openhands.sdk.agent import ACPAgent
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -181,6 +189,8 @@ class Commit0Evaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
             forward_env: Environment variables to forward into the workspace.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         repo_name = instance.data["repo"].split("/")[1]
         base_docker_image = get_base_docker_image(repo_name)
         build_target = "source-minimal"
@@ -301,16 +311,21 @@ class Commit0Evaluation(Evaluation):
         workspace_dir_name = instance.data["repo"].split("/")[1]
         repo_path = f"/workspace/{workspace_dir_name}"
 
-        tools = get_default_tools(enable_browser=False)
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-        )
+        if is_acp_agent(self.metadata.agent_type):
+            agent = ACPAgent(acp_command=get_acp_command(self.metadata.agent_type))
+        else:
+            tools = get_default_tools(enable_browser=False)
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+            )
 
         assert isinstance(workspace, RemoteWorkspace)
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
@@ -330,9 +345,10 @@ class Commit0Evaluation(Evaluation):
             instance=instance.data,
             metadata=self.metadata,
         )
-        conversation.send_message(instruction)
-        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
-        conversation.run(timeout=run_timeout)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            conversation.send_message(instruction)
+            run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+            conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
 
@@ -637,6 +653,7 @@ def main() -> None:
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
     )
 
     evaluator = Commit0Evaluation(

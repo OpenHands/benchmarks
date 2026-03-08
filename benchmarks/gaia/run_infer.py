@@ -5,7 +5,7 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
-from typing import List, Sequence, cast
+from typing import Any, List, Sequence, cast
 
 import huggingface_hub
 import pandas as pd
@@ -15,6 +15,13 @@ from PIL import Image
 from benchmarks.gaia.config import INFER_DEFAULTS
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
+from benchmarks.utils.acp import (
+    get_acp_command,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+    workspace_keepalive,
+)
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -42,6 +49,7 @@ from openhands.sdk import (
     Tool,
     get_logger,
 )
+from openhands.sdk.agent import ACPAgent
 from openhands.sdk.event import ActionEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
@@ -153,6 +161,8 @@ class GAIAEvaluation(Evaluation):
             resource_factor: Resource factor for runtime allocation (default: 1).
             forward_env: Environment variables to forward into the workspace.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
@@ -308,26 +318,31 @@ class GAIAEvaluation(Evaluation):
                         image_urls.append(image_to_png_base64_url(image))
 
         # Create agent
-        tools = get_default_tools(enable_browser=True)
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
-        tavily_api_key = os.getenv("TAVILY_API_KEY", "")
-        assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-            mcp_config={
-                "mcpServers": {
-                    "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},
-                    "tavily": {
-                        "command": "npx",
-                        "args": ["-y", "tavily-mcp@0.2.1"],
-                        "env": {"TAVILY_API_KEY": tavily_api_key},
-                    },
-                }
-            },
-        )
+        if is_acp_agent(self.metadata.agent_type):
+            agent = ACPAgent(acp_command=get_acp_command(self.metadata.agent_type))
+        else:
+            tools = get_default_tools(enable_browser=True)
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+            assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+                mcp_config={
+                    "mcpServers": {
+                        "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},
+                        "tavily": {
+                            "command": "npx",
+                            "args": ["-y", "tavily-mcp@0.2.1"],
+                            "env": {"TAVILY_API_KEY": tavily_api_key},
+                        },
+                    }
+                },
+            )
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         # Create conversation
 
@@ -346,19 +361,20 @@ class GAIAEvaluation(Evaluation):
         )
 
         # Send message and run
-        if image_urls:
-            msg = Message(
-                role="user",
-                content=[
-                    TextContent(text=instruction),
-                    ImageContent(image_urls=image_urls),
-                ],
-            )
-            conversation.send_message(msg)
-        else:
-            conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            if image_urls:
+                msg = Message(
+                    role="user",
+                    content=[
+                        TextContent(text=instruction),
+                        ImageContent(image_urls=image_urls),
+                    ],
+                )
+                conversation.send_message(msg)
+            else:
+                conversation.send_message(instruction)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)
@@ -381,16 +397,22 @@ class GAIAEvaluation(Evaluation):
 
         # Collect history
 
+        # Build test_result with optional ACP agent metadata
+        test_result_data: dict[str, Any] = {
+            "score": score,
+            "model_answer_raw": model_answer_raw,
+            "model_answer": model_answer,
+            "ground_truth": ground_truth,
+        }
+        if isinstance(agent, ACPAgent):
+            test_result_data["acp_agent_name"] = agent.agent_name
+            test_result_data["acp_agent_version"] = agent.agent_version
+
         # Return evaluation output
         return EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result={
-                "score": score,
-                "model_answer_raw": model_answer_raw,
-                "model_answer": model_answer,
-                "ground_truth": ground_truth,
-            },
+            test_result=test_result_data,
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
@@ -595,6 +617,7 @@ def main() -> None:
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
     )
 
     # Create evaluator
