@@ -9,6 +9,8 @@ import re
 import shutil
 import subprocess
 import time
+from collections.abc import Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from openhands.sdk import get_logger
@@ -61,6 +63,109 @@ def _buildkit_prune_filters(
         return []
     pattern = "|".join(patterns)
     return ["--filter", f"description~={pattern}"]
+
+
+def buildkit_prune_filters_for_completed_images(
+    base_images: Sequence[str],
+) -> list[str]:
+    patterns = [re.escape(base_image) for base_image in base_images if base_image]
+    if not patterns:
+        return []
+    return [f"description~={'|'.join(patterns)}"]
+
+
+class BackgroundBuildKitPruner:
+    def __init__(self, *, enabled: bool = True, timeout_sec: int = 300) -> None:
+        self.enabled = enabled
+        self.timeout_sec = timeout_sec
+        self._executor = (
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="buildkit-prune")
+            if enabled
+            else None
+        )
+        self._future: Future[int] | None = None
+        self._pending_batches: list[list[str]] = []
+
+    @property
+    def is_busy(self) -> bool:
+        if not self.enabled:
+            return False
+        return (self._future is not None and not self._future.done()) or bool(
+            self._pending_batches
+        )
+
+    def enqueue_completed_batch(self, base_images: Sequence[str]) -> None:
+        if not self.enabled:
+            return
+        batch = [base_image for base_image in base_images if base_image]
+        if not batch:
+            return
+        logger.info(
+            "Queued background BuildKit prune for %d completed images", len(batch)
+        )
+        self._pending_batches.append(batch)
+        self.poll()
+
+    def poll(self) -> None:
+        if not self.enabled:
+            return
+        if self._future is not None:
+            if not self._future.done():
+                return
+            try:
+                pruned_count = self._future.result()
+                logger.info(
+                    "Background BuildKit prune completed for %d completed images",
+                    pruned_count,
+                )
+            except Exception as e:
+                logger.warning("Background BuildKit prune failed: %s", e)
+            finally:
+                self._future = None
+        self._launch_next()
+
+    def wait(self) -> None:
+        if not self.enabled or self._executor is None:
+            return
+        try:
+            while True:
+                if self._future is None:
+                    self._launch_next()
+                if self._future is None:
+                    break
+                try:
+                    pruned_count = self._future.result()
+                    logger.info(
+                        "Background BuildKit prune completed for %d completed images",
+                        pruned_count,
+                    )
+                except Exception as e:
+                    logger.warning("Background BuildKit prune failed: %s", e)
+                finally:
+                    self._future = None
+        finally:
+            self._executor.shutdown(wait=True)
+
+    def _launch_next(self) -> None:
+        if (
+            not self.enabled
+            or self._executor is None
+            or self._future is not None
+            or not self._pending_batches
+        ):
+            return
+        batch = self._pending_batches.pop(0)
+        filters = buildkit_prune_filters_for_completed_images(batch)
+        if not filters:
+            return
+        logger.info(
+            "Starting background BuildKit prune for %d completed images", len(batch)
+        )
+        self._future = self._executor.submit(self._prune_batch, batch, filters)
+
+    def _prune_batch(self, batch: Sequence[str], filters: list[str]) -> int:
+        prune_buildkit_cache(filters=filters, timeout_sec=self.timeout_sec)
+        return len(batch)
 
 
 def reset_buildkit(
@@ -164,17 +269,29 @@ def buildkit_disk_usage(root: str | Path = "/var/lib/buildkit") -> tuple[int, in
 def prune_buildkit_cache(
     keep_storage_gb: int | None = None,
     filters: list[str] | None = None,
+    timeout_sec: int | None = None,
 ) -> None:
     """
     Run docker buildx prune to free space on the BuildKit cache.
     keep_storage_gb: amount of cache to keep (pass None to keep default behavior).
     filters: optional list of buildx prune --filter values.
+    timeout_sec: optional timeout for the prune command.
     """
     base_cmd = ["docker", "buildx", "prune", "--all", "--force"]
 
     def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         logger.info("Pruning BuildKit cache: %s", " ".join(cmd))
-        proc = subprocess.run(cmd, text=True, capture_output=True)
+        try:
+            proc = subprocess.run(
+                cmd,
+                text=True,
+                capture_output=True,
+                timeout=timeout_sec,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"docker buildx prune timed out after {timeout_sec}s"
+            ) from e
         if proc.stdout:
             logger.info(proc.stdout.strip())
         if proc.stderr:
