@@ -9,6 +9,7 @@ echo "==== Prepare SWE-bench repo ===="
 OH_SWE_BENCH_REPO_PATH="https://github.com/OpenHands/SWE-bench.git"
 OH_SWE_BENCH_REPO_BRANCH="eval"
 git clone -b $OH_SWE_BENCH_REPO_BRANCH $OH_SWE_BENCH_REPO_PATH $EVAL_WORKSPACE/OH-SWE-bench
+cd $EVAL_WORKSPACE/OH-SWE-bench && git reset --hard HEAD
 
 # 2. Prepare DATA
 echo "==== Prepare SWE-bench data ===="
