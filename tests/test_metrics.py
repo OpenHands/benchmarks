@@ -253,6 +253,24 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "environment_setup_commit": "abc123",
             },
         )
+    elif benchmark_name == "swebenchmultilingual":
+        return EvalInstance(
+            id="test__instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test__instance-1",
+                "base_commit": "abc123",
+                "problem_statement": "Test problem",
+                "hints_text": "",
+                "created_at": "2024-01-01",
+                "patch": "test patch",
+                "test_patch": "test test_patch",
+                "version": "1.0",
+                "FAIL_TO_PASS": '["test1"]',
+                "PASS_TO_PASS": '["test2"]',
+                "environment_setup_commit": "abc123",
+            },
+        )
     elif benchmark_name == "multiswebench":
         return EvalInstance(
             id="test-instance-1",
@@ -357,6 +375,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             eval_output_dir="/tmp/eval_output",
             dataset="princeton-nlp/SWE-bench_Multimodal",
             dataset_split="dev",
+            details={"test": True},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "swebenchmultilingual":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "swebenchmultilingual"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="SWE-bench/SWE-bench_Multilingual",
+            dataset_split="test",
             details={"test": True},
             prompt_path=prompt_path,
             critic=PassCritic(),
@@ -477,10 +513,10 @@ def test_benchmark_metrics_collection(
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
     # Mock common dependencies to avoid actual LLM calls
-    # swebench uses get_tools_for_preset instead of get_default_tools
+    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
     tools_mock_target = (
         f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name == "swebench"
+        if benchmark_name in ("swebench", "swebenchmultilingual")
         else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
     )
     with (
@@ -493,7 +529,7 @@ def test_benchmark_metrics_collection(
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
-        if benchmark_name == "swebench":
+        if benchmark_name in ("swebench", "swebenchmultilingual"):
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
@@ -564,10 +600,10 @@ def test_metrics_with_zero_cost(mock_workspace):
     # Setup mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
-    # swebench uses get_tools_for_preset instead of get_default_tools
+    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
     tools_mock_target = (
         f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name == "swebench"
+        if benchmark_name in ("swebench", "swebenchmultilingual")
         else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
     )
     with (
@@ -579,7 +615,7 @@ def test_metrics_with_zero_cost(mock_workspace):
         patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
-        if benchmark_name == "swebench":
+        if benchmark_name in ("swebench", "swebenchmultilingual"):
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
