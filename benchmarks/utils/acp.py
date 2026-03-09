@@ -105,7 +105,7 @@ def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
 
 @contextmanager
 def workspace_keepalive(
-    agent_type: str, workspace: RemoteWorkspace, interval: int = 300
+    agent_type: str, workspace: RemoteWorkspace, interval: int = 60
 ):
     """Keep the runtime workspace alive during ACP agent execution.
 
@@ -118,6 +118,9 @@ def workspace_keepalive(
     command (``true``) on the workspace to prevent idle termination.
 
     For non-ACP agent types this is a no-op pass-through.
+
+    Important: Sends an immediate ping on context entry to reset the idle timer,
+    then continues pinging at the specified interval.
     """
     if not is_acp_agent(agent_type):
         yield
@@ -126,11 +129,15 @@ def workspace_keepalive(
     stop = threading.Event()
 
     def _ping() -> None:
-        while not stop.wait(interval):
+        # Ping immediately on thread start, then at regular intervals
+        while True:
             try:
                 workspace.execute_command("true")
+                logger.debug("Workspace keep-alive ping sent")
             except Exception:
-                pass
+                logger.debug("Workspace keep-alive ping failed", exc_info=True)
+            if stop.wait(interval):
+                break
 
     t = threading.Thread(target=_ping, daemon=True)
     t.start()
