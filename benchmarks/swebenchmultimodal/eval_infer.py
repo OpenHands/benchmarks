@@ -257,6 +257,7 @@ def run_swebench_multimodal_evaluation(
         split: Dataset split to use (default: dev)
         workers: Number of workers to use for evaluation
         run_id: Optional run ID for the evaluation
+        modal: Whether to use Modal for evaluation (default: True)
 
     Returns:
         Path to the generated report.json file, or None if not found

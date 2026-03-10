@@ -12,6 +12,7 @@ Usage:
 import argparse
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
@@ -74,9 +75,7 @@ def run_multi_swebench_evaluation(
         logger.info("Running Multi-SWE-Bench evaluation harness...")
 
         cmd = [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "multi_swe_bench.harness.run_evaluation",
             "--config",
@@ -96,11 +95,13 @@ def run_multi_swebench_evaluation(
             error_msg = f"Evaluation failed with return code {result.returncode}"
             print(f"ERROR: {error_msg}")
             logger.error(error_msg)
+            raise subprocess.CalledProcessError(result.returncode, cmd)
 
     except Exception as e:
         error_msg = f"Error running evaluation: {e}"
         print(f"ERROR: {error_msg}")
         logger.error(error_msg)
+        raise
 
 
 def main():
@@ -140,7 +141,7 @@ def main():
         logger.info(f"Results saved to {results_file}")
 
         # Move the report file to the output location
-        output_report_path = args.input_file.with_suffix(".report.json")
+        output_report_path = Path(args.input_file).with_suffix(".report.json")
         shutil.move(str(results_file), str(output_report_path))
         logger.info(f"Report moved to {output_report_path}")
 
