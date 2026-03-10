@@ -425,14 +425,27 @@ class GAIAEvaluation(Evaluation):
         question = instance.data.get("Question", "")
         file_name = instance.data.get("file_name", "")
 
-        instruction = """You have one question to answer. It is paramount that you provide a correct answer.
+        if is_acp_agent(self.metadata.agent_type):
+            # ACP agents (Claude Code, Codex) may refuse prompts with
+            # coercive/threatening language. Use a neutral variant that
+            # conveys the same intent without triggering safety filters.
+            instruction = """You have one question to answer. It is paramount that you provide a correct answer.
+Give it all you can: you have access to all the relevant tools to solve it and the correct answer is findable with the tools available to you. Please do not respond with 'I cannot answer' or 'None found' — instead, keep exploring different approaches until you find the answer.
+You MUST strictly follow the task-specific formatting instructions for your final answer.
+Here is the task:
+{task_question}
+""".format(  # noqa: E501
+                task_question=question,
+            )
+        else:
+            instruction = """You have one question to answer. It is paramount that you provide a correct answer.
 Give it all you can: I know for a fact that you have access to all the relevant tools to solve it and find the correct answer (the answer does exist). Failure or 'I cannot answer' or 'None found' will not be tolerated, success will be rewarded.
 You must make sure you find the correct answer! You MUST strictly follow the task-specific formatting instructions for your final answer.
 Here is the task:
 {task_question}
 """.format(  # noqa: E501
-            task_question=question,
-        )
+                task_question=question,
+            )
 
         # Add file information if present
         if file_name:
