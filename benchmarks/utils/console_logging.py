@@ -380,7 +380,8 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
     rich_mode = _rich_logging_enabled()
 
     # Console handler
-    console_handler = logging.StreamHandler(sys.__stdout__ if rich_mode else None)
+    # Always use stderr to avoid corrupting stdout (which may contain JSON output)
+    console_handler = logging.StreamHandler(sys.__stderr__)
     console_handler.setLevel(logging.INFO)
 
     if rich_mode:
@@ -403,10 +404,10 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
                 message_color=CYAN_BRIGHT,
                 newline_before=True,
             ),
-            file=sys.__stdout__,
+            file=sys.__stderr__,
         )
-        if sys.__stdout__ is not None:
-            sys.__stdout__.flush()
+        if sys.__stderr__ is not None:
+            sys.__stderr__.flush()
     else:
         # Original startup message style
         root_logger.info(
