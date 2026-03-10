@@ -79,13 +79,15 @@ def get_acp_forward_env(
 
 
 def extract_acp_model_hint(llm_model: str) -> str | None:
-    """Extract a model hint from the LLM config model string for ACP agents.
+    """Extract a bare model identifier from a LiteLLM proxy model string.
 
     LLM configs use LiteLLM proxy paths like 'litellm_proxy/anthropic/claude-opus-4-6'.
     ACP servers need the bare model identifier (e.g. 'claude-opus-4-6') to match
     against their available models list.
 
-    Returns None for empty model strings.
+    Strips the ``litellm_proxy/`` prefix and any provider segment (e.g. ``anthropic/``).
+    Returns None for empty model strings.  Does not filter by provider — the
+    ACP server is responsible for rejecting unsupported models.
     """
     if not llm_model:
         return None
