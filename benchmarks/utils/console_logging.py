@@ -417,7 +417,7 @@ class _ThreadRoutedConsoleHandler(logging.Handler):
                 return
             elif not filt:
                 return
-        stream = sys.__stdout__
+        stream = sys.__stderr__
         if fmt and stream:
             try:
                 msg = fmt.format(record)
@@ -513,10 +513,10 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
                 message_color=CYAN_BRIGHT,
                 newline_before=True,
             ),
-            file=sys.__stdout__,
+            file=sys.__stderr__,
         )
-        if sys.__stdout__ is not None:
-            sys.__stdout__.flush()
+        if sys.__stderr__ is not None:
+            sys.__stderr__.flush()
     else:
         # Temporarily allow INFO for the startup message
         _logging_local.console_level = logging.INFO
