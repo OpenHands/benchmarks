@@ -452,7 +452,12 @@ def summarize_instance(
     """Log a summary line for a completed instance"""
     # Lazy imports to avoid circular dependencies
     from openhands.sdk.conversation.state import ConversationExecutionStatus
-    from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
+    from openhands.sdk.event import (
+        ACPToolCallEvent,
+        ActionEvent,
+        AgentErrorEvent,
+        MessageEvent,
+    )
     from openhands.sdk.event.conversation_error import ConversationErrorEvent
     from openhands.sdk.tool.builtins.finish import FinishAction
 
@@ -472,6 +477,7 @@ def summarize_instance(
         and getattr(e, "action", None) is not None
         for e in events
     )
+    n_acp_tool_calls = sum(isinstance(e, ACPToolCallEvent) for e in events)
     n_agent_msgs = sum(
         isinstance(e, MessageEvent) and getattr(e, "source", None) == "agent"
         for e in events
@@ -541,12 +547,18 @@ def summarize_instance(
     )
 
     # Tool call count coloring
-    if n_tool_calls == 0:
+    # For ACP agents, n_tool_calls will be low (just "finish") but n_acp_tool_calls shows actual work
+    total_tool_calls = n_tool_calls + n_acp_tool_calls
+    if total_tool_calls == 0:
         tool_calls_tag = f"{err_c}{n_tool_calls}{reset}"
-    elif n_tool_calls < n_agent_msgs:
+    elif total_tool_calls < n_agent_msgs:
         tool_calls_tag = f"{warn_c}{n_tool_calls}{reset}"
     else:
         tool_calls_tag = f"{white_c}{n_tool_calls}{reset}"
+
+    # ACP tool calls (Claude Code internal tool calls)
+    if n_acp_tool_calls > 0:
+        tool_calls_tag = f"{tool_calls_tag} {dim_c}(acp:{n_acp_tool_calls}){reset}"
 
     # Errors coloring
     errors_tag_color = warn_c if (n_agent_errors > 0 or n_conv_errors > 0) else ok_c
