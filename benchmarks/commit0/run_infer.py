@@ -13,6 +13,7 @@ from benchmarks.commit0.build_images import (
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.acp import (
+    extract_acp_model_hint,
     get_acp_command,
     get_acp_forward_env,
     is_acp_agent,
@@ -312,7 +313,10 @@ class Commit0Evaluation(Evaluation):
         repo_path = f"/workspace/{workspace_dir_name}"
 
         if is_acp_agent(self.metadata.agent_type):
-            agent = ACPAgent(acp_command=get_acp_command(self.metadata.agent_type))
+            agent = ACPAgent(
+                acp_command=get_acp_command(self.metadata.agent_type),
+                acp_model=extract_acp_model_hint(self.metadata.llm.model),
+            )
         else:
             tools = get_default_tools(enable_browser=False)
             if self.metadata.enable_delegation:
@@ -590,9 +594,12 @@ class Commit0Evaluation(Evaluation):
             f"Got evaluation result for repo {instance.id}:\n--------\n{eval_result}\n--------"
         )
 
-        test_result = {
+        test_result: dict[str, Any] = {
             "eval_result": eval_result,
         }
+        if isinstance(agent, ACPAgent):
+            test_result["acp_agent_name"] = agent.agent_name
+            test_result["acp_agent_version"] = agent.agent_version
 
         out = EvalOutput(
             instance_id=instance.id,

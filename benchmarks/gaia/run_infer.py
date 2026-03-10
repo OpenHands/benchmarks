@@ -16,6 +16,7 @@ from benchmarks.gaia.config import INFER_DEFAULTS
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
 from benchmarks.utils.acp import (
+    extract_acp_model_hint,
     get_acp_command,
     get_acp_forward_env,
     is_acp_agent,
@@ -319,7 +320,10 @@ class GAIAEvaluation(Evaluation):
 
         # Create agent
         if is_acp_agent(self.metadata.agent_type):
-            agent = ACPAgent(acp_command=get_acp_command(self.metadata.agent_type))
+            agent = ACPAgent(
+                acp_command=get_acp_command(self.metadata.agent_type),
+                acp_model=extract_acp_model_hint(self.metadata.llm.model),
+            )
         else:
             tools = get_default_tools(enable_browser=True)
             if self.metadata.enable_delegation:

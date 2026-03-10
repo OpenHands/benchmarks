@@ -78,6 +78,27 @@ def get_acp_forward_env(
     return forward_env
 
 
+def extract_acp_model_hint(llm_model: str) -> str | None:
+    """Extract a model hint from the LLM config model string for ACP agents.
+
+    LLM configs use LiteLLM proxy paths like 'litellm_proxy/anthropic/claude-opus-4-6'.
+    ACP servers need the bare model identifier (e.g. 'claude-opus-4-6') to match
+    against their available models list.
+
+    Returns None for empty model strings.
+    """
+    if not llm_model:
+        return None
+    # Strip litellm_proxy/ prefix
+    model = llm_model
+    if model.startswith("litellm_proxy/"):
+        model = model[len("litellm_proxy/"):]
+    # Strip provider prefix (e.g., anthropic/)
+    if "/" in model:
+        model = model.rsplit("/", 1)[-1]
+    return model
+
+
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
     """Configure the workspace for ACP agents.
 

@@ -11,6 +11,7 @@ from benchmarks.swebenchmultimodal.build_images import (
 )
 from benchmarks.swebenchmultimodal.config import INFER_DEFAULTS
 from benchmarks.utils.acp import (
+    extract_acp_model_hint,
     get_acp_command,
     get_acp_forward_env,
     is_acp_agent,
@@ -240,7 +241,10 @@ class SWEBenchEvaluation(Evaluation):
         Do not write files here; just return EvalOutput.
         """
         if is_acp_agent(self.metadata.agent_type):
-            agent = ACPAgent(acp_command=get_acp_command(self.metadata.agent_type))
+            agent = ACPAgent(
+                acp_command=get_acp_command(self.metadata.agent_type),
+                acp_model=extract_acp_model_hint(self.metadata.llm.model),
+            )
         else:
             tools = get_default_tools(
                 # Enable browser tools for frontend development tasks
