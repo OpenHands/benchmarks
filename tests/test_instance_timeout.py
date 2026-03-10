@@ -1,7 +1,7 @@
 """Tests for per-instance timeout handling in the evaluation module."""
 
 import time
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 import pytest
 
@@ -14,22 +14,22 @@ def slow_worker(instance_id: str, sleep_time: float) -> tuple[str, dict]:
 
 def test_per_instance_timeout_logic():
     """Test that per-instance timeout logic correctly identifies timed-out futures."""
-    instance_timeout = 2  # 2 seconds for test
+    instance_timeout = 0.1
 
-    with ProcessPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         # Submit jobs with different durations
         futures = []
         future_to_instance = {}
         future_start_times = {}
 
         # Fast job (should complete)
-        fut1 = pool.submit(slow_worker, "fast_instance", 0.5)
+        fut1 = pool.submit(slow_worker, "fast_instance", 0.01)
         futures.append(fut1)
         future_to_instance[fut1] = "fast_instance"
         future_start_times[fut1] = time.monotonic()
 
         # Slow job (should timeout)
-        fut2 = pool.submit(slow_worker, "slow_instance", 10.0)
+        fut2 = pool.submit(slow_worker, "slow_instance", 0.5)
         futures.append(fut2)
         future_to_instance[fut2] = "slow_instance"
         future_start_times[fut2] = time.monotonic()
@@ -39,7 +39,7 @@ def test_per_instance_timeout_logic():
         timed_out = []
 
         while pending:
-            done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+            done, pending = wait(pending, timeout=0.02, return_when=FIRST_COMPLETED)
 
             for fut in done:
                 instance_id, result = fut.result()
@@ -65,15 +65,15 @@ def test_per_instance_timeout_logic():
 
 def test_all_instances_complete_before_timeout():
     """Test that when all instances complete quickly, no timeouts occur."""
-    instance_timeout = 5  # 5 seconds
+    instance_timeout = 1.0
 
-    with ProcessPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = []
         future_to_instance = {}
         future_start_times = {}
 
         for i in range(3):
-            fut = pool.submit(slow_worker, f"instance_{i}", 0.1)
+            fut = pool.submit(slow_worker, f"instance_{i}", 0.01)
             futures.append(fut)
             future_to_instance[fut] = f"instance_{i}"
             future_start_times[fut] = time.monotonic()
@@ -83,7 +83,7 @@ def test_all_instances_complete_before_timeout():
         timed_out = []
 
         while pending:
-            done, pending = wait(pending, timeout=1.0, return_when=FIRST_COMPLETED)
+            done, pending = wait(pending, timeout=0.05, return_when=FIRST_COMPLETED)
 
             for fut in done:
                 instance_id, result = fut.result()
@@ -107,19 +107,19 @@ def test_all_instances_complete_before_timeout():
 
 def test_multiple_timeouts():
     """Test that multiple instances can timeout independently."""
-    instance_timeout = 1  # 1 second
+    instance_timeout = 0.1
 
-    with ProcessPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = []
         future_to_instance = {}
         future_start_times = {}
 
         # Mix of fast and slow jobs
         configs = [
-            ("fast_1", 0.1),
-            ("slow_1", 10.0),
-            ("fast_2", 0.2),
-            ("slow_2", 10.0),
+            ("fast_1", 0.01),
+            ("slow_1", 0.5),
+            ("fast_2", 0.02),
+            ("slow_2", 0.5),
         ]
 
         for instance_id, sleep_time in configs:
@@ -133,7 +133,7 @@ def test_multiple_timeouts():
         timed_out = []
 
         while pending:
-            done, pending = wait(pending, timeout=0.3, return_when=FIRST_COMPLETED)
+            done, pending = wait(pending, timeout=0.02, return_when=FIRST_COMPLETED)
 
             for fut in done:
                 instance_id, result = fut.result()

@@ -95,7 +95,7 @@ def divide_cpus_among_workers(
         List of CPU lists, one per worker.
     """
     try:
-        current_cpus = list(os.sched_getaffinity(0))
+        current_cpus = list(os.sched_getaffinity(0))  # pyright: ignore[reportAttributeAccessIssue]
     except AttributeError:
         # os.sched_getaffinity not available on all platforms
         current_cpus = list(range(multiprocessing.cpu_count()))

@@ -76,6 +76,20 @@ class EvalMetadata(BaseModel):
         default=False,
         description="Enable sub-agent delegation tools for the agent",
     )
+    enable_condenser: bool = Field(
+        default=True,
+        description="Enable the context condenser to manage conversation history",
+    )
+    condenser_max_size: int = Field(
+        default=240,
+        ge=1,
+        description="Maximum number of events before the condenser activates",
+    )
+    condenser_keep_first: int = Field(
+        default=2,
+        ge=0,
+        description="Number of initial events to always keep when condensing",
+    )
     lmnr: LaminarEvalMetadata | None = Field(
         default=None,
         description="Laminar evaluation metadata",
@@ -86,6 +100,14 @@ class EvalMetadata(BaseModel):
             "Tool preset for file editing. 'default' uses FileEditorTool, "
             "'gemini' uses read_file/write_file/edit/list_directory, "
             "'planning' uses planning-mode tools."
+        ),
+    )
+    agent_type: Literal["default", "acp-claude", "acp-codex"] = Field(
+        default="default",
+        description=(
+            "Agent type to use: 'default' for standard Agent, "
+            "'acp-claude' for ACPAgent with Claude Code, "
+            "'acp-codex' for ACPAgent with Codex"
         ),
     )
 
