@@ -13,6 +13,11 @@ from openhands.sdk.workspace import RemoteWorkspace
 
 logger = get_logger(__name__)
 
+# Default timeout for ACP prompt() calls in seconds.
+# Claude Opus 4.6 with extended thinking can take >30 min for complex tasks,
+# so we use 60 min (3600s) as the default to avoid premature timeouts.
+ACP_PROMPT_TIMEOUT: float = 3600.0
+
 # Mapping of ACP agent types to the env vars they require.
 # Both the API key and base URL are needed to route through LiteLLM proxy.
 _ACP_ENV_VARS: dict[str, list[str]] = {

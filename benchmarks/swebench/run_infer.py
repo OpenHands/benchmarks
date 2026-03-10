@@ -13,6 +13,7 @@ from benchmarks.swebench.build_images import (
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.acp import (
+    ACP_PROMPT_TIMEOUT,
     extract_acp_model_hint,
     get_acp_command,
     get_acp_forward_env,
@@ -259,6 +260,7 @@ class SWEBenchEvaluation(Evaluation):
             agent = ACPAgent(
                 acp_command=get_acp_command(self.metadata.agent_type),
                 acp_model=extract_acp_model_hint(self.metadata.llm.model),
+                acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
             )
         else:
             tools = get_tools_for_preset(
