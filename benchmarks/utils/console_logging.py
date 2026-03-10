@@ -381,6 +381,7 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
 
     # Console handler
     # Always use stderr to avoid corrupting stdout (which may contain JSON output)
+    # Previously rich_mode used stdout (bug), plain mode used stderr (correct via None default)
     console_handler = logging.StreamHandler(sys.__stderr__)
     console_handler.setLevel(logging.INFO)
 
