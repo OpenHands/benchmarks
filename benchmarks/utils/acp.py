@@ -10,6 +10,7 @@ from benchmarks.utils.laminar import LMNR_ENV_VARS
 from openhands.sdk import get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 
+
 logger = get_logger(__name__)
 
 # Mapping of ACP agent types to the env vars they require.
@@ -94,7 +95,7 @@ def extract_acp_model_hint(llm_model: str) -> str | None:
     # Strip litellm_proxy/ prefix
     model = llm_model
     if model.startswith("litellm_proxy/"):
-        model = model[len("litellm_proxy/"):]
+        model = model[len("litellm_proxy/") :]
     # Strip provider prefix (e.g., anthropic/)
     if "/" in model:
         model = model.rsplit("/", 1)[-1]
@@ -120,9 +121,7 @@ def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
         f"mkdir -p ~/.claude && echo '{encoded}' | base64 -d > ~/.claude/settings.json"
     )
     if result.exit_code != 0:
-        raise RuntimeError(
-            f"Failed to write Claude settings: {result.stderr}"
-        )
+        raise RuntimeError(f"Failed to write Claude settings: {result.stderr}")
     logger.info("Wrote Claude ACP settings to ~/.claude/settings.json")
 
 

@@ -391,11 +391,11 @@ class Commit0Evaluation(Evaluation):
             test_cmd = "python -m pytest"
         full_test_cmd = f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
         logger.info(f"Running test command: {full_test_cmd}")
-        test_result = workspace.execute_command(full_test_cmd, timeout=600)
-        logger.info(f"Test command exit code: {test_result.exit_code}")
-        if test_result.exit_code != 0:
-            logger.warning(f"Test command failed with stderr: {test_result.stderr}")
-            logger.warning(f"Test command failed with stdout: {test_result.stdout}")
+        test_cmd_result = workspace.execute_command(full_test_cmd, timeout=600)
+        logger.info(f"Test command exit code: {test_cmd_result.exit_code}")
+        if test_cmd_result.exit_code != 0:
+            logger.warning(f"Test command failed with stderr: {test_cmd_result.stderr}")
+            logger.warning(f"Test command failed with stdout: {test_cmd_result.stdout}")
 
         # Read test output
         test_output_result = workspace.execute_command(
@@ -408,8 +408,8 @@ class Commit0Evaluation(Evaluation):
             else ""
         )
 
-        # Get pytest exit code from the test_result
-        pytest_exit_code = str(test_result.exit_code)
+        # Get pytest exit code from the test_cmd_result
+        pytest_exit_code = str(test_cmd_result.exit_code)
 
         # Get test IDs and parse report
         repo_name = instance.data["repo"].split("/")[1]

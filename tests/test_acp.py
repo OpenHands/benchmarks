@@ -61,6 +61,7 @@ def test_get_acp_command_returns_copy():
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_claude_appends_key_and_base_url():
     result = get_acp_forward_env("acp-claude", [])
+    assert result is not None
     assert "ANTHROPIC_API_KEY" in result
     assert "ANTHROPIC_BASE_URL" in result
 
@@ -68,6 +69,7 @@ def test_forward_env_claude_appends_key_and_base_url():
 @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"})
 def test_forward_env_codex_appends_key_and_base_url():
     result = get_acp_forward_env("acp-codex", [])
+    assert result is not None
     assert "OPENAI_API_KEY" in result
     assert "OPENAI_BASE_URL" in result
 
@@ -85,13 +87,17 @@ def test_forward_env_default_none_returns_none():
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_none_becomes_list():
     result = get_acp_forward_env("acp-claude", None)
+    assert result is not None
     assert "ANTHROPIC_API_KEY" in result
     assert "ANTHROPIC_BASE_URL" in result
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_does_not_duplicate():
-    result = get_acp_forward_env("acp-claude", ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"])
+    result = get_acp_forward_env(
+        "acp-claude", ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"]
+    )
+    assert result is not None
     # Should not add duplicates
     assert result.count("ANTHROPIC_API_KEY") == 1
     assert result.count("ANTHROPIC_BASE_URL") == 1
@@ -100,6 +106,7 @@ def test_forward_env_does_not_duplicate():
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_preserves_existing():
     result = get_acp_forward_env("acp-claude", ["OTHER_VAR"])
+    assert result is not None
     assert "OTHER_VAR" in result
     assert "ANTHROPIC_API_KEY" in result
     assert "ANTHROPIC_BASE_URL" in result
@@ -118,6 +125,7 @@ def test_forward_env_does_not_mutate_input():
     original = ["FOO"]
     result = get_acp_forward_env("acp-claude", original)
     assert original == ["FOO"]  # not mutated
+    assert result is not None
     assert "FOO" in result
     assert "ANTHROPIC_API_KEY" in result
     assert "ANTHROPIC_BASE_URL" in result
@@ -126,7 +134,8 @@ def test_forward_env_does_not_mutate_input():
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_accepts_tuple():
     """Tuples should be handled without error (converted to list)."""
-    result = get_acp_forward_env("acp-claude", ("EXISTING",))
+    result = get_acp_forward_env("acp-claude", list(("EXISTING",)))
+    assert result is not None
     assert "ANTHROPIC_API_KEY" in result
     assert "EXISTING" in result
 
@@ -150,11 +159,12 @@ def test_setup_acp_workspace_noop_for_codex():
 
 def test_setup_acp_workspace_claude_uploads_settings():
     workspace = MagicMock()
-    workspace.file_upload.return_value = MagicMock(success=True)
+    workspace.execute_command.return_value = MagicMock(exit_code=0)
 
     setup_acp_workspace("acp-claude", workspace)
 
-    workspace.execute_command.assert_called_once_with("mkdir -p ~/.claude")
-    workspace.file_upload.assert_called_once()
-    call_args = workspace.file_upload.call_args
-    assert call_args[0][1] == "~/.claude/settings.json"
+    workspace.execute_command.assert_called_once()
+    cmd = workspace.execute_command.call_args[0][0]
+    assert "mkdir -p ~/.claude" in cmd
+    assert "base64 -d" in cmd
+    assert "settings.json" in cmd
