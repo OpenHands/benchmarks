@@ -11,6 +11,8 @@ import subprocess
 import sys
 import time
 import tomllib
+import shutil
+import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -275,12 +277,89 @@ def get_build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+
+def build_sdist_package() -> Path | None:
+    """Build the SDK sdist package once and return its path."""
+    # Use a unique temp dir for the sdist to avoid conflicts
+    cache_dir = Path(tempfile.mkdtemp(prefix="oh-sdist-cache-"))
+    logger.info(f"Building SDK sdist package in {cache_dir}...")
+    
+    # SDK root is relative to this file: ../../../vendor/software-agent-sdk
+    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
+    
+    if not sdk_path.exists():
+        logger.warning(f"SDK path {sdk_path} does not exist. Skipping sdist build optimization.")
+        return None
+
+    cmd = ["uv", "build", "--sdist", "--out-dir", str(cache_dir)]
+    # We allow stderr to print (or capture it if verbose?)
+    # Since we run this once, let's capture it to avoid spamming unless error.
+    try:
+        proc = subprocess.run(cmd, cwd=sdk_path, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to build sdist: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        raise
+
+    tarballs = list(cache_dir.glob("*.tar.gz"))
+    if not tarballs:
+        raise RuntimeError("Failed to build sdist: no tarball found")
+    
+    sdist_path = tarballs[0]
+    logger.info(f"Built sdist: {sdist_path}")
+    return sdist_path
+
+
+@contextlib.contextmanager
+def patch_uv_build(sdist_path: Path | None):
+    """
+    Context manager to patch openhands.agent_server.docker.build._run
+    to skip 'uv build' and use pre-built sdist.
+    """
+    if not sdist_path or not sdist_path.exists():
+        yield
+        return
+
+    # Import inside function to avoid circular imports or early import
+    try:
+        from openhands.agent_server.docker import build as build_module
+    except ImportError:
+        yield
+        return
+
+    original_run = build_module._run
+
+    def patched_run(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
+        # Check if this is the "uv build --sdist" command
+        # cmd is ["uv", "build", "--sdist", "--out-dir", ...]
+        if len(cmd) >= 4 and cmd[0] == "uv" and cmd[1] == "build" and "--sdist" in cmd:
+            try:
+                if "--out-dir" in cmd:
+                    idx = cmd.index("--out-dir") + 1
+                    if idx < len(cmd):
+                        out_dir = Path(cmd[idx])
+                        logger.info(f"Using pre-built sdist from {sdist_path} for {out_dir}")
+                        shutil.copy(sdist_path, out_dir / sdist_path.name)
+                        return subprocess.CompletedProcess(cmd, 0, stdout="Mocked uv build", stderr="")
+            except Exception as e:
+                logger.warning(f"Failed to use pre-built sdist: {e}")
+        
+        return original_run(cmd, cwd)
+
+    build_module._run = patched_run
+    try:
+        yield
+    finally:
+        build_module._run = original_run
+
+
 def build_image(
     base_image: str,
     target_image: str,
     custom_tag: str,
     target: TargetType = "source-minimal",
     push: bool = False,
+    sdist_path: Path | None = None,
 ) -> BuildOutput:
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
@@ -303,7 +382,8 @@ def build_image(
         if image_exists(t):
             logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
-    tags = build(opts)
+    with patch_uv_build(sdist_path):
+        tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
 
@@ -312,6 +392,7 @@ def ensure_local_image(
     base_image: str,
     custom_tag: str,
     target: TargetType = "source-minimal",
+    sdist_path: Path | None = None,
 ) -> bool:
     """Build an agent-server image locally if it doesn't already exist.
 
@@ -333,6 +414,7 @@ def ensure_local_image(
         custom_tag=custom_tag,
         target=target,
         push=False,
+        sdist_path=sdist_path,
     )
     logger.info(f"Image build output: {output}")
     if output.error is not None:
@@ -354,6 +436,7 @@ def _build_with_logging(
     push: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    sdist_path: Path | None = None,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -375,7 +458,7 @@ def _build_with_logging(
                 )
                 time.sleep(2 + attempt * 2)
             try:
-                result = build_image(base_image, target_image, custom_tag, target, push)
+                result = build_image(base_image, target_image, custom_tag, target, push, sdist_path=sdist_path)
             except Exception as e:
                 result = BuildOutput(
                     base_image=base_image,
@@ -480,6 +563,15 @@ def build_all_images(
     manifest_file = build_dir / "manifest.jsonl"
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
 
+    if not dry_run:
+        try:
+            sdist_path = build_sdist_package()
+        except Exception as e:
+            logger.error(f"Failed to pre-build sdist: {e}. Will fall back to per-build sdist.")
+            sdist_path = None
+    else:
+        sdist_path = None
+
     if dry_run:
         print("\n".join(base_images))
         return 0
@@ -543,6 +635,7 @@ def build_all_images(
                         push=push,
                         max_retries=max_retries,
                         post_build_fn=post_build_fn,
+                        sdist_path=sdist_path,
                     )
                     futures[fut] = base
 
