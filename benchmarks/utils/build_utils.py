@@ -278,11 +278,16 @@ def get_build_parser() -> argparse.ArgumentParser:
 
 
 @contextlib.contextmanager
-def build_sdist_package():
+def build_sdist_package(cache_dir: Path | None = None):
     """Build the SDK sdist package once and yield its path.
 
     This is a context manager that creates a temp directory, builds the sdist,
     and ensures cleanup when done.
+
+    Args:
+        cache_dir: Directory to store the built sdist. If None, uses a temp directory.
+                   For Kubernetes/memory-constrained environments, pass a disk-backed
+                   directory (e.g., build_dir/sdist-cache) to avoid tmpfs OOM.
 
     Yields:
         Path | None: Path to the built sdist tarball, or None if SDK path doesn't exist.
@@ -298,8 +303,14 @@ def build_sdist_package():
         yield None
         return
 
-    # Use a unique temp dir for the sdist to avoid conflicts
-    cache_dir = Path(tempfile.mkdtemp(prefix="oh-sdist-cache-"))
+    # Use provided cache_dir or fall back to temp directory
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        should_cleanup = False
+    else:
+        cache_dir = Path(tempfile.mkdtemp(prefix="oh-sdist-cache-"))
+        should_cleanup = True
+
     try:
         logger.info(f"Building SDK sdist package in {cache_dir}...")
 
@@ -323,8 +334,8 @@ def build_sdist_package():
         logger.info(f"Built sdist: {sdist_path}")
         yield sdist_path
     finally:
-        # Clean up the temp directory
-        if cache_dir.exists():
+        # Only clean up if we created the temp directory
+        if should_cleanup and cache_dir.exists():
             logger.info(f"Cleaning up sdist cache: {cache_dir}")
             shutil.rmtree(cache_dir, ignore_errors=True)
 
@@ -626,8 +637,12 @@ def build_all_images(
     batches = list(_chunks(base_images, batch_size or len(base_images)))
     total_batches = len(batches)
 
+    # Use disk-backed directory for sdist cache to avoid OOM on Kubernetes
+    # where /tmp is often mounted as tmpfs (in-memory).
+    sdist_cache_dir = build_dir / "sdist-cache"
+
     # Use context manager to ensure sdist temp directory is cleaned up
-    with build_sdist_package() as sdist_path:
+    with build_sdist_package(cache_dir=sdist_cache_dir) as sdist_path:
         with (
             manifest_file.open("w") as writer,
             tqdm(
