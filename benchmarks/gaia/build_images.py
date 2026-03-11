@@ -79,10 +79,10 @@ def main(argv: list[str]) -> int:
     # already exists in the registry it already includes the MCP layer from a
     # previous build, so re-running would stack a duplicate layer on top —
     # inflating the image and causing runtime OOM crashes.
-    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
-    final_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
-    if not args.dry_run and remote_image_exists(final_image):
-        logger.info("Image %s already exists. Skipping build.", final_image)
+    _, git_sha, _ = _get_sdk_submodule_info()
+    base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
+    if not args.dry_run and remote_image_exists(base_gaia_image):
+        logger.info("Image %s already exists. Skipping build.", base_gaia_image)
         return 0
 
     # Build base GAIA image
@@ -104,9 +104,6 @@ def main(argv: list[str]) -> int:
         return exit_code
 
     # Build MCP-enhanced layer after base image succeeds
-    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
-    base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
-
     logger.info("Building MCP-enhanced GAIA image from base: %s", base_gaia_image)
     mcp_result = build_gaia_mcp_layer(base_gaia_image, push=args.push)
 
