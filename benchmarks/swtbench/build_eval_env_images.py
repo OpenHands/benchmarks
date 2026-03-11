@@ -12,7 +12,7 @@ import docker
 from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import image_exists as remote_image_exists
 from openhands.sdk import get_logger
 
 

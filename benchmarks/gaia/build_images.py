@@ -21,7 +21,7 @@ from benchmarks.utils.build_utils import (
     get_build_parser,
     run_docker_build_layer,
 )
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import image_exists
 from openhands.sdk import get_logger
 
 
@@ -81,7 +81,7 @@ def main(argv: list[str]) -> int:
     # inflating the image and causing runtime OOM crashes.
     _, git_sha, _ = _get_sdk_submodule_info()
     base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
-    if not args.dry_run and remote_image_exists(base_gaia_image):
+    if not args.dry_run and image_exists(base_gaia_image):
         logger.info("Image %s already exists. Skipping build.", base_gaia_image)
         return 0
 
