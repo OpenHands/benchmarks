@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
@@ -12,8 +13,8 @@ from benchmarks.swebench.build_images import (
     wrap_image,
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
-from benchmarks.utils.build_utils import ensure_local_image
+from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.build_utils import build_image
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -25,7 +26,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -33,7 +34,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
@@ -153,30 +154,44 @@ class SWEBenchEvaluation(Evaluation):
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
         )
         base_agent_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
         )
         wrap_needed = should_wrap_instance_id(instance.id)
         agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
-            built = ensure_local_image(
-                agent_server_image=base_agent_image,
-                base_image=official_docker_image,
-                custom_tag=custom_tag,
-                target=build_target,
-            )
-            if built and wrap_needed:
-                wrapped_result = wrap_image(base_agent_image, push=False)
-                if wrapped_result.error:
-                    raise RuntimeError(
-                        "Wrapped image build failed: "
-                        f"{wrapped_result.error}; log={wrapped_result.log_path}"
-                    )
-            elif not built and wrap_needed:
+            SKIP_BUILD = os.getenv("SKIP_BUILD", "1").lower() in ("1", "true", "yes")
+            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+            if not SKIP_BUILD:
                 logger.info(
-                    f"Using pre-built image {base_agent_image} "
-                    "(assumed already wrapped)"
+                    f"Building workspace from {official_docker_image} "
+                    f"for instance {instance.id}. "
+                    "This may take a while...\n"
+                    "You can run benchmarks/swebench/build_images.py and set "
+                    "SWE_BENCH_SKIP_BUILD=1 to skip building and use pre-built "
+                    "agent-server image."
                 )
+                output = build_image(
+                    base_image=official_docker_image,
+                    target_image=EVAL_AGENT_SERVER_IMAGE,
+                    custom_tag=custom_tag,
+                    target=build_target,
+                    push=False,
+                )
+                logger.info(f"Image build output: {output}")
+                assert output.error is None, f"Image build failed: {output.error}"
+                if base_agent_image not in output.tags:
+                    raise RuntimeError(
+                        f"Built image tags {output.tags} do not include expected tag "
+                        f"{base_agent_image}"
+                    )
+                if wrap_needed:
+                    wrapped_result = wrap_image(base_agent_image, push=False)
+                    if wrapped_result.error:
+                        raise RuntimeError(
+                            "Wrapped image build failed: "
+                            f"{wrapped_result.error}; log={wrapped_result.log_path}"
+                        )
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
@@ -185,22 +200,23 @@ class SWEBenchEvaluation(Evaluation):
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
             )
-            if not remote_image_exists(agent_server_image):
+            if not image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
                     "make sure to build, push it, and make it public accessible before using remote workspace."
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
                 os.getenv(
@@ -347,8 +363,21 @@ class SWEBenchEvaluation(Evaluation):
 
 
 def main() -> None:
+    prompt_dir = (Path(__file__).parent / "prompts").resolve()
+    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    default_prompt_path = prompt_dir / "default.j2"
+    assert default_prompt_path.exists(), (
+        f"Default prompt {default_prompt_path} not found"
+    )
+
     parser = get_parser()
-    add_prompt_path_argument(parser, __file__)
+    parser.add_argument(
+        "--prompt-path",
+        type=str,
+        default=str(default_prompt_path),
+        choices=choices,
+        help="Path to prompt template file",
+    )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 

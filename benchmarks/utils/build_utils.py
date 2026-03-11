@@ -20,7 +20,6 @@ from typing import Callable
 from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
-from benchmarks.swebench.constants import TargetType
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.buildx_utils import (
     buildkit_disk_usage,
@@ -28,7 +27,8 @@ from benchmarks.utils.buildx_utils import (
     maybe_reset_buildkit,
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
-from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
+from benchmarks.utils.image_utils import image_exists
+from openhands.agent_server.docker.build import BuildOptions, TargetType, build
 from openhands.sdk import get_logger
 
 
@@ -282,10 +282,6 @@ def build_image(
     target: TargetType = "source-minimal",
     push: bool = False,
 ) -> BuildOutput:
-    # Importing here because openhands.agent_server.docker.build runs git checks
-    # which fails when installed as a package outside the git repo
-    from openhands.agent_server.docker.build import BuildOptions, build
-
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
 
@@ -304,49 +300,11 @@ def build_image(
     )
     for t in opts.all_tags:
         # Check if image exists or not
-        if remote_image_exists(t):
+        if image_exists(t):
             logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
-
-
-def ensure_local_image(
-    agent_server_image: str,
-    base_image: str,
-    custom_tag: str,
-    target: TargetType = "source-minimal",
-) -> bool:
-    """Build an agent-server image locally if it doesn't already exist.
-
-    Returns True if a build occurred, False if the image already existed.
-    Set FORCE_BUILD=1 to skip auto-detection and always rebuild.
-    """
-    force_build = os.getenv("FORCE_BUILD", "0").lower() in ("1", "true", "yes")
-    if not force_build and local_image_exists(agent_server_image):
-        logger.info(f"Using pre-built image {agent_server_image}")
-        return False
-
-    if force_build:
-        logger.info(f"FORCE_BUILD set, building image from {base_image}...")
-    else:
-        logger.info(f"Building image from {base_image}...")
-    output = build_image(
-        base_image=base_image,
-        target_image=EVAL_AGENT_SERVER_IMAGE,
-        custom_tag=custom_tag,
-        target=target,
-        push=False,
-    )
-    logger.info(f"Image build output: {output}")
-    if output.error is not None:
-        raise RuntimeError(f"Image build failed: {output.error}")
-    if agent_server_image not in output.tags:
-        raise RuntimeError(
-            f"Built image tags {output.tags} do not include expected tag "
-            f"{agent_server_image}"
-        )
-    return True
 
 
 def _build_with_logging(
