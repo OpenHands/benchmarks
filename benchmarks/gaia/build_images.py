@@ -21,6 +21,7 @@ from benchmarks.utils.build_utils import (
     get_build_parser,
     run_docker_build_layer,
 )
+from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
 
 
@@ -72,6 +73,17 @@ def main(argv: list[str]) -> int:
 
     def tag_fn(_base: str) -> str:
         return f"gaia-{args.target}"
+
+    # Guard against MCP layer stacking: the MCP Dockerfile uses the same tag
+    # as both its base image (FROM) and its output (--tag). If the image
+    # already exists in the registry it already includes the MCP layer from a
+    # previous build, so re-running would stack a duplicate layer on top —
+    # inflating the image and causing runtime OOM crashes.
+    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+    final_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
+    if not args.dry_run and remote_image_exists(final_image):
+        logger.info("Image %s already exists. Skipping build.", final_image)
+        return 0
 
     # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
