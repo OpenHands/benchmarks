@@ -1,6 +1,7 @@
 import json
 import os
 from collections import Counter
+from pathlib import Path
 from typing import Any, List
 
 from commit0.harness.constants import SPLIT
@@ -12,7 +13,7 @@ from benchmarks.commit0.build_images import (
     get_base_docker_image,
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
+from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -23,19 +24,19 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -187,16 +188,15 @@ class Commit0Evaluation(Evaluation):
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
-            custom_tag = extract_custom_tag(base_docker_image)
-            suffix = f"-{build_target}" if build_target != "binary" else ""
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
-            workspace = create_docker_workspace(
-                agent_server_image=agent_server_image,
+            # Build agent-server image from base commit0 image
+            workspace = DockerDevWorkspace(
                 base_image=base_docker_image,
-                build_target=build_target,
-                forward_env=forward_env,
+                working_dir="/workspace",
+                target=build_target,
+                forward_env=forward_env or [],
+            )
+            logger.info(
+                f"Building workspace from {base_docker_image}. This may take a while..."
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -205,13 +205,14 @@ class Commit0Evaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             custom_tag = extract_custom_tag(base_docker_image)
             suffix = f"-{build_target}" if build_target != "binary" else ""
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
             )
 
-            if not remote_image_exists(agent_server_image):
+            if not image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry. "
                     "Run 'benchmarks/commit0/build_images.py --push' to build and push it first."
@@ -219,7 +220,7 @@ class Commit0Evaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -591,8 +592,21 @@ class Commit0Evaluation(Evaluation):
 
 
 def main() -> None:
+    prompt_dir = (Path(__file__).parent / "prompts").resolve()
+    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
+    default_prompt_path = prompt_dir / "default.j2"
+    assert default_prompt_path.exists(), (
+        f"Default prompt {default_prompt_path} not found"
+    )
+
     parser = get_parser()
-    add_prompt_path_argument(parser, __file__)
+    parser.add_argument(
+        "--prompt-path",
+        type=str,
+        default=str(default_prompt_path),
+        choices=choices,
+        help="Path to prompt template file",
+    )
     parser.add_argument(
         "--repo-split",
         type=str,

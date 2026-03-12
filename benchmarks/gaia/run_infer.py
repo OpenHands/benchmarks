@@ -27,10 +27,10 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.image_utils import image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import (
     Agent,
     Conversation,
@@ -47,7 +47,7 @@ from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
 
 
 logger = get_logger(__name__)
@@ -156,14 +156,11 @@ class GAIAEvaluation(Evaluation):
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
-            )
-            workspace = create_docker_workspace(
-                agent_server_image=agent_server_image,
+            # Use DockerDevWorkspace with base image (same as main branch)
+            workspace = DockerDevWorkspace(
                 base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                build_target="binary",
-                forward_env=forward_env,
+                working_dir="/workspace",
+                forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image
@@ -177,11 +174,12 @@ class GAIAEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
+            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary"
             )
 
-            if not remote_image_exists(agent_server_image):
+            if not image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry. "
                     f"Run 'benchmarks/gaia/build_images.py --push' to build and push it first."
@@ -189,7 +187,7 @@ class GAIAEvaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with GAIA image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -592,7 +590,6 @@ def main() -> None:
         max_attempts=args.max_attempts,
         critic=critic,
         selected_instances_file=args.select,
-        max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
     )
