@@ -200,14 +200,18 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
     return git_ref, git_sha, sdk_version
 
 
+def _sdk_root() -> Path:
+    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+    return benchmarks_root / "vendor" / "software-agent-sdk"
+
+
 def _pre_build_sdist() -> Path:
     """
     Build the SDK sdist once and reuse it across all image builds in a batch.
 
     The caller must clean up the parent directory of the returned tarball.
     """
-    benchmarks_root = Path(__file__).resolve().parent.parent.parent
-    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
+    sdk_path = _sdk_root()
     sdist_dir = Path(tempfile.mkdtemp(prefix="shared-sdist-")).resolve()
 
     logger.info("Pre-building SDK sdist from %s", sdk_path)
@@ -238,6 +242,14 @@ def _is_sdist_build_command(cmd: list[str]) -> bool:
         and cmd[1] == "build"
         and "--sdist" in cmd
         and "--out-dir" in cmd
+    )
+
+
+def _is_sdk_sdist_build_command(cmd: list[str], cwd: str | None) -> bool:
+    return (
+        _is_sdist_build_command(cmd)
+        and cwd is not None
+        and Path(cwd).resolve() == _sdk_root().resolve()
     )
 
 
@@ -281,7 +293,7 @@ def _patch_sdk_sdist_build(
         cmd: list[str],
         cwd: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        if _is_sdist_build_command(cmd):
+        if _is_sdk_sdist_build_command(cmd, cwd):
             return _reuse_cached_sdist(cmd, cached_sdist)
         return original_run(cmd, cwd=cwd)
 
@@ -293,20 +305,18 @@ def _patch_sdk_sdist_build(
 
 
 @contextlib.contextmanager
-def _sdk_sdist_cache_env():
+def _prepare_cached_sdist():
     cached_sdist_path: Path | None = None
     try:
         try:
             cached_sdist_path = _pre_build_sdist()
-            os.environ["OPENHANDS_CACHED_SDIST"] = str(cached_sdist_path)
         except Exception as e:
             logger.warning(
                 "Failed to pre-build SDK sdist; each image will build its own: %s", e
             )
-        yield
+        yield cached_sdist_path
     finally:
         if cached_sdist_path:
-            os.environ.pop("OPENHANDS_CACHED_SDIST", None)
             shutil.rmtree(cached_sdist_path.parent, ignore_errors=True)
 
 
@@ -393,6 +403,7 @@ def build_image(
     custom_tag: str,
     target: TargetType = "source-minimal",
     push: bool = False,
+    cached_sdist: Path | None = None,
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
@@ -423,9 +434,7 @@ def build_image(
             logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
 
-    cached_sdist = os.environ.get("OPENHANDS_CACHED_SDIST")
-    cached_sdist_path = Path(cached_sdist) if cached_sdist else None
-    with _patch_sdk_sdist_build(sdk_build_module, cached_sdist_path):
+    with _patch_sdk_sdist_build(sdk_build_module, cached_sdist):
         tags = build(opts)
 
     return BuildOutput(base_image=base_image, tags=tags, error=None)
@@ -478,6 +487,7 @@ def _build_with_logging(
     push: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    cached_sdist: Path | None = None,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -499,7 +509,14 @@ def _build_with_logging(
                 )
                 time.sleep(2 + attempt * 2)
             try:
-                result = build_image(base_image, target_image, custom_tag, target, push)
+                result = build_image(
+                    base_image,
+                    target_image,
+                    custom_tag,
+                    target,
+                    push,
+                    cached_sdist,
+                )
             except Exception as e:
                 result = BuildOutput(
                     base_image=base_image,
@@ -535,6 +552,51 @@ def _build_with_logging(
             return result
 
     raise RuntimeError("Unreachable code reached in _build_with_logging")
+
+
+def _iter_batch_results(
+    batch: list[str],
+    log_dir: Path,
+    image: str,
+    target: TargetType,
+    push: bool,
+    base_image_to_custom_tag_fn: Callable[[str], str] | None,
+    max_workers: int,
+    max_retries: int,
+    post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None,
+    cached_sdist: Path | None,
+):
+    with ProcessPoolExecutor(max_workers=max_workers) as ex:
+        futures = {}
+        for base in batch:
+            resolved_tag = (
+                base_image_to_custom_tag_fn(base) if base_image_to_custom_tag_fn else ""
+            )
+            fut = ex.submit(
+                _build_with_logging,
+                log_dir=log_dir,
+                base_image=base,
+                target_image=image,
+                custom_tag=resolved_tag,
+                target=target,
+                push=push,
+                max_retries=max_retries,
+                post_build_fn=post_build_fn,
+                cached_sdist=cached_sdist,
+            )
+            futures[fut] = base
+
+        for fut in as_completed(futures):
+            base = futures[fut]
+            try:
+                yield fut.result()
+            except Exception as e:
+                logger.error("Build failed for %s: %r", base, e)
+                yield BuildOutput(
+                    base_image=base,
+                    tags=[],
+                    error=repr(e),
+                )
 
 
 def _update_pbar(
@@ -631,125 +693,102 @@ def build_all_images(
     batches = list(_chunks(base_images, batch_size or len(base_images)))
     total_batches = len(batches)
 
-    with _sdk_sdist_cache_env():
-        with (
-            manifest_file.open("w") as writer,
-            tqdm(
-                total=len(base_images), desc="Building agent-server images", leave=True
-            ) as pbar,
-        ):
-            _update_pbar(pbar, successes, failures, 0, None, "Queueing")
+    with (
+        _prepare_cached_sdist() as cached_sdist,
+        manifest_file.open("w") as writer,
+        tqdm(
+            total=len(base_images), desc="Building agent-server images", leave=True
+        ) as pbar,
+    ):
+        _update_pbar(pbar, successes, failures, 0, None, "Queueing")
 
-            for batch_idx, batch in enumerate(batches, start=1):
-                if not batch:
-                    continue
+        for batch_idx, batch in enumerate(batches, start=1):
+            if not batch:
+                continue
 
+            logger.info(
+                "Starting batch %d/%d (%d images)",
+                batch_idx,
+                total_batches,
+                len(batch),
+            )
+            in_progress: set[str] = set(batch)
+            _update_pbar(
+                pbar,
+                successes,
+                failures,
+                len(in_progress),
+                next(iter(in_progress), None),
+                f"Batch {batch_idx}/{total_batches} running",
+            )
+
+            for result in _iter_batch_results(
+                batch=batch,
+                log_dir=build_log_dir,
+                image=image,
+                target=target,
+                push=push,
+                base_image_to_custom_tag_fn=base_image_to_custom_tag_fn,
+                max_workers=max_workers,
+                max_retries=max_retries,
+                post_build_fn=post_build_fn,
+                cached_sdist=cached_sdist,
+            ):
+                status = None
+                writer.write(result.model_dump_json() + "\n")
+                writer.flush()
+
+                with mu:
+                    if result.error or not result.tags:
+                        failures += 1
+                        status = "❌ Failed"
+                    else:
+                        successes += 1
+                        status = "✅ Done"
+
+                in_progress.discard(result.base_image)
+                pbar.update(1)
+                _update_pbar(
+                    pbar,
+                    successes,
+                    failures,
+                    len(in_progress),
+                    next(iter(in_progress), None),
+                    status,
+                )
+
+            used, total = buildkit_disk_usage()
+            if total > 0:
                 logger.info(
-                    "Starting batch %d/%d (%d images)",
+                    "BuildKit usage after batch %d/%d: %.2f%% (%0.2f GiB / %0.2f GiB)",
                     batch_idx,
                     total_batches,
-                    len(batch),
+                    (used / total) * 100,
+                    used / (1 << 30),
+                    total / (1 << 30),
                 )
-                in_progress: set[str] = set()
 
-                with ProcessPoolExecutor(max_workers=max_workers) as ex:
-                    futures = {}
-                    for base in batch:
-                        in_progress.add(base)
-                        resolved_tag = (
-                            base_image_to_custom_tag_fn(base)
-                            if base_image_to_custom_tag_fn
-                            else ""
-                        )
-                        fut = ex.submit(
-                            _build_with_logging,
-                            log_dir=build_log_dir,
-                            base_image=base,
-                            target_image=image,
-                            custom_tag=resolved_tag,
-                            target=target,
-                            push=push,
-                            max_retries=max_retries,
-                            post_build_fn=post_build_fn,
-                        )
-                        futures[fut] = base
-
-                    _update_pbar(
-                        pbar,
-                        successes,
-                        failures,
-                        len(in_progress),
-                        next(iter(in_progress), None),
-                        f"Batch {batch_idx}/{total_batches} running",
-                    )
-
-                    for fut in as_completed(futures):
-                        base = futures[fut]
-                        status = None
-                        try:
-                            result: BuildOutput = fut.result()
-                        except Exception as e:
-                            logger.error("Build failed for %s: %r", base, e)
-                            result = BuildOutput(
-                                base_image=base,
-                                tags=[],
-                                error=repr(e),
-                            )
-
-                        writer.write(result.model_dump_json() + "\n")
-                        writer.flush()
-
-                        with mu:
-                            if result.error or not result.tags:
-                                failures += 1
-                                status = "❌ Failed"
-                            else:
-                                successes += 1
-                                status = "✅ Done"
-
-                        in_progress.discard(base)
-                        pbar.update(1)
-                        _update_pbar(
-                            pbar,
-                            successes,
-                            failures,
-                            len(in_progress),
-                            next(iter(in_progress), None),
-                            status,
-                        )
-
-                used, total = buildkit_disk_usage()
-                if total > 0:
+            if prune_keep_storage_gb and prune_keep_storage_gb > 0:
+                pruned = maybe_prune_buildkit_cache(
+                    keep_storage_gb=prune_keep_storage_gb,
+                    threshold_pct=prune_threshold_pct,
+                    filters=prune_filters,
+                )
+                if pruned:
                     logger.info(
-                        "BuildKit usage after batch %d/%d: %.2f%% (%0.2f GiB / %0.2f GiB)",
+                        "Pruned BuildKit cache after batch %d/%d (keep=%d GiB, threshold=%.1f%%)",
                         batch_idx,
                         total_batches,
-                        (used / total) * 100,
-                        used / (1 << 30),
-                        total / (1 << 30),
+                        prune_keep_storage_gb,
+                        prune_threshold_pct,
                     )
-
-                if prune_keep_storage_gb and prune_keep_storage_gb > 0:
-                    pruned = maybe_prune_buildkit_cache(
-                        keep_storage_gb=prune_keep_storage_gb,
-                        threshold_pct=prune_threshold_pct,
-                        filters=prune_filters,
+                else:
+                    logger.info(
+                        "No prune needed after batch %d/%d (threshold %.1f%%)",
+                        batch_idx,
+                        total_batches,
+                        prune_threshold_pct,
                     )
-                    if pruned:
-                        logger.info(
-                            "Pruned BuildKit cache after batch %d/%d (keep=%d GiB, threshold=%.1f%%)",
-                            batch_idx,
-                            total_batches,
-                            prune_keep_storage_gb,
-                            prune_threshold_pct,
-                        )
-                    else:
-                        logger.info(
-                            "No prune needed after batch %d/%d (threshold %.1f%%)",
-                            batch_idx,
-                            total_batches,
-                            prune_threshold_pct,
-                        )
         logger.info(
             "Done. Built=%d  Failed=%d  Manifest=%s",
             successes,

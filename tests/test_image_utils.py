@@ -269,11 +269,24 @@ class TestCachedSdistReuse:
         assert not _is_sdist_build_command(["uv", "build", "--wheel"])
         assert not _is_sdist_build_command(["docker", "buildx", "build"])
 
-    def test_patch_sdk_sdist_build_reuses_cached_sdist_only_for_sdist_commands(
+    def test_is_sdk_sdist_build_command_requires_sdk_cwd(self):
+        from benchmarks.utils.build_utils import (
+            _is_sdk_sdist_build_command,
+            _sdk_root,
+        )
+
+        cmd = ["uv", "build", "--sdist", "--out-dir", "/tmp/out"]
+        assert _is_sdk_sdist_build_command(cmd, str(_sdk_root()))
+        assert not _is_sdk_sdist_build_command(cmd, "/tmp")
+        assert not _is_sdk_sdist_build_command(
+            ["docker", "buildx", "build"], str(_sdk_root())
+        )
+
+    def test_patch_sdk_sdist_build_reuses_cached_sdist_only_for_sdk_sdist_commands(
         self,
         tmp_path: Path,
     ):
-        from benchmarks.utils.build_utils import _patch_sdk_sdist_build
+        from benchmarks.utils.build_utils import _patch_sdk_sdist_build, _sdk_root
 
         cached_sdist = tmp_path / "openhands-sdk.tar.gz"
         cached_sdist.write_text("cached", encoding="utf-8")
@@ -288,7 +301,7 @@ class TestCachedSdistReuse:
         other_cmd = ["docker", "buildx", "build"]
 
         with _patch_sdk_sdist_build(sdk_build_module, cached_sdist):
-            result = sdk_build_module._run(sdist_cmd, cwd="/sdk")
+            result = sdk_build_module._run(sdist_cmd, cwd=str(_sdk_root()))
             assert result.returncode == 0
             assert (tmp_path / "out" / cached_sdist.name).read_text(
                 encoding="utf-8"
@@ -299,3 +312,61 @@ class TestCachedSdistReuse:
 
         assert sdk_build_module._run is original_run
         assert forwarded_calls == [(other_cmd, "/sdk")]
+
+    def test_build_image_reuses_cached_sdist_with_real_sdk_build_module(
+        self,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils.build_utils import _sdk_root, build_image
+        from openhands.agent_server.docker import build as sdk_build_module
+
+        cached_sdist = tmp_path / "openhands-sdk.tar.gz"
+        cached_sdist.write_text("cached", encoding="utf-8")
+        sdk_out_dir = tmp_path / "sdk-out"
+        nonsdk_out_dir = tmp_path / "nonsdk-out"
+        forwarded_calls: list[tuple[list[str], str | None]] = []
+
+        def original_run(cmd: list[str], cwd: str | None = None):
+            forwarded_calls.append((cmd, cwd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="forwarded", stderr="")
+
+        def fake_build(opts):
+            sdk_cmd = ["uv", "build", "--sdist", "--out-dir", str(sdk_out_dir)]
+            nonsdk_cmd = ["uv", "build", "--sdist", "--out-dir", str(nonsdk_out_dir)]
+
+            reused = sdk_build_module._run(sdk_cmd, cwd=str(_sdk_root()))
+            assert reused.returncode == 0
+            assert (sdk_out_dir / cached_sdist.name).read_text(
+                encoding="utf-8"
+            ) == "cached"
+
+            forwarded = sdk_build_module._run(nonsdk_cmd, cwd=str(tmp_path))
+            assert forwarded.stdout == "forwarded"
+            return ["integration:test"]
+
+        with (
+            patch(
+                "benchmarks.utils.build_utils.remote_image_exists", return_value=False
+            ),
+            patch(
+                "benchmarks.utils.build_utils._get_sdk_submodule_info",
+                return_value=("main", "abcdef0", "1.0.0"),
+            ),
+            patch.object(sdk_build_module, "_run", side_effect=original_run),
+            patch.object(sdk_build_module, "build", side_effect=fake_build),
+        ):
+            result = build_image(
+                base_image="base:latest",
+                target_image="ghcr.io/openhands/eval-agent-server",
+                custom_tag="mytag",
+                cached_sdist=cached_sdist,
+            )
+
+        assert result.error is None
+        assert result.tags == ["integration:test"]
+        assert forwarded_calls == [
+            (
+                ["uv", "build", "--sdist", "--out-dir", str(nonsdk_out_dir)],
+                str(tmp_path),
+            )
+        ]
