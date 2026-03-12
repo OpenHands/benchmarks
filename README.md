@@ -173,7 +173,7 @@ Inputs (forwarded to the SDK `run-eval.yml` workflow):
 
 ## Workspace Types
 
-Benchmarks support two workspace types for running evaluations:
+Benchmarks currently expose two workspace types in their CLIs:
 
 ### Docker Workspace (Default)
 
@@ -190,6 +190,19 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
 - **Pros**: Scalable to hundreds of parallel workers, no local resource constraints
 - **Cons**: Requires pre-built images and API access
 - **Use case**: Large-scale evaluations, benchmarking runs
+
+### Apptainer on Docker-Restricted Systems
+
+The vendored SDK includes `openhands.workspace.ApptainerWorkspace`, which can run a pre-built agent-server image without a local Docker daemon. It converts OCI/Docker images to Apptainer SIF files with `apptainer pull docker://...`, so it is a good fit for HPC or university environments where Docker is unavailable.
+
+However, the benchmark repo does **not** currently expose `apptainer` as a supported `--workspace` value. Today, the benchmark CLIs and metadata models only accept `docker` and `remote`.
+
+If your machine cannot run Docker, the supported paths today are:
+
+1. Use `--workspace remote` and point the benchmark at a runtime API.
+2. Add a local integration that swaps benchmark `DockerWorkspace` usage for `ApptainerWorkspace` in the relevant `run_infer.py` implementation, using pre-built agent-server images.
+
+In other words: Apptainer is supported by the underlying SDK, but it is not yet a turnkey benchmark workspace option in this repository.
 
 #### How Remote Runtime Works
 

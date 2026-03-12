@@ -100,4 +100,9 @@ When converting between OpenHands format and benchmark-specific formats:
 - Handle missing/optional fields gracefully
 - Log conversion warnings for debugging
 - Validate output format before evaluation
+
+# Workspace runtimes
+- The benchmark CLI currently accepts only `docker` and `remote` for `--workspace`
+- The vendored SDK also includes `openhands.workspace.ApptainerWorkspace`, but the benchmark repo does not yet wire it into `run_infer.py`
+- On Docker-restricted systems, document Apptainer as an SDK capability rather than a benchmark CLI option unless code support is added
 </BENCHMARK_SPECIFIC>
