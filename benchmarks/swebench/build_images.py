@@ -9,6 +9,7 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -23,10 +24,9 @@ from benchmarks.utils.build_utils import (
 )
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import remote_image_exists
-from openhands.sdk import get_logger
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
 
 

@@ -6,6 +6,8 @@ which centralize Docker image detection and build logic across all benchmarks.
 
 import os
 import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -255,3 +257,45 @@ class TestEnsureLocalImage:
         _, kwargs = mock_build.call_args
         assert kwargs["target"] == "binary"
         assert kwargs["push"] is False
+
+
+class TestCachedSdistReuse:
+    def test_is_sdist_build_command_matches_expected_shape(self):
+        from benchmarks.utils.build_utils import _is_sdist_build_command
+
+        assert _is_sdist_build_command(
+            ["uv", "build", "--sdist", "--out-dir", "/tmp/out"]
+        )
+        assert not _is_sdist_build_command(["uv", "build", "--wheel"])
+        assert not _is_sdist_build_command(["docker", "buildx", "build"])
+
+    def test_patch_sdk_sdist_build_reuses_cached_sdist_only_for_sdist_commands(
+        self,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils.build_utils import _patch_sdk_sdist_build
+
+        cached_sdist = tmp_path / "openhands-sdk.tar.gz"
+        cached_sdist.write_text("cached", encoding="utf-8")
+        forwarded_calls: list[tuple[list[str], str | None]] = []
+
+        def original_run(cmd: list[str], cwd: str | None = None):
+            forwarded_calls.append((cmd, cwd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="forwarded", stderr="")
+
+        sdk_build_module = SimpleNamespace(_run=original_run)
+        sdist_cmd = ["uv", "build", "--sdist", "--out-dir", str(tmp_path / "out")]
+        other_cmd = ["docker", "buildx", "build"]
+
+        with _patch_sdk_sdist_build(sdk_build_module, cached_sdist):
+            result = sdk_build_module._run(sdist_cmd, cwd="/sdk")
+            assert result.returncode == 0
+            assert (tmp_path / "out" / cached_sdist.name).read_text(
+                encoding="utf-8"
+            ) == "cached"
+
+            forwarded = sdk_build_module._run(other_cmd, cwd="/sdk")
+            assert forwarded.stdout == "forwarded"
+
+        assert sdk_build_module._run is original_run
+        assert forwarded_calls == [(other_cmd, "/sdk")]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import subprocess
 import sys
@@ -14,10 +15,8 @@ if TYPE_CHECKING:
 
 import requests
 
-from openhands.sdk import get_logger
 
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 ACCEPT = ",".join(

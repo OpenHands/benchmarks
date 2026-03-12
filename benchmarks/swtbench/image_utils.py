@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Iterable
 
 from benchmarks.swtbench.config import EVAL_DEFAULTS
-from openhands.sdk import get_logger
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
