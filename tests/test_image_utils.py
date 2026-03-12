@@ -4,6 +4,7 @@ Tests cover local_image_exists(), create_docker_workspace(), and ensure_local_im
 which centralize Docker image detection and build logic across all benchmarks.
 """
 
+import contextlib
 import os
 import subprocess
 from pathlib import Path
@@ -294,3 +295,59 @@ class TestCachedSdistReuse:
         assert result.error is None
         assert result.tags == ["integration:test"]
         assert captured["prebuilt_sdist"] == cached_sdist
+
+
+class TestBuildBatchSizeConfig:
+    def test_build_parser_accepts_build_batch_size(self):
+        from benchmarks.utils.build_utils import get_build_parser
+
+        args = get_build_parser().parse_args(["--build-batch-size", "50"])
+
+        assert args.build_batch_size == 50
+
+    @patch.dict(os.environ, {"BUILD_BATCH_SIZE": "99"})
+    def test_build_all_images_prefers_explicit_batch_size_over_env(
+        self,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils import build_utils
+
+        seen_batches: list[list[str]] = []
+
+        @contextlib.contextmanager
+        def fake_prepare_cached_sdist():
+            yield None
+
+        def fake_iter_batch_results(**kwargs):
+            batch = kwargs["batch"]
+            seen_batches.append(list(batch))
+            for base in batch:
+                yield BuildOutput(
+                    base_image=base,
+                    tags=[f"tag:{base}"],
+                    error=None,
+                )
+
+        with (
+            patch.object(
+                build_utils,
+                "_prepare_cached_sdist",
+                side_effect=fake_prepare_cached_sdist,
+            ),
+            patch.object(
+                build_utils,
+                "_iter_batch_results",
+                side_effect=fake_iter_batch_results,
+            ),
+            patch.object(build_utils, "buildkit_disk_usage", return_value=(0, 0)),
+            patch.object(build_utils, "maybe_prune_buildkit_cache", return_value=False),
+        ):
+            exit_code = build_utils.build_all_images(
+                base_images=["base-1", "base-2", "base-3"],
+                target="source-minimal",
+                build_dir=tmp_path,
+                build_batch_size=2,
+            )
+
+        assert exit_code == 0
+        assert seen_batches == [["base-1", "base-2"], ["base-3"]]
