@@ -10,8 +10,11 @@ import contextlib
 import io
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -200,6 +203,141 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
     return git_ref, git_sha, sdk_version
 
 
+def _pre_build_sdist() -> Path:
+    """
+    Build the SDK sdist once. Returns the path to the .tar.gz file.
+
+    The caller is responsible for cleaning up the parent directory
+    of the returned path when done.
+    """
+    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
+
+    sdist_dir = Path(tempfile.mkdtemp(prefix="shared-sdist-"))
+    logger.info("Pre-building SDK sdist from %s ...", sdk_path)
+    t0 = time.time()
+    result = subprocess.run(
+        ["uv", "build", "--sdist", "--out-dir", str(sdist_dir)],
+        cwd=str(sdk_path),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        shutil.rmtree(sdist_dir, ignore_errors=True)
+        raise RuntimeError(f"Failed to build SDK sdist: {result.stderr}")
+
+    sdists = sorted(sdist_dir.glob("*.tar.gz"))
+    if len(sdists) != 1:
+        shutil.rmtree(sdist_dir, ignore_errors=True)
+        raise RuntimeError(f"Expected 1 sdist, got {len(sdists)}")
+
+    logger.info("Pre-built SDK sdist in %.1fs: %s", time.time() - t0, sdists[0])
+    return sdists[0]
+
+
+def _build_with_cached_sdist(
+    opts,
+    cached_sdist: Path,
+    push: bool,
+) -> list[str]:
+    """
+    Build an agent-server image using a pre-built SDK sdist.
+
+    Replicates the essential build logic from the SDK's build() function
+    but skips the expensive per-image ``uv build --sdist`` step by reusing
+    a pre-built sdist tarball.
+    """
+    sdk_root = opts.sdk_project_root
+    dockerfile_path = (
+        sdk_root
+        / "openhands-agent-server"
+        / "openhands"
+        / "agent_server"
+        / "docker"
+        / "Dockerfile"
+    )
+    if not dockerfile_path.exists():
+        raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
+
+    tags = opts.all_tags
+    cache_tag, cache_tag_base = opts.cache_tags
+
+    # Create build context from cached sdist
+    tmp_root = Path(tempfile.mkdtemp(prefix="agent-build-")).resolve()
+    try:
+        with tarfile.open(cached_sdist, "r:gz") as tar:
+            tar.extractall(path=str(tmp_root), filter="data")
+
+        entries = list(tmp_root.iterdir())
+        if len(entries) != 1 or not entries[0].is_dir():
+            raise RuntimeError(
+                f"Expected single directory in sdist, got: {[e.name for e in entries]}"
+            )
+        ctx = entries[0].resolve()
+        shutil.copy2(str(dockerfile_path), str(ctx / "Dockerfile"))
+
+        # Construct docker buildx build command (mirrors SDK build() logic)
+        args = [
+            "docker",
+            "buildx",
+            "build",
+            "--file",
+            str(dockerfile_path),
+            "--target",
+            opts.target,
+            "--build-arg",
+            f"BASE_IMAGE={opts.base_image}",
+            "--build-arg",
+            f"OPENHANDS_BUILD_GIT_SHA={opts.git_sha}",
+            "--build-arg",
+            f"OPENHANDS_BUILD_GIT_REF={opts.git_ref}",
+        ]
+        if push:
+            args += ["--platform", ",".join(opts.platforms), "--push"]
+        else:
+            args += ["--load"]
+
+        for t in tags:
+            args += ["--tag", t]
+
+        # Registry cache for CI/push builds (mirrors SDK cache strategy)
+        if push:
+            args += [
+                "--cache-from",
+                f"type=registry,ref={opts.image}:{cache_tag}",
+                "--cache-from",
+                f"type=registry,ref={opts.image}:{cache_tag_base}-main",
+                "--cache-to",
+                f"type=registry,ref={opts.image}:{cache_tag},mode=max",
+            ]
+
+        args.append(str(ctx))
+
+        logger.info(
+            "Building with cached sdist: target=%s base=%s push=%s",
+            opts.target,
+            opts.base_image,
+            push,
+        )
+        result = subprocess.run(args, text=True, capture_output=True, cwd=str(ctx))
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                args,
+                output=result.stdout,
+                stderr=result.stderr,
+            )
+
+        logger.info("Built %d tags for %s", len(tags), opts.base_image)
+        return tags
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
 @contextlib.contextmanager
 def capture_output(base_name: str, out_dir: Path):
     """
@@ -309,7 +447,15 @@ def build_image(
         if remote_image_exists(t):
             logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
-    tags = build(opts)
+
+    # Use pre-built sdist when available (set by build_all_images for batch builds).
+    # This avoids running `uv build --sdist` per image (~15s × 500 = ~2h overhead).
+    cached_sdist = os.environ.get("OPENHANDS_CACHED_SDIST")
+    if cached_sdist and Path(cached_sdist).is_file():
+        tags = _build_with_cached_sdist(opts, Path(cached_sdist), push)
+    else:
+        tags = build(opts)
+
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
 
@@ -490,6 +636,17 @@ def build_all_images(
         print("\n".join(base_images))
         return 0
 
+    # Pre-build SDK sdist once for reuse across all image builds.
+    # Without this, `uv build --sdist` runs once per image (~15s x 500 = ~2h).
+    cached_sdist_path: Path | None = None
+    try:
+        cached_sdist_path = _pre_build_sdist()
+        os.environ["OPENHANDS_CACHED_SDIST"] = str(cached_sdist_path)
+    except Exception as e:
+        logger.warning(
+            "Failed to pre-build SDK sdist; each image will build its own: %s", e
+        )
+
     successes = 0
     failures = 0
     mu = Lock()
@@ -630,4 +787,10 @@ def build_all_images(
         failures,
         str(manifest_file),
     )
+
+    # Clean up cached sdist
+    if cached_sdist_path:
+        os.environ.pop("OPENHANDS_CACHED_SDIST", None)
+        shutil.rmtree(cached_sdist_path.parent, ignore_errors=True)
+
     return 1 if failures else 0
