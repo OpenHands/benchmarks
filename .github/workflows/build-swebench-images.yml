@@ -78,6 +78,7 @@ jobs:
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
+    timeout-minutes: 180
 
     # Allow pushing to GHCR and commenting on issues
     permissions:
@@ -86,6 +87,11 @@ jobs:
       issues: write
 
     steps:
+      - name: Record build start time
+        run: |
+          echo "BUILD_START=$(date +%s)" >> "$GITHUB_ENV"
+          echo "Build started at $(date -u)"
+
       - name: Determine checkout ref
         id: checkout-ref
         run: |
@@ -248,6 +254,21 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
+
+      - name: Post-build disk and timing report
+        if: always()
+        run: |
+          set -euo pipefail
+          BUILD_END=$(date +%s)
+          ELAPSED=$(( BUILD_END - ${BUILD_START:-$BUILD_END} ))
+          echo "## Build Timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Elapsed:** $((ELAPSED / 60))m $((ELAPSED % 60))s" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "## Disk Usage After Build" >> "$GITHUB_STEP_SUMMARY"
+          df -h / /var/lib/buildkit 2>/dev/null | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          docker buildx du --verbose 2>/dev/null | head -40 | tee -a "$GITHUB_STEP_SUMMARY" || true
 
       - name: Archive build logs
         if: always()
