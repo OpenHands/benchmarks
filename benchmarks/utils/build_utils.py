@@ -237,75 +237,6 @@ def _pre_build_sdist() -> Path:
     return sdists[0]
 
 
-def _is_sdist_build_command(cmd: list[str]) -> bool:
-    return (
-        len(cmd) >= 4
-        and cmd[0] == "uv"
-        and cmd[1] == "build"
-        and "--sdist" in cmd
-        and "--out-dir" in cmd
-    )
-
-
-def _is_sdk_sdist_build_command(cmd: list[str], cwd: str | None) -> bool:
-    return (
-        _is_sdist_build_command(cmd)
-        and cwd is not None
-        and Path(cwd).resolve() == _sdk_root().resolve()
-    )
-
-
-def _reuse_cached_sdist(
-    cmd: list[str],
-    cached_sdist: Path,
-) -> subprocess.CompletedProcess[str]:
-    out_dir = Path(cmd[cmd.index("--out-dir") + 1]).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / cached_sdist.name
-    shutil.copy2(cached_sdist, target)
-    logger.info("Reusing cached SDK sdist %s -> %s", cached_sdist, target)
-    return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-
-@contextlib.contextmanager
-def _patch_sdk_sdist_build(
-    sdk_build_module,
-    cached_sdist: Path | None,
-):
-    """
-    Reuse a pre-built sdist while still calling the SDK's own build() logic.
-
-    This keeps tag generation, build args, cache settings, and future SDK build
-    behavior inside the SDK. Benchmarks only short-circuits the expensive
-    repeated `uv build --sdist` step.
-    """
-    if cached_sdist is None or not cached_sdist.is_file():
-        yield
-        return
-
-    original_run = getattr(sdk_build_module, "_run", None)
-    if original_run is None:
-        logger.warning(
-            "SDK build module has no _run helper; falling back to native build()"
-        )
-        yield
-        return
-
-    def patched_run(
-        cmd: list[str],
-        cwd: str | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        if _is_sdk_sdist_build_command(cmd, cwd):
-            return _reuse_cached_sdist(cmd, cached_sdist)
-        return original_run(cmd, cwd=cwd)
-
-    sdk_build_module._run = patched_run
-    try:
-        yield
-    finally:
-        sdk_build_module._run = original_run
-
-
 @contextlib.contextmanager
 def _prepare_cached_sdist():
     cached_sdist_path: Path | None = None
@@ -429,6 +360,7 @@ def build_image(
         git_ref=git_ref,
         git_sha=git_sha,
         sdk_version=sdk_version,
+        prebuilt_sdist=cached_sdist,
     )
     for t in opts.all_tags:
         # Check if image exists or not
@@ -436,8 +368,7 @@ def build_image(
             logger.info("Image %s already exists. Skipping build.", t)
             return BuildOutput(base_image=base_image, tags=[t], error=None)
 
-    with _patch_sdk_sdist_build(sdk_build_module, cached_sdist):
-        tags = build(opts)
+    tags = build(opts)
 
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
