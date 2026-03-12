@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import base64
 import logging
 import os

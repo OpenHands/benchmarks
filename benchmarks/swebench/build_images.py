@@ -9,6 +9,8 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import logging
 import sys
 from pathlib import Path

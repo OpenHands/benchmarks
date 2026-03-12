@@ -3,6 +3,8 @@
 Shared utilities for batch building agent-server images.
 """
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import argparse
 import contextlib
 import io

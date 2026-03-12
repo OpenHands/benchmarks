@@ -3,6 +3,8 @@
 Buildx/BuildKit utilities for image build resets and pruning.
 """
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import json
 import logging
 import os

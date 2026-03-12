@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import json
 import logging
 import os
