@@ -3,9 +3,12 @@
 Shared utilities for batch building agent-server images.
 """
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import argparse
 import contextlib
 import io
+import logging
 import os
 import subprocess
 import sys
@@ -29,10 +32,9 @@ from benchmarks.utils.buildx_utils import (
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
-from openhands.sdk import get_logger
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BuildOutput(BaseModel):

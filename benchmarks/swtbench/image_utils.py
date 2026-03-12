@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import json
 import logging
 import os
@@ -9,10 +11,9 @@ from pathlib import Path
 from typing import Iterable
 
 from benchmarks.swtbench.config import EVAL_DEFAULTS
-from openhands.sdk import get_logger
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
