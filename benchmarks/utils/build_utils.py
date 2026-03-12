@@ -23,6 +23,7 @@ from tqdm.auto import tqdm
 from benchmarks.swebench.constants import TargetType
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.buildx_utils import (
+    BackgroundBuildKitPruner,
     buildkit_disk_usage,
     maybe_prune_buildkit_cache,
     maybe_reset_buildkit,
@@ -500,6 +501,17 @@ def build_all_images(
     # Prune aggressively by default; filters like "unused-for=12h" prevented GC from
     # reclaiming layers created during the current run, leading to disk exhaustion.
     prune_filters: list[str] | None = None
+    completed_batch_prune_enabled = (
+        os.getenv("BUILDKIT_COMPLETED_BATCH_PRUNE_ENABLED", "1") != "0"
+    )
+    completed_batch_prune_timeout_sec = int(
+        os.getenv("BUILDKIT_COMPLETED_BATCH_PRUNE_TIMEOUT_SEC", "300")
+    )
+    completed_batch_pruner = BackgroundBuildKitPruner(
+        enabled=completed_batch_prune_enabled,
+        timeout_sec=completed_batch_prune_timeout_sec,
+    )
+    prunable_batch: list[str] = []
 
     def _chunks(seq: list[str], size: int):
         if size <= 0:
@@ -511,117 +523,147 @@ def build_all_images(
     batches = list(_chunks(base_images, batch_size or len(base_images)))
     total_batches = len(batches)
 
-    with (
-        manifest_file.open("w") as writer,
-        tqdm(
-            total=len(base_images), desc="Building agent-server images", leave=True
-        ) as pbar,
-    ):
-        _update_pbar(pbar, successes, failures, 0, None, "Queueing")
+    try:
+        with (
+            manifest_file.open("w") as writer,
+            tqdm(
+                total=len(base_images), desc="Building agent-server images", leave=True
+            ) as pbar,
+        ):
+            _update_pbar(pbar, successes, failures, 0, None, "Queueing")
 
-        for batch_idx, batch in enumerate(batches, start=1):
-            if not batch:
-                continue
+            for batch_idx, batch in enumerate(batches, start=1):
+                if not batch:
+                    continue
 
-            logger.info(
-                "Starting batch %d/%d (%d images)", batch_idx, total_batches, len(batch)
-            )
-            in_progress: set[str] = set()
+                completed_batch_pruner.poll()
+                if prunable_batch:
+                    completed_batch_pruner.enqueue_completed_batch(prunable_batch)
+                    prunable_batch = []
 
-            with ProcessPoolExecutor(max_workers=max_workers) as ex:
-                futures = {}
-                for base in batch:
-                    in_progress.add(base)
-                    resolved_tag = (
-                        base_image_to_custom_tag_fn(base)
-                        if base_image_to_custom_tag_fn
-                        else ""
-                    )
-                    fut = ex.submit(
-                        _build_with_logging,
-                        log_dir=build_log_dir,
-                        base_image=base,
-                        target_image=image,
-                        custom_tag=resolved_tag,
-                        target=target,
-                        push=push,
-                        max_retries=max_retries,
-                        post_build_fn=post_build_fn,
-                    )
-                    futures[fut] = base
-
-                _update_pbar(
-                    pbar,
-                    successes,
-                    failures,
-                    len(in_progress),
-                    next(iter(in_progress), None),
-                    f"Batch {batch_idx}/{total_batches} running",
+                logger.info(
+                    "Starting batch %d/%d (%d images)",
+                    batch_idx,
+                    total_batches,
+                    len(batch),
                 )
+                in_progress: set[str] = set()
+                completed_in_batch: list[str] = []
 
-                for fut in as_completed(futures):
-                    base = futures[fut]
-                    status = None
-                    try:
-                        result: BuildOutput = fut.result()
-                    except Exception as e:
-                        logger.error("Build failed for %s: %r", base, e)
-                        result = BuildOutput(base_image=base, tags=[], error=repr(e))
+                with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                    futures = {}
+                    for base in batch:
+                        in_progress.add(base)
+                        resolved_tag = (
+                            base_image_to_custom_tag_fn(base)
+                            if base_image_to_custom_tag_fn
+                            else ""
+                        )
+                        fut = ex.submit(
+                            _build_with_logging,
+                            log_dir=build_log_dir,
+                            base_image=base,
+                            target_image=image,
+                            custom_tag=resolved_tag,
+                            target=target,
+                            push=push,
+                            max_retries=max_retries,
+                            post_build_fn=post_build_fn,
+                        )
+                        futures[fut] = base
 
-                    writer.write(result.model_dump_json() + "\n")
-                    writer.flush()
-
-                    with mu:
-                        if result.error or not result.tags:
-                            failures += 1
-                            status = "❌ Failed"
-                        else:
-                            successes += 1
-                            status = "✅ Done"
-
-                    in_progress.discard(base)
-                    pbar.update(1)
                     _update_pbar(
                         pbar,
                         successes,
                         failures,
                         len(in_progress),
                         next(iter(in_progress), None),
-                        status,
+                        f"Batch {batch_idx}/{total_batches} running",
                     )
 
-            used, total = buildkit_disk_usage()
-            if total > 0:
-                logger.info(
-                    "BuildKit usage after batch %d/%d: %.2f%% (%0.2f GiB / %0.2f GiB)",
-                    batch_idx,
-                    total_batches,
-                    (used / total) * 100,
-                    used / (1 << 30),
-                    total / (1 << 30),
-                )
+                    for fut in as_completed(futures):
+                        base = futures[fut]
+                        status = None
+                        try:
+                            result: BuildOutput = fut.result()
+                        except Exception as e:
+                            logger.error("Build failed for %s: %r", base, e)
+                            result = BuildOutput(
+                                base_image=base, tags=[], error=repr(e)
+                            )
 
-            if prune_keep_storage_gb and prune_keep_storage_gb > 0:
-                pruned = maybe_prune_buildkit_cache(
-                    keep_storage_gb=prune_keep_storage_gb,
-                    threshold_pct=prune_threshold_pct,
-                    filters=prune_filters,
-                )
-                if pruned:
+                        writer.write(result.model_dump_json() + "\n")
+                        writer.flush()
+
+                        with mu:
+                            if result.error or not result.tags:
+                                failures += 1
+                                status = "❌ Failed"
+                            else:
+                                successes += 1
+                                completed_in_batch.append(base)
+                                status = "✅ Done"
+
+                        in_progress.discard(base)
+                        pbar.update(1)
+                        _update_pbar(
+                            pbar,
+                            successes,
+                            failures,
+                            len(in_progress),
+                            next(iter(in_progress), None),
+                            status,
+                        )
+
+                used, total = buildkit_disk_usage()
+                if total > 0:
                     logger.info(
-                        "Pruned BuildKit cache after batch %d/%d (keep=%d GiB, threshold=%.1f%%)",
+                        "BuildKit usage after batch %d/%d: %.2f%% (%0.2f GiB / %0.2f GiB)",
                         batch_idx,
                         total_batches,
-                        prune_keep_storage_gb,
-                        prune_threshold_pct,
+                        (used / total) * 100,
+                        used / (1 << 30),
+                        total / (1 << 30),
                     )
-                else:
-                    logger.info(
-                        "No prune needed after batch %d/%d (threshold %.1f%%)",
-                        batch_idx,
-                        total_batches,
-                        prune_threshold_pct,
-                    )
+
+                prunable_batch = completed_in_batch
+
+                if prune_keep_storage_gb and prune_keep_storage_gb > 0:
+                    if completed_batch_pruner.is_busy:
+                        logger.info(
+                            "Skipping synchronous BuildKit prune after batch %d/%d while background targeted prune is still running or queued",
+                            batch_idx,
+                            total_batches,
+                        )
+                    else:
+                        pruned = maybe_prune_buildkit_cache(
+                            keep_storage_gb=prune_keep_storage_gb,
+                            threshold_pct=prune_threshold_pct,
+                            filters=prune_filters,
+                        )
+                        if pruned:
+                            logger.info(
+                                "Pruned BuildKit cache after batch %d/%d (keep=%d GiB, threshold=%.1f%%)",
+                                batch_idx,
+                                total_batches,
+                                prune_keep_storage_gb,
+                                prune_threshold_pct,
+                            )
+                        else:
+                            logger.info(
+                                "No prune needed after batch %d/%d (threshold %.1f%%)",
+                                batch_idx,
+                                total_batches,
+                                prune_threshold_pct,
+                            )
+
+            completed_batch_pruner.poll()
+            if prunable_batch:
+                completed_batch_pruner.enqueue_completed_batch(prunable_batch)
+                prunable_batch = []
+    finally:
+        completed_batch_pruner.wait()
+
     logger.info(
         "Done. Built=%d  Failed=%d  Manifest=%s",
         successes,
