@@ -22,12 +22,12 @@ on:
       max-workers:
         description: 'Maximum number of parallel workers'
         required: false
-        default: '16'
+        default: '4'
         type: string
       build-batch-size:
         description: 'Number of agent-server images to submit per batch'
         required: false
-        default: '50'
+        default: '15'
         type: string
       n-limit:
         description: 'Limit number of images to build (0 for all)'
@@ -92,8 +92,8 @@ jobs:
     env:
       DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
       SPLIT: test
-      MAX_WORKERS: '16'
-      BUILD_BATCH_SIZE: '50'
+      MAX_WORKERS: '4'
+      BUILD_BATCH_SIZE: '15'
       N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
@@ -152,8 +152,8 @@ jobs:
           # Get inputs with defaults
           DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
           SPLIT="${{ inputs.split || 'test' }}"
-          MAX_WORKERS="${{ inputs.max-workers || '16' }}"
-          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '50' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '15' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
