@@ -45,6 +45,11 @@ on:
         required: false
         default: ''
         type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
@@ -221,6 +226,7 @@ jobs:
       - name: Build and push SWE-Gym images
         run: |
           set -euo pipefail
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           CMD="uv run benchmarks/swegym/build_images.py \
             --dataset '${DATASET}' \
@@ -236,6 +242,9 @@ jobs:
           fi
           if [ -n "${SELECT_FILE}" ]; then
             CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
           fi
 
           echo "Running: $CMD"

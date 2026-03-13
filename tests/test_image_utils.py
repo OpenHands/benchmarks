@@ -285,6 +285,44 @@ class TestBuildImageTelemetry:
         mock_exists.assert_called_once()
 
 
+class TestRemoteForceBuild:
+    @patch("benchmarks.utils.build_utils.remote_image_exists", return_value=True)
+    def test_build_image_force_build_bypasses_remote_exists(self, mock_exists):
+        from benchmarks.utils.build_utils import build_image
+        from openhands.agent_server.docker import build as sdk_build_module
+
+        with (
+            patch(
+                "benchmarks.utils.build_utils._get_sdk_submodule_info",
+                return_value=("main", "abcdef0", "1.0.0"),
+            ),
+            patch.object(
+                sdk_build_module,
+                "build",
+                return_value=["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"],
+            ) as mock_build,
+        ):
+            result = build_image(
+                base_image="base:latest",
+                target_image="ghcr.io/openhands/eval-agent-server",
+                custom_tag="mytag",
+                push=True,
+                force_build=True,
+            )
+
+        assert result.error is None
+        assert result.tags == ["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"]
+        mock_exists.assert_not_called()
+        mock_build.assert_called_once()
+
+    def test_build_parser_accepts_force_build(self):
+        from benchmarks.utils.build_utils import get_build_parser
+
+        args = get_build_parser().parse_args(["--force-build"])
+
+        assert args.force_build is True
+
+
 class TestBuildWithLoggingTelemetry:
     @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
     @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[100.0, 109.5])
