@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -355,9 +356,95 @@ class _PlainFormatter(logging.Formatter):
         )
 
 
+# Thread-local storage for per-thread logging state.
+_logging_local = threading.local()
+_logging_setup_lock = threading.Lock()
+_logging_routers_installed = False
+
+
+class _ThreadRoutedFileHandler(logging.Handler):
+    """Routes log records to per-thread file handlers via threading.local().
+
+    A single instance of this handler is attached to the root logger.
+    Each worker thread stores its own FileHandler in _logging_local, and
+    this handler delegates to whichever FileHandler the current thread has.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+        )
+
+    def emit(self, record: logging.LogRecord) -> None:
+        fh: logging.FileHandler | None = getattr(_logging_local, "file_handler", None)
+        if fh is not None:
+            # Apply our formatter and delegate to per-thread file handler
+            record_msg = self.format(record)
+            try:
+                fh.stream.write(record_msg + "\n")
+                fh.stream.flush()
+            except Exception:
+                pass
+        elif record.levelno >= logging.WARNING:
+            # Fallback for threads without per-thread setup (e.g. main
+            # asyncio event loop thread): write warnings+ to stderr so
+            # timeout errors and write failures aren't silently lost.
+            record_msg = self.format(record)
+            try:
+                sys.__stderr__.write(record_msg + "\n")
+                sys.__stderr__.flush()
+            except Exception:
+                pass
+
+
+class _ThreadRoutedConsoleHandler(logging.Handler):
+    """Routes console output with per-thread formatter via threading.local().
+
+    Applies the formatter stored in the current thread's _logging_local
+    so each instance gets its own prefix/style.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        fmt = getattr(_logging_local, "console_formatter", None)
+        filt = getattr(_logging_local, "console_filter", None)
+        level = getattr(_logging_local, "console_level", logging.WARNING)
+        if record.levelno < level:
+            if filt and not filt.filter(record):
+                return
+            elif not filt:
+                return
+        stream = sys.__stderr__
+        if fmt and stream:
+            try:
+                msg = fmt.format(record)
+                stream.write(msg + "\n")
+                stream.flush()
+            except Exception:
+                pass
+        elif not fmt and record.levelno >= logging.WARNING:
+            # Fallback for threads without per-thread setup (e.g. main
+            # asyncio event loop thread): write warnings+ to STDERR to avoid
+            # corrupting stdout (which is used for JSON output parsing).
+            try:
+                basic_msg = f"{record.levelname}: {record.name}: {record.getMessage()}"
+                sys.__stderr__.write(basic_msg + "\n")
+                sys.__stderr__.flush()
+            except Exception:
+                pass
+
+
 def setup_instance_logging(log_dir: str, instance_id: str) -> None:
     """
-    Configure logging for a worker process handling a single instance.
+    Configure logging for a worker thread handling a single instance.
+
+    Thread-safe: uses a single pair of routing handlers on the root logger
+    that delegate to per-thread file handlers and formatters stored in
+    threading.local().  This avoids the race where one thread removes
+    another thread's handlers from the root logger.
 
     Behavior depends on RICH_LOGGING env var:
     - RICH_LOGGING=1: Colored console output with filtered messages
@@ -367,34 +454,55 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
     - All INFO+ logs go to per-instance file (instance_<id>.log)
     - Console shows WARNING+ and selected important patterns
     """
+    global _logging_routers_installed
+
     log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
     output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
     short_id = (
         instance_id.split("__")[-1][:20] if "__" in instance_id else instance_id[:20]
     )
 
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
     rich_mode = _rich_logging_enabled()
 
-    # Console handler
-    # Always use stderr to avoid corrupting stdout (which may contain JSON output)
-    # Previously rich_mode used stdout (bug), plain mode used stderr (correct via None default)
-    console_handler = logging.StreamHandler(sys.__stderr__)
-    console_handler.setLevel(logging.INFO)
+    # --- Install routing handlers on root logger ONCE (thread-safe) ---
+    with _logging_setup_lock:
+        if not _logging_routers_installed:
+            root_logger = logging.getLogger()
+            # Remove any pre-existing handlers
+            for handler in root_logger.handlers[:]:
+                root_logger.removeHandler(handler)
+            root_logger.addHandler(_ThreadRoutedFileHandler())
+            root_logger.addHandler(_ThreadRoutedConsoleHandler())
+            root_logger.setLevel(logging.DEBUG)
+            _logging_routers_installed = True
 
+    # --- Set up per-thread state ---
+
+    # Close previous file handler for this thread (if any)
+    prev_fh: logging.FileHandler | None = getattr(_logging_local, "file_handler", None)
+    if prev_fh is not None:
+        try:
+            prev_fh.close()
+        except Exception:
+            pass
+
+    # File handler for this instance
+    os.makedirs(log_dir, exist_ok=True)
+    fh = logging.FileHandler(log_file)
+    _logging_local.file_handler = fh
+
+    # Console formatter for this instance
     if rich_mode:
-        console_handler.addFilter(_ConsoleFilter())
-        console_handler.setFormatter(_ColorFormatter(instance_id))
+        _logging_local.console_formatter = _ColorFormatter(instance_id)
+        _logging_local.console_filter = _ConsoleFilter()
+        _logging_local.console_level = logging.INFO
     else:
-        console_handler.setFormatter(_PlainFormatter(instance_id))
-
-    root_logger.addHandler(console_handler)
-    root_logger.setLevel(logging.DEBUG)
+        _logging_local.console_formatter = _PlainFormatter(instance_id)
+        _logging_local.console_filter = None
+        _logging_local.console_level = logging.WARNING
 
     # Print startup message
+    root_logger = logging.getLogger()
     if rich_mode:
         print(
             format_line(
@@ -410,7 +518,8 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
         if sys.__stderr__ is not None:
             sys.__stderr__.flush()
     else:
-        # Original startup message style
+        # Temporarily allow INFO for the startup message
+        _logging_local.console_level = logging.INFO
         root_logger.info(
             f"""
     === Evaluation Started (instance {instance_id}) ===
@@ -420,17 +529,8 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
     ===============================================
     """.strip()
         )
-        # Original behavior: set console to WARNING+ after initial message
-        console_handler.setLevel(logging.WARNING)
-
-    # File handler for full logs
-    os.makedirs(log_dir, exist_ok=True)
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    )
-    file_handler.setLevel(logging.INFO)
-    root_logger.addHandler(file_handler)
+        # Restore WARNING+ for console after startup message
+        _logging_local.console_level = logging.WARNING
 
 
 # ---------------------------------------------------------------------------
