@@ -1,24 +1,17 @@
 import json
 import os
-from typing import Any, List
+from typing import List
 
-import requests
 from jinja2 import Environment, FileSystemLoader
 
-from benchmarks.swebenchmultimodal.build_images import (
+from benchmarks.swebenchmultilingual import constants
+from benchmarks.swebenchmultilingual.build_images import (
     extract_custom_tag,
     get_official_docker_image,
+    should_wrap_instance_id,
+    wrap_image,
 )
-from benchmarks.swebenchmultimodal.config import INFER_DEFAULTS
-from benchmarks.utils.acp import (
-    ACP_PROMPT_TIMEOUT,
-    extract_acp_model_hint,
-    get_acp_command,
-    get_acp_forward_env,
-    is_acp_agent,
-    setup_acp_workspace,
-    workspace_keepalive,
-)
+from benchmarks.swebenchmultilingual.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -38,54 +31,43 @@ from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
+    ToolPresetType,
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
-from openhands.sdk import (
-    Agent,
-    Conversation,
-    ImageContent,
-    Message,
-    TextContent,
-    Tool,
-    get_logger,
-)
-from openhands.sdk.agent import ACPAgent
-from openhands.sdk.context.condenser import LLMSummarizingCondenser
+from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
-from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
 
 
-def is_valid_image_url(url: str, allowed_types: list | None = None) -> bool:
-    """
-    Check if a URL points to a valid image by examining the HTTP response content type.
+def get_tools_for_preset(
+    preset: ToolPresetType, enable_browser: bool = False
+) -> list[Tool]:
+    """Get the list of tools for the given preset.
 
     Args:
-        url: The URL to check
-        allowed_types: List of allowed MIME types. If None, defaults to common image types.
+        preset: The tool preset to use (default, gemini, or planning).
+        enable_browser: Whether to include browser tools.
 
     Returns:
-        True if URL points to a valid image type, False otherwise
+        List of Tool instances for the given preset.
     """
-    if allowed_types is None:
-        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    if preset == "gemini":
+        from openhands.tools.preset.gemini import get_gemini_tools
 
-    try:
-        # Send a HEAD request first to check headers without downloading the entire file
-        response = requests.head(url, allow_redirects=True, timeout=5)
-        response.raise_for_status()
+        return get_gemini_tools(enable_browser=enable_browser)
+    elif preset == "planning":
+        from openhands.tools.preset.planning import get_planning_tools
 
-        # Get the content type from the response headers
-        content_type = response.headers.get("Content-Type", "")
+        # Planning preset doesn't support browser tools
+        return get_planning_tools()
+    else:  # default
+        from openhands.tools.preset.default import get_default_tools
 
-        # Check if the content type is in the allowed types
-        return any(content_type.startswith(t) for t in allowed_types)
-    except Exception:
-        return False
+        return get_default_tools(enable_browser=enable_browser)
 
 
 def get_instruction(
@@ -162,27 +144,40 @@ class SWEBenchEvaluation(Evaluation):
             resource_factor: Resource factor for runtime allocation (default: 1).
                            Higher values allocate more CPU/memory resources.
                            Used by APIRemoteWorkspace for remote runtime allocation.
-            forward_env: Environment variables to forward into the workspace.
         """
-        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
-
-        # Use multimodal image
         official_docker_image = get_official_docker_image(instance.id)
-        build_target = "source-minimal"
+        build_target = constants.DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
-        suffix = f"-{build_target}" if build_target != "binary" else ""
+        suffix = (
+            f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
+        )
+        base_agent_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+        )
+        wrap_needed = should_wrap_instance_id(instance.id)
+        agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
-            ensure_local_image(
-                agent_server_image=agent_server_image,
+            built = ensure_local_image(
+                agent_server_image=base_agent_image,
                 base_image=official_docker_image,
                 custom_tag=custom_tag,
                 target=build_target,
             )
+            if built and wrap_needed:
+                wrapped_result = wrap_image(base_agent_image, push=False)
+                if wrapped_result.error:
+                    raise RuntimeError(
+                        "Wrapped image build failed: "
+                        f"{wrapped_result.error}; log={wrapped_result.log_path}"
+                    )
+            elif not built and wrap_needed:
+                logger.info(
+                    f"Using pre-built image {base_agent_image} "
+                    "(assumed already wrapped)"
+                )
+
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
@@ -207,18 +202,23 @@ class SWEBenchEvaluation(Evaluation):
                 f"Using remote workspace with image {agent_server_image} "
                 f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
-            startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            startup_timeout = float(
+                os.getenv(
+                    "REMOTE_RUNTIME_STARTUP_TIMEOUT",
+                    str(constants.DEFAULT_REMOTE_RUNTIME_STARTUP_TIMEOUT),
+                )
+            )
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
-                    "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
+                    "RUNTIME_API_URL", constants.DEFAULT_RUNTIME_API_URL
                 ),
                 runtime_api_key=runtime_api_key,
                 server_image=agent_server_image,
-                init_timeout=startup_timeout,
-                startup_wait_timeout=startup_timeout,
                 target_type="source" if "source" in build_target else "binary",
                 forward_env=forward_env or [],
                 resource_factor=resource_factor,
+                init_timeout=startup_timeout,
+                startup_wait_timeout=startup_timeout,
             )
         else:
             raise ValueError(
@@ -242,38 +242,26 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        if is_acp_agent(self.metadata.agent_type):
-            agent = ACPAgent(
-                acp_command=get_acp_command(self.metadata.agent_type),
-                acp_model=extract_acp_model_hint(self.metadata.llm.model),
-                acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
-            )
-        else:
-            tools = get_default_tools(
-                # Enable browser tools for frontend development tasks
-                enable_browser=True,
-            )
-            if self.metadata.enable_delegation:
-                tools.append(Tool(name=DelegateTool.name))
-            condenser = None
-            if self.metadata.enable_condenser:
-                condenser = LLMSummarizingCondenser(
-                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
-                    max_size=self.metadata.condenser_max_size,
-                    keep_first=self.metadata.condenser_keep_first,
-                )
-            agent = Agent(
-                llm=self.metadata.llm,
-                tools=tools,
-                system_prompt_kwargs={"cli_mode": True},
-                condenser=condenser,
-                # TODO: we can enable security analyzer later
-                # security_analyzer=LLMSecurityAnalyzer(),
-            )
+        tools = get_tools_for_preset(
+            preset=self.metadata.tool_preset,
+            # Disable browser tools in CLI mode
+            enable_browser=False,
+        )
+        if self.metadata.enable_delegation:
+            tools.append(Tool(name=DelegateTool.name))
+        agent = Agent(
+            llm=self.metadata.llm,
+            tools=tools,
+            system_prompt_kwargs={"cli_mode": True},
+            # TODO: we can enable condenser and security analyzer later
+            # and have them configurable via EvalMetadata
+            # condenser=get_default_condenser(
+            #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
+            # ),
+            # security_analyzer=LLMSecurityAnalyzer(),
+        )
 
         assert isinstance(workspace, RemoteWorkspace)
-
-        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
@@ -293,16 +281,14 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         logger.info("repo_path: %s", repo_path)
-        # Copy testbed repo to workspace (same as regular swebench)
-        # The multimodal benchmark uses regular SWE-bench images which have /testbed
-        cp_testbed_repo = workspace.execute_command(
-            f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}"
+        cp_testebed_repo = workspace.execute_command(
+            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
         )
-        assert cp_testbed_repo.exit_code == 0, (
-            f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"
+        assert cp_testebed_repo.exit_code == 0, (
+            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
         )
 
-        # git reset to clean state
+        # git reset
         git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
         assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
@@ -311,92 +297,26 @@ class SWEBenchEvaluation(Evaluation):
             metadata=self.metadata,
             workspace_path=workspace.working_dir,
         )
-
-        # Handle image assets for multimodal instances
-        with workspace_keepalive(self.metadata.agent_type, workspace):
-            if "image_assets" in instance.data and instance.data["image_assets"]:
-                try:
-                    assets = json.loads(instance.data["image_assets"])
-                    if "problem_statement" in assets and assets["problem_statement"]:
-                        image_urls = assets["problem_statement"]
-
-                        # Filter and validate image URLs
-                        valid_urls = []
-                        index_dict = {}
-                        for url in image_urls:
-                            if is_valid_image_url(url):
-                                if url in instruction:
-                                    valid_urls.append(url)
-                                    idx = instruction.find(url)
-                                    index_dict[url] = idx
-                                else:
-                                    logger.warning(
-                                        f"Image URL {url} not found in instruction, skipping"
-                                    )
-                            else:
-                                logger.info(
-                                    f"Image URL {url} is invalid or inaccessible, skipping"
-                                )
-
-                        if valid_urls:
-                            # Sort URLs by their position in the instruction
-                            sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
-                            sorted_urls = [item[0] for item in sorted_urls]
-
-                            # Add image numbering to instruction
-                            modified_instruction = instruction
-                            for idx, url in enumerate(sorted_urls):
-                                modified_instruction = modified_instruction.replace(
-                                    url, f"{url} (Image: {idx + 1})"
-                                )
-
-                            logger.info(
-                                f"Sending instruction with {len(sorted_urls)} valid images"
-                            )
-
-                            # Create message with both text and images
-                            message = Message(
-                                role="user",
-                                content=[
-                                    TextContent(text=modified_instruction),
-                                    ImageContent(image_urls=sorted_urls),
-                                ],
-                            )
-                            conversation.send_message(message)
-                        else:
-                            logger.info(
-                                "No valid image URLs found, sending text-only instruction"
-                            )
-                            conversation.send_message(instruction)
-                    else:
-                        logger.info("No problem_statement images found in image_assets")
-                        conversation.send_message(instruction)
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.warning(f"Failed to parse image_assets: {e}")
-                    conversation.send_message(instruction)
-            else:
-                logger.info("No image_assets found, sending text-only instruction")
-                conversation.send_message(instruction)
-            # Run conversation with fake user responses to handle agent messages
-            run_conversation_with_fake_user_response(conversation)
+        conversation.send_message(instruction)
+        # Run conversation with fake user responses to handle agent messages
+        run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
 
-        # git commit (same as regular swebench - includes git config)
+        # git commit
         # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
-        # and prevent the commit from being created
         workspace.execute_command(
             f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit --no-verify -m 'patch'"
+            f"git config --global user.email '{constants.GIT_USER_EMAIL}' && "
+            f"git config --global user.name '{constants.GIT_USER_NAME}' && "
+            f"git commit --no-verify -m '{constants.GIT_COMMIT_MESSAGE}'"
         )
 
-        # Get git patch (same as regular swebench - use base_commit)
+        # Get git patch
         base_commit = instance.data["base_commit"]
         git_patch_result = workspace.execute_command(
-            f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD"
+            (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
         )
         assert git_patch_result.exit_code == 0, (
             f"git diff failed: {git_patch_result.stderr}"
@@ -407,23 +327,17 @@ class SWEBenchEvaluation(Evaluation):
         summarize_instance(
             instance_id=instance.id,
             conversation=conversation,
-            git_patch=git_patch or "",
+            git_patch=git_patch,
             logger=logger,
         )
-
-        # Build test_result with optional ACP agent metadata
-        test_result: dict[str, Any] = {
-            "git_patch": git_patch,
-        }
-        if isinstance(agent, ACPAgent):
-            test_result["acp_agent_name"] = agent.agent_name
-            test_result["acp_agent_version"] = agent.agent_version
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result=test_result,
+            test_result={
+                "git_patch": git_patch,
+            },
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
@@ -435,7 +349,6 @@ class SWEBenchEvaluation(Evaluation):
 def main() -> None:
     parser = get_parser()
     add_prompt_path_argument(parser, __file__)
-    # Apply INFER_DEFAULTS from config (matches evaluation repository values.yaml)
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
@@ -461,12 +374,7 @@ def main() -> None:
     # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
-
-    # Handle condenser configuration
-    # --disable-condenser takes precedence over --enable-condenser and defaults
-    enable_condenser = args.enable_condenser
-    if args.disable_condenser:
-        enable_condenser = False
+    logger.info(f"Using tool preset: {args.tool_preset}")
 
     metadata = EvalMetadata(
         llm=llm,
@@ -483,11 +391,8 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
-        agent_type=args.agent_type,
-        enable_condenser=enable_condenser,
-        condenser_max_size=args.condenser_max_size,
-        condenser_keep_first=args.condenser_keep_first,
     )
 
     # Run orchestrator with a simple JSONL writer
@@ -499,6 +404,7 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
+    # Emit machine-readable path for callers
     print(json.dumps({"output_json": str(evaluator.output_path)}))
 
 

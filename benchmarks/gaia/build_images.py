@@ -21,6 +21,7 @@ from benchmarks.utils.build_utils import (
     get_build_parser,
     run_docker_build_layer,
 )
+from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
 
 
@@ -73,6 +74,23 @@ def main(argv: list[str]) -> int:
     def tag_fn(_base: str) -> str:
         return f"gaia-{args.target}"
 
+    # Guard against MCP layer stacking: the MCP Dockerfile uses the same tag
+    # as both its base image (FROM) and its output (--tag). If the image
+    # already exists in the registry it already includes the MCP layer from a
+    # previous build, so re-running would stack a duplicate layer on top —
+    # inflating the image and causing runtime OOM crashes.
+    _, git_sha, _ = _get_sdk_submodule_info()
+    base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
+    if (
+        not args.dry_run
+        and not args.force_build
+        and remote_image_exists(base_gaia_image)
+    ):
+        logger.info("Image %s already exists. Skipping build.", base_gaia_image)
+        return 0
+    if args.force_build and not args.dry_run:
+        logger.info("FORCE_BUILD set, rebuilding GAIA image %s", base_gaia_image)
+
     # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
     exit_code = build_all_images(
@@ -83,6 +101,7 @@ def main(argv: list[str]) -> int:
         push=args.push,
         max_workers=1,  # Only building one image
         dry_run=args.dry_run,
+        force_build=args.force_build,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=tag_fn,
     )
@@ -92,9 +111,6 @@ def main(argv: list[str]) -> int:
         return exit_code
 
     # Build MCP-enhanced layer after base image succeeds
-    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
-    base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
-
     logger.info("Building MCP-enhanced GAIA image from base: %s", base_gaia_image)
     mcp_result = build_gaia_mcp_layer(base_gaia_image, push=args.push)
 

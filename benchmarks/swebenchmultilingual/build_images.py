@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Build agent-server images for all unique SWE-Bench base images in a dataset split,
+Build agent-server images for all unique SWE-Bench Multilingual base images in a dataset split,
 optionally wrapping them with a lightweight layer that pins docutils<0.21 and installs roman.
 
 Example:
-  uv run benchmarks/swebench/build_images.py \
-    --dataset princeton-nlp/SWE-bench_Verified --split test \
+  uv run benchmarks/swebenchmultilingual/build_images.py \
+    --dataset SWE-bench/SWE-bench_Multilingual --split test \
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
 import sys
 from pathlib import Path
 
-from benchmarks.swebench import constants
-from benchmarks.swebench.config import BUILD_DEFAULTS
+from benchmarks.swebenchmultilingual import constants
+from benchmarks.swebenchmultilingual.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     BuildOutput,
     build_all_images,
@@ -178,7 +178,6 @@ def main(argv: list[str]) -> int:
         push=args.push,
         max_workers=args.max_workers,
         dry_run=args.dry_run,
-        force_build=args.force_build,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
         post_build_fn=_wrap_if_needed,

@@ -45,6 +45,7 @@ from benchmarks.utils.models import (
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -270,15 +271,19 @@ class SWEBenchEvaluation(Evaluation):
             )
             if self.metadata.enable_delegation:
                 tools.append(Tool(name=DelegateTool.name))
+            condenser = None
+            if self.metadata.enable_condenser:
+                condenser = LLMSummarizingCondenser(
+                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    max_size=self.metadata.condenser_max_size,
+                    keep_first=self.metadata.condenser_keep_first,
+                )
             agent = Agent(
                 llm=self.metadata.llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
-                # TODO(#463): enable condenser and security analyzer
-                # and have them configurable via EvalMetadata
-                # condenser=get_default_condenser(
-                #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
-                # ),
+                condenser=condenser,
+                # TODO: we can enable security analyzer later
                 # security_analyzer=LLMSecurityAnalyzer(),
             )
 
@@ -406,6 +411,12 @@ def main() -> None:
     logger.info(f"Using critic: {type(critic).__name__}")
     logger.info(f"Using tool preset: {args.tool_preset}")
 
+    # Handle condenser configuration
+    # --disable-condenser takes precedence over --enable-condenser and defaults
+    enable_condenser = args.enable_condenser
+    if args.disable_condenser:
+        enable_condenser = False
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -424,6 +435,9 @@ def main() -> None:
         tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
         agent_type=args.agent_type,
+        enable_condenser=enable_condenser,
+        condenser_max_size=args.condenser_max_size,
+        condenser_keep_first=args.condenser_keep_first,
     )
 
     # Run orchestrator with a simple JSONL writer
