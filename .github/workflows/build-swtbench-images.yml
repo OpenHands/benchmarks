@@ -58,6 +58,11 @@ on:
         required: false
         default: '10'
         type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -144,6 +149,7 @@ jobs:
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           # SWT-Bench uses source-minimal target (same as SWE-bench)
           TARGET="source-minimal"
@@ -175,6 +181,9 @@ jobs:
           if [ -n "${SELECT_FILE}" ]; then
             CMD="$CMD --select ${SELECT_FILE}"
           fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
+          fi
 
           echo "Running: $CMD"
           eval "$CMD"
@@ -202,6 +211,7 @@ jobs:
           BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
           MAX_RETRIES="${{ inputs.max-retries || '2' }}"
           BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '10' }}"
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
           echo "MAX_RETRIES=${MAX_RETRIES}" >> "$GITHUB_ENV"
@@ -228,6 +238,9 @@ jobs:
             ARGS+=(--instance-ids "${INSTANCE_IDS}")
           else
             ARGS+=(--eval-limit "${N_LIMIT}")
+          fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            ARGS+=(--force-build)
           fi
 
           echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"

@@ -13,6 +13,11 @@ on:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
 
 concurrency:
   group: build-gaia-${{ github.ref }}
@@ -83,6 +88,7 @@ jobs:
       - name: Build and push GAIA image with MCP layer
         run: |
           set -euo pipefail
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           # GAIA requires 'binary' target to include Chromium for browser operations
           TARGET="binary"
@@ -91,6 +97,10 @@ jobs:
             --image ghcr.io/openhands/eval-agent-server \
             --target ${TARGET} \
             --push"
+
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
+          fi
 
           echo "Running: $CMD"
           eval "$CMD"

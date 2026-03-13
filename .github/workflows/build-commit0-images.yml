@@ -49,6 +49,11 @@ on:
         required: false
         default: ''
         type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
 
 env:
   DATASET: wentingzhao/commit0_combined
@@ -164,6 +169,7 @@ jobs:
       - name: Build and push Commit0 images
         run: |
           set -euo pipefail
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           CMD="uv run benchmarks/commit0/build_images.py \
             --dataset '${DATASET}' \
@@ -178,6 +184,9 @@ jobs:
           fi
           if [ -n "${SELECT_FILE}" ]; then
             CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
           fi
 
           echo "Running: $CMD"

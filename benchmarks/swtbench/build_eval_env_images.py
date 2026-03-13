@@ -96,6 +96,7 @@ def build_env_images(
     max_retries: int,
     batch_size: int,
     image_prefix: str | None,
+    force_build: bool = False,
 ) -> None:
     """
     Build base + environment images required by the provided ExecSpecs.
@@ -125,7 +126,7 @@ def build_env_images(
         base_spec_by_key.setdefault(key, spec)
         remote_tag = prefixed(key)
 
-        if remote_tag and remote_image_exists(remote_tag):
+        if remote_tag and not force_build and remote_image_exists(remote_tag):
             logger.info("Base image %s already in registry; reusing", remote_tag)
             try:
                 img = client.images.pull(remote_tag)
@@ -152,7 +153,10 @@ def build_env_images(
             skipped_base,
         )
         build_base_images(
-            client, missing_base_specs, force_rebuild=False, build_mode=build_mode
+            client,
+            missing_base_specs,
+            force_rebuild=force_build,
+            build_mode=build_mode,
         )
         base_built = {spec.base_image_key for spec in missing_base_specs}
         if image_prefix:
@@ -168,7 +172,7 @@ def build_env_images(
         key = spec.env_image_key
         remote_tag = prefixed(key)
 
-        if remote_tag and remote_image_exists(remote_tag):
+        if remote_tag and not force_build and remote_image_exists(remote_tag):
             logger.info("Env image %s already in registry; skipping build", remote_tag)
             continue
 
@@ -196,7 +200,7 @@ def build_env_images(
                 build_envs(
                     client,
                     batch,
-                    force_rebuild=False,
+                    force_rebuild=force_build,
                     max_workers=max_workers,
                     build_mode=build_mode,
                 )
@@ -314,6 +318,11 @@ def main() -> None:
         action="store_true",
         help="Build images locally without pushing to the registry",
     )
+    parser.add_argument(
+        "--force-build",
+        action="store_true",
+        help="Rebuild images even if matching remote tags already exist",
+    )
     args = parser.parse_args()
 
     instance_ids = (
@@ -343,6 +352,7 @@ def main() -> None:
         max_retries=args.max_retries,
         batch_size=args.build_batch_size,
         image_prefix=None if args.no_push else args.image_prefix,
+        force_build=args.force_build,
     )
 
     base_images = {spec.base_image_key for spec in exec_specs}
