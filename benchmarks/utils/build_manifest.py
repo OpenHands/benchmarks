@@ -35,6 +35,19 @@ class BuildManifestSummary(BaseModel):
     finished_at: str | None = None
     wall_clock_seconds: float | None = None
     cumulative_duration_seconds: float = 0.0
+    cumulative_remote_check_seconds: float = 0.0
+    cumulative_build_seconds: float = 0.0
+    cumulative_post_build_seconds: float = 0.0
+    cumulative_sdk_build_context_seconds: float = 0.0
+    cumulative_sdk_buildx_wall_clock_seconds: float = 0.0
+    cumulative_sdk_cleanup_seconds: float = 0.0
+    cumulative_sdk_cache_import_seconds: float = 0.0
+    cumulative_sdk_cache_export_seconds: float = 0.0
+    cumulative_sdk_image_export_seconds: float = 0.0
+    cumulative_sdk_push_layers_seconds: float = 0.0
+    cumulative_sdk_export_manifest_seconds: float = 0.0
+    cumulative_sdk_cache_import_misses: int = 0
+    cumulative_sdk_cached_steps: int = 0
     average_build_seconds: float | None = None
     median_build_seconds: float | None = None
     max_build_seconds: float | None = None
@@ -62,6 +75,33 @@ def _parse_datetime(value: Any) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _sum_float_field(records: list[dict[str, Any]], field_name: str) -> float:
+    total = 0.0
+    for record in records:
+        value = _normalize_float(record.get(field_name))
+        if value is not None:
+            total += value
+    return total
+
+
+def _sum_int_field(records: list[dict[str, Any]], field_name: str) -> int:
+    total = 0
+    for record in records:
+        value = record.get(field_name)
+        if isinstance(value, bool):
+            total += int(value)
+        elif isinstance(value, int):
+            total += value
+        elif isinstance(value, float):
+            total += int(value)
+        elif isinstance(value, str) and value:
+            try:
+                total += int(value)
+            except ValueError:
+                continue
+    return total
 
 
 def _record_status(record: dict[str, Any]) -> str:
@@ -185,6 +225,37 @@ def summarize_build_records(
         finished_at=finished_at,
         wall_clock_seconds=wall_clock_seconds,
         cumulative_duration_seconds=cumulative_duration,
+        cumulative_remote_check_seconds=_sum_float_field(
+            records, "remote_check_seconds"
+        ),
+        cumulative_build_seconds=_sum_float_field(records, "build_seconds"),
+        cumulative_post_build_seconds=_sum_float_field(records, "post_build_seconds"),
+        cumulative_sdk_build_context_seconds=_sum_float_field(
+            records, "sdk_build_context_seconds"
+        ),
+        cumulative_sdk_buildx_wall_clock_seconds=_sum_float_field(
+            records, "sdk_buildx_wall_clock_seconds"
+        ),
+        cumulative_sdk_cleanup_seconds=_sum_float_field(records, "sdk_cleanup_seconds"),
+        cumulative_sdk_cache_import_seconds=_sum_float_field(
+            records, "sdk_cache_import_seconds"
+        ),
+        cumulative_sdk_cache_export_seconds=_sum_float_field(
+            records, "sdk_cache_export_seconds"
+        ),
+        cumulative_sdk_image_export_seconds=_sum_float_field(
+            records, "sdk_image_export_seconds"
+        ),
+        cumulative_sdk_push_layers_seconds=_sum_float_field(
+            records, "sdk_push_layers_seconds"
+        ),
+        cumulative_sdk_export_manifest_seconds=_sum_float_field(
+            records, "sdk_export_manifest_seconds"
+        ),
+        cumulative_sdk_cache_import_misses=_sum_int_field(
+            records, "sdk_cache_import_miss_count"
+        ),
+        cumulative_sdk_cached_steps=_sum_int_field(records, "sdk_cached_step_count"),
         average_build_seconds=average_build_seconds,
         median_build_seconds=median_build_seconds,
         max_build_seconds=max_build_seconds,
@@ -236,6 +307,41 @@ def render_build_summary_markdown(
             f"**Cumulative Image Time:** {format_duration(summary.cumulative_duration_seconds)}",
         ]
     )
+
+    phase_lines = [
+        ("Remote Checks", summary.cumulative_remote_check_seconds),
+        ("Build Wrapper Time", summary.cumulative_build_seconds),
+        ("Post-Build Hooks", summary.cumulative_post_build_seconds),
+        ("SDK Build Context", summary.cumulative_sdk_build_context_seconds),
+        ("SDK Buildx Wall Clock", summary.cumulative_sdk_buildx_wall_clock_seconds),
+        ("SDK Cache Imports", summary.cumulative_sdk_cache_import_seconds),
+        ("SDK Cache Exports", summary.cumulative_sdk_cache_export_seconds),
+        ("SDK Image Export", summary.cumulative_sdk_image_export_seconds),
+        (
+            "SDK Push Layers",
+            summary.cumulative_sdk_push_layers_seconds,
+        ),
+        (
+            "SDK Manifest Export",
+            summary.cumulative_sdk_export_manifest_seconds,
+        ),
+    ]
+    if (
+        any(value > 0 for _, value in phase_lines)
+        or summary.cumulative_sdk_cached_steps
+    ):
+        lines.extend(["", "### Phase Totals", ""])
+        for label, value in phase_lines:
+            if value > 0:
+                lines.append(f"- **{label}:** {format_duration(value)}")
+        if summary.cumulative_sdk_cache_import_misses:
+            lines.append(
+                f"- **SDK Cache Import Misses:** {summary.cumulative_sdk_cache_import_misses}"
+            )
+        if summary.cumulative_sdk_cached_steps:
+            lines.append(
+                f"- **SDK Cached Steps:** {summary.cumulative_sdk_cached_steps}"
+            )
 
     if summary.average_build_seconds is not None:
         lines.append(

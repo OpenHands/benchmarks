@@ -298,8 +298,22 @@ class TestRemoteForceBuild:
             ),
             patch.object(
                 sdk_build_module,
-                "build",
-                return_value=["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"],
+                "build_with_telemetry",
+                return_value=MagicMock(
+                    tags=["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"],
+                    telemetry=MagicMock(
+                        build_context_seconds=1.5,
+                        buildx_wall_clock_seconds=12.0,
+                        cleanup_seconds=0.2,
+                        cache_import_seconds=3.0,
+                        cache_import_miss_count=1,
+                        cache_export_seconds=4.0,
+                        image_export_seconds=5.0,
+                        push_layers_seconds=2.5,
+                        export_manifest_seconds=0.7,
+                        cached_step_count=6,
+                    ),
+                ),
             ) as mock_build,
         ):
             result = build_image(
@@ -312,8 +326,61 @@ class TestRemoteForceBuild:
 
         assert result.error is None
         assert result.tags == ["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"]
+        assert result.sdk_cache_export_seconds == 4.0
+        assert result.sdk_image_export_seconds == 5.0
+        assert result.sdk_cache_import_miss_count == 1
         mock_exists.assert_not_called()
         mock_build.assert_called_once()
+
+    @patch("benchmarks.utils.build_utils.remote_image_exists", return_value=False)
+    def test_build_image_failure_preserves_sdk_telemetry(self, mock_exists):
+        from benchmarks.utils.build_utils import build_image
+        from openhands.agent_server.docker import build as sdk_build_module
+
+        telemetry = MagicMock(
+            build_context_seconds=2.0,
+            buildx_wall_clock_seconds=30.0,
+            cleanup_seconds=0.3,
+            cache_import_seconds=7.0,
+            cache_import_miss_count=2,
+            cache_export_seconds=0.0,
+            image_export_seconds=0.0,
+            push_layers_seconds=0.0,
+            export_manifest_seconds=0.0,
+            cached_step_count=4,
+        )
+        failure = sdk_build_module.BuildCommandError(
+            1,
+            ["docker", "buildx", "build"],
+            output="stdout failure",
+            stderr="stderr failure",
+            telemetry=telemetry,
+        )
+
+        with (
+            patch(
+                "benchmarks.utils.build_utils._get_sdk_submodule_info",
+                return_value=("main", "abcdef0", "1.0.0"),
+            ),
+            patch.object(
+                sdk_build_module,
+                "build_with_telemetry",
+                side_effect=failure,
+            ),
+        ):
+            result = build_image(
+                base_image="base:latest",
+                target_image="ghcr.io/openhands/eval-agent-server",
+                custom_tag="mytag",
+                push=True,
+            )
+
+        assert result.status == "failed"
+        assert result.sdk_build_context_seconds == 2.0
+        assert result.sdk_buildx_wall_clock_seconds == 30.0
+        assert result.sdk_cache_import_seconds == 7.0
+        assert result.sdk_cache_import_miss_count == 2
+        assert mock_exists.call_count == 3
 
     def test_build_parser_accepts_force_build(self):
         from benchmarks.utils.build_utils import get_build_parser

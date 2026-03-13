@@ -51,6 +51,16 @@ class BuildOutput(BaseModel):
     remote_check_seconds: float | None = None
     build_seconds: float | None = None
     post_build_seconds: float | None = None
+    sdk_build_context_seconds: float | None = None
+    sdk_buildx_wall_clock_seconds: float | None = None
+    sdk_cleanup_seconds: float | None = None
+    sdk_cache_import_seconds: float | None = None
+    sdk_cache_import_miss_count: int | None = None
+    sdk_cache_export_seconds: float | None = None
+    sdk_image_export_seconds: float | None = None
+    sdk_push_layers_seconds: float | None = None
+    sdk_export_manifest_seconds: float | None = None
+    sdk_cached_step_count: int | None = None
 
 
 def run_docker_build_layer(
@@ -303,6 +313,29 @@ def _force_build_enabled(force_build: bool = False) -> bool:
     return force_build or env_force_build
 
 
+def _apply_sdk_telemetry(output: BuildOutput, telemetry: object | None) -> BuildOutput:
+    if telemetry is None:
+        return output
+
+    output.sdk_build_context_seconds = getattr(telemetry, "build_context_seconds", None)
+    output.sdk_buildx_wall_clock_seconds = getattr(
+        telemetry, "buildx_wall_clock_seconds", None
+    )
+    output.sdk_cleanup_seconds = getattr(telemetry, "cleanup_seconds", None)
+    output.sdk_cache_import_seconds = getattr(telemetry, "cache_import_seconds", None)
+    output.sdk_cache_import_miss_count = getattr(
+        telemetry, "cache_import_miss_count", None
+    )
+    output.sdk_cache_export_seconds = getattr(telemetry, "cache_export_seconds", None)
+    output.sdk_image_export_seconds = getattr(telemetry, "image_export_seconds", None)
+    output.sdk_push_layers_seconds = getattr(telemetry, "push_layers_seconds", None)
+    output.sdk_export_manifest_seconds = getattr(
+        telemetry, "export_manifest_seconds", None
+    )
+    output.sdk_cached_step_count = getattr(telemetry, "cached_step_count", None)
+    return output
+
+
 def build_image(
     base_image: str,
     target_image: str,
@@ -313,7 +346,7 @@ def build_image(
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
-    from openhands.agent_server.docker.build import BuildOptions, build
+    from openhands.agent_server.docker.build import BuildOptions, build_with_telemetry
 
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
@@ -356,23 +389,30 @@ def build_image(
                 )
     build_started = time.monotonic()
     try:
-        tags = build(opts)
+        build_result = build_with_telemetry(opts)
+        tags = build_result.tags
     except Exception as exc:
-        return BuildOutput(
+        return _apply_sdk_telemetry(
+            BuildOutput(
+                base_image=base_image,
+                tags=[],
+                error=repr(exc),
+                status="failed",
+                remote_check_seconds=_round_duration(remote_check_seconds),
+                build_seconds=_round_duration(time.monotonic() - build_started),
+            ),
+            getattr(exc, "telemetry", None),
+        )
+    return _apply_sdk_telemetry(
+        BuildOutput(
             base_image=base_image,
-            tags=[],
-            error=repr(exc),
-            status="failed",
+            tags=tags,
+            error=None,
+            status="built",
             remote_check_seconds=_round_duration(remote_check_seconds),
             build_seconds=_round_duration(time.monotonic() - build_started),
-        )
-    return BuildOutput(
-        base_image=base_image,
-        tags=tags,
-        error=None,
-        status="built",
-        remote_check_seconds=_round_duration(remote_check_seconds),
-        build_seconds=_round_duration(time.monotonic() - build_started),
+        ),
+        build_result.telemetry,
     )
 
 
