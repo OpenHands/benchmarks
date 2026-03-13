@@ -15,13 +15,14 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Callable
+from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
 from benchmarks.swebench.constants import TargetType
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.build_manifest import summarize_build_records
 from benchmarks.utils.buildx_utils import (
     buildkit_disk_usage,
     maybe_prune_buildkit_cache,
@@ -41,6 +42,15 @@ class BuildOutput(BaseModel):
     tags: list[str]
     error: str | None = None
     log_path: str | None = None
+    status: Literal["built", "skipped_remote_exists", "failed"] = "built"
+    skip_reason: str | None = None
+    attempt_count: int = 1
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_seconds: float | None = None
+    remote_check_seconds: float | None = None
+    build_seconds: float | None = None
+    post_build_seconds: float | None = None
 
 
 def run_docker_build_layer(
@@ -275,6 +285,14 @@ def get_build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _utcnow_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _round_duration(seconds: float) -> float:
+    return round(seconds, 3)
+
+
 def build_image(
     base_image: str,
     target_image: str,
@@ -288,6 +306,7 @@ def build_image(
 
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+    remote_check_seconds = 0.0
 
     opts = BuildOptions(
         base_image=base_image,
@@ -304,11 +323,40 @@ def build_image(
     )
     for t in opts.all_tags:
         # Check if image exists or not
-        if remote_image_exists(t):
+        remote_check_started = time.monotonic()
+        exists = remote_image_exists(t)
+        remote_check_seconds += time.monotonic() - remote_check_started
+        if exists:
             logger.info("Image %s already exists. Skipping build.", t)
-            return BuildOutput(base_image=base_image, tags=[t], error=None)
-    tags = build(opts)
-    return BuildOutput(base_image=base_image, tags=tags, error=None)
+            return BuildOutput(
+                base_image=base_image,
+                tags=[t],
+                error=None,
+                status="skipped_remote_exists",
+                skip_reason="remote_image_exists",
+                remote_check_seconds=_round_duration(remote_check_seconds),
+                build_seconds=0.0,
+            )
+    build_started = time.monotonic()
+    try:
+        tags = build(opts)
+    except Exception as exc:
+        return BuildOutput(
+            base_image=base_image,
+            tags=[],
+            error=repr(exc),
+            status="failed",
+            remote_check_seconds=_round_duration(remote_check_seconds),
+            build_seconds=_round_duration(time.monotonic() - build_started),
+        )
+    return BuildOutput(
+        base_image=base_image,
+        tags=tags,
+        error=None,
+        status="built",
+        remote_check_seconds=_round_duration(remote_check_seconds),
+        build_seconds=_round_duration(time.monotonic() - build_started),
+    )
 
 
 def ensure_local_image(
@@ -371,61 +419,92 @@ def _build_with_logging(
             If it returns an error, the build is retried.
     """
     assert max_retries >= 1, "max_retries must be at least 1"
+    overall_started_at = _utcnow_iso()
+    overall_started_monotonic = time.monotonic()
+    remote_check_total = 0.0
+    build_total = 0.0
+    post_build_total = 0.0
+    final_result: BuildOutput | None = None
+    attempts_used = 0
+
     for attempt in range(max_retries):
+        attempts_used = attempt + 1
         with capture_output(base_image, log_dir) as log_path:
             if attempt > 0:
                 logger.info(
                     f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
                 )
                 time.sleep(2 + attempt * 2)
-            try:
-                result = build_image(base_image, target_image, custom_tag, target, push)
-            except Exception as e:
-                result = BuildOutput(
-                    base_image=base_image,
-                    tags=[],
-                    error=repr(e),
-                    log_path=str(log_path),
-                )
+            logger.info(
+                "Starting build for %s (attempt %d/%d)",
+                base_image,
+                attempt + 1,
+                max_retries,
+            )
+            result = build_image(base_image, target_image, custom_tag, target, push)
+            remote_check_total += result.remote_check_seconds or 0.0
+            build_total += result.build_seconds or 0.0
             result.log_path = str(log_path)
             if result.error:
                 logger.error("Build error for %s: %s", base_image, result.error)
+                final_result = result
                 maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                 if attempt == max_retries - 1:
                     logger.error("Max retries reached for %s. Giving up.", base_image)
-                    return result
+                    break
                 continue
 
             # Apply post-build step if provided
             if post_build_fn:
+                post_build_started = time.monotonic()
                 result = post_build_fn(result, push)
+                post_build_total += time.monotonic() - post_build_started
                 result.log_path = str(log_path)
                 if result.error:
+                    result.status = "failed"
                     logger.error(
                         "Post-build error for %s: %s", base_image, result.error
                     )
+                    final_result = result
                     maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                     if attempt == max_retries - 1:
                         logger.error(
                             "Max retries reached for %s. Giving up.", base_image
                         )
-                        return result
+                        break
                     continue
 
-            return result
+            final_result = result
+            break
 
-    raise RuntimeError("Unreachable code reached in _build_with_logging")
+    if final_result is None:
+        raise RuntimeError("Unreachable code reached in _build_with_logging")
+
+    final_result.attempt_count = attempts_used
+    final_result.started_at = overall_started_at
+    final_result.finished_at = _utcnow_iso()
+    final_result.duration_seconds = _round_duration(
+        time.monotonic() - overall_started_monotonic
+    )
+    final_result.remote_check_seconds = _round_duration(remote_check_total)
+    final_result.build_seconds = _round_duration(build_total)
+    final_result.post_build_seconds = _round_duration(post_build_total)
+    if final_result.error:
+        final_result.status = "failed"
+
+    return final_result
 
 
 def _update_pbar(
     pbar: tqdm,
-    successes: int,
+    built: int,
+    skipped: int,
     failures: int,
     running: int,
     sample: str | None,
     last_event: str | None,
 ):
-    postfix = f"✅ {successes}  ❌ {failures}  🏃 {running}"
+    postfix = f"🛠 {built}  ⏭ {skipped}  ❌ {failures}  🏃 {running}"
     if sample:
         postfix += f" ({sample})"
     if last_event:
@@ -488,9 +567,12 @@ def build_all_images(
         print("\n".join(base_images))
         return 0
 
-    successes = 0
+    built = 0
+    skipped = 0
     failures = 0
     mu = Lock()
+    results: list[BuildOutput] = []
+    overall_started_monotonic = time.monotonic()
 
     # Batch/prune settings (tunable via env to control disk usage on sticky runners)
     # Default to smaller batches and more aggressive pruning on shared runners.
@@ -517,16 +599,20 @@ def build_all_images(
             total=len(base_images), desc="Building agent-server images", leave=True
         ) as pbar,
     ):
-        _update_pbar(pbar, successes, failures, 0, None, "Queueing")
+        _update_pbar(pbar, built, skipped, failures, 0, None, "Queueing")
 
         for batch_idx, batch in enumerate(batches, start=1):
             if not batch:
                 continue
 
+            batch_started_monotonic = time.monotonic()
             logger.info(
                 "Starting batch %d/%d (%d images)", batch_idx, total_batches, len(batch)
             )
             in_progress: set[str] = set()
+            batch_built = 0
+            batch_skipped = 0
+            batch_failures = 0
 
             with ProcessPoolExecutor(max_workers=max_workers) as ex:
                 futures = {}
@@ -552,7 +638,8 @@ def build_all_images(
 
                 _update_pbar(
                     pbar,
-                    successes,
+                    built,
+                    skipped,
                     failures,
                     len(in_progress),
                     next(iter(in_progress), None),
@@ -566,28 +653,51 @@ def build_all_images(
                         result: BuildOutput = fut.result()
                     except Exception as e:
                         logger.error("Build failed for %s: %r", base, e)
-                        result = BuildOutput(base_image=base, tags=[], error=repr(e))
+                        result = BuildOutput(
+                            base_image=base,
+                            tags=[],
+                            error=repr(e),
+                            status="failed",
+                        )
 
                     writer.write(result.model_dump_json() + "\n")
                     writer.flush()
+                    results.append(result)
 
                     with mu:
                         if result.error or not result.tags:
                             failures += 1
+                            batch_failures += 1
                             status = "❌ Failed"
+                        elif result.status == "skipped_remote_exists":
+                            skipped += 1
+                            batch_skipped += 1
+                            status = "⏭ Skipped"
                         else:
-                            successes += 1
-                            status = "✅ Done"
+                            built += 1
+                            batch_built += 1
+                            status = "✅ Built"
 
                     in_progress.discard(base)
                     pbar.update(1)
                     _update_pbar(
                         pbar,
-                        successes,
+                        built,
+                        skipped,
                         failures,
                         len(in_progress),
                         next(iter(in_progress), None),
                         status,
+                    )
+                    logger.info(
+                        "Image %s completed with status=%s attempts=%d duration=%ss build=%ss remote-check=%ss post-build=%ss",
+                        base,
+                        result.status,
+                        result.attempt_count,
+                        result.duration_seconds,
+                        result.build_seconds,
+                        result.remote_check_seconds,
+                        result.post_build_seconds,
                     )
 
             used, total = buildkit_disk_usage()
@@ -622,10 +732,40 @@ def build_all_images(
                         total_batches,
                         prune_threshold_pct,
                     )
+            batch_duration = time.monotonic() - batch_started_monotonic
+            batch_throughput = (
+                (len(batch) / batch_duration) * 3600 if batch_duration else 0.0
+            )
+            logger.info(
+                "Finished batch %d/%d in %.1fs: built=%d skipped=%d failed=%d throughput=%.1f images/hour",
+                batch_idx,
+                total_batches,
+                batch_duration,
+                batch_built,
+                batch_skipped,
+                batch_failures,
+                batch_throughput,
+            )
+
+    summary_file = build_dir / "build-summary.json"
+    summary = summarize_build_records(
+        [result.model_dump(mode="json") for result in results],
+        manifest_files=1 if results else 0,
+    )
+    summary_file.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
+    overall_duration = time.monotonic() - overall_started_monotonic
+    throughput = (
+        (len(base_images) / overall_duration) * 3600 if overall_duration else 0.0
+    )
     logger.info(
-        "Done. Built=%d  Failed=%d  Manifest=%s",
-        successes,
+        "Done in %.1fs. Built=%d Skipped=%d Failed=%d Retried=%d Throughput=%.1f images/hour Manifest=%s Summary=%s",
+        overall_duration,
+        built,
+        skipped,
         failures,
+        summary.retried,
+        throughput,
         str(manifest_file),
+        str(summary_file),
     )
     return 1 if failures else 0

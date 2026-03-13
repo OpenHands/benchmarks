@@ -262,24 +262,33 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "SWT-Bench Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -z "$MANIFEST_FILE" ]; then
-            echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-            echo "❌ Build failed - no manifest found" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          EVAL_SUMMARY=$(find builds -name "eval-env-summary.json" -type f 2>/dev/null | head -1 || true)
+          if [ -n "${EVAL_SUMMARY}" ]; then
+            python3 - "${EVAL_SUMMARY}" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          summary_file = sys.argv[1]
+          with open(summary_file, encoding="utf-8") as f:
+              data = json.load(f)
+
+          summary = data.get("summary", {})
+          print("")
+          print("## SWT-Bench Eval Env Build Summary")
+          print("")
+          print(f"**Base Images Built:** {summary.get('built_base_images', 0)}")
+          print(f"**Base Images Skipped:** {summary.get('skipped_base_images', 0)}")
+          print(f"**Env Images Built:** {summary.get('built_env_images', 0)}")
+          print(f"**Env Images Skipped:** {summary.get('skipped_env_images', 0)}")
+          print(f"**Wall Clock:** {summary.get('wall_clock_seconds', 'n/a')}s")
+          print(f"**Env Build Time:** {summary.get('env_build_seconds', 'n/a')}s")
+          print(f"**Push Time:** {summary.get('push_seconds', 'n/a')}s")
+          PY
           fi
-
-          # Count total images built
-          TOTAL_IMAGES=$(wc -l < "$MANIFEST_FILE")
-          SUCCESS_COUNT=$(grep -c '"error":null' "$MANIFEST_FILE" || echo 0)
-          FAIL_COUNT=$((TOTAL_IMAGES - SUCCESS_COUNT))
-
-          echo "## SWT-Bench Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Total Images:** $TOTAL_IMAGES" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Successful:** $SUCCESS_COUNT ✅" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Failed:** $FAIL_COUNT ❌" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Make prebaked eval image package public (best-effort)
         if: ${{ inputs.build-eval-env == 'true' }}

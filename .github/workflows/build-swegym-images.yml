@@ -268,58 +268,9 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          # Find all manifest.jsonl files
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
-          
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "No manifest.jsonl files found"
-            exit 0
-          fi
-          
-          # Generate summary from manifest files
-          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          # Count successes and failures
-          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
-          import sys
-          import json
-          count = 0
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('error') is None and len(data.get('tags', [])) > 0:
-                  count += 1
-          print(count)
-          ")
-          FAILURES=$((TOTAL - SUCCESSES))
-          
-          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          # Show failed builds if any
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            cat $MANIFEST_FILES | python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json
-          import sys
-
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get("error") or not data.get("tags"):
-                  base = data.get("base_image", "unknown")
-                  err = data.get("error") or "No tags generated"
-                  print(f"- `{base}`: {err}")
-          PY
-          fi
-
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "::error::Detected $FAILURES failed or missing agent-server images out of $TOTAL"
-            exit 1
-          fi
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "SWE-Gym Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on tracker issue
         if: success()

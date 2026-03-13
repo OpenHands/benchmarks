@@ -122,34 +122,9 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          # GAIA builds a single universal image, so we just show success/failure
-          MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
-
-          if [ -z "$MANIFEST_FILE" ]; then
-            echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-            echo "❌ Build failed - no manifest found" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          # Read the single line from the manifest
-          BUILD_DATA=$(cat "$MANIFEST_FILE")
-
-          echo "## GAIA Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          # Check if build succeeded
-          if echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); sys.exit(0 if data.get('error') is None and len(data.get('tags', [])) > 0 else 1)"; then
-            TAGS=$(echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); print('\n'.join([f'- \`{tag}\`' for tag in data.get('tags', [])]))")
-            echo "✅ **Build Successful**" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Built Image:**" >> "$GITHUB_STEP_SUMMARY"
-            echo "$TAGS" >> "$GITHUB_STEP_SUMMARY"
-          else
-            ERROR=$(echo "$BUILD_DATA" | python3 -c "import sys, json; data = json.loads(sys.stdin.read()); print(data.get('error', 'Unknown error'))")
-            echo "❌ **Build Failed**" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Error:** $ERROR" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "GAIA Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on tracker issue
         if: success()

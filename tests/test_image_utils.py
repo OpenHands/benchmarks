@@ -255,3 +255,30 @@ class TestEnsureLocalImage:
         _, kwargs = mock_build.call_args
         assert kwargs["target"] == "binary"
         assert kwargs["push"] is False
+
+
+class TestBuildImageTelemetry:
+    @patch("benchmarks.utils.build_utils.remote_image_exists", return_value=True)
+    def test_remote_skip_sets_status_and_skip_reason(self, mock_exists):
+        from benchmarks.utils.build_utils import build_image
+
+        with patch(
+            "benchmarks.utils.build_utils._get_sdk_submodule_info",
+            return_value=("main", "abcdef0", "1.0.0"),
+        ):
+            result = build_image(
+                base_image="base:latest",
+                target_image="ghcr.io/openhands/eval-agent-server",
+                custom_tag="mytag",
+                push=True,
+            )
+
+        assert result.status == "skipped_remote_exists"
+        assert result.skip_reason == "remote_image_exists"
+        assert result.tags == [
+            "ghcr.io/openhands/eval-agent-server:abcdef0-mytag-source-minimal"
+        ]
+        assert result.error is None
+        assert result.remote_check_seconds is not None
+        assert result.build_seconds == 0.0
+        mock_exists.assert_called_once()

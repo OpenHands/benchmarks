@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Iterable, Iterator, List, Sequence
 
@@ -11,6 +12,7 @@ import docker
 
 from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
+from benchmarks.utils.build_utils import default_build_output_dir
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
@@ -96,7 +98,7 @@ def build_env_images(
     max_retries: int,
     batch_size: int,
     image_prefix: str | None,
-) -> None:
+) -> dict[str, object]:
     """
     Build base + environment images required by the provided ExecSpecs.
 
@@ -113,6 +115,11 @@ def build_env_images(
     total_base = len({spec.base_image_key for spec in exec_specs})
     total_env = len({spec.env_image_key for spec in exec_specs})
     remote_prefix = image_prefix.rstrip("/") if image_prefix else None
+    overall_started = time.monotonic()
+    base_build_seconds = 0.0
+    env_build_seconds = 0.0
+    push_seconds = 0.0
+    batch_summaries: list[dict[str, object]] = []
 
     base_to_build_keys: set[str] = set()
 
@@ -151,12 +158,22 @@ def build_env_images(
             total_base,
             skipped_base,
         )
+        base_build_started = time.monotonic()
         build_base_images(
             client, missing_base_specs, force_rebuild=False, build_mode=build_mode
         )
+        base_build_seconds += time.monotonic() - base_build_started
         base_built = {spec.base_image_key for spec in missing_base_specs}
         if image_prefix:
+            push_started = time.monotonic()
             tag_and_push(base_built, image_prefix)
+            push_seconds += time.monotonic() - push_started
+        logger.info(
+            "Completed base image build in %.1fs: built=%d skipped=%d",
+            base_build_seconds,
+            len(base_built),
+            skipped_base,
+        )
     else:
         logger.info(
             "All %s base images already exist; skipping base builds", total_base
@@ -176,7 +193,21 @@ def build_env_images(
 
     if not missing_env_specs:
         logger.info("All %s env images already exist; skipping env builds", total_env)
-        return
+        wall_clock_seconds = time.monotonic() - overall_started
+        return {
+            "total_base_images": total_base,
+            "built_base_images": len(missing_base_specs),
+            "skipped_base_images": skipped_base,
+            "total_env_images": total_env,
+            "built_env_images": 0,
+            "skipped_env_images": total_env,
+            "base_build_seconds": round(base_build_seconds, 3),
+            "env_build_seconds": round(env_build_seconds, 3),
+            "push_seconds": round(push_seconds, 3),
+            "wall_clock_seconds": round(wall_clock_seconds, 3),
+            "batch_count": 0,
+            "batches": [],
+        }
 
     batches = list(chunked(missing_env_specs, max(1, batch_size)))
     logger.info(
@@ -189,10 +220,12 @@ def build_env_images(
     for idx, batch in enumerate(batches, start=1):
         attempt = 0
         while True:
+            batch_started = time.monotonic()
             try:
                 logger.info(
                     "Batch %s/%s: building %s env images", idx, len(batches), len(batch)
                 )
+                env_build_started = time.monotonic()
                 build_envs(
                     client,
                     batch,
@@ -200,8 +233,32 @@ def build_env_images(
                     max_workers=max_workers,
                     build_mode=build_mode,
                 )
+                env_build_seconds += time.monotonic() - env_build_started
                 if image_prefix:
+                    push_started = time.monotonic()
                     tag_and_push({spec.env_image_key for spec in batch}, image_prefix)
+                    push_seconds += time.monotonic() - push_started
+                batch_duration = time.monotonic() - batch_started
+                batch_attempts = attempt + 1
+                batch_summaries.append(
+                    {
+                        "batch_index": idx,
+                        "batch_size": len(batch),
+                        "attempt_count": batch_attempts,
+                        "duration_seconds": round(batch_duration, 3),
+                    }
+                )
+                throughput = (
+                    (len(batch) / batch_duration) * 3600 if batch_duration else 0.0
+                )
+                logger.info(
+                    "Finished env batch %s/%s in %.1fs (attempts=%d, throughput=%.1f images/hour)",
+                    idx,
+                    len(batches),
+                    batch_duration,
+                    batch_attempts,
+                    throughput,
+                )
                 break
             except BuildImageError as exc:
                 attempt += 1
@@ -222,7 +279,30 @@ def build_env_images(
                     max_retries,
                     exc,
                 )
-    return
+    wall_clock_seconds = time.monotonic() - overall_started
+    summary = {
+        "total_base_images": total_base,
+        "built_base_images": len(missing_base_specs),
+        "skipped_base_images": skipped_base,
+        "total_env_images": total_env,
+        "built_env_images": len({spec.env_image_key for spec in missing_env_specs}),
+        "skipped_env_images": total_env - len(missing_env_specs),
+        "base_build_seconds": round(base_build_seconds, 3),
+        "env_build_seconds": round(env_build_seconds, 3),
+        "push_seconds": round(push_seconds, 3),
+        "wall_clock_seconds": round(wall_clock_seconds, 3),
+        "batch_count": len(batch_summaries),
+        "batches": batch_summaries,
+    }
+    logger.info(
+        "Eval env build summary: base built=%s skipped=%s env built=%s skipped=%s wall-clock=%.1fs",
+        summary["built_base_images"],
+        summary["skipped_base_images"],
+        summary["built_env_images"],
+        summary["skipped_env_images"],
+        wall_clock_seconds,
+    )
+    return summary
 
 
 def chunked(seq: Sequence, size: int) -> Iterator[List]:
@@ -336,7 +416,7 @@ def main() -> None:
     exec_specs = load_exec_specs(
         swt_bench_dir, args.dataset, args.split, target_ids, filter_swt=True
     )
-    build_env_images(
+    summary = build_env_images(
         exec_specs,
         max_workers=args.max_workers,
         build_mode=args.build_mode,
@@ -357,7 +437,12 @@ def main() -> None:
         "env_images": sorted(env_images),
         "image_prefix": args.image_prefix,
         "arch": "host",
+        "summary": summary,
     }
+    build_dir = default_build_output_dir(args.dataset, args.split)
+    summary_path = build_dir / "eval-env-summary.json"
+    summary_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    logger.info("Wrote eval env summary to %s", summary_path)
     print(json.dumps(manifest, indent=2))
 
 
