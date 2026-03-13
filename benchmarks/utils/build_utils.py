@@ -343,6 +343,15 @@ def get_build_parser() -> argparse.ArgumentParser:
         "--max-workers", type=int, default=1, help="Concurrent builds (be cautious)"
     )
     parser.add_argument(
+        "--build-batch-size",
+        type=int,
+        default=None,
+        help=(
+            "Number of images to submit per batch. Defaults to BUILD_BATCH_SIZE "
+            "when unset."
+        ),
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
     parser.add_argument(
@@ -666,6 +675,7 @@ def build_all_images(
     push: bool = False,
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_workers: int = 1,
+    build_batch_size: int | None = None,
     dry_run: bool = False,
     force_build: bool = False,
     max_retries: int = 3,
@@ -684,6 +694,8 @@ def build_all_images(
         base_image_to_custom_tag_fn: Function to extract a custom tag from a base image.
             Evaluated before scheduling builds so it can safely be a closure.
         max_workers: Number of concurrent builds.
+        build_batch_size: Number of images to submit per batch. If None, use the
+            BUILD_BATCH_SIZE environment variable.
         dry_run: If True, only list base images without building.
         force_build: If True, rebuild even when matching remote images already exist.
         max_retries: Number of times to retry each failed build (default: 3).
@@ -712,7 +724,11 @@ def build_all_images(
 
     # Batch/prune settings (tunable via env to control disk usage on sticky runners)
     # Default to smaller batches and more aggressive pruning on shared runners.
-    batch_size = int(os.getenv("BUILD_BATCH_SIZE", "15"))
+    batch_size = (
+        build_batch_size
+        if build_batch_size is not None
+        else int(os.getenv("BUILD_BATCH_SIZE", "15"))
+    )
     prune_keep_storage_gb = int(os.getenv("BUILDKIT_PRUNE_KEEP_GB", "60"))
     prune_threshold_pct = float(os.getenv("BUILDKIT_PRUNE_THRESHOLD_PCT", "60"))
     # Prune aggressively by default; filters like "unused-for=12h" prevented GC from

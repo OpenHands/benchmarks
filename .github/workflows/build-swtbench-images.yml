@@ -24,6 +24,11 @@ on:
         required: false
         default: '4'
         type: string
+      build-batch-size:
+        description: 'Number of agent-server images to submit per batch'
+        required: false
+        default: '15'
+        type: string
       n-limit:
         description: 'Limit number of images to build (0 for all)'
         required: false
@@ -53,7 +58,7 @@ on:
         required: false
         default: '2'
         type: string
-      build-batch-size:
+      eval-env-build-batch-size:
         description: 'Env images per batch for eval env builds'
         required: false
         default: '10'
@@ -88,6 +93,7 @@ jobs:
       DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
       SPLIT: test
       MAX_WORKERS: '4'
+      BUILD_BATCH_SIZE: '15'
       N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
@@ -147,6 +153,7 @@ jobs:
           DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
           SPLIT="${{ inputs.split || 'test' }}"
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '15' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
@@ -172,6 +179,7 @@ jobs:
             --image ghcr.io/openhands/eval-agent-server \
             --target ${TARGET} \
             --max-workers ${MAX_WORKERS} \
+            --build-batch-size ${BUILD_BATCH_SIZE} \
             --push"
 
           # Add n-limit if specified
@@ -210,7 +218,7 @@ jobs:
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
           MAX_RETRIES="${{ inputs.max-retries || '2' }}"
-          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '10' }}"
+          BUILD_BATCH_SIZE="${{ inputs.eval-env-build-batch-size || '10' }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
