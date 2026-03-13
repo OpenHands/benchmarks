@@ -253,9 +253,10 @@ def build_env_images(
 
     batches = list(chunked(missing_env_specs, max(1, batch_size)))
     logger.info(
-        "Building %s/%s env images in %s batches (batch_size=%s)",
+        "Building %s/%s unique env images across %s selected instances in %s batches (batch_size=%s)",
         len({spec.env_image_key for spec in missing_env_specs}),
         total_env,
+        len(missing_env_specs),
         len(batches),
         batch_size,
     )
@@ -264,13 +265,18 @@ def build_env_images(
         while True:
             batch_started = time.monotonic()
             try:
+                batch_env_keys = {spec.env_image_key for spec in batch}
                 logger.info(
-                    "Batch %s/%s: building %s env images", idx, len(batches), len(batch)
+                    "Batch %s/%s: building %s unique env images from %s selected instances",
+                    idx,
+                    len(batches),
+                    len(batch_env_keys),
+                    len(batch),
                 )
                 env_build_started = time.monotonic()
                 if force_build:
-                    for spec in batch:
-                        remove_image(client, spec.env_image_key, "quiet")
+                    for env_image_key in batch_env_keys:
+                        remove_image(client, env_image_key, "quiet")
                 build_envs(
                     client,
                     batch,
@@ -288,16 +294,19 @@ def build_env_images(
                 batch_summaries.append(
                     {
                         "batch_index": idx,
-                        "batch_size": len(batch),
+                        "batch_size": len(batch_env_keys),
+                        "instance_count": len(batch),
                         "attempt_count": batch_attempts,
                         "duration_seconds": round(batch_duration, 3),
                     }
                 )
                 throughput = (
-                    (len(batch) / batch_duration) * 3600 if batch_duration else 0.0
+                    (len(batch_env_keys) / batch_duration) * 3600
+                    if batch_duration
+                    else 0.0
                 )
                 logger.info(
-                    "Finished env batch %s/%s in %.1fs (attempts=%d, throughput=%.1f images/hour)",
+                    "Finished env batch %s/%s in %.1fs (attempts=%d, throughput=%.1f unique images/hour)",
                     idx,
                     len(batches),
                     batch_duration,
@@ -330,8 +339,10 @@ def build_env_images(
         "built_base_images": len(missing_base_specs),
         "skipped_base_images": skipped_base,
         "total_env_images": total_env,
+        "selected_env_instances": len(missing_env_specs),
         "built_env_images": len({spec.env_image_key for spec in missing_env_specs}),
-        "skipped_env_images": total_env - len(missing_env_specs),
+        "skipped_env_images": total_env
+        - len({spec.env_image_key for spec in missing_env_specs}),
         "base_build_seconds": round(base_build_seconds, 3),
         "env_build_seconds": round(env_build_seconds, 3),
         "push_seconds": round(push_seconds, 3),

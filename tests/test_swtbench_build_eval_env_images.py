@@ -1,5 +1,6 @@
 import sys
 from types import SimpleNamespace
+from typing import Any, cast
 
 from docker.errors import APIError, ImageNotFound
 
@@ -93,7 +94,7 @@ def test_build_env_images_force_build_avoids_upstream_force_rebuild(monkeypatch)
         build_mode="api",
     ):
         build_env_force_flags.append(force_rebuild)
-        assert len(dataset) == 1
+        assert len(dataset) == 2
 
     docker_utils = SimpleNamespace(remove_image=original_remove_image)
     docker_build = SimpleNamespace(
@@ -126,9 +127,13 @@ def test_build_env_images_force_build_avoids_upstream_force_rebuild(monkeypatch)
         base_image_key="exec.base.x86_64:latest",
         env_image_key="exec.env.foo:latest",
     )
+    duplicate_spec = SimpleNamespace(
+        base_image_key="exec.base.x86_64:latest",
+        env_image_key="exec.env.foo:latest",
+    )
 
     summary = build_env_images(
-        exec_specs=[spec],
+        exec_specs=[spec, duplicate_spec],
         max_workers=1,
         build_mode="cli",
         max_retries=0,
@@ -145,3 +150,11 @@ def test_build_env_images_force_build_avoids_upstream_force_rebuild(monkeypatch)
     ]
     assert summary["built_base_images"] == 1
     assert summary["built_env_images"] == 1
+    assert summary["selected_env_instances"] == 2
+    assert summary["skipped_env_images"] == 0
+    batches = cast(list[dict[str, Any]], summary["batches"])
+    assert len(batches) == 1
+    assert batches[0]["batch_index"] == 1
+    assert batches[0]["batch_size"] == 1
+    assert batches[0]["instance_count"] == 2
+    assert batches[0]["attempt_count"] == 1
