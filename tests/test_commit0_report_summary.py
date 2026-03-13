@@ -10,18 +10,7 @@ import subprocess
 
 import pytest
 
-from benchmarks.commit0.run_infer import parse_report_summary
-
-
-# The same one-liner used in run_infer.py to extract the summary inside the
-# container.  Kept here so integration tests exercise the real command.
-_EXTRACTION_SCRIPT = (
-    "import json; "
-    "r = json.load(open('report.json')); "
-    "s = r.get('summary', {}); "
-    "s['duration'] = r.get('duration', 0); "
-    "print(json.dumps(s))"
-)
+from benchmarks.commit0.run_infer import EXTRACT_SUMMARY_SCRIPT, parse_report_summary
 
 
 @pytest.mark.parametrize(
@@ -178,7 +167,7 @@ def test_real_pytest_json_report_output():
 def _run_extraction(report_dir: str) -> subprocess.CompletedProcess:
     """Run the extraction one-liner against a report.json in *report_dir*."""
     return subprocess.run(
-        ["python3", "-c", _EXTRACTION_SCRIPT],
+        ["python3", "-c", EXTRACT_SUMMARY_SCRIPT],
         cwd=report_dir,
         capture_output=True,
         text=True,

@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 from typing import Any, List
 
 from commit0.harness.constants import SPLIT
@@ -38,6 +39,17 @@ from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
+
+# Script run inside the container to extract summary + duration from
+# report.json.  Only the small summary dict (~200 bytes) is printed to
+# stdout, avoiding HTTP transfer corruption for large reports (see #511).
+EXTRACT_SUMMARY_SCRIPT = """
+import json
+r = json.load(open('report.json'))
+s = r.get('summary', {})
+s['duration'] = r.get('duration', 0)
+print(json.dumps(s))
+""".strip()
 
 
 def parse_report_summary(raw_json: str) -> dict:
@@ -450,17 +462,15 @@ class Commit0Evaluation(Evaluation):
         # This avoids transferring the full report (can be >1 MB) over HTTP,
         # which causes corruption for large files (see #511).
         summary_cmd = (
-            f'cd {repo_path} && python3 -c "'
-            "import json; "
-            "r = json.load(open('report.json')); "
-            "s = r.get('summary', {}); "
-            "s['duration'] = r.get('duration', 0); "
-            "print(json.dumps(s))"
-            '"'
+            f"cd {repo_path} && python3 -c {shlex.quote(EXTRACT_SUMMARY_SCRIPT)}"
         )
         report_result = workspace.execute_command(summary_cmd, timeout=600)
         logger.info(f"Report summary extraction exit code: {report_result.exit_code}")
 
+        # Intentionally let errors propagate here — do NOT add a try/except.
+        # Silent failures caused instances to be scored 0/0 even when all
+        # tests passed (see #511).  The framework's retry logic in
+        # evaluation.py handles the exception.
         if report_result.exit_code != 0:
             raise RuntimeError(
                 f"Report summary extraction failed (exit code {report_result.exit_code}): "

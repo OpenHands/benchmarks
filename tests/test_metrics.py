@@ -93,18 +93,23 @@ def mock_llm_with_metrics():
     return llm
 
 
+def _mock_execute_command(cmd, timeout=None):
+    """Return context-appropriate responses for workspace commands."""
+    result = MagicMock(exit_code=0, stderr="")
+    if "print(json.dumps(s))" in cmd:
+        # commit0 report summary extraction one-liner
+        result.stdout = '{"passed": 1, "total": 1, "collected": 1, "duration": 0.1}'
+    else:
+        result.stdout = "test output"
+    return result
+
+
 @pytest.fixture
 def mock_workspace():
     """Create a mock workspace."""
     workspace = MagicMock(spec=RemoteWorkspace)
     workspace.working_dir = "/workspace"
-    workspace.execute_command = MagicMock(
-        return_value=MagicMock(
-            exit_code=0,
-            stdout="test output",
-            stderr="",
-        )
-    )
+    workspace.execute_command = MagicMock(side_effect=_mock_execute_command)
     return workspace
 
 
