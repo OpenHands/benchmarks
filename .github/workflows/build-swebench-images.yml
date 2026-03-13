@@ -83,8 +83,6 @@ jobs:
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
-    timeout-minutes: 180
-
     # Allow pushing to GHCR and commenting on issues
     permissions:
       contents: read

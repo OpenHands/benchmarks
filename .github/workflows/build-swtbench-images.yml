@@ -77,8 +77,6 @@ jobs:
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
-    timeout-minutes: 180
-
     permissions:
       contents: read
       packages: write
