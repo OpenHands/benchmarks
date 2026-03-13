@@ -25,7 +25,10 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import (
+    create_apptainer_workspace,
+    remote_image_exists,
+)
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -207,10 +210,11 @@ class MultiSWEBenchEvaluation(Evaluation):
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
 
+        agent_server_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+        )
+
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
             ensure_local_image(
                 agent_server_image=agent_server_image,
                 base_image=official_docker_image,
@@ -221,6 +225,11 @@ class MultiSWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+            )
+        elif self.metadata.workspace_type == "apptainer":
+            workspace = create_apptainer_workspace(
+                agent_server_image=agent_server_image,
+                forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")

@@ -23,7 +23,11 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.image_utils import (
+    create_apptainer_workspace,
+    create_docker_workspace,
+    remote_image_exists,
+)
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -186,16 +190,22 @@ class Commit0Evaluation(Evaluation):
         build_target = "source-minimal"
         logger.info(f"Using base docker image: {base_docker_image}")
 
+        custom_tag = extract_custom_tag(base_docker_image)
+        suffix = f"-{build_target}" if build_target != "binary" else ""
+        agent_server_image = (
+            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+        )
+
         if self.metadata.workspace_type == "docker":
-            custom_tag = extract_custom_tag(base_docker_image)
-            suffix = f"-{build_target}" if build_target != "binary" else ""
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
             workspace = create_docker_workspace(
                 agent_server_image=agent_server_image,
                 base_image=base_docker_image,
                 build_target=build_target,
+                forward_env=forward_env,
+            )
+        elif self.metadata.workspace_type == "apptainer":
+            workspace = create_apptainer_workspace(
+                agent_server_image=agent_server_image,
                 forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":

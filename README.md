@@ -173,7 +173,7 @@ Inputs (forwarded to the SDK `run-eval.yml` workflow):
 
 ## Workspace Types
 
-Benchmarks currently expose two workspace types in their CLIs:
+Benchmarks expose three workspace types in their CLIs:
 
 ### Docker Workspace (Default)
 
@@ -183,6 +183,29 @@ Uses local Docker containers to run agent evaluations. Images are built locally 
 - **Cons**: Resource-intensive on local machine, slower for large-scale evaluations
 - **Use case**: Development, testing, small-scale evaluations
 
+### Apptainer Workspace
+
+Uses `openhands.workspace.ApptainerWorkspace` from the vendored SDK to run a pre-built agent-server image without a local Docker daemon. The workspace pulls OCI/Docker images with `apptainer pull docker://...`, so it is a good fit for HPC or university environments where Docker is unavailable.
+
+- **Pros**: No Docker daemon required, works on many shared/HPC systems
+- **Cons**: Requires a pre-built agent-server image in a registry; unlike Docker mode, it cannot build from a base image on the fly
+- **Use case**: Local benchmark runs on Docker-restricted machines
+
+Example:
+
+```bash
+uv run swebench-infer path/to/llm_config.json \
+    --dataset princeton-nlp/SWE-bench_Verified \
+    --split test \
+    --workspace apptainer
+```
+
+Useful environment variables:
+- `APPTAINER_CACHE_DIR`: Override the SIF/cache directory
+- `APPTAINER_HOST_PORT`: Pin the local port used by the agent server
+- `APPTAINER_USE_FAKEROOT=0`: Disable fakeroot if your cluster does not support it
+- `APPTAINER_ENABLE_DOCKER_COMPAT=0`: Disable `--compat` for custom Apptainer behavior
+
 ### Remote Workspace
 
 Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-coding-agents-on-swe-bench-at-30x-speed) to provision containers in a cloud environment, enabling massive parallelization.
@@ -190,19 +213,6 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
 - **Pros**: Scalable to hundreds of parallel workers, no local resource constraints
 - **Cons**: Requires pre-built images and API access
 - **Use case**: Large-scale evaluations, benchmarking runs
-
-### Apptainer on Docker-Restricted Systems
-
-The vendored SDK includes `openhands.workspace.ApptainerWorkspace`, which can run a pre-built agent-server image without a local Docker daemon. It converts OCI/Docker images to Apptainer SIF files with `apptainer pull docker://...`, so it is a good fit for HPC or university environments where Docker is unavailable.
-
-However, the benchmark repo does **not** currently expose `apptainer` as a supported `--workspace` value. Today, the benchmark CLIs and metadata models only accept `docker` and `remote`.
-
-If your machine cannot run Docker, the supported paths today are:
-
-1. Use `--workspace remote` and point the benchmark at a runtime API.
-2. Add a local integration that swaps benchmark `DockerWorkspace` usage for `ApptainerWorkspace` in the relevant `run_infer.py` implementation, using pre-built agent-server images.
-
-In other words: Apptainer is supported by the underlying SDK, but it is not yet a turnkey benchmark workspace option in this repository.
 
 #### How Remote Runtime Works
 

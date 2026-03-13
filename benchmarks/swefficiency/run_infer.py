@@ -20,7 +20,10 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import (
+    create_apptainer_workspace,
+    remote_image_exists,
+)
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -235,6 +238,11 @@ class SWEfficiencyEvaluation(Evaluation):
             workspace._cpu_group = cpu_group
             workspace._cpu_groups_queue = self.cpu_groups_queue
 
+        elif self.metadata.workspace_type == "apptainer":
+            workspace = create_apptainer_workspace(
+                agent_server_image=agent_server_image,
+                forward_env=forward_env,
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:

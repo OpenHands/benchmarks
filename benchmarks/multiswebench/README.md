@@ -83,6 +83,20 @@ LANGUAGE=java uv run multi-swebench-infer path/to/llm_config.json \
     --workspace docker
 ```
 
+### Apptainer Workspace (Local Evaluation without Docker)
+
+If Docker is unavailable, you can run against pre-built agent-server images with Apptainer:
+
+```bash
+LANGUAGE=java uv run multi-swebench-infer path/to/llm_config.json \
+    --dataset bytedance-research/Multi-SWE-Bench \
+    --split java_verified \
+    --workspace apptainer
+```
+
+Apptainer mode requires the agent-server images to already exist in a registry; it does not build them locally from base images.
+
+
 ### Remote Workspace (Scalable Cloud Evaluation)
 
 Remote workspace enables running evaluations at scale by using a cloud-based runtime API to provision containers. This is ideal for large-scale benchmark runs with high parallelization.
