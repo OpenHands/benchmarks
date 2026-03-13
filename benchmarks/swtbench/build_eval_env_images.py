@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Iterable, Iterator, List, Sequence
+from typing import Any, Iterable, Iterator, List, Sequence, cast
 
 import docker
+from docker.errors import ImageNotFound
 
 from benchmarks.swtbench.config import EVAL_DEFAULTS
 from benchmarks.swtbench.image_utils import ensure_swt_bench_repo
@@ -19,6 +21,35 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def patch_swt_force_rebuild_remove_image() -> None:
+    """
+    Make SWT's force-rebuild path tolerate missing local images.
+
+    The upstream SWT helper blindly removes local tags before rebuilding. On a
+    clean runner those tags often do not exist yet, and force-build should not
+    fail on a 404 from the local Docker daemon.
+    """
+
+    docker_build = cast(Any, importlib.import_module("src.docker_build"))
+    docker_utils = cast(Any, importlib.import_module("src.docker_utils"))
+    original_remove_image = docker_utils.remove_image
+
+    if getattr(docker_utils.remove_image, "_openhands_missing_ok", False):
+        return
+
+    def remove_image_missing_ok(client, image_id, logger=None):
+        try:
+            return original_remove_image(client, image_id, logger)
+        except ImageNotFound:
+            if logger != "quiet":
+                raise
+            return None
+
+    remove_image_missing_ok._openhands_missing_ok = True  # type: ignore[attr-defined]
+    docker_utils.remove_image = remove_image_missing_ok
+    docker_build.remove_image = remove_image_missing_ok
 
 
 def select_instance_ids(
@@ -113,6 +144,8 @@ def build_env_images(
     )
 
     client = docker.from_env()
+    if force_build:
+        patch_swt_force_rebuild_remove_image()
     total_base = len({spec.base_image_key for spec in exec_specs})
     total_env = len({spec.env_image_key for spec in exec_specs})
     remote_prefix = image_prefix.rstrip("/") if image_prefix else None
