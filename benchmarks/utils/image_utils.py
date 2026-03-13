@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
 import base64
+import logging
 import os
 import subprocess
 import sys
@@ -14,10 +17,8 @@ if TYPE_CHECKING:
 
 import requests
 
-from openhands.sdk import get_logger
 
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 ACCEPT = ",".join(

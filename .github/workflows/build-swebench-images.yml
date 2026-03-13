@@ -22,7 +22,12 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '12'
+        default: '32'
+        type: string
+      build-batch-size:
+        description: 'Number of images to submit per batch'
+        required: false
+        default: '50'
         type: string
       max-retries:
         description: 'Retries per image build'
@@ -54,12 +59,12 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '12'
+  MAX_WORKERS: '32'
   MAX_RETRIES: '5'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
-  BUILD_BATCH_SIZE: '15'
+  BUILD_BATCH_SIZE: '50'
   BUILDKIT_PRUNE_KEEP_GB: '60'
   BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
 
@@ -78,7 +83,6 @@ jobs:
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
-
     # Allow pushing to GHCR and commenting on issues
     permissions:
       contents: read
@@ -86,6 +90,11 @@ jobs:
       issues: write
 
     steps:
+      - name: Record build start time
+        run: |
+          echo "BUILD_START=$(date +%s)" >> "$GITHUB_ENV"
+          echo "Build started at $(date -u)"
+
       - name: Determine checkout ref
         id: checkout-ref
         run: |
@@ -114,6 +123,7 @@ jobs:
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.build-batch-size }}" ]; then echo "BUILD_BATCH_SIZE=${{ inputs.build-batch-size }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
@@ -232,6 +242,7 @@ jobs:
             --image ghcr.io/openhands/eval-agent-server \
             --push \
             --max-workers '${MAX_WORKERS}' \
+            --build-batch-size '${BUILD_BATCH_SIZE}' \
             --max-retries '${MAX_RETRIES}'"
 
           # Only include --n-limit if provided (non-empty)
@@ -248,6 +259,21 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
+
+      - name: Post-build disk and timing report
+        if: always()
+        run: |
+          set -euo pipefail
+          BUILD_END=$(date +%s)
+          ELAPSED=$(( BUILD_END - ${BUILD_START:-$BUILD_END} ))
+          echo "## Build Timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Elapsed:** $((ELAPSED / 60))m $((ELAPSED % 60))s" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "## Disk Usage After Build" >> "$GITHUB_STEP_SUMMARY"
+          df -h / /var/lib/buildkit 2>/dev/null | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          docker buildx du --verbose 2>/dev/null | head -40 | tee -a "$GITHUB_STEP_SUMMARY" || true
 
       - name: Archive build logs
         if: always()

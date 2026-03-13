@@ -9,6 +9,9 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+# Use stdlib logging instead of openhands.sdk.get_logger to avoid initializing
+# Rich console state before ProcessPoolExecutor forks (causes deadlocks).
+import logging
 import sys
 from pathlib import Path
 
@@ -23,10 +26,9 @@ from benchmarks.utils.build_utils import (
 )
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import remote_image_exists
-from openhands.sdk import get_logger
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
 
 
@@ -177,6 +179,7 @@ def main(argv: list[str]) -> int:
         image=args.image,
         push=args.push,
         max_workers=args.max_workers,
+        build_batch_size=args.build_batch_size,
         dry_run=args.dry_run,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
