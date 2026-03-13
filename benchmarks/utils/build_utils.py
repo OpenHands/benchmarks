@@ -272,7 +272,17 @@ def get_build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
+    parser.add_argument(
+        "--force-build",
+        action="store_true",
+        help="Rebuild images even if matching remote tags already exist",
+    )
     return parser
+
+
+def _force_build_enabled(force_build: bool = False) -> bool:
+    env_force_build = os.getenv("FORCE_BUILD", "0").lower() in ("1", "true", "yes")
+    return force_build or env_force_build
 
 
 def build_image(
@@ -281,6 +291,7 @@ def build_image(
     custom_tag: str,
     target: TargetType = "source-minimal",
     push: bool = False,
+    force_build: bool = False,
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
@@ -302,11 +313,17 @@ def build_image(
         git_sha=git_sha,
         sdk_version=sdk_version,
     )
-    for t in opts.all_tags:
-        # Check if image exists or not
-        if remote_image_exists(t):
-            logger.info("Image %s already exists. Skipping build.", t)
-            return BuildOutput(base_image=base_image, tags=[t], error=None)
+    if _force_build_enabled(force_build):
+        logger.info(
+            "FORCE_BUILD set, rebuilding remote image for %s even if it exists.",
+            base_image,
+        )
+    else:
+        for t in opts.all_tags:
+            # Check if image exists or not
+            if remote_image_exists(t):
+                logger.info("Image %s already exists. Skipping build.", t)
+                return BuildOutput(base_image=base_image, tags=[t], error=None)
     tags = build(opts)
     return BuildOutput(base_image=base_image, tags=tags, error=None)
 
@@ -322,7 +339,7 @@ def ensure_local_image(
     Returns True if a build occurred, False if the image already existed.
     Set FORCE_BUILD=1 to skip auto-detection and always rebuild.
     """
-    force_build = os.getenv("FORCE_BUILD", "0").lower() in ("1", "true", "yes")
+    force_build = _force_build_enabled()
     if not force_build and local_image_exists(agent_server_image):
         logger.info(f"Using pre-built image {agent_server_image}")
         return False
@@ -356,6 +373,7 @@ def _build_with_logging(
     custom_tag: str = "",
     target: TargetType = "source-minimal",
     push: bool = False,
+    force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
 ) -> BuildOutput:
@@ -379,7 +397,14 @@ def _build_with_logging(
                 )
                 time.sleep(2 + attempt * 2)
             try:
-                result = build_image(base_image, target_image, custom_tag, target, push)
+                result = build_image(
+                    base_image,
+                    target_image,
+                    custom_tag,
+                    target,
+                    push,
+                    force_build=force_build,
+                )
             except Exception as e:
                 result = BuildOutput(
                     base_image=base_image,
@@ -454,6 +479,7 @@ def build_all_images(
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_workers: int = 1,
     dry_run: bool = False,
+    force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
 ) -> int:
@@ -471,6 +497,7 @@ def build_all_images(
             Evaluated before scheduling builds so it can safely be a closure.
         max_workers: Number of concurrent builds.
         dry_run: If True, only list base images without building.
+        force_build: If True, rebuild even when matching remote images already exist.
         max_retries: Number of times to retry each failed build (default: 3).
         post_build_fn: Optional callback called after each successful build.
             Receives (build_result, push) and returns modified BuildOutput.
@@ -545,6 +572,7 @@ def build_all_images(
                         custom_tag=resolved_tag,
                         target=target,
                         push=push,
+                        force_build=force_build,
                         max_retries=max_retries,
                         post_build_fn=post_build_fn,
                     )

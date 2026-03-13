@@ -45,6 +45,7 @@ def main(argv: list[str]) -> int:
         push=args.push,
         max_workers=args.max_workers,
         dry_run=args.dry_run,
+        force_build=args.force_build,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
         post_build_fn=_wrap_if_needed,
