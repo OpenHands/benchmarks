@@ -411,6 +411,9 @@ def _build_with_logging(
     Module-level function for building a single image with output capture.
     Must be at module level to be picklable for ProcessPoolExecutor.
     Automatically retries failed builds up to max_retries times.
+    Timing fields on the returned BuildOutput are cumulative across all attempts:
+    remote/build/post-build seconds are summed across retries, while
+    duration_seconds is the overall wall-clock duration including retry sleeps.
 
     Args:
         custom_tag: Custom tag (already resolved) to pass to build_image.
@@ -689,8 +692,8 @@ def build_all_images(
                         next(iter(in_progress), None),
                         status,
                     )
-                    logger.info(
-                        "Image %s completed with status=%s attempts=%d duration=%ss build=%ss remote-check=%ss post-build=%ss",
+                    logger.debug(
+                        "Image %s completed status=%s attempts=%d duration=%ss build=%ss remote_check=%ss post_build=%ss",
                         base,
                         result.status,
                         result.attempt_count,

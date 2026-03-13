@@ -6,6 +6,7 @@ which centralize Docker image detection and build logic across all benchmarks.
 
 import os
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -282,3 +283,149 @@ class TestBuildImageTelemetry:
         assert result.remote_check_seconds is not None
         assert result.build_seconds == 0.0
         mock_exists.assert_called_once()
+
+
+class TestBuildWithLoggingTelemetry:
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[100.0, 109.5])
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_successful_build_records_timing_fields(
+        self, mock_build, _mock_monotonic, _mock_reset, tmp_path: Path
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.return_value = BuildOutput(
+            base_image="base:latest",
+            tags=["server:v1"],
+            status="built",
+            remote_check_seconds=1.25,
+            build_seconds=7.5,
+        )
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+        )
+
+        assert result.status == "built"
+        assert result.attempt_count == 1
+        assert result.remote_check_seconds == 1.25
+        assert result.build_seconds == 7.5
+        assert result.duration_seconds == 9.5
+        assert result.started_at is not None
+        assert result.finished_at is not None
+        assert result.log_path is not None
+
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[10.0, 14.0])
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_failed_build_still_records_timing_fields(
+        self, mock_build, _mock_monotonic, mock_reset, tmp_path: Path
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.return_value = BuildOutput(
+            base_image="base:latest",
+            tags=[],
+            error="boom",
+            status="failed",
+            remote_check_seconds=0.5,
+            build_seconds=2.0,
+        )
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+            max_retries=1,
+        )
+
+        assert result.status == "failed"
+        assert result.attempt_count == 1
+        assert result.remote_check_seconds == 0.5
+        assert result.build_seconds == 2.0
+        assert result.duration_seconds == 4.0
+        mock_reset.assert_called_once()
+
+    @patch("benchmarks.utils.build_utils.time.sleep")
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[50.0, 61.0])
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_retry_attempts_accumulate_timing_across_attempts(
+        self,
+        mock_build,
+        _mock_monotonic,
+        mock_reset,
+        _mock_sleep,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.side_effect = [
+            BuildOutput(
+                base_image="base:latest",
+                tags=[],
+                error="first failure",
+                status="failed",
+                remote_check_seconds=1.0,
+                build_seconds=2.5,
+            ),
+            BuildOutput(
+                base_image="base:latest",
+                tags=["server:v1"],
+                status="built",
+                remote_check_seconds=0.75,
+                build_seconds=3.25,
+            ),
+        ]
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+            max_retries=2,
+        )
+
+        assert result.status == "built"
+        assert result.attempt_count == 2
+        assert result.remote_check_seconds == 1.75
+        assert result.build_seconds == 5.75
+        assert result.duration_seconds == 11.0
+        mock_reset.assert_called_once()
+
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch(
+        "benchmarks.utils.build_utils.time.monotonic",
+        side_effect=[200.0, 204.0, 206.5, 210.0],
+    )
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_post_build_hook_timing_is_tracked(
+        self, mock_build, _mock_monotonic, _mock_reset, tmp_path: Path
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.return_value = BuildOutput(
+            base_image="base:latest",
+            tags=["server:v1"],
+            status="built",
+            remote_check_seconds=0.25,
+            build_seconds=4.0,
+        )
+
+        def post_build_fn(result: BuildOutput, push: bool) -> BuildOutput:
+            assert push is False
+            return result
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+            post_build_fn=post_build_fn,
+        )
+
+        assert result.status == "built"
+        assert result.post_build_seconds == 2.5
+        assert result.build_seconds == 4.0
+        assert result.remote_check_seconds == 0.25
+        assert result.duration_seconds == 10.0
