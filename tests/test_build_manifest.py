@@ -1,6 +1,10 @@
+import json
+
 from benchmarks.utils.build_manifest import (
     format_duration,
+    load_eval_env_summary,
     render_build_summary_markdown,
+    render_eval_env_summary_markdown,
     summarize_build_records,
 )
 
@@ -150,3 +154,48 @@ def test_render_build_summary_markdown_includes_profiling_fields():
 
 def test_format_duration_handles_empty_values():
     assert format_duration(None) == "n/a"
+
+
+def test_render_eval_env_summary_markdown_includes_batch_details(tmp_path):
+    build_root = tmp_path / "builds"
+    build_root.mkdir()
+    summary_path = build_root / "eval-env-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "built_base_images": 1,
+                    "skipped_base_images": 2,
+                    "built_env_images": 6,
+                    "skipped_env_images": 0,
+                    "selected_env_instances": 10,
+                    "wall_clock_seconds": 617.857,
+                    "env_build_seconds": 235.864,
+                    "push_seconds": 351.924,
+                    "batches": [
+                        {
+                            "batch_index": 1,
+                            "batch_size": 6,
+                            "instance_count": 10,
+                            "attempt_count": 1,
+                            "duration_seconds": 545.67,
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    data = load_eval_env_summary(build_root)
+    markdown = render_eval_env_summary_markdown(data or {})
+
+    assert "## SWT-Bench Eval Env Build Summary" in markdown
+    assert "**Base Images Built:** 1" in markdown
+    assert "**Selected Env Instances:** 10" in markdown
+    assert "**Wall Clock:** 10m 18s" in markdown
+    assert "### Eval Env Batches" in markdown
+    assert (
+        "Batch 1: 6 unique images in 9m 06s (attempts=1), selected_instances=10"
+        in markdown
+    )

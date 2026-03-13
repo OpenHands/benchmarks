@@ -273,6 +273,13 @@ def summarize_build_root(build_root: Path, top_n: int = 5) -> BuildManifestSumma
     )
 
 
+def load_eval_env_summary(build_root: Path) -> dict[str, Any] | None:
+    summary_file = next(build_root.rglob("eval-env-summary.json"), None)
+    if summary_file is None:
+        return None
+    return json.loads(summary_file.read_text(encoding="utf-8"))
+
+
 def format_duration(seconds: float | None) -> str:
     if seconds is None:
         return "n/a"
@@ -376,5 +383,52 @@ def render_build_summary_markdown(
             lines.append(
                 f"- `{build.base_image}`: {build.error} (attempts={build.attempt_count})"
             )
+
+    return "\n".join(lines)
+
+
+def render_eval_env_summary_markdown(
+    data: dict[str, Any], title: str = "SWT-Bench Eval Env Build Summary"
+) -> str:
+    summary = data.get("summary", {})
+    lines = [
+        f"## {title}",
+        "",
+        f"**Base Images Built:** {summary.get('built_base_images', 0)}",
+        f"**Base Images Skipped:** {summary.get('skipped_base_images', 0)}",
+        f"**Env Images Built:** {summary.get('built_env_images', 0)}",
+        f"**Env Images Skipped:** {summary.get('skipped_env_images', 0)}",
+    ]
+
+    selected_env_instances = summary.get("selected_env_instances")
+    if selected_env_instances is not None:
+        lines.append(f"**Selected Env Instances:** {selected_env_instances}")
+
+    lines.extend(
+        [
+            f"**Wall Clock:** {format_duration(_normalize_float(summary.get('wall_clock_seconds')))}",
+            f"**Env Build Time:** {format_duration(_normalize_float(summary.get('env_build_seconds')))}",
+            f"**Push Time:** {format_duration(_normalize_float(summary.get('push_seconds')))}",
+        ]
+    )
+
+    batches = data.get("summary", {}).get("batches", [])
+    if isinstance(batches, list) and batches:
+        lines.extend(["", "### Eval Env Batches", ""])
+        for batch in batches:
+            if not isinstance(batch, dict):
+                continue
+            batch_index = batch.get("batch_index", "?")
+            batch_size = batch.get("batch_size", "?")
+            attempt_count = batch.get("attempt_count", "?")
+            instance_count = batch.get("instance_count")
+            duration = format_duration(_normalize_float(batch.get("duration_seconds")))
+            line = (
+                f"- Batch {batch_index}: {batch_size} unique images in {duration} "
+                f"(attempts={attempt_count})"
+            )
+            if instance_count is not None:
+                line += f", selected_instances={instance_count}"
+            lines.append(line)
 
     return "\n".join(lines)

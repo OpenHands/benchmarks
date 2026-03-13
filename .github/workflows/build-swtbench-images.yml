@@ -279,30 +279,6 @@ jobs:
             --build-root builds \
             --title "SWT-Bench Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
 
-          EVAL_SUMMARY=$(find builds -name "eval-env-summary.json" -type f 2>/dev/null | head -1 || true)
-          if [ -n "${EVAL_SUMMARY}" ]; then
-            python3 - "${EVAL_SUMMARY}" >> "$GITHUB_STEP_SUMMARY" <<'PY'
-          import json
-          import sys
-
-          summary_file = sys.argv[1]
-          with open(summary_file, encoding="utf-8") as f:
-              data = json.load(f)
-
-          summary = data.get("summary", {})
-          print("")
-          print("## SWT-Bench Eval Env Build Summary")
-          print("")
-          print(f"**Base Images Built:** {summary.get('built_base_images', 0)}")
-          print(f"**Base Images Skipped:** {summary.get('skipped_base_images', 0)}")
-          print(f"**Env Images Built:** {summary.get('built_env_images', 0)}")
-          print(f"**Env Images Skipped:** {summary.get('skipped_env_images', 0)}")
-          print(f"**Wall Clock:** {summary.get('wall_clock_seconds', 'n/a')}s")
-          print(f"**Env Build Time:** {summary.get('env_build_seconds', 'n/a')}s")
-          print(f"**Push Time:** {summary.get('push_seconds', 'n/a')}s")
-          PY
-          fi
-
       - name: Make prebaked eval image package public (best-effort)
         if: ${{ inputs.build-eval-env == 'true' }}
         env:
