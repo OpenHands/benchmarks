@@ -10,7 +10,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openhands.sdk.workspace import TargetType
-    from openhands.workspace import DockerDevWorkspace, DockerWorkspace
+    from openhands.workspace import (
+        ApptainerWorkspace,
+        DockerDevWorkspace,
+        DockerWorkspace,
+    )
 
 import requests
 
@@ -82,6 +86,53 @@ def local_image_exists(image: str) -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning(f"Failed to check if image {image} exists: {e}")
         return False
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in ("1", "true", "yes", "on")
+
+
+def create_apptainer_workspace(
+    agent_server_image: str,
+    working_dir: str = "/workspace",
+    forward_env: list[str] | None = None,
+    extra_ports: bool = False,
+) -> ApptainerWorkspace:
+    """Create an Apptainer workspace from a pre-built agent-server image.
+
+    Unlike DockerDevWorkspace, ApptainerWorkspace cannot build images from a
+    base image on the fly. The image must already exist in a container registry
+    that `apptainer pull docker://...` can access.
+    """
+    from openhands.workspace import ApptainerWorkspace
+
+    if not remote_image_exists(agent_server_image):
+        raise RuntimeError(
+            f"Agent server image {agent_server_image} does not exist in container registry. "
+            "Apptainer workspace requires a pre-built image that can be pulled "
+            "with Apptainer."
+        )
+
+    logger.info(f"Using Apptainer workspace with image {agent_server_image}")
+
+    host_port = os.getenv("APPTAINER_HOST_PORT")
+    cache_dir = os.getenv("APPTAINER_CACHE_DIR")
+    mount_dir = os.getenv("APPTAINER_MOUNT_DIR")
+
+    return ApptainerWorkspace(
+        server_image=agent_server_image,
+        working_dir=working_dir,
+        forward_env=forward_env or [],
+        extra_ports=extra_ports,
+        host_port=int(host_port) if host_port else None,
+        cache_dir=cache_dir or None,
+        mount_dir=mount_dir or None,
+        use_fakeroot=_env_flag("APPTAINER_USE_FAKEROOT", True),
+        enable_docker_compat=_env_flag("APPTAINER_ENABLE_DOCKER_COMPAT", True),
+    )
 
 
 def create_docker_workspace(

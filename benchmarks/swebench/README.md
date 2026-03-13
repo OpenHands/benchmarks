@@ -58,6 +58,21 @@ uv run swebench-infer path/to/llm_config.json \
     --workspace docker
 ```
 
+### Apptainer Workspace (Local Evaluation without Docker)
+
+If Docker is unavailable, you can use the same pre-built agent-server images with Apptainer:
+
+```bash
+uv run swebench-infer path/to/llm_config.json \
+    --dataset princeton-nlp/SWE-bench_Verified \
+    --split test \
+    --max-iterations 100 \
+    --workspace apptainer
+```
+
+Unlike Docker mode, Apptainer mode cannot build images from base images on the fly. Build and push the agent-server images first, then run inference with `--workspace apptainer`.
+
+
 ### Remote Workspace (Scalable Cloud Evaluation)
 
 Remote workspace enables running evaluations at scale by using a cloud-based runtime API to provision containers. This is ideal for large-scale benchmark runs with high parallelization.

@@ -1,7 +1,8 @@
 """Tests for image_utils and build_utils helper functions.
 
-Tests cover local_image_exists(), create_docker_workspace(), and ensure_local_image()
-which centralize Docker image detection and build logic across all benchmarks.
+Tests cover local_image_exists(), create_docker_workspace(),
+create_apptainer_workspace(), and ensure_local_image() which centralize
+container image detection and workspace creation across benchmarks.
 """
 
 import os
@@ -139,6 +140,72 @@ class TestCreateDockerWorkspace:
                 server_image="server:v1",
                 working_dir="/custom",
                 forward_env=["API_KEY", "TOKEN"],
+            )
+
+
+class TestCreateApptainerWorkspace:
+    """Tests for create_apptainer_workspace()."""
+
+    @patch("benchmarks.utils.image_utils.remote_image_exists", return_value=True)
+    def test_returns_apptainer_workspace_when_image_exists(self, _mock_exists):
+        from benchmarks.utils.image_utils import create_apptainer_workspace
+        from openhands.workspace import ApptainerWorkspace
+
+        sentinel = MagicMock(spec=ApptainerWorkspace)
+        with patch(
+            "openhands.workspace.ApptainerWorkspace", return_value=sentinel
+        ) as spy:
+            ws = create_apptainer_workspace(
+                agent_server_image="ghcr.io/example/agent-server:v1",
+                forward_env=["API_KEY"],
+                extra_ports=True,
+            )
+            spy.assert_called_once_with(
+                server_image="ghcr.io/example/agent-server:v1",
+                working_dir="/workspace",
+                forward_env=["API_KEY"],
+                extra_ports=True,
+                host_port=None,
+                cache_dir=None,
+                mount_dir=None,
+                use_fakeroot=True,
+                enable_docker_compat=True,
+            )
+            assert ws is sentinel
+
+    @patch("benchmarks.utils.image_utils.remote_image_exists", return_value=False)
+    def test_raises_when_image_missing_from_registry(self, _mock_exists):
+        from benchmarks.utils.image_utils import create_apptainer_workspace
+
+        with pytest.raises(RuntimeError, match="pre-built image"):
+            create_apptainer_workspace("ghcr.io/example/agent-server:missing")
+
+    @patch.dict(
+        os.environ,
+        {
+            "APPTAINER_HOST_PORT": "8123",
+            "APPTAINER_CACHE_DIR": "/tmp/apptainer-cache",
+            "APPTAINER_MOUNT_DIR": "/tmp/workspace-mount",
+            "APPTAINER_USE_FAKEROOT": "0",
+            "APPTAINER_ENABLE_DOCKER_COMPAT": "false",
+        },
+    )
+    @patch("benchmarks.utils.image_utils.remote_image_exists", return_value=True)
+    def test_forwards_apptainer_env_configuration(self, _mock_exists):
+        from benchmarks.utils.image_utils import create_apptainer_workspace
+
+        with patch("openhands.workspace.ApptainerWorkspace") as mock_workspace:
+            create_apptainer_workspace("ghcr.io/example/agent-server:v1")
+            mock_workspace.assert_called_once_with(
+                server_image="ghcr.io/example/agent-server:v1",
+                working_dir="/workspace",
+                forward_env=[],
+                extra_ports=False,
+                host_port=8123,
+                cache_dir="/tmp/apptainer-cache",
+                mount_dir="/tmp/workspace-mount",
+                use_fakeroot=False,
+                enable_docker_compat=False,
             )
 
 

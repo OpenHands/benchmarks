@@ -173,7 +173,7 @@ Inputs (forwarded to the SDK `run-eval.yml` workflow):
 
 ## Workspace Types
 
-Benchmarks support two workspace types for running evaluations:
+Benchmarks expose three workspace types in their CLIs:
 
 ### Docker Workspace (Default)
 
@@ -182,6 +182,29 @@ Uses local Docker containers to run agent evaluations. Images are built locally 
 - **Pros**: No additional setup required, works offline
 - **Cons**: Resource-intensive on local machine, slower for large-scale evaluations
 - **Use case**: Development, testing, small-scale evaluations
+
+### Apptainer Workspace
+
+Uses `openhands.workspace.ApptainerWorkspace` from the vendored SDK to run a pre-built agent-server image without a local Docker daemon. The workspace pulls OCI/Docker images with `apptainer pull docker://...`, so it is a good fit for HPC or university environments where Docker is unavailable.
+
+- **Pros**: No Docker daemon required, works on many shared/HPC systems
+- **Cons**: Requires a pre-built agent-server image in a registry; unlike Docker mode, it cannot build from a base image on the fly
+- **Use case**: Local benchmark runs on Docker-restricted machines
+
+Example:
+
+```bash
+uv run swebench-infer path/to/llm_config.json \
+    --dataset princeton-nlp/SWE-bench_Verified \
+    --split test \
+    --workspace apptainer
+```
+
+Useful environment variables:
+- `APPTAINER_CACHE_DIR`: Override the SIF/cache directory
+- `APPTAINER_HOST_PORT`: Pin the local port used by the agent server
+- `APPTAINER_USE_FAKEROOT=0`: Disable fakeroot if your cluster does not support it
+- `APPTAINER_ENABLE_DOCKER_COMPAT=0`: Disable `--compat` for custom Apptainer behavior
 
 ### Remote Workspace
 

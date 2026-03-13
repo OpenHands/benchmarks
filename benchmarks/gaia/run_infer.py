@@ -27,7 +27,11 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.image_utils import (
+    create_apptainer_workspace,
+    create_docker_workspace,
+    remote_image_exists,
+)
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
@@ -155,14 +159,18 @@ class GAIAEvaluation(Evaluation):
         """
         logger.info(f"Preparing workspace for instance {instance.id}")
 
+        agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
+
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
-            )
             workspace = create_docker_workspace(
                 agent_server_image=agent_server_image,
                 base_image="nikolaik/python-nodejs:python3.12-nodejs22",
                 build_target="binary",
+                forward_env=forward_env,
+            )
+        elif self.metadata.workspace_type == "apptainer":
+            workspace = create_apptainer_workspace(
+                agent_server_image=agent_server_image,
                 forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":

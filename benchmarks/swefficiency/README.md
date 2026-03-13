@@ -54,6 +54,20 @@ uv run swefficiency-infer path/to/llm_config.json \
     --workspace docker
 ```
 
+
+### Apptainer Workspace (Local Evaluation without Docker)
+
+If Docker is unavailable, you can run SWE-fficiency with Apptainer against pre-built agent-server images:
+
+```bash
+uv run swefficiency-infer path/to/llm_config.json \
+    --dataset swefficiency/swefficiency \
+    --split test \
+    --workspace apptainer
+```
+
+Apptainer mode does not apply the Docker-only CPU and memory limits above; it expects the image to already be published in a registry.
+
 ### Remote Workspace (Scalable Cloud Evaluation)
 
 ```bash
@@ -75,7 +89,7 @@ After running inference, use the official SWE-fficiency benchmark evaluation too
 |--------|-------------|---------|
 | `--dataset` | HuggingFace dataset name | `swefficiency/swefficiency` |
 | `--split` | Dataset split | `test` |
-| `--workspace` | Workspace type (`docker` or `remote`) | `docker` |
+| `--workspace` | Workspace type (`docker`, `apptainer`, or `remote`) | `docker` |
 | `--num-workers` | Number of parallel workers | `4` |
 | `--max-iterations` | Maximum agent iterations | `500` |
 | `--num-cpus-per-worker` | CPUs per Docker container | `4` |

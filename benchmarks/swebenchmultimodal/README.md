@@ -65,7 +65,7 @@ The benchmark uses the same configuration options as regular SWE-Bench:
 - `--split`: Dataset split (e.g., `test`, `dev`)
 - `--llm-config`: Path to LLM configuration file
 - `--max-iterations`: Maximum number of agent iterations
-- `--workspace-type`: Either `docker` or `remote`
+- `--workspace`: One of `docker`, `apptainer`, or `remote`
 - `--num-workers`: Number of parallel workers
 
 ## Environment Variables
