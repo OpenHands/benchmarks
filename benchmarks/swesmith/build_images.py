@@ -84,6 +84,7 @@ def main(argv: list[str]) -> int:
         image=args.image,
         push=args.push,
         max_workers=args.max_workers,
+        build_batch_size=args.build_batch_size,
         dry_run=args.dry_run,
         force_build=args.force_build,
         max_retries=args.max_retries,

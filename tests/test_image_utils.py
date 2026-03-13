@@ -390,6 +390,70 @@ class TestRemoteForceBuild:
         assert args.force_build is True
 
 
+class TestBuildBatchSizeConfig:
+    def test_build_parser_accepts_build_batch_size(self):
+        from benchmarks.utils.build_utils import get_build_parser
+
+        args = get_build_parser().parse_args(["--build-batch-size", "50"])
+
+        assert args.build_batch_size == 50
+
+    @patch.dict(os.environ, {"BUILD_BATCH_SIZE": "99"})
+    def test_build_all_images_prefers_explicit_batch_size_over_env(
+        self,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils import build_utils
+
+        seen_batches: list[list[str]] = []
+
+        class FakeFuture:
+            def __init__(self, result: BuildOutput):
+                self._result = result
+
+            def result(self) -> BuildOutput:
+                return self._result
+
+        class FakeExecutor:
+            def __init__(self, *args, **kwargs):
+                self._batch: list[str] = []
+
+            def __enter__(self):
+                seen_batches.append(self._batch)
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def submit(self, fn, **kwargs):
+                self._batch.append(kwargs["base_image"])
+                return FakeFuture(
+                    BuildOutput(
+                        base_image=kwargs["base_image"],
+                        tags=[f"tag:{kwargs['base_image']}"],
+                        error=None,
+                    )
+                )
+
+        with (
+            patch.object(build_utils, "ProcessPoolExecutor", FakeExecutor),
+            patch.object(
+                build_utils, "as_completed", side_effect=lambda futures: futures
+            ),
+            patch.object(build_utils, "buildkit_disk_usage", return_value=(0, 0)),
+            patch.object(build_utils, "maybe_prune_buildkit_cache", return_value=False),
+        ):
+            exit_code = build_utils.build_all_images(
+                base_images=["base-1", "base-2", "base-3"],
+                target="source-minimal",
+                build_dir=tmp_path,
+                build_batch_size=2,
+            )
+
+        assert exit_code == 0
+        assert seen_batches == [["base-1", "base-2"], ["base-3"]]
+
+
 class TestBuildWithLoggingTelemetry:
     @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
     @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[100.0, 109.5])
