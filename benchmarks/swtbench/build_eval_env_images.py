@@ -146,6 +146,8 @@ def build_env_images(
     client = docker.from_env()
     if force_build:
         patch_swt_force_rebuild_remove_image()
+    from src.docker_utils import remove_image  # type: ignore[import-not-found]
+
     total_base = len({spec.base_image_key for spec in exec_specs})
     total_env = len({spec.env_image_key for spec in exec_specs})
     remote_prefix = image_prefix.rstrip("/") if image_prefix else None
@@ -193,10 +195,13 @@ def build_env_images(
             skipped_base,
         )
         base_build_started = time.monotonic()
+        if force_build:
+            for spec in missing_base_specs:
+                remove_image(client, spec.base_image_key, "quiet")
         build_base_images(
             client,
             missing_base_specs,
-            force_rebuild=force_build,
+            force_rebuild=False,
             build_mode=build_mode,
         )
         base_build_seconds += time.monotonic() - base_build_started
@@ -263,10 +268,13 @@ def build_env_images(
                     "Batch %s/%s: building %s env images", idx, len(batches), len(batch)
                 )
                 env_build_started = time.monotonic()
+                if force_build:
+                    for spec in batch:
+                        remove_image(client, spec.env_image_key, "quiet")
                 build_envs(
                     client,
                     batch,
-                    force_rebuild=force_build,
+                    force_rebuild=False,
                     max_workers=max_workers,
                     build_mode=build_mode,
                 )
