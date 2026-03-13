@@ -6,6 +6,7 @@ Shared utilities for batch building agent-server images.
 import argparse
 import contextlib
 import io
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -555,7 +556,15 @@ def build_all_images(
             )
             in_progress: set[str] = set()
 
-            with ProcessPoolExecutor(max_workers=max_workers) as ex:
+            # Use 'spawn' instead of 'fork' to avoid deadlocks when the parent
+            # process has threads (e.g., from rich.logging.RichHandler).
+            # With 'fork', child processes inherit copies of locks that may be
+            # held by threads, causing deadlocks when those locks are needed.
+            # See: https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
+            mp_context = multiprocessing.get_context("spawn")
+            with ProcessPoolExecutor(
+                max_workers=max_workers, mp_context=mp_context
+            ) as ex:
                 futures = {}
                 for base in batch:
                     in_progress.add(base)
