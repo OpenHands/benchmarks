@@ -1,7 +1,5 @@
 import json
 import os
-import re
-from collections import Counter
 from typing import Any, List
 
 from commit0.harness.constants import SPLIT
@@ -40,24 +38,6 @@ from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
-
-
-def _parse_pytest_summary(test_output: str) -> tuple[int, int] | None:
-    """Parse pytest summary line like '6704 passed, 5 failed, 2 skipped'."""
-    match = re.search(r"=+ (.+) in [\d.]+s =+", test_output)
-    if not match:
-        return None
-    summary = match.group(1)
-    passed, total = 0, 0
-    for part in summary.split(", "):
-        count_match = re.match(r"(\d+) (\w+)", part.strip())
-        if count_match:
-            count = int(count_match.group(1))
-            category = count_match.group(2)
-            total += count
-            if category in ("passed", "xfail"):
-                passed += count
-    return (passed, total) if total > 0 else None
 
 
 def get_instruction(
@@ -429,28 +409,18 @@ class Commit0Evaluation(Evaluation):
             f"Test IDs found: {len(test_ids)} - {test_ids[:3] if test_ids else 'None'}"
         )  # Show first 3
 
-        # Read test report
-        report_result = workspace.execute_command(
-            f"cd {repo_path} && cat report.json",
-            timeout=600,
+        # Extract only the summary from report.json inside the container.
+        # This avoids transferring the full report (can be >1 MB) over HTTP,
+        # which causes corruption for large files (see #511).
+        summary_cmd = (
+            f'cd {repo_path} && python3 -c "'
+            "import json; "
+            "r = json.load(open('report.json')); "
+            "print(json.dumps(r.get('summary', {})))"
+            '"'
         )
-
-        # Debug logging for report
-        logger.info(f"Report read exit code: {report_result.exit_code}")
-        if report_result.exit_code == 0:
-            logger.info(f"Report content length: {len(report_result.stdout)}")
-            logger.info(
-                f"Report preview: {report_result.stdout[:200]}..."
-            )  # First 200 chars
-        else:
-            logger.info(f"Failed to read report.json: {report_result.stderr}")
-            # Check if file exists
-            check_file = workspace.execute_command(
-                f"cd {repo_path} && ls -la report.json", timeout=60
-            )
-            logger.info(
-                f"File check: {check_file.stdout if check_file.exit_code == 0 else check_file.stderr}"
-            )
+        report_result = workspace.execute_command(summary_cmd, timeout=600)
+        logger.info(f"Report summary extraction exit code: {report_result.exit_code}")
 
         # Initialize eval_result with default values
         eval_result = {
@@ -463,51 +433,17 @@ class Commit0Evaluation(Evaluation):
 
         if report_result.exit_code == 0:
             try:
-                report = json.loads(report_result.stdout.strip())
+                summary = json.loads(report_result.stdout.strip())
+                logger.info(f"Report summary: {summary}")
+
+                num_passed = summary.get("passed", 0) + summary.get("xfailed", 0)
+                num_tests = summary.get("total", 0)
+                total_runtime = summary.get("duration", 0)
+                passed_ratio = num_passed / num_tests if num_tests > 0 else 0
+
                 logger.info(
-                    f"JSON report parsed successfully. Keys: {list(report.keys())}"
-                )
-                if "tests" in report:
-                    logger.info(f"Found {len(report['tests'])} test entries in report")
-                else:
-                    logger.warning("No 'tests' key found in report")
-                tests = {x["nodeid"]: x["call"] for x in report["tests"] if "call" in x}
-                logger.info(f"Extracted {len(tests)} tests with 'call' data")
-
-                # If test_ids is empty (commit0 get-tests failed), use test IDs from JSON report
-                if not test_ids and tests:
-                    test_ids = list(tests.keys())
-                    logger.info(
-                        f"Using test IDs from JSON report: {len(test_ids)} tests"
-                    )
-
-                status = []
-                runtimes = []
-                no_runs = 0
-
-                for test_id in test_ids:
-                    if test_id in tests and tests[test_id] is not None:
-                        status.append(tests[test_id]["outcome"])
-                        runtimes.append(tests[test_id]["duration"])
-                        no_runs += 1
-                    else:
-                        status.append("failed")
-                        runtimes.append(0)
-
-                status_counts = Counter(status)
-                total_runtime = sum(runtimes) if no_runs > 0 else 0
-                num_passed = status_counts.get("passed", 0) + status_counts.get(
-                    "xfail", 0
-                )
-                passed_ratio = num_passed / len(status) if status else 0
-
-                # Debug logging for final calculations
-                logger.info(f"Status counts: {dict(status_counts)}")
-                logger.info(
-                    f"Total runtime: {total_runtime}, Num passed: {num_passed}, Passed ratio: {passed_ratio}"
-                )
-                logger.info(
-                    f"Total test IDs: {len(test_ids)}, Status list length: {len(status)}"
+                    f"Total runtime: {total_runtime}, Num passed: {num_passed}, "
+                    f"Num tests: {num_tests}, Passed ratio: {passed_ratio}"
                 )
 
                 eval_result = {
@@ -515,29 +451,16 @@ class Commit0Evaluation(Evaluation):
                     "sum": total_runtime,
                     "passed": passed_ratio,
                     "num_passed": num_passed,
-                    "num_tests": len(test_ids),
+                    "num_tests": num_tests,
                 }
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse test report JSON: {e}")
-                logger.error(f"Raw JSON content: {report_result.stdout[:500]}...")
-                fallback = _parse_pytest_summary(test_output)
-                if fallback is not None:
-                    num_passed, num_tests = fallback
-                    logger.info(
-                        f"Fallback from test_output.txt: {num_passed}/{num_tests} passed"
-                    )
-                    eval_result["num_passed"] = num_passed
-                    eval_result["num_tests"] = num_tests
-                    eval_result["passed"] = num_passed / num_tests if num_tests else 0
-                else:
-                    logger.warning(
-                        "Could not parse pytest summary from test_output.txt either"
-                    )
+                logger.error(f"Failed to parse report summary JSON: {e}")
+                logger.error(f"Raw content: {report_result.stdout[:500]}...")
         else:
             logger.warning(
-                f"Report reading failed with exit code {report_result.exit_code}"
+                f"Report summary extraction failed with exit code {report_result.exit_code}"
             )
-            logger.warning(f"Report stderr: {report_result.stderr}")
+            logger.warning(f"stderr: {report_result.stderr}")
 
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
