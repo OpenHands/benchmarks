@@ -63,6 +63,7 @@ env:
   N_LIMIT: ''
   INSTANCE_IDS: ''
   SELECT_FILE: ''
+  LOG_JSON: '1'  # Disable rich logging to prevent multiprocessing deadlock
 
 concurrency:
   group: build-commit0-${{ github.ref }}
@@ -191,8 +192,7 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
+        env:          DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
       - name: Archive build logs
