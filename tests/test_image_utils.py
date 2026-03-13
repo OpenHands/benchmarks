@@ -4,6 +4,7 @@ Tests cover local_image_exists(), create_docker_workspace(), and ensure_local_im
 which centralize Docker image detection and build logic across all benchmarks.
 """
 
+import contextlib
 import os
 import subprocess
 from pathlib import Path
@@ -388,6 +389,112 @@ class TestRemoteForceBuild:
         args = get_build_parser().parse_args(["--force-build"])
 
         assert args.force_build is True
+
+
+class TestCachedSdistReuse:
+    def test_build_image_passes_cached_sdist_to_sdk_build_module(
+        self,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils.build_utils import build_image
+        from openhands.agent_server.docker import build as sdk_build_module
+
+        cached_sdist = tmp_path / "openhands-sdk.tar.gz"
+        cached_sdist.write_text("cached", encoding="utf-8")
+        captured = {}
+
+        def fake_build(opts):
+            captured["prebuilt_sdist"] = opts.prebuilt_sdist
+            return MagicMock(
+                tags=["integration:test"],
+                telemetry=MagicMock(),
+            )
+
+        with (
+            patch(
+                "benchmarks.utils.build_utils.remote_image_exists", return_value=False
+            ),
+            patch(
+                "benchmarks.utils.build_utils._get_sdk_submodule_info",
+                return_value=("main", "abcdef0", "1.0.0"),
+            ),
+            patch.object(
+                sdk_build_module, "build_with_telemetry", side_effect=fake_build
+            ),
+        ):
+            result = build_image(
+                base_image="base:latest",
+                target_image="ghcr.io/openhands/eval-agent-server",
+                custom_tag="mytag",
+                cached_sdist=cached_sdist,
+            )
+
+        assert result.error is None
+        assert result.tags == ["integration:test"]
+        assert captured["prebuilt_sdist"] == cached_sdist
+
+    def test_build_all_images_passes_cached_sdist_to_workers(self, tmp_path: Path):
+        from benchmarks.utils import build_utils
+
+        cached_sdist = tmp_path / "openhands-sdk.tar.gz"
+        cached_sdist.write_text("cached", encoding="utf-8")
+        submitted_kwargs: list[dict] = []
+
+        @contextlib.contextmanager
+        def fake_prepare_cached_sdist():
+            yield cached_sdist
+
+        class FakeFuture:
+            def __init__(self, result: BuildOutput):
+                self._result = result
+
+            def result(self) -> BuildOutput:
+                return self._result
+
+        class FakeExecutor:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def submit(self, fn, **kwargs):
+                submitted_kwargs.append(kwargs)
+                return FakeFuture(
+                    BuildOutput(
+                        base_image=kwargs["base_image"],
+                        tags=[f"tag:{kwargs['base_image']}"],
+                        error=None,
+                    )
+                )
+
+        with (
+            patch.object(
+                build_utils,
+                "_prepare_cached_sdist",
+                side_effect=fake_prepare_cached_sdist,
+            ),
+            patch.object(build_utils, "ProcessPoolExecutor", FakeExecutor),
+            patch.object(
+                build_utils, "as_completed", side_effect=lambda futures: futures
+            ),
+            patch.object(build_utils, "buildkit_disk_usage", return_value=(0, 0)),
+            patch.object(build_utils, "maybe_prune_buildkit_cache", return_value=False),
+        ):
+            exit_code = build_utils.build_all_images(
+                base_images=["base-1", "base-2"],
+                target="source-minimal",
+                build_dir=tmp_path,
+            )
+
+        assert exit_code == 0
+        assert [kwargs["cached_sdist"] for kwargs in submitted_kwargs] == [
+            cached_sdist,
+            cached_sdist,
+        ]
 
 
 class TestBuildWithLoggingTelemetry:
