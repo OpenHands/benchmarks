@@ -6,6 +6,7 @@ which centralize Docker image detection and build logic across all benchmarks.
 
 import os
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -257,6 +258,33 @@ class TestEnsureLocalImage:
         assert kwargs["push"] is False
 
 
+class TestBuildImageTelemetry:
+    @patch("benchmarks.utils.build_utils.remote_image_exists", return_value=True)
+    def test_remote_skip_sets_status_and_skip_reason(self, mock_exists):
+        from benchmarks.utils.build_utils import build_image
+
+        with patch(
+            "benchmarks.utils.build_utils._get_sdk_submodule_info",
+            return_value=("main", "abcdef0", "1.0.0"),
+        ):
+            result = build_image(
+                base_image="base:latest",
+                target_image="ghcr.io/openhands/eval-agent-server",
+                custom_tag="mytag",
+                push=True,
+            )
+
+        assert result.status == "skipped_remote_exists"
+        assert result.skip_reason == "remote_image_exists"
+        assert result.tags == [
+            "ghcr.io/openhands/eval-agent-server:abcdef0-mytag-source-minimal"
+        ]
+        assert result.error is None
+        assert result.remote_check_seconds is not None
+        assert result.build_seconds == 0.0
+        mock_exists.assert_called_once()
+
+
 class TestRemoteForceBuild:
     @patch("benchmarks.utils.build_utils.remote_image_exists", return_value=True)
     def test_build_image_force_build_bypasses_remote_exists(self, mock_exists):
@@ -270,8 +298,22 @@ class TestRemoteForceBuild:
             ),
             patch.object(
                 sdk_build_module,
-                "build",
-                return_value=["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"],
+                "build_with_telemetry",
+                return_value=MagicMock(
+                    tags=["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"],
+                    telemetry=MagicMock(
+                        build_context_seconds=1.5,
+                        buildx_wall_clock_seconds=12.0,
+                        cleanup_seconds=0.2,
+                        cache_import_seconds=3.0,
+                        cache_import_miss_count=1,
+                        cache_export_seconds=4.0,
+                        image_export_seconds=5.0,
+                        push_layers_seconds=2.5,
+                        export_manifest_seconds=0.7,
+                        cached_step_count=6,
+                    ),
+                ),
             ) as mock_build,
         ):
             result = build_image(
@@ -284,8 +326,61 @@ class TestRemoteForceBuild:
 
         assert result.error is None
         assert result.tags == ["ghcr.io/openhands/eval-agent-server:abcdef0-mytag"]
+        assert result.sdk_cache_export_seconds == 4.0
+        assert result.sdk_image_export_seconds == 5.0
+        assert result.sdk_cache_import_miss_count == 1
         mock_exists.assert_not_called()
         mock_build.assert_called_once()
+
+    @patch("benchmarks.utils.build_utils.remote_image_exists", return_value=False)
+    def test_build_image_failure_preserves_sdk_telemetry(self, mock_exists):
+        from benchmarks.utils.build_utils import build_image
+        from openhands.agent_server.docker import build as sdk_build_module
+
+        telemetry = MagicMock(
+            build_context_seconds=2.0,
+            buildx_wall_clock_seconds=30.0,
+            cleanup_seconds=0.3,
+            cache_import_seconds=7.0,
+            cache_import_miss_count=2,
+            cache_export_seconds=0.0,
+            image_export_seconds=0.0,
+            push_layers_seconds=0.0,
+            export_manifest_seconds=0.0,
+            cached_step_count=4,
+        )
+        failure = sdk_build_module.BuildCommandError(
+            1,
+            ["docker", "buildx", "build"],
+            output="stdout failure",
+            stderr="stderr failure",
+            telemetry=telemetry,
+        )
+
+        with (
+            patch(
+                "benchmarks.utils.build_utils._get_sdk_submodule_info",
+                return_value=("main", "abcdef0", "1.0.0"),
+            ),
+            patch.object(
+                sdk_build_module,
+                "build_with_telemetry",
+                side_effect=failure,
+            ),
+        ):
+            result = build_image(
+                base_image="base:latest",
+                target_image="ghcr.io/openhands/eval-agent-server",
+                custom_tag="mytag",
+                push=True,
+            )
+
+        assert result.status == "failed"
+        assert result.sdk_build_context_seconds == 2.0
+        assert result.sdk_buildx_wall_clock_seconds == 30.0
+        assert result.sdk_cache_import_seconds == 7.0
+        assert result.sdk_cache_import_miss_count == 2
+        assert mock_exists.call_count == 3
 
     def test_build_parser_accepts_force_build(self):
         from benchmarks.utils.build_utils import get_build_parser
@@ -293,3 +388,149 @@ class TestRemoteForceBuild:
         args = get_build_parser().parse_args(["--force-build"])
 
         assert args.force_build is True
+
+
+class TestBuildWithLoggingTelemetry:
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[100.0, 109.5])
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_successful_build_records_timing_fields(
+        self, mock_build, _mock_monotonic, _mock_reset, tmp_path: Path
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.return_value = BuildOutput(
+            base_image="base:latest",
+            tags=["server:v1"],
+            status="built",
+            remote_check_seconds=1.25,
+            build_seconds=7.5,
+        )
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+        )
+
+        assert result.status == "built"
+        assert result.attempt_count == 1
+        assert result.remote_check_seconds == 1.25
+        assert result.build_seconds == 7.5
+        assert result.duration_seconds == 9.5
+        assert result.started_at is not None
+        assert result.finished_at is not None
+        assert result.log_path is not None
+
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[10.0, 14.0])
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_failed_build_still_records_timing_fields(
+        self, mock_build, _mock_monotonic, mock_reset, tmp_path: Path
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.return_value = BuildOutput(
+            base_image="base:latest",
+            tags=[],
+            error="boom",
+            status="failed",
+            remote_check_seconds=0.5,
+            build_seconds=2.0,
+        )
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+            max_retries=1,
+        )
+
+        assert result.status == "failed"
+        assert result.attempt_count == 1
+        assert result.remote_check_seconds == 0.5
+        assert result.build_seconds == 2.0
+        assert result.duration_seconds == 4.0
+        mock_reset.assert_called_once()
+
+    @patch("benchmarks.utils.build_utils.time.sleep")
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[50.0, 61.0])
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_retry_attempts_accumulate_timing_across_attempts(
+        self,
+        mock_build,
+        _mock_monotonic,
+        mock_reset,
+        _mock_sleep,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.side_effect = [
+            BuildOutput(
+                base_image="base:latest",
+                tags=[],
+                error="first failure",
+                status="failed",
+                remote_check_seconds=1.0,
+                build_seconds=2.5,
+            ),
+            BuildOutput(
+                base_image="base:latest",
+                tags=["server:v1"],
+                status="built",
+                remote_check_seconds=0.75,
+                build_seconds=3.25,
+            ),
+        ]
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+            max_retries=2,
+        )
+
+        assert result.status == "built"
+        assert result.attempt_count == 2
+        assert result.remote_check_seconds == 1.75
+        assert result.build_seconds == 5.75
+        assert result.duration_seconds == 11.0
+        mock_reset.assert_called_once()
+
+    @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
+    @patch(
+        "benchmarks.utils.build_utils.time.monotonic",
+        side_effect=[200.0, 204.0, 206.5, 210.0],
+    )
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_post_build_hook_timing_is_tracked(
+        self, mock_build, _mock_monotonic, _mock_reset, tmp_path: Path
+    ):
+        from benchmarks.utils.build_utils import _build_with_logging
+
+        mock_build.return_value = BuildOutput(
+            base_image="base:latest",
+            tags=["server:v1"],
+            status="built",
+            remote_check_seconds=0.25,
+            build_seconds=4.0,
+        )
+
+        def post_build_fn(result: BuildOutput, push: bool) -> BuildOutput:
+            assert push is False
+            return result
+
+        result = _build_with_logging(
+            log_dir=tmp_path,
+            base_image="base:latest",
+            target_image="server",
+            post_build_fn=post_build_fn,
+        )
+
+        assert result.status == "built"
+        assert result.post_build_seconds == 2.5
+        assert result.build_seconds == 4.0
+        assert result.remote_check_seconds == 0.25
+        assert result.duration_seconds == 10.0
