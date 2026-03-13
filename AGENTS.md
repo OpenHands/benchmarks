@@ -100,4 +100,10 @@ When converting between OpenHands format and benchmark-specific formats:
 - Handle missing/optional fields gracefully
 - Log conversion warnings for debugging
 - Validate output format before evaluation
+
+# Terminal-Bench Notes
+- Harbor's installable package is `harbor` (not `harbor-bench`).
+- The Harbor dataset name used in CI is `terminal-bench@2.0`.
+- For CI smoke tests, pass `--n-limit <count>` to `terminalbench-infer` so Harbor only runs the requested subset.
+
 </BENCHMARK_SPECIFIC>

@@ -2,7 +2,7 @@
 
 # Default inference settings (only include values actually used by argparse)
 INFER_DEFAULTS = {
-    "dataset": "terminal-bench-2",
+    "dataset": "terminal-bench@2.0",
     "output_dir": "./evaluation_outputs",
     "num_workers": 1,
 }
