@@ -8,6 +8,7 @@ import contextlib
 import os
 import subprocess
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -315,6 +316,7 @@ class TestRemoteForceBuild:
                         cached_step_count=6,
                     ),
                 ),
+                create=True,
             ) as mock_build,
         ):
             result = build_image(
@@ -350,13 +352,30 @@ class TestRemoteForceBuild:
             export_manifest_seconds=0.0,
             cached_step_count=4,
         )
-        failure = sdk_build_module.BuildCommandError(
-            1,
-            ["docker", "buildx", "build"],
-            output="stdout failure",
-            stderr="stderr failure",
-            telemetry=telemetry,
+
+        class FakeBuildCommandError(subprocess.CalledProcessError):
+            def __init__(self, telemetry):
+                super().__init__(
+                    1,
+                    ["docker", "buildx", "build"],
+                    output="stdout failure",
+                    stderr="stderr failure",
+                )
+                self.telemetry = telemetry
+
+        build_command_error_cls = getattr(
+            sdk_build_module, "BuildCommandError", FakeBuildCommandError
         )
+        if build_command_error_cls is FakeBuildCommandError:
+            failure = build_command_error_cls(telemetry)
+        else:
+            failure = cast(Any, build_command_error_cls)(
+                1,
+                ["docker", "buildx", "build"],
+                output="stdout failure",
+                stderr="stderr failure",
+                telemetry=telemetry,
+            )
 
         with (
             patch(
@@ -367,6 +386,7 @@ class TestRemoteForceBuild:
                 sdk_build_module,
                 "build_with_telemetry",
                 side_effect=failure,
+                create=True,
             ),
         ):
             result = build_image(
@@ -419,7 +439,10 @@ class TestCachedSdistReuse:
                 return_value=("main", "abcdef0", "1.0.0"),
             ),
             patch.object(
-                sdk_build_module, "build_with_telemetry", side_effect=fake_build
+                sdk_build_module,
+                "build_with_telemetry",
+                side_effect=fake_build,
+                create=True,
             ),
         ):
             result = build_image(
