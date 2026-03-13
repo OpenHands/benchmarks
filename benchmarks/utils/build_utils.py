@@ -7,8 +7,10 @@ import argparse
 import contextlib
 import io
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -218,6 +220,57 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
     return git_ref, git_sha, sdk_version
 
 
+def _sdk_root() -> Path:
+    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+    return benchmarks_root / "vendor" / "software-agent-sdk"
+
+
+def _pre_build_sdist() -> Path:
+    """
+    Build the SDK sdist once and reuse it across all image builds in a run.
+
+    The caller must clean up the parent directory of the returned tarball.
+    """
+    sdk_path = _sdk_root()
+    sdist_dir = Path(tempfile.mkdtemp(prefix="shared-sdist-")).resolve()
+
+    logger.info("Pre-building SDK sdist from %s", sdk_path)
+    start = time.monotonic()
+    proc = subprocess.run(
+        ["uv", "build", "--sdist", "--out-dir", str(sdist_dir)],
+        cwd=str(sdk_path),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        shutil.rmtree(sdist_dir, ignore_errors=True)
+        raise RuntimeError(f"Failed to build SDK sdist: {proc.stderr}")
+
+    sdists = sorted(sdist_dir.glob("*.tar.gz"))
+    if len(sdists) != 1:
+        shutil.rmtree(sdist_dir, ignore_errors=True)
+        raise RuntimeError(f"Expected 1 SDK sdist, got {len(sdists)}")
+
+    logger.info("Pre-built SDK sdist in %.1fs: %s", time.monotonic() - start, sdists[0])
+    return sdists[0]
+
+
+@contextlib.contextmanager
+def _prepare_cached_sdist():
+    cached_sdist_path: Path | None = None
+    try:
+        try:
+            cached_sdist_path = _pre_build_sdist()
+        except Exception as e:
+            logger.warning(
+                "Failed to pre-build SDK sdist; each image will build its own: %s", e
+            )
+        yield cached_sdist_path
+    finally:
+        if cached_sdist_path:
+            shutil.rmtree(cached_sdist_path.parent, ignore_errors=True)
+
+
 @contextlib.contextmanager
 def capture_output(base_name: str, out_dir: Path):
     """
@@ -343,6 +396,7 @@ def build_image(
     target: TargetType = "source-minimal",
     push: bool = False,
     force_build: bool = False,
+    cached_sdist: Path | None = None,
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
@@ -363,6 +417,7 @@ def build_image(
         # Override git info to use SDK submodule info instead of benchmarks repo
         git_ref=git_ref,
         git_sha=git_sha,
+        prebuilt_sdist=cached_sdist,
         sdk_version=sdk_version,
     )
     if _force_build_enabled(force_build):
@@ -464,6 +519,7 @@ def _build_with_logging(
     force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    cached_sdist: Path | None = None,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -510,6 +566,7 @@ def _build_with_logging(
                     target,
                     push,
                     force_build=force_build,
+                    cached_sdist=cached_sdist,
                 )
             except Exception as e:
                 result = BuildOutput(
@@ -673,6 +730,7 @@ def build_all_images(
     total_batches = len(batches)
 
     with (
+        _prepare_cached_sdist() as cached_sdist,
         manifest_file.open("w") as writer,
         tqdm(
             total=len(base_images), desc="Building agent-server images", leave=True
@@ -713,6 +771,7 @@ def build_all_images(
                         force_build=force_build,
                         max_retries=max_retries,
                         post_build_fn=post_build_fn,
+                        cached_sdist=cached_sdist,
                     )
                     futures[fut] = base
 
