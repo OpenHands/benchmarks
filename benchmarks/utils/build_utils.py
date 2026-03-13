@@ -17,7 +17,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Callable, Literal
+from types import SimpleNamespace
+from typing import Any, Callable, Literal, cast
 
 from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
@@ -36,6 +37,73 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def _compat_sdk_build_options(build_options_cls: type[BaseModel]) -> type[BaseModel]:
+    """Extend older SDK BuildOptions with fields expected by benchmarks."""
+    if "prebuilt_sdist" in build_options_cls.model_fields:
+        return build_options_cls
+
+    class CompatBuildOptions(build_options_cls):  # type: ignore[misc, valid-type]
+        prebuilt_sdist: Path | None = Field(default=None)
+
+    return CompatBuildOptions
+
+
+def _make_sdk_build_context_from_sdist(
+    sdk_build_module: object,
+    sdk_project_root: Path,
+    prebuilt_sdist: Path,
+) -> Path:
+    """Create a clean SDK build context from a pre-built sdist for older SDKs."""
+    tmp_root = Path(tempfile.mkdtemp(prefix="agent-build-", dir=None)).resolve()
+    try:
+        sdist = prebuilt_sdist.expanduser().resolve()
+        if not sdist.is_file():
+            raise FileNotFoundError(f"Pre-built sdist not found at {sdist}")
+
+        extract_tarball = getattr(sdk_build_module, "_extract_tarball")
+        get_dockerfile_path = getattr(sdk_build_module, "_get_dockerfile_path")
+
+        extract_tarball(sdist, tmp_root)
+        entries = list(tmp_root.iterdir())
+        assert len(entries) == 1 and entries[0].is_dir(), (
+            "Expected single folder in sdist"
+        )
+        tmp_root = entries[0].resolve()
+        shutil.copy2(get_dockerfile_path(sdk_project_root), tmp_root / "Dockerfile")
+        return tmp_root
+    except Exception:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        raise
+
+
+def _legacy_build_with_telemetry(
+    sdk_build_module: object,
+    opts: BaseModel,
+) -> SimpleNamespace:
+    """Backfill the newer SDK build API on older SDK commits."""
+    legacy_build = getattr(sdk_build_module, "build")
+    original_make_build_context = getattr(sdk_build_module, "_make_build_context", None)
+
+    try:
+        prebuilt_sdist = getattr(opts, "prebuilt_sdist", None)
+        if prebuilt_sdist is not None and original_make_build_context is not None:
+
+            def _compat_make_build_context(sdk_project_root: Path) -> Path:
+                return _make_sdk_build_context_from_sdist(
+                    sdk_build_module, sdk_project_root, prebuilt_sdist
+                )
+
+            setattr(sdk_build_module, "_make_build_context", _compat_make_build_context)
+
+        tags = legacy_build(opts)
+        return SimpleNamespace(tags=tags, telemetry=None)
+    finally:
+        if original_make_build_context is not None:
+            setattr(
+                sdk_build_module, "_make_build_context", original_make_build_context
+            )
 
 
 class BuildOutput(BaseModel):
@@ -409,13 +477,26 @@ def build_image(
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
-    from openhands.agent_server.docker.build import BuildOptions, build_with_telemetry
+    from openhands.agent_server.docker import build as sdk_build_module
+
+    sdk_build_module = cast(Any, sdk_build_module)
+    BuildOptions = cast(Any, _compat_sdk_build_options(sdk_build_module.BuildOptions))
+    sdk_build_runner = getattr(sdk_build_module, "build_with_telemetry", None)
+    build_runner: Callable[[Any], Any]
+    if sdk_build_runner is None:
+
+        def _compat_build_runner(opts: BaseModel) -> SimpleNamespace:
+            return _legacy_build_with_telemetry(sdk_build_module, opts)
+
+        build_runner = _compat_build_runner
+    else:
+        build_runner = cast(Callable[[Any], Any], sdk_build_runner)
 
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
     remote_check_seconds = 0.0
 
-    opts = BuildOptions(
+    opts: Any = BuildOptions(
         base_image=base_image,
         custom_tags=custom_tag,
         image=target_image,
@@ -426,8 +507,12 @@ def build_image(
         # Override git info to use SDK submodule info instead of benchmarks repo
         git_ref=git_ref,
         git_sha=git_sha,
-        prebuilt_sdist=cached_sdist,
         sdk_version=sdk_version,
+        **(
+            {"prebuilt_sdist": cached_sdist}
+            if "prebuilt_sdist" in BuildOptions.model_fields
+            else {}
+        ),
     )
     if _force_build_enabled(force_build):
         logger.info(
@@ -453,7 +538,7 @@ def build_image(
                 )
     build_started = time.monotonic()
     try:
-        build_result = build_with_telemetry(opts)
+        build_result = build_runner(opts)
         tags = build_result.tags
     except Exception as exc:
         return _apply_sdk_telemetry(

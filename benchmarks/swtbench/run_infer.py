@@ -1,10 +1,19 @@
 import json
 import os
-from typing import List
+from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swtbench.config import INFER_DEFAULTS
+from benchmarks.utils.acp import (
+    ACP_PROMPT_TIMEOUT,
+    extract_acp_model_hint,
+    get_acp_command,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+    workspace_keepalive,
+)
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -26,6 +35,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
+from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
@@ -161,6 +171,8 @@ class SWTBenchEvaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
             forward_env: Environment variables to forward into the workspace.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
 
@@ -236,32 +248,38 @@ class SWTBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_default_tools(
-            # Disable browser tools in CLI mode
-            enable_browser=False,
-        )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
-
-        # Create condenser if enabled
-        condenser = None
-        if self.metadata.enable_condenser:
-            condenser = LLMSummarizingCondenser(
-                llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
-                max_size=self.metadata.condenser_max_size,
-                keep_first=self.metadata.condenser_keep_first,
+        if is_acp_agent(self.metadata.agent_type):
+            agent = ACPAgent(
+                acp_command=get_acp_command(self.metadata.agent_type),
+                acp_model=extract_acp_model_hint(self.metadata.llm.model),
+                acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
+            )
+        else:
+            tools = get_default_tools(
+                # Disable browser tools in CLI mode
+                enable_browser=False,
+            )
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            condenser = None
+            if self.metadata.enable_condenser:
+                condenser = LLMSummarizingCondenser(
+                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    max_size=self.metadata.condenser_max_size,
+                    keep_first=self.metadata.condenser_keep_first,
+                )
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+                condenser=condenser,
+                # TODO: we can enable security analyzer later
+                # security_analyzer=LLMSecurityAnalyzer(),
             )
 
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-            condenser=condenser,
-            # TODO: we can enable security analyzer later
-            # security_analyzer=LLMSecurityAnalyzer(),
-        )
-
         assert isinstance(workspace, RemoteWorkspace)
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
@@ -297,9 +315,10 @@ class SWTBenchEvaluation(Evaluation):
             metadata=self.metadata,
             workspace_path=workspace.working_dir,
         )
-        conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            conversation.send_message(instruction)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -331,12 +350,17 @@ class SWTBenchEvaluation(Evaluation):
             logger=logger,
         )
 
+        test_result: dict[str, Any] = {
+            "git_patch": git_patch,
+        }
+        if isinstance(agent, ACPAgent):
+            test_result["acp_agent_name"] = agent.agent_name
+            test_result["acp_agent_version"] = agent.agent_version
+
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result={
-                "git_patch": git_patch,
-            },
+            test_result=test_result,
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
@@ -395,6 +419,7 @@ def main() -> None:
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
         enable_condenser=enable_condenser,
         condenser_max_size=args.condenser_max_size,
         condenser_keep_first=args.condenser_keep_first,
