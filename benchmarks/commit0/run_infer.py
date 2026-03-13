@@ -1,6 +1,6 @@
 import json
 import os
-from collections import Counter
+import shlex
 from typing import Any, List
 
 from commit0.harness.constants import SPLIT
@@ -40,6 +40,54 @@ from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
+
+# Script run inside the container to extract summary + duration from
+# report.json.  Only the small summary dict (~200 bytes) is printed to
+# stdout, avoiding HTTP transfer corruption for large reports (see #511).
+EXTRACT_SUMMARY_SCRIPT = """
+import json
+r = json.load(open('report.json'))
+s = r.get('summary', {})
+s['duration'] = r.get('duration', 0)
+print(json.dumps(s))
+""".strip()
+
+
+def parse_report_summary(raw_json: str) -> dict:
+    """Parse pytest-json-report summary extracted from the container.
+
+    Expects the JSON output of the in-container extraction command, which
+    produces the ``summary`` dict from pytest-json-report (v1.5.0) with
+    ``duration`` injected from the top-level report field::
+
+        {"passed": 100, "failed": 5, "total": 105, "collected": 105, "duration": 45.2}
+
+    Args:
+        raw_json: JSON string with the summary dict (including injected 'duration').
+
+    Returns:
+        Dict with keys: sum, passed, num_passed, num_tests.
+
+    Raises:
+        json.JSONDecodeError: If raw_json is not valid JSON.
+        ValueError: If the summary is missing or has an empty 'total' field.
+    """
+    summary = json.loads(raw_json.strip())
+
+    if "total" not in summary or summary["total"] == 0:
+        raise ValueError(f"Report summary missing or empty 'total' field: {summary}")
+
+    num_passed = summary.get("passed", 0) + summary.get("xfailed", 0)
+    num_tests = summary["total"]
+    total_runtime = summary.get("duration", 0)
+    passed_ratio = num_passed / num_tests
+
+    return {
+        "sum": total_runtime,
+        "passed": passed_ratio,
+        "num_passed": num_passed,
+        "num_tests": num_tests,
+    }
 
 
 def get_instruction(
@@ -422,105 +470,32 @@ class Commit0Evaluation(Evaluation):
             f"Test IDs found: {len(test_ids)} - {test_ids[:3] if test_ids else 'None'}"
         )  # Show first 3
 
-        # Read test report
-        report_result = workspace.execute_command(
-            f"cd {repo_path} && cat report.json",
-            timeout=600,
+        # Extract summary and duration from report.json inside the container.
+        # This avoids transferring the full report (can be >1 MB) over HTTP,
+        # which causes corruption for large files (see #511).
+        summary_cmd = (
+            f"cd {repo_path} && python3 -c {shlex.quote(EXTRACT_SUMMARY_SCRIPT)}"
         )
+        report_result = workspace.execute_command(summary_cmd, timeout=600)
+        logger.info(f"Report summary extraction exit code: {report_result.exit_code}")
 
-        # Debug logging for report
-        logger.info(f"Report read exit code: {report_result.exit_code}")
-        if report_result.exit_code == 0:
-            logger.info(f"Report content length: {len(report_result.stdout)}")
-            logger.info(
-                f"Report preview: {report_result.stdout[:200]}..."
-            )  # First 200 chars
-        else:
-            logger.info(f"Failed to read report.json: {report_result.stderr}")
-            # Check if file exists
-            check_file = workspace.execute_command(
-                f"cd {repo_path} && ls -la report.json", timeout=60
-            )
-            logger.info(
-                f"File check: {check_file.stdout if check_file.exit_code == 0 else check_file.stderr}"
+        # Intentionally let errors propagate here — do NOT add a try/except.
+        # Silent failures caused instances to be scored 0/0 even when all
+        # tests passed (see #511).  The framework's retry logic in
+        # evaluation.py handles the exception.
+        if report_result.exit_code != 0:
+            raise RuntimeError(
+                f"Report summary extraction failed (exit code {report_result.exit_code}): "
+                f"{report_result.stderr}"
             )
 
-        # Initialize eval_result with default values
+        parsed = parse_report_summary(report_result.stdout)
+        logger.info(f"Parsed report summary: {parsed}")
+
         eval_result = {
             "name": workspace_dir_name,
-            "sum": 0,
-            "passed": 0,
-            "num_passed": 0,
-            "num_tests": len(test_ids),
+            **parsed,
         }
-
-        if report_result.exit_code == 0:
-            try:
-                report = json.loads(report_result.stdout.strip())
-                logger.info(
-                    f"JSON report parsed successfully. Keys: {list(report.keys())}"
-                )
-                if "tests" in report:
-                    logger.info(f"Found {len(report['tests'])} test entries in report")
-                else:
-                    logger.warning("No 'tests' key found in report")
-                tests = {x["nodeid"]: x["call"] for x in report["tests"] if "call" in x}
-                logger.info(f"Extracted {len(tests)} tests with 'call' data")
-
-                # If test_ids is empty (commit0 get-tests failed), use test IDs from JSON report
-                if not test_ids and tests:
-                    test_ids = list(tests.keys())
-                    logger.info(
-                        f"Using test IDs from JSON report: {len(test_ids)} tests"
-                    )
-
-                status = []
-                runtimes = []
-                no_runs = 0
-
-                for test_id in test_ids:
-                    if test_id in tests and tests[test_id] is not None:
-                        status.append(tests[test_id]["outcome"])
-                        runtimes.append(tests[test_id]["duration"])
-                        no_runs += 1
-                    else:
-                        status.append("failed")
-                        runtimes.append(0)
-
-                status_counts = Counter(status)
-                total_runtime = sum(runtimes) if no_runs > 0 else 0
-                num_passed = status_counts.get("passed", 0) + status_counts.get(
-                    "xfail", 0
-                )
-                passed_ratio = num_passed / len(status) if status else 0
-
-                # Debug logging for final calculations
-                logger.info(f"Status counts: {dict(status_counts)}")
-                logger.info(
-                    f"Total runtime: {total_runtime}, Num passed: {num_passed}, Passed ratio: {passed_ratio}"
-                )
-                logger.info(
-                    f"Total test IDs: {len(test_ids)}, Status list length: {len(status)}"
-                )
-
-                eval_result = {
-                    "name": workspace_dir_name,
-                    "sum": total_runtime,
-                    "passed": passed_ratio,
-                    "num_passed": num_passed,
-                    "num_tests": len(test_ids),
-                }
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse test report JSON: {e}")
-                logger.error(
-                    f"Raw JSON content: {report_result.stdout[:500]}..."
-                )  # First 500 chars
-                # eval_result already has default values, no need to reassign
-        else:
-            logger.warning(
-                f"Report reading failed with exit code {report_result.exit_code}"
-            )
-            logger.warning(f"Report stderr: {report_result.stderr}")
 
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
