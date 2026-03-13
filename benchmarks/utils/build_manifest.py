@@ -274,6 +274,9 @@ def summarize_build_root(build_root: Path, top_n: int = 5) -> BuildManifestSumma
 
 
 def load_eval_env_summary(build_root: Path) -> dict[str, Any] | None:
+    # SWT-Bench emits an additional eval-env summary alongside the shared
+    # manifest-based image telemetry because its prebaked eval env build uses a
+    # separate workflow path and artifact shape from the standard image builders.
     summary_file = next(build_root.rglob("eval-env-summary.json"), None)
     if summary_file is None:
         return None
