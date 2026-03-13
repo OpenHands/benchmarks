@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from collections import Counter
 from typing import Any, List
 
@@ -39,6 +40,24 @@ from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
+
+
+def _parse_pytest_summary(test_output: str) -> tuple[int, int] | None:
+    """Parse pytest summary line like '6704 passed, 5 failed, 2 skipped'."""
+    match = re.search(r"=+ (.+) in [\d.]+s =+", test_output)
+    if not match:
+        return None
+    summary = match.group(1)
+    passed, total = 0, 0
+    for part in summary.split(", "):
+        count_match = re.match(r"(\d+) (\w+)", part.strip())
+        if count_match:
+            count = int(count_match.group(1))
+            category = count_match.group(2)
+            total += count
+            if category in ("passed", "xfail"):
+                passed += count
+    return (passed, total) if total > 0 else None
 
 
 def get_instruction(
@@ -500,10 +519,20 @@ class Commit0Evaluation(Evaluation):
                 }
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse test report JSON: {e}")
-                logger.error(
-                    f"Raw JSON content: {report_result.stdout[:500]}..."
-                )  # First 500 chars
-                # eval_result already has default values, no need to reassign
+                logger.error(f"Raw JSON content: {report_result.stdout[:500]}...")
+                fallback = _parse_pytest_summary(test_output)
+                if fallback is not None:
+                    num_passed, num_tests = fallback
+                    logger.info(
+                        f"Fallback from test_output.txt: {num_passed}/{num_tests} passed"
+                    )
+                    eval_result["num_passed"] = num_passed
+                    eval_result["num_tests"] = num_tests
+                    eval_result["passed"] = num_passed / num_tests if num_tests else 0
+                else:
+                    logger.warning(
+                        "Could not parse pytest summary from test_output.txt either"
+                    )
         else:
             logger.warning(
                 f"Report reading failed with exit code {report_result.exit_code}"
