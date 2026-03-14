@@ -52,6 +52,7 @@ from openhands.sdk import (
     get_logger,
 )
 from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.event import ActionEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
@@ -332,10 +333,18 @@ class GAIAEvaluation(Evaluation):
                 tools.append(Tool(name=DelegateTool.name))
             tavily_api_key = os.getenv("TAVILY_API_KEY", "")
             assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
+            condenser = None
+            if self.metadata.enable_condenser:
+                condenser = LLMSummarizingCondenser(
+                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    max_size=self.metadata.condenser_max_size,
+                    keep_first=self.metadata.condenser_keep_first,
+                )
             agent = Agent(
                 llm=self.metadata.llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
+                condenser=condenser,
                 mcp_config={
                     "mcpServers": {
                         "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},

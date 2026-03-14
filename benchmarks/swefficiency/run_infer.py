@@ -94,12 +94,11 @@ def divide_cpus_among_workers(
     Returns:
         List of CPU lists, one per worker.
     """
-    sched_getaffinity = getattr(os, "sched_getaffinity", None)
-    if sched_getaffinity is None:
+    try:
+        current_cpus = list(os.sched_getaffinity(0))
+    except AttributeError:
         # os.sched_getaffinity not available on all platforms
         current_cpus = list(range(multiprocessing.cpu_count()))
-    else:
-        current_cpus = list(sched_getaffinity(0))
 
     num_cpus = len(current_cpus)
     if num_workers <= 0:
