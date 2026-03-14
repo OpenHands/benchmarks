@@ -49,6 +49,11 @@ on:
         required: false
         default: ''
         type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
 
 env:
   DATASET: wentingzhao/commit0_combined
@@ -164,6 +169,7 @@ jobs:
       - name: Build and push Commit0 images
         run: |
           set -euo pipefail
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           CMD="uv run benchmarks/commit0/build_images.py \
             --dataset '${DATASET}' \
@@ -178,6 +184,9 @@ jobs:
           fi
           if [ -n "${SELECT_FILE}" ]; then
             CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
           fi
 
           echo "Running: $CMD"
@@ -208,43 +217,6 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
-
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "No manifest.jsonl files found"
-            exit 0
-          fi
-
-          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
-          import sys
-          import json
-          count = 0
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('error') is None and len(data.get('tags', [])) > 0:
-                  count += 1
-          print(count)
-          ")
-          FAILURES=$((TOTAL - SUCCESSES))
-
-          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            cat $MANIFEST_FILES | python -c "
-          import sys
-          import json
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('error') is not None or len(data.get('tags', [])) == 0:
-                  print(f\"- \\\`{data.get('base_image', 'unknown')}\\\`: {data.get('error', 'No tags generated')}\")
-          " >> "$GITHUB_STEP_SUMMARY"
-          fi
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "Commit0 Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
