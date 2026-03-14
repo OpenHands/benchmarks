@@ -32,7 +32,9 @@ class EvalMetadata(BaseModel):
         default=0, description="Number of instances to evaluate, 0 means all"
     )
     n_critic_runs: int = Field(
-        default=1, ge=1, description="Number of critic evaluation runs for iterative mode"
+        default=1,
+        ge=1,
+        description="Number of critic evaluation runs for iterative mode",
     )
     critic: CriticBase = Field(
         description=(

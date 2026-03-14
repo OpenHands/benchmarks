@@ -527,7 +527,7 @@ class Evaluation(ABC, BaseModel):
 
         logger.info(
             f"Evaluation complete: {total_instances} total instances, "
-            f"{self.metadata.n_critic_runs} max attempts"
+            f"{self.metadata.n_critic_runs} critic runs"
         )
         return all_outputs
 

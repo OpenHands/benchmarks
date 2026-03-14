@@ -280,7 +280,7 @@ def test_retry_includes_missing_instances_from_prev_attempt():
             eval_output_dir=tmpdir,
             details={},
             eval_limit=4,
-            max_attempts=3,
+            n_critic_runs=3,
             max_retries=0,
             critic=critic,
         )
@@ -392,7 +392,7 @@ def test_passed_instances_not_retried_in_later_attempts():
             eval_output_dir=tmpdir,
             details={},
             eval_limit=4,
-            max_attempts=3,
+            n_critic_runs=3,
             max_retries=0,
             critic=critic,
         )
