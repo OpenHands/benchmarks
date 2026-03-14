@@ -98,7 +98,7 @@ class TestAggregateResults:
             f.write(output_3.model_dump_json() + "\n")
 
         # Run aggregation
-        aggregate_results(temp_output_dir, max_attempts=3, critic=critic)
+        aggregate_results(temp_output_dir, n_critic_runs=3, critic=critic)
 
         # Verify output.jsonl contains the instance (not dropped)
         final_output_file = os.path.join(temp_output_dir, "output.jsonl")
@@ -135,7 +135,7 @@ class TestAggregateResults:
                 f.write(output.model_dump_json() + "\n")
 
         # Run aggregation
-        aggregate_results(temp_output_dir, max_attempts=3, critic=critic)
+        aggregate_results(temp_output_dir, n_critic_runs=3, critic=critic)
 
         # Verify output.jsonl contains the instance
         final_output_file = os.path.join(temp_output_dir, "output.jsonl")
@@ -185,7 +185,7 @@ class TestAggregateResults:
             f.write(create_output("instance_3", error=None).model_dump_json() + "\n")
 
         # Run aggregation
-        aggregate_results(temp_output_dir, max_attempts=3, critic=critic)
+        aggregate_results(temp_output_dir, n_critic_runs=3, critic=critic)
 
         # Verify all instances appear in output.jsonl
         final_output_file = os.path.join(temp_output_dir, "output.jsonl")
@@ -214,7 +214,7 @@ class TestAggregateResults:
                 f.write(output.model_dump_json() + "\n")
 
         # Run aggregation
-        aggregate_results(temp_output_dir, max_attempts=3, critic=critic)
+        aggregate_results(temp_output_dir, n_critic_runs=3, critic=critic)
 
         # Verify output.jsonl is empty (instance dropped because all attempts errored)
         final_output_file = os.path.join(temp_output_dir, "output.jsonl")
@@ -228,7 +228,7 @@ class TestAggregateResults:
         critic = PassCritic()
 
         # Run aggregation with no attempt files
-        aggregate_results(temp_output_dir, max_attempts=3, critic=critic)
+        aggregate_results(temp_output_dir, n_critic_runs=3, critic=critic)
 
         # Verify output.jsonl is created but empty
         final_output_file = os.path.join(temp_output_dir, "output.jsonl")
