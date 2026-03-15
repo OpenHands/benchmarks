@@ -708,7 +708,7 @@ wheels = [
 
 [[package]]
 name = "cyclopts"
-version = "4.8.0"
+version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -716,9 +716,9 @@ dependencies = [
     { name = "rich" },
     { name = "rich-rst" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/33/7a/3c3623755561c7f283dd769470e99ae36c46810bf3b3f264d69006f6c97a/cyclopts-4.8.0.tar.gz", hash = "sha256:92cc292d18d8be372e58d8bce1aa966d30f819a5fb3fee02bd2ad4a6bb403f29", size = 164066, upload-time = "2026-03-07T19:39:18.122Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/de/75598ddea1f47589ccecdb23a560715a5a8ec2b3e34396b5628ba98d70e4/cyclopts-4.9.0.tar.gz", hash = "sha256:f292868e4be33a3e622d8cf95d89f49222e987b1ccdbf40caf6514e19dd99a63", size = 166300, upload-time = "2026-03-13T13:43:40.38Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/01/6ec7210775ea5e4989a10d89eda6c5ea7ff06caa614231ad533d74fecac8/cyclopts-4.8.0-py3-none-any.whl", hash = "sha256:ef353da05fec36587d4ebce7a6e4b27515d775d184a23bab4b01426f93ddc8d4", size = 201948, upload-time = "2026-03-07T19:39:19.307Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/b2/2e342a876e5b78ce99ecf65ce391f5b2935144a0528c9989c437b8578a54/cyclopts-4.9.0-py3-none-any.whl", hash = "sha256:583ea4090a040c92f9303bc0da26bca7b681c81bcea34097ace279e1acef22c1", size = 203999, upload-time = "2026-03-13T13:43:38.553Z" },
 ]
 
 [[package]]
@@ -2401,7 +2401,7 @@ wheels = [
 
 [[package]]
 name = "openhands-agent-server"
-version = "1.12.0"
+version = "1.13.1"
 source = { editable = "vendor/software-agent-sdk/openhands-agent-server" }
 dependencies = [
     { name = "aiosqlite" },
@@ -2541,7 +2541,7 @@ dev = [
 
 [[package]]
 name = "openhands-sdk"
-version = "1.12.0"
+version = "1.13.1"
 source = { editable = "vendor/software-agent-sdk/openhands-sdk" }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -2585,7 +2585,7 @@ provides-extras = ["boto3"]
 
 [[package]]
 name = "openhands-tools"
-version = "1.12.0"
+version = "1.13.1"
 source = { editable = "vendor/software-agent-sdk/openhands-tools" }
 dependencies = [
     { name = "bashlex" },
@@ -2614,7 +2614,7 @@ requires-dist = [
 
 [[package]]
 name = "openhands-workspace"
-version = "1.12.0"
+version = "1.13.1"
 source = { editable = "vendor/software-agent-sdk/openhands-workspace" }
 dependencies = [
     { name = "openhands-agent-server" },

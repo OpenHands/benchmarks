@@ -8,7 +8,6 @@ import contextlib
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -316,7 +315,6 @@ class TestRemoteForceBuild:
                         cached_step_count=6,
                     ),
                 ),
-                create=True,
             ) as mock_build,
         ):
             result = build_image(
@@ -352,30 +350,13 @@ class TestRemoteForceBuild:
             export_manifest_seconds=0.0,
             cached_step_count=4,
         )
-
-        class FakeBuildCommandError(subprocess.CalledProcessError):
-            def __init__(self, telemetry):
-                super().__init__(
-                    1,
-                    ["docker", "buildx", "build"],
-                    output="stdout failure",
-                    stderr="stderr failure",
-                )
-                self.telemetry = telemetry
-
-        build_command_error_cls = getattr(
-            sdk_build_module, "BuildCommandError", FakeBuildCommandError
+        failure = sdk_build_module.BuildCommandError(
+            1,
+            ["docker", "buildx", "build"],
+            output="stdout failure",
+            stderr="stderr failure",
+            telemetry=telemetry,
         )
-        if build_command_error_cls is FakeBuildCommandError:
-            failure = build_command_error_cls(telemetry)
-        else:
-            failure = cast(Any, build_command_error_cls)(
-                1,
-                ["docker", "buildx", "build"],
-                output="stdout failure",
-                stderr="stderr failure",
-                telemetry=telemetry,
-            )
 
         with (
             patch(
@@ -386,7 +367,6 @@ class TestRemoteForceBuild:
                 sdk_build_module,
                 "build_with_telemetry",
                 side_effect=failure,
-                create=True,
             ),
         ):
             result = build_image(
@@ -409,6 +389,70 @@ class TestRemoteForceBuild:
         args = get_build_parser().parse_args(["--force-build"])
 
         assert args.force_build is True
+
+
+class TestBuildBatchSizeConfig:
+    def test_build_parser_accepts_build_batch_size(self):
+        from benchmarks.utils.build_utils import get_build_parser
+
+        args = get_build_parser().parse_args(["--build-batch-size", "50"])
+
+        assert args.build_batch_size == 50
+
+    @patch.dict(os.environ, {"BUILD_BATCH_SIZE": "99"})
+    def test_build_all_images_prefers_explicit_batch_size_over_env(
+        self,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils import build_utils
+
+        seen_batches: list[list[str]] = []
+
+        class FakeFuture:
+            def __init__(self, result: BuildOutput):
+                self._result = result
+
+            def result(self) -> BuildOutput:
+                return self._result
+
+        class FakeExecutor:
+            def __init__(self, *args, **kwargs):
+                self._batch: list[str] = []
+
+            def __enter__(self):
+                seen_batches.append(self._batch)
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def submit(self, fn, **kwargs):
+                self._batch.append(kwargs["base_image"])
+                return FakeFuture(
+                    BuildOutput(
+                        base_image=kwargs["base_image"],
+                        tags=[f"tag:{kwargs['base_image']}"],
+                        error=None,
+                    )
+                )
+
+        with (
+            patch.object(build_utils, "ProcessPoolExecutor", FakeExecutor),
+            patch.object(
+                build_utils, "as_completed", side_effect=lambda futures: futures
+            ),
+            patch.object(build_utils, "buildkit_disk_usage", return_value=(0, 0)),
+            patch.object(build_utils, "maybe_prune_buildkit_cache", return_value=False),
+        ):
+            exit_code = build_utils.build_all_images(
+                base_images=["base-1", "base-2", "base-3"],
+                target="source-minimal",
+                build_dir=tmp_path,
+                build_batch_size=2,
+            )
+
+        assert exit_code == 0
+        assert seen_batches == [["base-1", "base-2"], ["base-3"]]
 
 
 class TestCachedSdistReuse:
@@ -439,10 +483,7 @@ class TestCachedSdistReuse:
                 return_value=("main", "abcdef0", "1.0.0"),
             ),
             patch.object(
-                sdk_build_module,
-                "build_with_telemetry",
-                side_effect=fake_build,
-                create=True,
+                sdk_build_module, "build_with_telemetry", side_effect=fake_build
             ),
         ):
             result = build_image(
