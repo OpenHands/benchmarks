@@ -13,9 +13,8 @@ from benchmarks.commit0.build_images import (
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
 from benchmarks.utils.acp import (
-    ACP_PROMPT_TIMEOUT,
-    extract_acp_model_hint,
-    get_acp_command,
+    add_acp_agent_metadata,
+    build_acp_agent,
     get_acp_forward_env,
     is_acp_agent,
     setup_acp_workspace,
@@ -363,11 +362,7 @@ class Commit0Evaluation(Evaluation):
         repo_path = f"/workspace/{workspace_dir_name}"
 
         if is_acp_agent(self.metadata.agent_type):
-            agent = ACPAgent(
-                acp_command=get_acp_command(self.metadata.agent_type),
-                acp_model=extract_acp_model_hint(self.metadata.llm.model),
-                acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
-            )
+            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
             tools = get_default_tools(enable_browser=False)
             if self.metadata.enable_delegation:
@@ -584,8 +579,7 @@ class Commit0Evaluation(Evaluation):
             "eval_result": eval_result,
         }
         if isinstance(agent, ACPAgent):
-            output_test_result["acp_agent_name"] = agent.agent_name
-            output_test_result["acp_agent_version"] = agent.agent_version
+            add_acp_agent_metadata(output_test_result, agent)
 
         out = EvalOutput(
             instance_id=instance.id,

@@ -11,9 +11,8 @@ from benchmarks.swebenchmultimodal.build_images import (
 )
 from benchmarks.swebenchmultimodal.config import INFER_DEFAULTS
 from benchmarks.utils.acp import (
-    ACP_PROMPT_TIMEOUT,
-    extract_acp_model_hint,
-    get_acp_command,
+    add_acp_agent_metadata,
+    build_acp_agent,
     get_acp_forward_env,
     is_acp_agent,
     setup_acp_workspace,
@@ -243,11 +242,7 @@ class SWEBenchEvaluation(Evaluation):
         Do not write files here; just return EvalOutput.
         """
         if is_acp_agent(self.metadata.agent_type):
-            agent = ACPAgent(
-                acp_command=get_acp_command(self.metadata.agent_type),
-                acp_model=extract_acp_model_hint(self.metadata.llm.model),
-                acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
-            )
+            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
             tools = get_default_tools(
                 # Enable browser tools for frontend development tasks
@@ -416,8 +411,7 @@ class SWEBenchEvaluation(Evaluation):
             "git_patch": git_patch,
         }
         if isinstance(agent, ACPAgent):
-            test_result["acp_agent_name"] = agent.agent_name
-            test_result["acp_agent_version"] = agent.agent_version
+            add_acp_agent_metadata(test_result, agent)
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(

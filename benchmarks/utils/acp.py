@@ -5,9 +5,11 @@ import json
 import os
 import threading
 from contextlib import contextmanager
+from typing import Any, cast
 
 from benchmarks.utils.laminar import LMNR_ENV_VARS
 from openhands.sdk import get_logger
+from openhands.sdk.agent import ACPAgent
 from openhands.sdk.workspace import RemoteWorkspace
 
 
@@ -105,6 +107,21 @@ def extract_acp_model_hint(llm_model: str) -> str | None:
     if "/" in model:
         model = model.rsplit("/", 1)[-1]
     return model
+
+
+def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
+    """Create an ACPAgent while remaining compatible with older type stubs."""
+    return cast(Any, ACPAgent)(
+        acp_command=get_acp_command(agent_type),
+        acp_model=extract_acp_model_hint(llm_model),
+        acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
+    )
+
+
+def add_acp_agent_metadata(test_result: dict[str, Any], agent: ACPAgent) -> None:
+    """Add ACP agent metadata to an eval result payload."""
+    test_result["acp_agent_name"] = cast(Any, agent).agent_name
+    test_result["acp_agent_version"] = cast(Any, agent).agent_version
 
 
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
