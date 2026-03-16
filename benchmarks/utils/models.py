@@ -109,7 +109,6 @@ class EvalMetadata(BaseModel):
             "'acp-claude' for ACPAgent with Claude Code, "
             "'acp-codex' for ACPAgent with Codex"
         ),
-        exclude_if=lambda value: value == "default",
     )
 
 
