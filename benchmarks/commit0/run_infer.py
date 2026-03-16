@@ -1,7 +1,6 @@
 import json
 import os
-from collections import Counter
-from pathlib import Path
+import shlex
 from typing import Any, List
 
 from commit0.harness.constants import SPLIT
@@ -13,7 +12,16 @@ from benchmarks.commit0.build_images import (
     get_base_docker_image,
 )
 from benchmarks.commit0.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.acp import (
+    add_acp_agent_metadata,
+    build_acp_agent,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+    workspace_keepalive,
+)
+from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -23,20 +31,72 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
-from openhands.sdk import LLM, Agent, Conversation, get_logger
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from openhands.sdk import Agent, Conversation, Tool, get_logger
+from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
+
+# Script run inside the container to extract summary + duration from
+# report.json.  Only the small summary dict (~200 bytes) is printed to
+# stdout, avoiding HTTP transfer corruption for large reports (see #511).
+EXTRACT_SUMMARY_SCRIPT = """
+import json
+r = json.load(open('report.json'))
+s = r.get('summary', {})
+s['duration'] = r.get('duration', 0)
+print(json.dumps(s))
+""".strip()
+
+
+def parse_report_summary(raw_json: str) -> dict:
+    """Parse pytest-json-report summary extracted from the container.
+
+    Expects the JSON output of the in-container extraction command, which
+    produces the ``summary`` dict from pytest-json-report (v1.5.0) with
+    ``duration`` injected from the top-level report field::
+
+        {"passed": 100, "failed": 5, "total": 105, "collected": 105, "duration": 45.2}
+
+    Args:
+        raw_json: JSON string with the summary dict (including injected 'duration').
+
+    Returns:
+        Dict with keys: sum, passed, num_passed, num_tests.
+
+    Raises:
+        json.JSONDecodeError: If raw_json is not valid JSON.
+        ValueError: If the summary is missing or has an empty 'total' field.
+    """
+    summary = json.loads(raw_json.strip())
+
+    if "total" not in summary or summary["total"] == 0:
+        raise ValueError(f"Report summary missing or empty 'total' field: {summary}")
+
+    num_passed = summary.get("passed", 0) + summary.get("xfailed", 0)
+    num_tests = summary["total"]
+    total_runtime = summary.get("duration", 0)
+    passed_ratio = num_passed / num_tests
+
+    return {
+        "sum": total_runtime,
+        "passed": passed_ratio,
+        "num_passed": num_passed,
+        "num_tests": num_tests,
+    }
 
 
 def get_instruction(
@@ -179,21 +239,24 @@ class Commit0Evaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
             forward_env: Environment variables to forward into the workspace.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         repo_name = instance.data["repo"].split("/")[1]
         base_docker_image = get_base_docker_image(repo_name)
         build_target = "source-minimal"
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
-            # Build agent-server image from base commit0 image
-            workspace = DockerDevWorkspace(
-                base_image=base_docker_image,
-                working_dir="/workspace",
-                target=build_target,
-                forward_env=forward_env or [],
+            custom_tag = extract_custom_tag(base_docker_image)
+            suffix = f"-{build_target}" if build_target != "binary" else ""
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
-            logger.info(
-                f"Building workspace from {base_docker_image}. This may take a while..."
+            workspace = create_docker_workspace(
+                agent_server_image=agent_server_image,
+                base_image=base_docker_image,
+                build_target=build_target,
+                forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -202,14 +265,13 @@ class Commit0Evaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             custom_tag = extract_custom_tag(base_docker_image)
             suffix = f"-{build_target}" if build_target != "binary" else ""
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
             )
 
-            if not image_exists(agent_server_image):
+            if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry. "
                     "Run 'benchmarks/commit0/build_images.py --push' to build and push it first."
@@ -217,7 +279,7 @@ class Commit0Evaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -238,8 +300,10 @@ class Commit0Evaluation(Evaluation):
             )
 
         # Clone the repository to the specific directory
+        # Use --depth 1 for shallow clone to prevent agents from accessing git history
+        # and exploiting it to retrieve original implementations (reward hacking prevention)
         workspace_dir_name = instance.data["repo"].split("/")[1]
-        clone_cmd = f"cd /workspace/ && git clone -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
+        clone_cmd = f"cd /workspace/ && git clone --depth 1 -b commit0_combined https://github.com/{instance.data['repo']}.git {workspace_dir_name}"
         res = workspace.execute_command(clone_cmd, timeout=600)
         if res.exit_code != 0:
             raise RuntimeError(f"Failed to clone repo: {res.stderr}")
@@ -297,14 +361,29 @@ class Commit0Evaluation(Evaluation):
         workspace_dir_name = instance.data["repo"].split("/")[1]
         repo_path = f"/workspace/{workspace_dir_name}"
 
-        tools = get_default_tools(enable_browser=False)
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-        )
+        if is_acp_agent(self.metadata.agent_type):
+            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
+        else:
+            tools = get_default_tools(enable_browser=False)
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            condenser = None
+            if self.metadata.enable_condenser:
+                condenser = LLMSummarizingCondenser(
+                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    max_size=self.metadata.condenser_max_size,
+                    keep_first=self.metadata.condenser_keep_first,
+                )
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+                condenser=condenser,
+            )
 
         assert isinstance(workspace, RemoteWorkspace)
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         persist_callback = build_event_persistence_callback(
             run_id=self.metadata.eval_output_dir,
@@ -324,9 +403,10 @@ class Commit0Evaluation(Evaluation):
             instance=instance.data,
             metadata=self.metadata,
         )
-        conversation.send_message(instruction)
-        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
-        conversation.run(timeout=run_timeout)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            conversation.send_message(instruction)
+            run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+            conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
 
@@ -404,108 +484,43 @@ class Commit0Evaluation(Evaluation):
             f"Test IDs found: {len(test_ids)} - {test_ids[:3] if test_ids else 'None'}"
         )  # Show first 3
 
-        # Read test report
-        report_result = workspace.execute_command(
-            f"cd {repo_path} && cat report.json",
-            timeout=600,
+        # Extract summary and duration from report.json inside the container.
+        # This avoids transferring the full report (can be >1 MB) over HTTP,
+        # which causes corruption for large files (see #511).
+        summary_cmd = (
+            f"cd {repo_path} && python3 -c {shlex.quote(EXTRACT_SUMMARY_SCRIPT)}"
         )
+        report_result = workspace.execute_command(summary_cmd, timeout=600)
+        logger.info(f"Report summary extraction exit code: {report_result.exit_code}")
 
-        # Debug logging for report
-        logger.info(f"Report read exit code: {report_result.exit_code}")
-        if report_result.exit_code == 0:
-            logger.info(f"Report content length: {len(report_result.stdout)}")
-            logger.info(
-                f"Report preview: {report_result.stdout[:200]}..."
-            )  # First 200 chars
-        else:
-            logger.info(f"Failed to read report.json: {report_result.stderr}")
-            # Check if file exists
-            check_file = workspace.execute_command(
-                f"cd {repo_path} && ls -la report.json", timeout=60
-            )
-            logger.info(
-                f"File check: {check_file.stdout if check_file.exit_code == 0 else check_file.stderr}"
+        # Intentionally let errors propagate here — do NOT add a try/except.
+        # Silent failures caused instances to be scored 0/0 even when all
+        # tests passed (see #511).  The framework's retry logic in
+        # evaluation.py handles the exception.
+        if report_result.exit_code != 0:
+            raise RuntimeError(
+                f"Report summary extraction failed (exit code {report_result.exit_code}): "
+                f"{report_result.stderr}"
             )
 
-        # Initialize eval_result with default values
+        parsed = parse_report_summary(report_result.stdout)
+        logger.info(f"Parsed report summary: {parsed}")
+
         eval_result = {
             "name": workspace_dir_name,
-            "sum": 0,
-            "passed": 0,
-            "num_passed": 0,
-            "num_tests": len(test_ids),
+            **parsed,
         }
-
-        if report_result.exit_code == 0:
-            try:
-                report = json.loads(report_result.stdout.strip())
-                logger.info(
-                    f"JSON report parsed successfully. Keys: {list(report.keys())}"
-                )
-                if "tests" in report:
-                    logger.info(f"Found {len(report['tests'])} test entries in report")
-                else:
-                    logger.warning("No 'tests' key found in report")
-                tests = {x["nodeid"]: x["call"] for x in report["tests"] if "call" in x}
-                logger.info(f"Extracted {len(tests)} tests with 'call' data")
-
-                # If test_ids is empty (commit0 get-tests failed), use test IDs from JSON report
-                if not test_ids and tests:
-                    test_ids = list(tests.keys())
-                    logger.info(
-                        f"Using test IDs from JSON report: {len(test_ids)} tests"
-                    )
-
-                status = []
-                runtimes = []
-                no_runs = 0
-
-                for test_id in test_ids:
-                    if test_id in tests and tests[test_id] is not None:
-                        status.append(tests[test_id]["outcome"])
-                        runtimes.append(tests[test_id]["duration"])
-                        no_runs += 1
-                    else:
-                        status.append("failed")
-                        runtimes.append(0)
-
-                status_counts = Counter(status)
-                total_runtime = sum(runtimes) if no_runs > 0 else 0
-                num_passed = status_counts.get("passed", 0) + status_counts.get(
-                    "xfail", 0
-                )
-                passed_ratio = num_passed / len(status) if status else 0
-
-                # Debug logging for final calculations
-                logger.info(f"Status counts: {dict(status_counts)}")
-                logger.info(
-                    f"Total runtime: {total_runtime}, Num passed: {num_passed}, Passed ratio: {passed_ratio}"
-                )
-                logger.info(
-                    f"Total test IDs: {len(test_ids)}, Status list length: {len(status)}"
-                )
-
-                eval_result = {
-                    "name": workspace_dir_name,
-                    "sum": total_runtime,
-                    "passed": passed_ratio,
-                    "num_passed": num_passed,
-                    "num_tests": len(test_ids),
-                }
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse test report JSON: {e}")
-                logger.error(
-                    f"Raw JSON content: {report_result.stdout[:500]}..."
-                )  # First 500 chars
-                # eval_result already has default values, no need to reassign
-        else:
-            logger.warning(
-                f"Report reading failed with exit code {report_result.exit_code}"
-            )
-            logger.warning(f"Report stderr: {report_result.stderr}")
 
         # Final debug log
         logger.info(f"Final eval_result: {eval_result}")
+
+        # Log instance summary
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            git_patch=git_patch or "",
+            logger=logger,
+        )
 
         # Save workspace as zip (if supported by workspace implementation)
         zip_dest = os.path.join(
@@ -560,14 +575,16 @@ class Commit0Evaluation(Evaluation):
             f"Got evaluation result for repo {instance.id}:\n--------\n{eval_result}\n--------"
         )
 
-        test_result = {
+        output_test_result: dict[str, Any] = {
             "eval_result": eval_result,
         }
+        if isinstance(agent, ACPAgent):
+            add_acp_agent_metadata(output_test_result, agent)
 
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result=test_result,
+            test_result=output_test_result,
             instruction=instruction,
             error=None,
             history=history,
@@ -577,21 +594,8 @@ class Commit0Evaluation(Evaluation):
 
 
 def main() -> None:
-    prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
-
     parser = get_parser()
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
-    )
+    add_prompt_path_argument(parser, __file__)
     parser.add_argument(
         "--repo-split",
         type=str,
@@ -605,12 +609,7 @@ def main() -> None:
     if args.max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
 
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -640,6 +639,8 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
     )
 
     evaluator = Commit0Evaluation(

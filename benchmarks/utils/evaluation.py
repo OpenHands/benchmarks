@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
@@ -229,6 +229,9 @@ class Evaluation(ABC, BaseModel):
         """
         Determine which instances need processing for a specific attempt.
 
+        State is derived from the on-disk attempt files rather than kept
+        in memory so that a crashed process can resume where it left off.
+
         This method handles all resume scenarios naturally without special cases:
         - New instances: Not completed in attempt 1 yet → include them
         - Resume: Already completed in this attempt → exclude them
@@ -254,7 +257,8 @@ class Evaluation(ABC, BaseModel):
                 inst for inst in all_instances if inst.id not in completed_in_attempt
             ]
         else:
-            # Attempt N: Process what failed in N-1 and isn't completed in N
+            # Attempt N: Retry what failed OR was missing in N-1,
+            # excluding anything already completed in this attempt.
             prev_file = os.path.join(
                 self.metadata.eval_output_dir,
                 f"output.critic_attempt_{attempt - 1}.jsonl",
@@ -263,11 +267,22 @@ class Evaluation(ABC, BaseModel):
                 return []
 
             failed_in_prev = get_failed_instances(prev_file, critic)
-            return [
-                inst
-                for inst in all_instances
-                if inst.id in failed_in_prev and inst.id not in completed_in_attempt
-            ]
+            # Collect everything completed across ALL prior attempts so that
+            # instances which passed in an earlier attempt (and therefore have
+            # no entry in later attempt files) are not mistaken for "missing".
+            all_prior_completed: set = set()
+            for a in range(1, attempt):
+                f = os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{a}.jsonl",
+                )
+                if os.path.exists(f):
+                    all_prior_completed |= get_completed_instances(f)
+            # Instances with no entry in ANY prior attempt (never ran or
+            # crashed before producing output) should also be retried.
+            never_completed = {inst.id for inst in all_instances} - all_prior_completed
+            retry_ids = (failed_in_prev | never_completed) - completed_in_attempt
+            return [inst for inst in all_instances if inst.id in retry_ids]
 
     def _run_iterative_mode(
         self,
@@ -341,7 +356,6 @@ class Evaluation(ABC, BaseModel):
             attempt_outputs: List[EvalOutput] = []
 
             def attempt_on_result(instance: EvalInstance, out: EvalOutput) -> None:
-                attempt_outputs.append(out)
                 # Write to attempt-specific file
                 attempt_file = os.path.join(
                     self.metadata.eval_output_dir,
@@ -362,6 +376,13 @@ class Evaluation(ABC, BaseModel):
                     except Exception as cb_err:
                         logger.warning("on_result callback failed: %s", cb_err)
 
+                # Release heavy history data from memory now that it's
+                # persisted to disk. The critic and aggregator read history
+                # from the attempt files, not from this in-memory list.
+                out.history = []
+
+                attempt_outputs.append(out)
+
             # Run evaluation for this attempt
             pool = ProcessPoolExecutor(max_workers=self.num_workers)
             futures: list[Future] = []
@@ -369,19 +390,20 @@ class Evaluation(ABC, BaseModel):
             pending_instances: dict[Future, PendingInstance] = {}
             try:
                 for index, inst in enumerate(instances_to_process):
-                    datapoint_id, lmnr_span_ctx = (
-                        LaminarService.get().create_evaluation_datapoint(
-                            self.metadata.lmnr.eval_id,
-                            inst.id,
-                            self.metadata.model_dump(mode="json"),
-                            index,
-                            session_id=self._laminar_session_id,
-                            trace_metadata=self._laminar_trace_meta,
-                        )
+                    datapoint_id = LaminarService.get().create_evaluation_datapoint(
+                        self.metadata.lmnr.eval_id,
+                        inst.id,
+                        self.metadata.model_dump(mode="json"),
+                        index,
                     )
 
                     fut = pool.submit(
-                        self._process_one_mp, inst, lmnr_span_ctx, attempt
+                        self._process_one_mp,
+                        inst,
+                        attempt,
+                        lmnr_session_id=self._laminar_session_id,
+                        lmnr_trace_metadata=self._laminar_trace_meta,
+                        lmnr_datapoint_id=datapoint_id,
                     )
                     futures.append(fut)
                     pending_instances[fut] = PendingInstance(
@@ -555,9 +577,35 @@ class Evaluation(ABC, BaseModel):
         factor = self.metadata.base_resource_factor * (2**runtime_failure_count)
         return min(factor, self.metadata.max_resource_factor)
 
+    def _cleanup_workspace(
+        self, workspace: RemoteWorkspace, instance: EvalInstance
+    ) -> None:
+        """Clean up workspace resources and capture conversation archive."""
+        try:
+            self._capture_conversation_archive(workspace, instance)
+        except Exception as archive_error:
+            logger.warning(
+                "[child] Failed to capture conversation archive for %s: %s",
+                instance.id,
+                archive_error,
+            )
+        try:
+            workspace.__exit__(None, None, None)
+            logger.debug("[child] cleaned up workspace for id=%s", instance.id)
+        except Exception as cleanup_error:
+            logger.warning(
+                f"[child] Failed to cleanup workspace for {instance.id}: "
+                f"{str(cleanup_error)[:50]}"
+            )
+
     # --- Worker-side method (executed in child processes) ---------------------------
     def _process_one_mp(
-        self, instance: EvalInstance, eval_span_ctx: str | None, critic_attempt: int
+        self,
+        instance: EvalInstance,
+        critic_attempt: int,
+        lmnr_session_id: str | None = None,
+        lmnr_trace_metadata: dict[str, Any] | None = None,
+        lmnr_datapoint_id: UUID | None = None,
     ) -> Tuple[EvalInstance, EvalOutput]:
         """Execute one instance in a child process with retry logic.
 
@@ -578,156 +626,211 @@ class Evaluation(ABC, BaseModel):
         with redirect_stdout_stderr(log_file):
             logger.info("[child] start id=%s", instance.id)
 
-            retry_count = 0
-            runtime_failure_count = 0
-            last_error = None
-            max_retries = self.metadata.max_retries
-            runtime_runs: list[RemoteRuntimeAllocation] = []
-
-            while retry_count <= max_retries:
-                workspace = None
-
-                # Start Laminar execution span and inject context into os.environ so workspace can pick it up
-                # Escape the serialized context to safely pass as a cli argument
-                lmnr_span = Laminar.start_active_span(
-                    "Execution",
-                    span_type="EXECUTOR",  # type: ignore
-                    parent_span_context=Laminar.deserialize_span_context(eval_span_ctx)
-                    if eval_span_ctx
-                    else None,
+            # Two-phase datapoint linking:
+            # 1. Parent creates datapoint immediately (for UI progress tracking)
+            # 2. Child starts eval_span when work begins (accurate timeline)
+            # 3. Link them via update_datapoint_trace_id (requires lmnr>=0.7.41)
+            #
+            # We don't create the datapoint here with the trace_id directly
+            # because the parent process queues tasks before workers pick them
+            # up, which would include idle wait time in the span duration.
+            eval_span = None
+            try:
+                eval_span = Laminar.start_active_span(
+                    "Evaluation",
+                    span_type="EVALUATION",  # type: ignore
+                    session_id=lmnr_session_id,
+                    metadata=lmnr_trace_metadata,
                 )
-                exec_span_ctx = json.dumps(Laminar.serialize_span_context(lmnr_span))
-                os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
+                eval_span_ctx = Laminar.get_laminar_span_context(eval_span)
 
-                try:
-                    # Calculate resource factor based on runtime failures
-                    resource_factor = self._calculate_resource_factor(
-                        runtime_failure_count
+                if lmnr_datapoint_id is not None and self.metadata.lmnr is not None:
+                    # OpenTelemetry trace_id is a 128-bit integer in span context
+                    trace_id = UUID(int=eval_span.get_span_context().trace_id)
+                    logger.info(
+                        "[child] Linking datapoint %s to trace %s for instance %s",
+                        lmnr_datapoint_id,
+                        trace_id,
+                        instance.id,
                     )
-                    if runtime_failure_count > 0:
-                        logger.warning(
-                            f"[child] Instance {instance.id}: "
-                            f"attempt {retry_count + 1}/{max_retries + 1}, "
-                            f"runtime_failure_count={runtime_failure_count}, "
-                            f"resource_factor={resource_factor}"
+                    try:
+                        # Re-initialize in child process — multiprocessing
+                        # isolation means the parent's SDK state is not shared.
+                        LaminarService.get().initialize()
+                        LaminarService.get().update_datapoint_trace_id(
+                            eval_id=self.metadata.lmnr.eval_id,
+                            datapoint_id=lmnr_datapoint_id,
+                            trace_id=trace_id,
                         )
-
-                    workspace = self.prepare_workspace(
-                        instance,
-                        resource_factor=resource_factor,
-                        forward_env=LMNR_ENV_VARS,
-                    )
-
-                    # Record runtime/pod mapping only for remote runtimes
-                    if isinstance(workspace, APIRemoteWorkspace):
-                        retry_number = retry_count + 1  # 1-indexed for readability
-                        runtime_run = RemoteRuntimeAllocation(
-                            runtime_id=getattr(workspace, "_runtime_id", None),
-                            session_id=getattr(workspace, "session_id", None),
-                            runtime_url=getattr(workspace, "_runtime_url", None),
-                            resource_factor=resource_factor,
-                            critic_attempt=critic_attempt,
-                            retry=retry_number,
-                            started_at=datetime.now(timezone.utc),
-                        )
-                        runtime_runs.append(runtime_run)
-                        logger.info(
-                            "[child] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
-                            instance.id,
-                            critic_attempt,
-                            retry_number,
-                            workspace.__class__.__name__,
-                            runtime_run.runtime_id,
-                            runtime_run.session_id,
-                            runtime_run.resource_factor,
-                        )
-                    out = self.evaluate_instance(instance, workspace)
-                    if runtime_runs:
-                        out.runtime_runs = runtime_runs
-                    logger.info("[child] done id=%s", instance.id)
-                    return instance, out
-                except Exception as e:
-                    last_error = e
-                    retry_count += 1
-                    lmnr_span.record_exception(e)
-
-                    # Log structured runtime allocation/init failures so we can trace instance -> runtime/pod
-                    runtime_id = (
-                        getattr(workspace, "_runtime_id", None) if workspace else None
-                    )
-                    session_id = (
-                        getattr(workspace, "session_id", None) if workspace else None
-                    )
-                    if isinstance(workspace, APIRemoteWorkspace) or (
-                        "Runtime not yet ready" in str(e)
-                    ):
-                        logger.warning(
-                            "[child] runtime init failure instance=%s attempt=%d retry=%d runtime_id=%s session_id=%s error=%s",
-                            instance.id,
-                            critic_attempt,
-                            retry_count,
-                            runtime_id,
-                            session_id,
-                            str(e),
-                        )
-
-                    # TODO(#277): add an exception classifier to decide when to bump resources
-                    runtime_failure_count += 1
-                    logger.warning(
-                        f"[child] Instance {instance.id}: runtime_failure_count="
-                        f"{runtime_failure_count}"
-                    )
-
-                    if retry_count <= max_retries:
-                        logger.warning(
-                            f"[child] Instance {instance.id} failed "
-                            f"(attempt {retry_count}/{max_retries}): "
-                            f"{str(e)}"
-                        )
-                    else:
+                    except Exception as exc:
                         logger.error(
-                            f"[child] Instance {instance.id} failed after "
-                            f"{max_retries} retries. Last error: {str(e)}",
+                            "[child] Failed to link datapoint %s to trace for instance %s: %s",
+                            lmnr_datapoint_id,
+                            instance.id,
+                            exc,
                             exc_info=True,
                         )
-                        # Create error output for final failure
-                        error_output = self._create_error_output(
-                            instance, last_error, max_retries
-                        )
-                        if runtime_runs:
-                            error_output.runtime_runs = runtime_runs
-                        return instance, error_output
-                finally:
-                    # Ensure workspace cleanup happens regardless of success or failure
-                    if workspace is not None:
-                        try:
-                            self._capture_conversation_archive(workspace, instance)
-                        except Exception as archive_error:
-                            logger.warning(
-                                "[child] Failed to capture conversation archive for %s: %s",
-                                instance.id,
-                                archive_error,
-                            )
-                        try:
-                            # Use the context manager protocol for cleanup
-                            workspace.__exit__(None, None, None)
-                            logger.debug(
-                                "[child] cleaned up workspace for id=%s", instance.id
-                            )
-                        except Exception as cleanup_error:
-                            logger.warning(
-                                f"[child] Failed to cleanup workspace for {instance.id}: "
-                                f"{str(cleanup_error)[:50]}"
-                            )
-                    lmnr_span.end()
 
-            # This should never be reached, but added for type safety
-            error_output = self._create_error_output(
-                instance, Exception("Unexpected error: no attempts made"), max_retries
+                retry_count = 0
+                runtime_failure_count = 0
+                max_retries = self.metadata.max_retries
+                runtime_runs: list[RemoteRuntimeAllocation] = []
+
+                # max_retries is the number of *additional* attempts after the
+                # first, so total attempts = max_retries + 1 (retry_count 0..N).
+                while retry_count <= max_retries:
+                    out = self._execute_single_attempt(
+                        instance=instance,
+                        eval_span_ctx=eval_span_ctx,
+                        critic_attempt=critic_attempt,
+                        resource_factor=self._calculate_resource_factor(
+                            runtime_failure_count
+                        ),
+                        retry_count=retry_count,
+                        max_retries=max_retries,
+                        runtime_failure_count=runtime_failure_count,
+                        runtime_runs=runtime_runs,
+                    )
+                    if out is not None:
+                        return instance, out
+
+                    # _execute_single_attempt returns None on non-final failure
+                    retry_count += 1
+                    runtime_failure_count += 1
+
+                # Unreachable: _execute_single_attempt always returns EvalOutput
+                # on the final retry, but pyright can't prove the loop exits early.
+                raise AssertionError("unreachable")  # pragma: no cover
+            finally:
+                if eval_span is not None:
+                    eval_span.end()
+
+    def _execute_single_attempt(
+        self,
+        instance: EvalInstance,
+        eval_span_ctx: Any,
+        critic_attempt: int,
+        resource_factor: int,
+        retry_count: int,
+        max_retries: int,
+        runtime_failure_count: int,
+        runtime_runs: list[RemoteRuntimeAllocation],
+    ) -> EvalOutput | None:
+        """Execute one attempt with proper span and workspace lifecycle.
+
+        Returns:
+            EvalOutput: on success, or on the *final* retry failure
+                (retry_count == max_retries) so the caller can report it.
+            None: on a non-final failure, signalling the caller should retry::
+
+                out = self._execute_single_attempt(...)
+                if out is not None:
+                    return instance, out   # done (success or final failure)
+                # else: bump counters and loop
+        """
+        workspace = None
+        exec_span = None
+        try:
+            # Serialize span context and inject via environment variable so workspace can pick it up
+            exec_span = Laminar.start_active_span(
+                "Execution",
+                span_type="EXECUTOR",  # type: ignore
+                parent_span_context=eval_span_ctx,
             )
+            exec_span_ctx = json.dumps(Laminar.serialize_span_context(exec_span))
+            os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
+
+            if runtime_failure_count > 0:
+                logger.warning(
+                    f"[child] Instance {instance.id}: "
+                    f"attempt {retry_count + 1}/{max_retries + 1}, "
+                    f"runtime_failure_count={runtime_failure_count}, "
+                    f"resource_factor={resource_factor}"
+                )
+
+            workspace = self.prepare_workspace(
+                instance,
+                resource_factor=resource_factor,
+                forward_env=LMNR_ENV_VARS,
+            )
+
+            # Record runtime/pod mapping only for remote runtimes
+            if isinstance(workspace, APIRemoteWorkspace):
+                retry_number = retry_count + 1  # 1-indexed for readability
+                runtime_run = RemoteRuntimeAllocation(
+                    runtime_id=getattr(workspace, "_runtime_id", None),
+                    session_id=getattr(workspace, "session_id", None),
+                    runtime_url=getattr(workspace, "_runtime_url", None),
+                    resource_factor=resource_factor,
+                    critic_attempt=critic_attempt,
+                    retry=retry_number,
+                    started_at=datetime.now(timezone.utc),
+                )
+                runtime_runs.append(runtime_run)
+                logger.info(
+                    "[child] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
+                    instance.id,
+                    critic_attempt,
+                    retry_number,
+                    workspace.__class__.__name__,
+                    runtime_run.runtime_id,
+                    runtime_run.session_id,
+                    runtime_run.resource_factor,
+                )
+            out = self.evaluate_instance(instance, workspace)
             if runtime_runs:
-                error_output.runtime_runs = runtime_runs
-            return instance, error_output
+                out.runtime_runs = runtime_runs
+            logger.info("[child] done id=%s", instance.id)
+            return out
+        except Exception as e:
+            if exec_span is not None:
+                exec_span.record_exception(e)
+
+            # Log structured runtime allocation/init failures so we can trace instance -> runtime/pod
+            runtime_id = getattr(workspace, "_runtime_id", None) if workspace else None
+            session_id = getattr(workspace, "session_id", None) if workspace else None
+            if isinstance(workspace, APIRemoteWorkspace) or (
+                "Runtime not yet ready" in str(e)
+            ):
+                logger.warning(
+                    "[child] runtime init failure instance=%s attempt=%d retry=%d runtime_id=%s session_id=%s error=%s",
+                    instance.id,
+                    critic_attempt,
+                    retry_count + 1,
+                    runtime_id,
+                    session_id,
+                    str(e),
+                )
+
+            # TODO(#277): add an exception classifier to decide when to bump resources
+            logger.warning(
+                f"[child] Instance {instance.id}: runtime_failure_count="
+                f"{runtime_failure_count + 1}"
+            )
+
+            if retry_count < max_retries:
+                logger.warning(
+                    f"[child] Instance {instance.id} failed "
+                    f"(attempt {retry_count + 1}/{max_retries}): "
+                    f"{str(e)}"
+                )
+            else:
+                logger.error(
+                    f"[child] Instance {instance.id} failed after "
+                    f"{max_retries} retries. Last error: {str(e)}",
+                    exc_info=True,
+                )
+                # Create error output for final failure
+                error_output = self._create_error_output(instance, e, max_retries)
+                if runtime_runs:
+                    error_output.runtime_runs = runtime_runs
+                return error_output
+            return None
+        finally:
+            if workspace is not None:
+                self._cleanup_workspace(workspace, instance)
+            if exec_span is not None:
+                exec_span.end()
 
 
 # ---------- Multiprocessing logging helper ---------------------------------------
@@ -736,80 +839,11 @@ class Evaluation(ABC, BaseModel):
 def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
     """Reset the logger for multiprocessing with instance-specific logging.
 
-    Save logs to a separate file for each instance, instead of trying to write to the
-    same file/console from multiple processes. This provides:
-    - One INFO line to console at start with tail hint
-    - All subsequent logs go to instance-specific file
-    - Only WARNING+ messages go to console after initial message
-
-    Args:
-        log_dir: Directory to store log files
-        instance_id: Unique identifier for the instance being processed
+    See benchmarks.utils.console_logging.setup_instance_logging for details.
     """
-    import logging
+    from benchmarks.utils.console_logging import setup_instance_logging
 
-    # Set up logger
-    log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
-    output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
-
-    # Get root logger and remove all existing handlers
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
-    class ConversationEventFilter(logging.Filter):
-        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
-            msg = record.getMessage()
-            return msg in {"conversation_event", "conversation_event_metadata"}
-
-    # Datadog/console handler for conversation events (bypasses stdout redirection)
-    # if bool(os.environ.get(CONVERSATION_EVENT_LOGGING_ENV_VAR, False)):
-    if True:  # force datadog logging
-        from pythonjsonlogger.json import JsonFormatter
-
-        dd_handler = logging.StreamHandler(sys.__stdout__)
-        dd_handler.setLevel(logging.INFO)
-        dd_handler.addFilter(ConversationEventFilter())
-        dd_handler.setFormatter(
-            JsonFormatter(
-                fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(run_id)s %(instance_id)s %(attempt)s %(event_type)s %(event_size)s"
-            )
-        )
-        root_logger.addHandler(dd_handler)
-
-    # Create console handler for initial message
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(
-        logging.Formatter(
-            f"Instance {instance_id} - " + "%(asctime)s - %(levelname)s - %(message)s"
-        )
-    )
-    root_logger.addHandler(console_handler)
-    root_logger.setLevel(logging.DEBUG)
-
-    # Print one INFO line with helpful hint
-    root_logger.info(
-        f"""
-    === Evaluation Started (instance {instance_id}) ===
-    View live output:
-    • tail -f {log_file}          (logger)
-    • tail -f {output_log_file}   (stdout/stderr)
-    ===============================================
-    """.strip()
-    )
-
-    # Now set console to WARNING+ only
-    console_handler.setLevel(logging.WARNING)
-
-    # Add file handler for detailed logs
-    os.makedirs(log_dir, exist_ok=True)
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    )
-    file_handler.setLevel(logging.INFO)
-    root_logger.addHandler(file_handler)
+    setup_instance_logging(log_dir, instance_id)
 
 
 @contextmanager

@@ -2,7 +2,6 @@ import argparse
 import json
 import multiprocessing
 import os
-from pathlib import Path
 from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
@@ -11,8 +10,8 @@ from pydantic import Field
 from benchmarks.swefficiency import constants
 from benchmarks.swefficiency.config import DOCKER_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swefficiency.workspace import ResourceLimitedDockerWorkspace
-from benchmarks.utils.args_parser import get_parser
-from benchmarks.utils.build_utils import build_image
+from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
+from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
@@ -22,13 +21,13 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
@@ -97,7 +96,7 @@ def divide_cpus_among_workers(
         List of CPU lists, one per worker.
     """
     try:
-        current_cpus = list(os.sched_getaffinity(0))
+        current_cpus = list(os.sched_getaffinity(0))  # pyright: ignore[reportAttributeAccessIssue]
     except AttributeError:
         # os.sched_getaffinity not available on all platforms
         current_cpus = list(range(multiprocessing.cpu_count()))
@@ -214,39 +213,19 @@ class SWEfficiencyEvaluation(Evaluation):
         # Build agent server image tag
         suffix = f"-{build_target}" if build_target != "binary" else ""
         agent_server_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{SDK_SHORT_SHA}-{custom_tag}{suffix}"
+            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
         )
 
         logger.info(f"Base image: {base_docker_image}")
         logger.info(f"Agent server image: {agent_server_image}")
 
         if self.metadata.workspace_type == "docker":
-            # Build agent-server image from base swefficiency image
-            SKIP_BUILD = os.getenv("SKIP_BUILD", "0").lower() in ("1", "true", "yes")
-            logger.info(f"SKIP_BUILD={SKIP_BUILD}")
-            built_image_tags: list[str] = []
-
-            if not SKIP_BUILD:
-                logger.info(
-                    f"Building workspace from {base_docker_image} "
-                    f"for instance {instance.id}. "
-                    "This may take a while..."
-                )
-                output = build_image(
-                    base_image=base_docker_image,
-                    target_image=EVAL_AGENT_SERVER_IMAGE,
-                    custom_tag=custom_tag,
-                    target=build_target,
-                    push=False,
-                )
-                logger.info(f"Image build output: {output}")
-                assert output.error is None, f"Image build failed: {output.error}"
-                built_image_tags = output.tags
-                if agent_server_image not in output.tags:
-                    raise RuntimeError(
-                        f"Built image tags {output.tags} do not include expected tag "
-                        f"{agent_server_image}"
-                    )
+            ensure_local_image(
+                agent_server_image=agent_server_image,
+                base_image=base_docker_image,
+                custom_tag=custom_tag,
+                target=build_target,
+            )
 
             # Get CPU group for resource limiting
             cpu_group = self._acquire_cpu_group()
@@ -273,36 +252,24 @@ class SWEfficiencyEvaluation(Evaluation):
             cleanup_images: list[str] = []
             if self.cleanup_base_image:
                 cleanup_images.append(base_docker_image)
-            if self.cleanup_agent_image:
-                # DockerWorkspace.cleanup() removes `server_image` only. During build we
-                # may produce additional tags (e.g., cache-style tags) that point to the
-                # same large image and keep layers on disk unless explicitly removed.
-                cleanup_images.extend(
-                    tag for tag in built_image_tags if tag != agent_server_image
-                )
             workspace._images_to_cleanup = cleanup_images
 
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             if not runtime_api_key:
                 raise ValueError(
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            # For remote, use SDK_SHORT_SHA from env if available
-            remote_agent_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-{custom_tag}{suffix}"
-            )
-            if not image_exists(remote_agent_image):
+            if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
-                    f"Agent server image {remote_agent_image} does not exist in container registry, "
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
                     "make sure to build, push it, and make it public accessible before using remote workspace."
                 )
 
             logger.info(
-                f"Using remote workspace with image {remote_agent_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"Using remote workspace with image {agent_server_image} "
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
 
             workspace = APIRemoteWorkspace(
@@ -310,7 +277,7 @@ class SWEfficiencyEvaluation(Evaluation):
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
                 ),
                 runtime_api_key=runtime_api_key,
-                server_image=remote_agent_image,
+                server_image=agent_server_image,
                 target_type="source",
                 forward_env=forward_env or [],
                 resource_factor=resource_factor,
@@ -441,21 +408,8 @@ class SWEfficiencyEvaluation(Evaluation):
 
 
 def main() -> None:
-    prompt_dir = (Path(__file__).parent / "prompts").resolve()
-    choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
-    default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
-
     parser = get_parser()
-    parser.add_argument(
-        "--prompt-path",
-        type=str,
-        default=str(default_prompt_path),
-        choices=choices,
-        help="Path to prompt template file",
-    )
+    add_prompt_path_argument(parser, __file__)
     parser.add_argument(
         "--num-cpus-per-worker",
         type=int,
