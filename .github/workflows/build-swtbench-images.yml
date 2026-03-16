@@ -82,10 +82,11 @@ jobs:
     # TODO: Remove this once the SWT-Bench image build regressions are fixed:
     # https://github.com/OpenHands/benchmarks/issues/510
     # https://github.com/OpenHands/benchmarks/issues/504
-    # A full 433-instance SWT-Bench image build completed in 4:10:33 on run
-    # 23043936501, so 540 minutes leaves more than 2x headroom for the current
-    # degraded path without making the workaround permanent.
-    timeout-minutes: 540
+    # Issue #510 now tracks that the previously cited run 23043936501 was not a
+    # full cold build; it skipped many prebuilt images and understated the true
+    # cold-build duration. Current evidence points to roughly 8-8.5h for a full
+    # cold SWT-Bench build, so use a 10h operational timeout while degraded.
+    timeout-minutes: 600
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
