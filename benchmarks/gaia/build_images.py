@@ -100,6 +100,7 @@ def main(argv: list[str]) -> int:
         image=args.image,
         push=args.push,
         max_workers=1,  # Only building one image
+        build_batch_size=args.build_batch_size,
         dry_run=args.dry_run,
         force_build=args.force_build,
         max_retries=args.max_retries,
