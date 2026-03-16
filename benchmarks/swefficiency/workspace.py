@@ -76,7 +76,12 @@ class ResourceLimitedDockerWorkspace(DockerWorkspace):
             logger.info(f"Setting CPU limit: {self.nano_cpus / 1e9} CPUs")
 
         if self.mem_limit is not None:
-            update_flags += ["--memory", self.mem_limit]
+            update_flags += [
+                "--memory",
+                self.mem_limit,
+                "--memory-swap",
+                self.mem_limit,
+            ]
             logger.info(f"Setting memory limit: {self.mem_limit}")
 
         if update_flags:
