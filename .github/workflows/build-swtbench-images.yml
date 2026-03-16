@@ -82,6 +82,9 @@ jobs:
     # TODO: Remove this once the SWT-Bench image build regressions are fixed:
     # https://github.com/OpenHands/benchmarks/issues/510
     # https://github.com/OpenHands/benchmarks/issues/504
+    # A full 433-instance SWT-Bench image build completed in 4:10:33 on run
+    # 23043936501, so 540 minutes leaves more than 2x headroom for the current
+    # degraded path without making the workaround permanent.
     timeout-minutes: 540
 
     runs-on:
