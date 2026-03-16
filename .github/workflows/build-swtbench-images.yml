@@ -79,6 +79,14 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' &&
        github.event.label.name == 'build-swt-bench')
+    # TODO: Remove this once the SWT-Bench image build regressions are fixed:
+    # https://github.com/OpenHands/benchmarks/issues/510
+    # https://github.com/OpenHands/benchmarks/issues/504
+    # Issue #510 now tracks that the previously cited run 23043936501 was not a
+    # full cold build; it skipped many prebuilt images and understated the true
+    # cold-build duration. Current evidence points to roughly 8-8.5h for a full
+    # cold SWT-Bench build, so use a 10h operational timeout while degraded.
+    timeout-minutes: 600
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
