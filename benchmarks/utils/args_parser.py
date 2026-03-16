@@ -102,6 +102,13 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Enable sub-agent delegation tools for the agent",
     )
     parser.add_argument(
+        "--agent-type",
+        type=str,
+        default="default",
+        choices=["default", "acp-claude", "acp-codex"],
+        help="Agent type: 'default' for standard Agent, 'acp-claude' for ACPAgent (Claude Code), 'acp-codex' for ACPAgent (Codex)",
+    )
+    parser.add_argument(
         "--enable-condenser",
         action="store_true",
         help="Enable the context condenser to manage conversation history",
