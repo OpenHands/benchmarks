@@ -1,3 +1,4 @@
+import argparse
 import json
 import multiprocessing
 import os
@@ -149,6 +150,18 @@ class SWEfficiencyEvaluation(Evaluation):
         default=DOCKER_DEFAULTS["mem_limit"],
         description="Memory limit per container",
     )
+    cleanup_agent_image: bool = Field(
+        default=DOCKER_DEFAULTS["cleanup_agent_image"],
+        description="Whether to delete per-instance agent image after workspace cleanup",
+    )
+    cleanup_base_image: bool = Field(
+        default=DOCKER_DEFAULTS["cleanup_base_image"],
+        description="Whether to delete per-instance base image after workspace cleanup",
+    )
+    prune_buildkit_cache: bool = Field(
+        default=DOCKER_DEFAULTS["prune_buildkit_cache"],
+        description="Whether to run docker buildx prune after workspace cleanup",
+    )
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -211,6 +224,7 @@ class SWEfficiencyEvaluation(Evaluation):
             # Build agent-server image from base swefficiency image
             SKIP_BUILD = os.getenv("SKIP_BUILD", "0").lower() in ("1", "true", "yes")
             logger.info(f"SKIP_BUILD={SKIP_BUILD}")
+            built_image_tags: list[str] = []
 
             if not SKIP_BUILD:
                 logger.info(
@@ -227,6 +241,7 @@ class SWEfficiencyEvaluation(Evaluation):
                 )
                 logger.info(f"Image build output: {output}")
                 assert output.error is None, f"Image build failed: {output.error}"
+                built_image_tags = output.tags
                 if agent_server_image not in output.tags:
                     raise RuntimeError(
                         f"Built image tags {output.tags} do not include expected tag "
@@ -242,6 +257,7 @@ class SWEfficiencyEvaluation(Evaluation):
                 "working_dir": "/workspace",
                 "forward_env": forward_env or [],
                 "mem_limit": self.mem_limit,
+                "cleanup_image": self.cleanup_agent_image,
             }
 
             if cpu_group is not None:
@@ -253,6 +269,18 @@ class SWEfficiencyEvaluation(Evaluation):
             # Store CPU group and queue on workspace for automatic cleanup
             workspace._cpu_group = cpu_group
             workspace._cpu_groups_queue = self.cpu_groups_queue
+            workspace._prune_buildkit_cache_on_cleanup = self.prune_buildkit_cache
+            cleanup_images: list[str] = []
+            if self.cleanup_base_image:
+                cleanup_images.append(base_docker_image)
+            if self.cleanup_agent_image:
+                # DockerWorkspace.cleanup() removes `server_image` only. During build we
+                # may produce additional tags (e.g., cache-style tags) that point to the
+                # same large image and keep layers on disk unless explicitly removed.
+                cleanup_images.extend(
+                    tag for tag in built_image_tags if tag != agent_server_image
+                )
+            workspace._images_to_cleanup = cleanup_images
 
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -446,6 +474,24 @@ def main() -> None:
         default=DOCKER_DEFAULTS["num_cpus_to_skip"],
         help="Number of CPUs to skip at the beginning",
     )
+    parser.add_argument(
+        "--cleanup-agent-image",
+        action=argparse.BooleanOptionalAction,
+        default=DOCKER_DEFAULTS["cleanup_agent_image"],
+        help="Delete per-instance agent-server image during workspace cleanup",
+    )
+    parser.add_argument(
+        "--cleanup-base-image",
+        action=argparse.BooleanOptionalAction,
+        default=DOCKER_DEFAULTS["cleanup_base_image"],
+        help="Delete per-instance base image during workspace cleanup",
+    )
+    parser.add_argument(
+        "--prune-buildkit-cache",
+        action=argparse.BooleanOptionalAction,
+        default=DOCKER_DEFAULTS["prune_buildkit_cache"],
+        help="Run docker buildx prune --all --force during workspace cleanup",
+    )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
@@ -519,6 +565,9 @@ def main() -> None:
         cpu_groups_queue=cpu_groups_queue,
         num_cpus_per_worker=args.num_cpus_per_worker,
         mem_limit=args.mem_limit,
+        cleanup_agent_image=args.cleanup_agent_image,
+        cleanup_base_image=args.cleanup_base_image,
+        prune_buildkit_cache=args.prune_buildkit_cache,
     )
 
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
