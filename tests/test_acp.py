@@ -11,6 +11,7 @@ from benchmarks.utils.acp import (
     is_acp_agent,
     setup_acp_workspace,
 )
+from benchmarks.utils.models import EvalMetadata, EvalOutput
 
 
 # ---- is_acp_agent -----------------------------------------------------------
@@ -168,3 +169,32 @@ def test_setup_acp_workspace_claude_uploads_settings():
     assert "mkdir -p ~/.claude" in cmd
     assert "base64 -d" in cmd
     assert "settings.json" in cmd
+
+
+# ---- metadata serialization -------------------------------------------------
+
+
+def test_eval_metadata_omits_default_agent_type_from_serialization():
+    metadata = EvalMetadata.model_construct(agent_type="default")
+
+    assert "agent_type" not in metadata.model_dump()
+    assert '"agent_type"' not in metadata.model_dump_json()
+
+
+def test_eval_metadata_includes_non_default_agent_type_in_serialization():
+    metadata = EvalMetadata.model_construct(agent_type="acp-claude")
+
+    assert metadata.model_dump()["agent_type"] == "acp-claude"
+    assert '"agent_type":"acp-claude"' in metadata.model_dump_json()
+
+
+def test_eval_output_omits_default_agent_type_from_nested_metadata():
+    output = EvalOutput(
+        instance_id="instance-1",
+        test_result={},
+        metadata=EvalMetadata.model_construct(agent_type="default"),
+    )
+
+    dumped = output.model_dump()
+    assert dumped["metadata"] is not None
+    assert "agent_type" not in dumped["metadata"]
