@@ -7,6 +7,7 @@ container image detection and workspace creation across benchmarks.
 
 import os
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -166,18 +167,47 @@ class TestCreateApptainerWorkspace:
                 forward_env=["API_KEY"],
                 extra_ports=True,
                 host_port=None,
-                cache_dir=None,
+                cache_dir=str(Path.home() / ".apptainer_cache"),
                 mount_dir=None,
                 use_fakeroot=True,
                 enable_docker_compat=True,
             )
             assert ws is sentinel
 
+    def test_uses_cached_sif_without_registry_lookup(self, tmp_path, monkeypatch):
+        from benchmarks.utils.image_utils import (
+            create_apptainer_workspace,
+            get_apptainer_sif_path,
+        )
+
+        image = "ghcr.io/example/agent-server:v1"
+        monkeypatch.setenv("APPTAINER_CACHE_DIR", str(tmp_path))
+        sif_path = get_apptainer_sif_path(image, str(tmp_path))
+        Path(sif_path).write_text("cached")
+
+        with (
+            patch("benchmarks.utils.image_utils.remote_image_exists") as mock_exists,
+            patch("openhands.workspace.ApptainerWorkspace") as mock_workspace,
+        ):
+            create_apptainer_workspace(image)
+            mock_exists.assert_not_called()
+            mock_workspace.assert_called_once_with(
+                sif_file=sif_path,
+                working_dir="/workspace",
+                forward_env=[],
+                extra_ports=False,
+                host_port=None,
+                cache_dir=str(tmp_path),
+                mount_dir=None,
+                use_fakeroot=True,
+                enable_docker_compat=True,
+            )
+
     @patch("benchmarks.utils.image_utils.remote_image_exists", return_value=False)
     def test_raises_when_image_missing_from_registry(self, _mock_exists):
         from benchmarks.utils.image_utils import create_apptainer_workspace
 
-        with pytest.raises(RuntimeError, match="pre-built image"):
+        with pytest.raises(RuntimeError, match="local-only builds are not enough"):
             create_apptainer_workspace("ghcr.io/example/agent-server:missing")
 
     @patch.dict(

@@ -188,8 +188,15 @@ Uses local Docker containers to run agent evaluations. Images are built locally 
 Uses `openhands.workspace.ApptainerWorkspace` from the vendored SDK to run a pre-built agent-server image without a local Docker daemon. The workspace pulls OCI/Docker images with `apptainer pull docker://...`, so it is a good fit for HPC or university environments where Docker is unavailable.
 
 - **Pros**: No Docker daemon required, works on many shared/HPC systems
-- **Cons**: Requires a pre-built agent-server image in a registry; unlike Docker mode, it cannot build from a base image on the fly
+- **Cons**: Requires a pre-built agent-server image in a registry or a cached SIF file; unlike Docker mode, it cannot build from a base image on the fly
 - **Use case**: Local benchmark runs on Docker-restricted machines
+
+Typical flow:
+1. Run the benchmark's `build_images.py` script with `--push` from a Docker-capable machine or CI runner.
+2. Run the corresponding `*-infer` command with `--workspace apptainer` from the Docker-restricted machine.
+3. Reuse the cached SIF in `APPTAINER_CACHE_DIR` on subsequent runs.
+
+If you build without `--push`, the images only exist in the local container daemon and Apptainer will not be able to use them.
 
 Example:
 

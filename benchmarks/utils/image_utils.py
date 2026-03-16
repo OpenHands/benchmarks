@@ -5,6 +5,7 @@ import base64
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 
@@ -95,6 +96,20 @@ def _env_flag(name: str, default: bool) -> bool:
     return value.lower() in ("1", "true", "yes", "on")
 
 
+def get_apptainer_cache_dir() -> str:
+    """Return the Apptainer cache directory used by the workspace."""
+    return os.getenv("APPTAINER_CACHE_DIR") or str(Path.home() / ".apptainer_cache")
+
+
+def get_apptainer_sif_path(
+    agent_server_image: str, cache_dir: str | None = None
+) -> str:
+    """Return the cached SIF path ApptainerWorkspace would use for an image."""
+    resolved_cache_dir = cache_dir or get_apptainer_cache_dir()
+    sif_name = agent_server_image.replace(":", "_").replace("/", "_") + ".sif"
+    return str(Path(resolved_cache_dir) / sif_name)
+
+
 def create_apptainer_workspace(
     agent_server_image: str,
     working_dir: str = "/workspace",
@@ -105,34 +120,45 @@ def create_apptainer_workspace(
 
     Unlike DockerDevWorkspace, ApptainerWorkspace cannot build images from a
     base image on the fly. The image must already exist in a container registry
-    that `apptainer pull docker://...` can access.
+    that `apptainer pull docker://...` can access, or the corresponding SIF file
+    must already be present in the configured Apptainer cache.
     """
     from openhands.workspace import ApptainerWorkspace
+
+    host_port = os.getenv("APPTAINER_HOST_PORT")
+    cache_dir = get_apptainer_cache_dir()
+    mount_dir = os.getenv("APPTAINER_MOUNT_DIR")
+    sif_path = get_apptainer_sif_path(agent_server_image, cache_dir)
+
+    workspace_kwargs = {
+        "working_dir": working_dir,
+        "forward_env": forward_env or [],
+        "extra_ports": extra_ports,
+        "host_port": int(host_port) if host_port else None,
+        "cache_dir": cache_dir,
+        "mount_dir": mount_dir or None,
+        "use_fakeroot": _env_flag("APPTAINER_USE_FAKEROOT", True),
+        "enable_docker_compat": _env_flag("APPTAINER_ENABLE_DOCKER_COMPAT", True),
+    }
+
+    if Path(sif_path).exists():
+        logger.info(
+            "Using cached Apptainer SIF %s for image %s", sif_path, agent_server_image
+        )
+        return ApptainerWorkspace(sif_file=sif_path, **workspace_kwargs)
 
     if not remote_image_exists(agent_server_image):
         raise RuntimeError(
             f"Agent server image {agent_server_image} does not exist in container registry. "
-            "Apptainer workspace requires a pre-built image that can be pulled "
-            "with Apptainer."
+            "Apptainer can only use a registry-pullable image or an existing cached SIF file. "
+            "If you built images with a benchmark build_images.py script, re-run it with --push "
+            "from a Docker-capable machine or CI; local-only builds are not enough. "
+            "If the images were built from a different checkout, make sure IMAGE_TAG_PREFIX "
+            "matches the tag prefix used during the build."
         )
 
     logger.info(f"Using Apptainer workspace with image {agent_server_image}")
-
-    host_port = os.getenv("APPTAINER_HOST_PORT")
-    cache_dir = os.getenv("APPTAINER_CACHE_DIR")
-    mount_dir = os.getenv("APPTAINER_MOUNT_DIR")
-
-    return ApptainerWorkspace(
-        server_image=agent_server_image,
-        working_dir=working_dir,
-        forward_env=forward_env or [],
-        extra_ports=extra_ports,
-        host_port=int(host_port) if host_port else None,
-        cache_dir=cache_dir or None,
-        mount_dir=mount_dir or None,
-        use_fakeroot=_env_flag("APPTAINER_USE_FAKEROOT", True),
-        enable_docker_compat=_env_flag("APPTAINER_ENABLE_DOCKER_COMPAT", True),
-    )
+    return ApptainerWorkspace(server_image=agent_server_image, **workspace_kwargs)
 
 
 def create_docker_workspace(
