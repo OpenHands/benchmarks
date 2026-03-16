@@ -79,6 +79,10 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' &&
        github.event.label.name == 'build-swt-bench')
+    # TODO: Remove this once the SWT-Bench image build regressions are fixed:
+    # https://github.com/OpenHands/benchmarks/issues/510
+    # https://github.com/OpenHands/benchmarks/issues/504
+    timeout-minutes: 540
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
