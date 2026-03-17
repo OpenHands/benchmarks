@@ -209,7 +209,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          OPENHANDS_BUILDKIT_CACHE_MODE: 'off'
 
       - name: Build prebaked eval env images
         if: ${{ inputs.build-eval-env == 'true' }}
