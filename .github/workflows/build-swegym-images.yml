@@ -77,6 +77,8 @@ jobs:
         github.event.label.name == 'build-swegym-50' ||
         github.event.label.name == 'build-swegym-200'))
 
+    timeout-minutes: 1440
+
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
 
