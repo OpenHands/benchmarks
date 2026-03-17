@@ -105,9 +105,9 @@ jobs:
       N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
-      # Use minimal cache export to reduce contention when building many images in parallel
-      # (mode=min exports only final stage layers, reducing bandwidth while keeping some cache benefit)
-      OPENHANDS_BUILDKIT_CACHE_MODE: 'min'
+      # Disable cache export to avoid contention when building many images in parallel
+      # (mode=off disables cache export entirely for maximum bandwidth savings)
+      OPENHANDS_BUILDKIT_CACHE_MODE: 'off'
 
     steps:
       - name: Determine checkout ref
