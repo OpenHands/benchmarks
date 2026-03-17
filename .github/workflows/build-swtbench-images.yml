@@ -105,9 +105,9 @@ jobs:
       N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
-      # Disable cache export to avoid contention when building many images in parallel
-      # (SWT-Bench has 433 unique base images, so shared cache provides minimal benefit)
-      OPENHANDS_BUILDKIT_CACHE_MODE: 'off'
+      # Use minimal cache export to reduce contention when building many images in parallel
+      # (mode=min exports only final stage layers, reducing bandwidth while keeping some cache benefit)
+      OPENHANDS_BUILDKIT_CACHE_MODE: 'min'
 
     steps:
       - name: Determine checkout ref
