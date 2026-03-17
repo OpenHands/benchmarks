@@ -81,6 +81,8 @@ jobs:
         github.event.label.name == 'build-swebenchmultimodal-50' ||
         github.event.label.name == 'build-swebenchmultimodal-200'))
 
+    timeout-minutes: 1440
+
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
 
