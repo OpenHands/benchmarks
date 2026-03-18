@@ -440,10 +440,15 @@ class Commit0Evaluation(Evaluation):
         # Run tests
         test_cmd = instance.data["test"]["test_cmd"]
         test_dir = instance.data["test"]["test_dir"]
-        # Use python -m pytest instead of pytest command to avoid permission issues
-        if test_cmd.strip() == "pytest":
-            test_cmd = "python -m pytest"
-        full_test_cmd = f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
+        # Always use `python -m pytest` instead of bare `pytest` to avoid
+        # PATH issues after agent execution (see #526).
+        if "pytest" in test_cmd and "python -m pytest" not in test_cmd:
+            test_cmd = test_cmd.replace("pytest", "python -m pytest", 1)
+        # Set PYTHONPATH for src-layout repos so pytest can find the package
+        # (e.g. cachetools with src_dir="src/cachetools/", see #526).
+        src_dir = instance.data["test"].get("src_dir", "")
+        env_prefix = "PYTHONPATH=src " if src_dir and "src/" in src_dir else ""
+        full_test_cmd = f"cd {repo_path} && {env_prefix}{test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
         logger.info(f"Running test command: {full_test_cmd}")
         test_result = workspace.execute_command(full_test_cmd, timeout=600)
         logger.info(f"Test command exit code: {test_result.exit_code}")
