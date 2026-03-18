@@ -91,13 +91,9 @@ jobs:
       packages: write
       issues: write
 
-    # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+    # Initialize vars that may be empty so set -euo pipefail won't fail on unset refs.
+    # All other defaults come from the workflow inputs above (single source of truth).
     env:
-      DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
-      SPLIT: test
-      MAX_WORKERS: '16'
-      BUILD_BATCH_SIZE: '50'
-      N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
 
