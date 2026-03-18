@@ -378,31 +378,22 @@ class _ThreadRoutedFileHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         fh: logging.FileHandler | None = getattr(_logging_local, "file_handler", None)
-        if fh is not None:
-            # Apply our formatter and delegate to per-thread file handler
-            record_msg = self.format(record)
-            try:
-                fh.stream.write(record_msg + "\n")
-                fh.stream.flush()
-            except Exception:
-                pass
-        elif record.levelno >= logging.WARNING:
-            # Fallback for threads without per-thread setup (e.g. main
-            # asyncio event loop thread): write warnings+ to stderr so
-            # timeout errors and write failures aren't silently lost.
-            record_msg = self.format(record)
-            try:
-                sys.__stderr__.write(record_msg + "\n")
-                sys.__stderr__.flush()
-            except Exception:
-                pass
+        if fh is None:
+            return
+        record_msg = self.format(record)
+        try:
+            fh.stream.write(record_msg + "\n")
+            fh.stream.flush()
+        except Exception:
+            pass
 
 
 class _ThreadRoutedConsoleHandler(logging.Handler):
     """Routes console output with per-thread formatter via threading.local().
 
-    Applies the formatter stored in the current thread's _logging_local
-    so each instance gets its own prefix/style.
+    All output goes to stderr to protect stdout (used for JSON output
+    parsing by shell scripts). Each worker thread stores its own
+    formatter/filter in _logging_local.
     """
 
     def __init__(self) -> None:
@@ -417,24 +408,42 @@ class _ThreadRoutedConsoleHandler(logging.Handler):
                 return
             elif not filt:
                 return
-        stream = sys.__stdout__
-        if fmt and stream:
+        if fmt is None:
+            return
+        stream = sys.__stderr__
+        if stream:
             try:
                 msg = fmt.format(record)
                 stream.write(msg + "\n")
                 stream.flush()
             except Exception:
                 pass
-        elif not fmt and record.levelno >= logging.WARNING:
-            # Fallback for threads without per-thread setup (e.g. main
-            # asyncio event loop thread): write warnings+ to STDERR to avoid
-            # corrupting stdout (which is used for JSON output parsing).
-            try:
-                basic_msg = f"{record.levelname}: {record.name}: {record.getMessage()}"
-                sys.__stderr__.write(basic_msg + "\n")
-                sys.__stderr__.flush()
-            except Exception:
-                pass
+
+
+def setup_routed_logging() -> None:
+    """Install thread-routed handlers on the root logger.
+
+    Call this once from the main thread before spawning workers.
+    Sets up a default console formatter for the main thread so that
+    log messages emitted outside worker threads (e.g. from the asyncio
+    event loop) are handled without special-case fallback logic.
+    """
+    global _logging_routers_installed
+    with _logging_setup_lock:
+        if not _logging_routers_installed:
+            root_logger = logging.getLogger()
+            for handler in root_logger.handlers[:]:
+                root_logger.removeHandler(handler)
+            root_logger.addHandler(_ThreadRoutedFileHandler())
+            root_logger.addHandler(_ThreadRoutedConsoleHandler())
+            root_logger.setLevel(logging.DEBUG)
+            _logging_routers_installed = True
+
+    # Set up main thread defaults (plain formatter, WARNING+ only).
+    if not hasattr(_logging_local, "console_formatter"):
+        _logging_local.console_formatter = _PlainFormatter("main")
+        _logging_local.console_filter = None
+        _logging_local.console_level = logging.WARNING
 
 
 def setup_instance_logging(log_dir: str, instance_id: str) -> None:
@@ -454,8 +463,6 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
     - All INFO+ logs go to per-instance file (instance_<id>.log)
     - Console shows WARNING+ and selected important patterns
     """
-    global _logging_routers_installed
-
     log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
     output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
     short_id = (
@@ -465,16 +472,7 @@ def setup_instance_logging(log_dir: str, instance_id: str) -> None:
     rich_mode = _rich_logging_enabled()
 
     # --- Install routing handlers on root logger ONCE (thread-safe) ---
-    with _logging_setup_lock:
-        if not _logging_routers_installed:
-            root_logger = logging.getLogger()
-            # Remove any pre-existing handlers
-            for handler in root_logger.handlers[:]:
-                root_logger.removeHandler(handler)
-            root_logger.addHandler(_ThreadRoutedFileHandler())
-            root_logger.addHandler(_ThreadRoutedConsoleHandler())
-            root_logger.setLevel(logging.DEBUG)
-            _logging_routers_installed = True
+    setup_routed_logging()
 
     # --- Set up per-thread state ---
 

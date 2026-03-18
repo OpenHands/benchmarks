@@ -51,10 +51,14 @@ TIMEOUT_CHECK_INTERVAL_SECONDS = 60
 
 @dataclass
 class PendingInstance:
-    """Tracks state for a pending evaluation instance."""
+    """Tracks state for a pending evaluation instance.
+
+    start_time is None while the instance is queued behind the semaphore
+    and set to time.monotonic() when the instance actually begins running.
+    """
 
     instance: EvalInstance
-    start_time: float
+    start_time: Optional[float] = None
     datapoint_id: UUID | None = None
     task: asyncio.Task | None = field(default=None, repr=False)
 
@@ -319,6 +323,19 @@ class Evaluation(ABC, BaseModel):
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
         """Async implementation of iterative mode evaluation."""
+        # Install thread-routed logging and set up main-thread defaults
+        # before spawning any workers.
+        from benchmarks.utils.console_logging import setup_routed_logging
+
+        setup_routed_logging()
+
+        # Suppress noisy OpenTelemetry context-detach errors that happen when
+        # spans created in the main thread are ended in worker threads.
+        # These are harmless but can corrupt stdout if they leak through.
+        import logging as _logging
+
+        _logging.getLogger("opentelemetry.context").setLevel(_logging.CRITICAL)
+
         all_instances = self.prepare_instances()
 
         # Initialize Laminar
@@ -515,9 +532,6 @@ class Evaluation(ABC, BaseModel):
             tasks.append(task)
             pending_instances[task] = PendingInstance(
                 instance=inst,
-                start_time=float(
-                    "inf"
-                ),  # Don't timeout while queued; reset when semaphore acquired
                 datapoint_id=datapoint_id,
                 task=task,
             )
@@ -576,13 +590,13 @@ class Evaluation(ABC, BaseModel):
                         await on_result(pending_info.instance, error_output)
                         attempt_outputs.append(error_output)
 
-            # Check for per-instance timeouts
+            # Check for per-instance timeouts (skip queued instances with no start_time)
             now = time.monotonic()
-            timed_out_tasks = [
-                task
-                for task in pending
-                if now - pending_instances[task].start_time > self.instance_timeout
-            ]
+            timed_out_tasks = []
+            for task in pending:
+                st = pending_instances[task].start_time
+                if st is not None and now - st > self.instance_timeout:
+                    timed_out_tasks.append(task)
 
             for task in timed_out_tasks:
                 pending.discard(task)
@@ -985,10 +999,13 @@ class _ThreadLocalWriter:
     def __init__(self, original):
         self._original = original
 
+    def _target(self):
+        return getattr(_thread_local, "log_file", None) or self._original
+
     # --- file-like API used by print() and the logging module -----------------
 
     def write(self, s: str) -> int:
-        target = getattr(_thread_local, "log_file", None) or self._original
+        target = self._target()
         try:
             return target.write(s)
         except ValueError:
@@ -997,14 +1014,22 @@ class _ThreadLocalWriter:
             return self._original.write(s)
 
     def flush(self) -> None:
-        target = getattr(_thread_local, "log_file", None) or self._original
+        target = self._target()
         try:
             target.flush()
         except ValueError:
             self._original.flush()
 
-    # --- forward attribute access for anything else (encoding, fileno, etc.) --
+    @property
+    def encoding(self) -> str:
+        return self._target().encoding
 
-    def __getattr__(self, name: str):
-        target = getattr(_thread_local, "log_file", None) or self._original
-        return getattr(target, name)
+    @property
+    def closed(self) -> bool:
+        return self._target().closed
+
+    def isatty(self) -> bool:
+        return self._original.isatty()
+
+    def fileno(self) -> int:
+        return self._original.fileno()

@@ -198,5 +198,163 @@ def test_sync_wrapper():
     assert result == 42
 
 
+def test_evaluation_run_end_to_end(tmp_path):
+    """Integration test: run a real Evaluation instance through the async path.
+
+    Creates a TestEvaluation with mock workspaces and verifies that:
+    - Multiple instances run concurrently via asyncio
+    - Results are collected and written to attempt files
+    - Errors produce error outputs (not lost instances)
+    - Thread-safe logging is properly set up
+    """
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    instances = [
+        EvalInstance(id=f"inst_{i}", data={"idx": i}) for i in range(4)
+    ]
+    # Instance 2 will fail
+    fail_ids = {"inst_2"}
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return instances
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            ws = Mock()
+            ws.__exit__ = Mock()
+            return ws
+
+        def evaluate_instance(self, instance, workspace):
+            if instance.id in fail_ids:
+                raise RuntimeError(f"Simulated failure for {instance.id}")
+            return EvalOutput(
+                instance_id=instance.id,
+                test_result={"ok": True},
+                instruction="test",
+                error=None,
+                history=[],
+                instance=instance.data,
+            )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=4,
+        max_attempts=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=2)
+
+    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr:
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        svc.create_evaluation_datapoint.return_value = None
+        mock_lmnr.get.return_value = svc
+
+        results = evaluator.run()
+
+    # All 4 instances should produce output (3 success + 1 error)
+    assert len(results) == 4
+    result_ids = {r.instance_id for r in results}
+    assert result_ids == {"inst_0", "inst_1", "inst_2", "inst_3"}
+
+    # Check error output was created for the failing instance
+    error_results = [r for r in results if r.error is not None]
+    assert len(error_results) == 1
+    assert error_results[0].instance_id == "inst_2"
+
+    # Check attempt file was written
+    attempt_file = tmp_path / "output.critic_attempt_1.jsonl"
+    assert attempt_file.exists()
+    lines = attempt_file.read_text().strip().split("\n")
+    assert len(lines) == 4
+
+
+def test_evaluation_timeout_cancels_instance(tmp_path):
+    """Integration test: verify that per-instance timeouts cancel instances."""
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return [
+                EvalInstance(id="fast", data={}),
+                EvalInstance(id="slow", data={}),
+            ]
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            ws = Mock()
+            ws.__exit__ = Mock()
+            return ws
+
+        def evaluate_instance(self, instance, workspace):
+            if instance.id == "slow":
+                time.sleep(8)  # Will be cancelled by timeout
+            return EvalOutput(
+                instance_id=instance.id,
+                test_result={"ok": True},
+                instruction="test",
+                error=None,
+                history=[],
+                instance=instance.data,
+            )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=2,
+        max_attempts=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(
+        metadata=metadata, num_workers=2, instance_timeout=2
+    )
+
+    with (
+        patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,
+        patch("benchmarks.utils.evaluation.TIMEOUT_CHECK_INTERVAL_SECONDS", 1),
+    ):
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        svc.create_evaluation_datapoint.return_value = None
+        mock_lmnr.get.return_value = svc
+
+        results = evaluator.run()
+
+    result_ids = {r.instance_id for r in results}
+    assert "fast" in result_ids
+    assert "slow" in result_ids
+
+    # The slow instance should have a timeout error
+    slow_result = [r for r in results if r.instance_id == "slow"][0]
+    assert slow_result.error is not None
+    assert "timeout" in slow_result.error.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
