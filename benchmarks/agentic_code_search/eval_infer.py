@@ -125,7 +125,7 @@ def compute_metrics(predictions, ground_truth, stats=None):
     # total_instances = len(all_instance_ids)
 
     # hard-code the total instances - locagent faces errors on 2 of SWE-Bench Pro instances due to which HF data has 264 instances only.
-    # NOTE: Instances are 274 and not 300 for SWE-Bench Lite because we primarily compare against LocAgent baseline and they discard these instances from evals since they produce empty ground truth outputs.
+    # NOTE: Instances are 274 and not 300 for SWE-Bench Lite because we primarily compare against LocAgent baseline and they discard these instances from evals since their patch processing code produces empty ground truth outputs for these instances.
     TOTAL_INSTANCE_MAP = {"Lite": 274, "Pro": 266, "Verified": 500}
     total_instances = TOTAL_INSTANCE_MAP[args.variant]
     # print(len(ground_truth), len(predictions))
