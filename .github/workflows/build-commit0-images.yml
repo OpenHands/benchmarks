@@ -54,6 +54,11 @@ on:
         required: false
         default: 'false'
         type: string
+      cache-mode:
+        description: 'BuildKit cache export mode (max, min, off). Default: max'
+        required: false
+        default: 'max'
+        type: string
 
 env:
   DATASET: wentingzhao/commit0_combined
@@ -196,6 +201,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode || 'max' }}
 
       - name: Archive build logs
         if: always()

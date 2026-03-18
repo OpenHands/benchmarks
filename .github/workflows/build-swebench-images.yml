@@ -59,6 +59,11 @@ on:
         required: false
         default: 'false'
         type: string
+      cache-mode:
+        description: 'BuildKit cache export mode (max, min, off). Default: max'
+        required: false
+        default: 'max'
+        type: string
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
@@ -266,6 +271,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
+          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode || 'max' }}
 
       - name: Archive build logs
         if: always()

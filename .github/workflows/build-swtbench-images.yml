@@ -68,6 +68,11 @@ on:
         required: false
         default: 'false'
         type: string
+      cache-mode:
+        description: 'BuildKit cache export mode (max, min, off). Default: max'
+        required: false
+        default: 'max'
+        type: string
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -201,6 +206,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode || 'max' }}
 
       - name: Build prebaked eval env images
         if: ${{ inputs.build-eval-env == 'true' }}
@@ -258,6 +264,7 @@ jobs:
           DOCKER_BUILDKIT=1 \
           BUILDKIT_PROGRESS=plain \
           BUILDKIT_RESET_ON_FAILURE=1 \
+          OPENHANDS_BUILDKIT_CACHE_MODE="${{ inputs.cache-mode || 'max' }}" \
           PYTHONUNBUFFERED=1 uv run swtbench-build-eval-images "${ARGS[@]}" | tee build_eval_env.log
 
           echo "Completed prebaked eval env image build at $(date -u)"
