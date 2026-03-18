@@ -125,7 +125,7 @@ def compute_metrics(predictions, ground_truth, stats=None):
     # total_instances = len(all_instance_ids)
 
     # hard-code the total instances - locagent faces errors on 2 of SWE-Bench Pro instances due to which HF data has 264 instances only.
-    # Instances are 274 and not 300 for SWE-Bench Lite because we primarily compare against LocAgent baseline and they discard these instances from evals since they produce empty ground truth outputs.
+    # NOTE: Instances are 274 and not 300 for SWE-Bench Lite because we primarily compare against LocAgent baseline and they discard these instances from evals since they produce empty ground truth outputs.
     TOTAL_INSTANCE_MAP = {"Lite": 274, "Pro": 266, "Verified": 500}
     total_instances = TOTAL_INSTANCE_MAP[args.variant]
     # print(len(ground_truth), len(predictions))
@@ -201,19 +201,19 @@ def compute_metrics(predictions, ground_truth, stats=None):
     print("=" * 60)
 
     print("\nFile-level Metrics:")
+    print(f"  F1 Score:  {avg_file_f1:.4f}")
     print(f"  Precision: {avg_file_precision:.4f}")
     print(f"  Recall:    {avg_file_recall:.4f}")
-    print(f"  F1 Score:  {avg_file_f1:.4f}")
 
     print("\nModule-level Metrics:")
+    print(f"  F1 Score:  {avg_module_f1:.4f}")
     print(f"  Precision: {avg_module_precision:.4f}")
     print(f"  Recall:    {avg_module_recall:.4f}")
-    print(f"  F1 Score:  {avg_module_f1:.4f}")
 
     print("\nFunction-level Metrics:")
+    print(f"  F1 Score:  {avg_entity_f1:.4f}")
     print(f"  Precision: {avg_entity_precision:.4f}")
     print(f"  Recall:    {avg_entity_recall:.4f}")
-    print(f"  F1 Score:  {avg_entity_f1:.4f}")
 
     if stats:
         print("\nEfficiency Metrics:")
