@@ -102,7 +102,13 @@ def get_child_processes(parent_pid: int) -> list:
 
 
 def test_keyboard_interrupt_cleanup():
-    """Test that all child processes are properly cleaned up on KeyboardInterrupt."""
+    """Test that worker threads are properly cleaned up on KeyboardInterrupt.
+
+    The asyncio evaluation uses threads (via asyncio.to_thread()), not child
+    processes. This test verifies that:
+    1. Worker threads are running before the interrupt
+    2. The process exits cleanly after SIGINT (which implies all threads stop)
+    """
     # Get project root
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -165,28 +171,23 @@ def test_keyboard_interrupt_cleanup():
             f"Could not get evaluation process PID. Stdout: {stdout_lines}"
         )
 
-        # Wait for worker processes to start
+        # Wait for worker threads to start.
+        # With asyncio.to_thread(), workers are threads inside the process
+        # (not child processes), so we can't enumerate them from outside.
+        # Instead we verify the process is still alive — if workers hadn't
+        # started their 60 s sleep, the process would have exited already.
         print("Waiting for workers to start...")
         time.sleep(3)
 
-        # Get child processes before interrupt
-        children_before = get_child_processes(eval_pid)
-        python_workers_before = [
-            p for p in children_before if "python" in p.name().lower()
-        ]
-        print(f"Worker processes before interrupt: {len(python_workers_before)}")
-        print(f"Worker PIDs: {[p.pid for p in python_workers_before]}")
-
-        # Verify we have worker processes
-        assert len(python_workers_before) > 0, (
-            f"No worker processes found. All children: {[(p.pid, p.name()) for p in children_before]}"
+        assert process.poll() is None, (
+            f"Process exited prematurely with code {process.returncode}"
         )
 
         # Send SIGINT to the subprocess
         print("\n=== Sending SIGINT ===")
         process.send_signal(signal.SIGINT)
 
-        # Wait for process to exit
+        # Wait for process to exit — clean exit proves all threads stopped
         try:
             process.wait(timeout=10)
             print(f"Process exited with code: {process.returncode}")
@@ -195,33 +196,15 @@ def test_keyboard_interrupt_cleanup():
             process.kill()
             process.wait()
 
-        # Give a moment for cleanup
-        time.sleep(2)
-
-        # Check if all worker processes are gone
-        remaining_workers = []
-        for worker in python_workers_before:
-            try:
-                if psutil.pid_exists(worker.pid):
-                    proc = psutil.Process(worker.pid)
-                    # Check if it's still the same process (not reused PID)
-                    if proc.create_time() == worker.create_time():
-                        remaining_workers.append(worker.pid)
-            except psutil.NoSuchProcess:
-                pass  # Process is gone, which is what we want
-
-        print("\n=== Results ===")
-        print(f"Worker processes before: {len(python_workers_before)}")
-        print(f"Remaining workers: {len(remaining_workers)}")
-        if remaining_workers:
-            print(f"Remaining PIDs: {remaining_workers}")
-
-        # Assert all workers are cleaned up
-        assert len(remaining_workers) == 0, (
-            f"Worker processes still running after SIGINT: {remaining_workers}"
+        # Verify the process is fully gone (no zombie / leftover children)
+        time.sleep(1)
+        remaining_children = get_child_processes(eval_pid)
+        assert len(remaining_children) == 0, (
+            f"Child processes still running after SIGINT: "
+            f"{[(p.pid, p.name()) for p in remaining_children]}"
         )
 
-        print("✓ All child processes cleaned up successfully")
+        print("✓ Process exited cleanly — all worker threads cleaned up")
 
 
 def test_keyboard_interrupt_immediate():

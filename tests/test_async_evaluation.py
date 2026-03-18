@@ -215,9 +215,7 @@ def test_evaluation_run_end_to_end(tmp_path):
     from openhands.sdk import LLM
     from openhands.sdk.critic import PassCritic
 
-    instances = [
-        EvalInstance(id=f"inst_{i}", data={"idx": i}) for i in range(4)
-    ]
+    instances = [EvalInstance(id=f"inst_{i}", data={"idx": i}) for i in range(4)]
     # Instance 2 will fail
     fail_ids = {"inst_2"}
 
@@ -331,9 +329,7 @@ def test_evaluation_timeout_cancels_instance(tmp_path):
         critic=PassCritic(),
     )
 
-    evaluator = TestEvaluation(
-        metadata=metadata, num_workers=2, instance_timeout=2
-    )
+    evaluator = TestEvaluation(metadata=metadata, num_workers=2, instance_timeout=2)
 
     with (
         patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,

@@ -15,7 +15,6 @@ import os
 import threading
 import time
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -323,18 +322,11 @@ class Evaluation(ABC, BaseModel):
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
         """Async implementation of iterative mode evaluation."""
-        # Install thread-routed logging and set up main-thread defaults
+        # Install thread-routed logging/stdout and set up main-thread defaults
         # before spawning any workers.
-        from benchmarks.utils.console_logging import setup_routed_logging
+        from benchmarks.utils.worker_context import initialize as init_worker_ctx
 
-        setup_routed_logging()
-
-        # Suppress noisy OpenTelemetry context-detach errors that happen when
-        # spans created in the main thread are ended in worker threads.
-        # These are harmless but can corrupt stdout if they leak through.
-        import logging as _logging
-
-        _logging.getLogger("opentelemetry.context").setLevel(_logging.CRITICAL)
+        init_worker_ctx()
 
         all_instances = self.prepare_instances()
 
@@ -526,9 +518,7 @@ class Evaluation(ABC, BaseModel):
                 index,
             )
 
-            task = asyncio.create_task(
-                process_with_semaphore(inst, datapoint_id)
-            )
+            task = asyncio.create_task(process_with_semaphore(inst, datapoint_id))
             tasks.append(task)
             pending_instances[task] = PendingInstance(
                 instance=inst,
@@ -689,16 +679,12 @@ class Evaluation(ABC, BaseModel):
         - Ensures proper context-managed cleanup
         - Returns (instance, output) so the async caller can stream results
         """
-        # Set up instance-specific logging
+        # Set up instance-specific logging + stdout/stderr redirect
         log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
-        setup_instance_logging(log_dir, instance.id)
 
-        # Get log file path for stdout/stderr redirection
-        log_file = os.path.join(log_dir, f"instance_{instance.id}.output.log")
+        from benchmarks.utils.worker_context import instance_context
 
-        # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
-        # Uses thread-local storage so each worker thread has its own redirect.
-        with redirect_stdout_stderr(log_file):
+        with instance_context(log_dir, instance.id):
             logger.info("[worker] start id=%s", instance.id)
 
             # Two-phase datapoint linking:
@@ -924,112 +910,3 @@ class Evaluation(ABC, BaseModel):
 # The env-var is read by prepare_workspace(); the lock ensures the value set by
 # one thread isn't overwritten by another before the workspace picks it up.
 _lmnr_env_lock = threading.Lock()
-
-# Thread-local storage for per-thread stdout/stderr redirect.
-_thread_local = threading.local()
-
-
-def setup_instance_logging(log_dir: str, instance_id: str) -> None:
-    """Set up instance-specific logging for worker threads.
-
-    See benchmarks.utils.console_logging.setup_instance_logging for details.
-    """
-    from benchmarks.utils.console_logging import (
-        setup_instance_logging as _setup_logging,
-    )
-
-    _setup_logging(log_dir, instance_id)
-
-
-@contextmanager
-def redirect_stdout_stderr(log_file_path: str):
-    """Context manager to redirect stdout/stderr to a per-thread log file.
-
-    This is thread-safe: each thread gets its own log file via a
-    ThreadLocalWriter wrapper that delegates writes to the file stored in
-    threading.local().  The global sys.stdout / sys.stderr are replaced
-    *once* (idempotently) with the wrapper; individual threads then just
-    swap the file object in their thread-local slot.
-
-    Args:
-        log_file_path: Path to the log file where output should be redirected
-    """
-    import sys as _sys  # local ref to avoid capturing module-level sys
-
-    log_file = None
-    had_previous = hasattr(_thread_local, "log_file")
-    previous_file = getattr(_thread_local, "log_file", None)
-
-    try:
-        # Ensure output directory exists
-        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-
-        # Open a per-thread log file
-        log_file = open(log_file_path, "a", buffering=1, encoding="utf-8")
-        _thread_local.log_file = log_file
-
-        # Install thread-local writers on the *first* call only.
-        # Subsequent threads reuse the same wrapper objects.
-        if not isinstance(_sys.stdout, _ThreadLocalWriter):
-            _sys.stdout = _ThreadLocalWriter(_sys.stdout)  # type: ignore[assignment]
-            _sys.stderr = _ThreadLocalWriter(_sys.stderr)  # type: ignore[assignment]
-
-        yield
-
-    finally:
-        # Restore this thread's slot to whatever it was before
-        if had_previous:
-            _thread_local.log_file = previous_file
-        elif hasattr(_thread_local, "log_file"):
-            del _thread_local.log_file
-
-        # Close the log file
-        if log_file is not None and not log_file.closed:
-            log_file.close()
-
-
-class _ThreadLocalWriter:
-    """A sys.stdout / sys.stderr replacement that writes to a per-thread file.
-
-    If the current thread has set ``_thread_local.log_file``, writes go there.
-    Otherwise writes fall through to the original stream (usually the real
-    terminal stdout / stderr).
-    """
-
-    def __init__(self, original):
-        self._original = original
-
-    def _target(self):
-        return getattr(_thread_local, "log_file", None) or self._original
-
-    # --- file-like API used by print() and the logging module -----------------
-
-    def write(self, s: str) -> int:
-        target = self._target()
-        try:
-            return target.write(s)
-        except ValueError:
-            # Handle "I/O operation on closed file" gracefully –
-            # fall back to original stream instead of crashing.
-            return self._original.write(s)
-
-    def flush(self) -> None:
-        target = self._target()
-        try:
-            target.flush()
-        except ValueError:
-            self._original.flush()
-
-    @property
-    def encoding(self) -> str:
-        return self._target().encoding
-
-    @property
-    def closed(self) -> bool:
-        return self._target().closed
-
-    def isatty(self) -> bool:
-        return self._original.isatty()
-
-    def fileno(self) -> int:
-        return self._original.fileno()
