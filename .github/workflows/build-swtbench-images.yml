@@ -22,12 +22,12 @@ on:
       max-workers:
         description: 'Maximum number of parallel workers'
         required: false
-        default: '4'
+        default: '16'
         type: string
       build-batch-size:
         description: 'Number of agent-server images to submit per batch'
         required: false
-        default: '15'
+        default: '50'
         type: string
       n-limit:
         description: 'Limit number of images to build (0 for all)'
@@ -95,8 +95,8 @@ jobs:
     env:
       DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
       SPLIT: test
-      MAX_WORKERS: '4'
-      BUILD_BATCH_SIZE: '15'
+      MAX_WORKERS: '16'
+      BUILD_BATCH_SIZE: '50'
       N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
@@ -155,8 +155,8 @@ jobs:
           # Get inputs with defaults
           DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
           SPLIT="${{ inputs.split || 'test' }}"
-          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
-          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '15' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '16' }}"
+          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '50' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
@@ -218,7 +218,7 @@ jobs:
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
           IMAGE_PREFIX="${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}"
-          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '16' }}"
           BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
           MAX_RETRIES="${{ inputs.max-retries || '2' }}"
           BUILD_BATCH_SIZE="${{ inputs.eval-env-build-batch-size || '10' }}"
