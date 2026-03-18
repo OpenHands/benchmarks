@@ -370,9 +370,9 @@ def main() -> None:
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
-    # Validate max_attempts
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    # Validate n_critic_runs
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
@@ -407,7 +407,7 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,

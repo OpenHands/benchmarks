@@ -65,10 +65,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Limit number of instances to evaluate (0 = no limit)",
     )
     parser.add_argument(
-        "--max-attempts",
+        "--n-critic-runs",
         type=int,
         default=3,
-        help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
+        help="Number of critic evaluation runs for iterative mode (default: 3, min: 1)",
     )
 
     # Add critic arguments (no default)
