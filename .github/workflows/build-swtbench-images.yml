@@ -134,6 +134,34 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
+      - name: "Experiment: Apply ARG ordering fix to Dockerfile (benchmarks#544)"
+        run: |
+          DOCKERFILE="vendor/software-agent-sdk/openhands-agent-server/openhands/agent_server/docker/Dockerfile"
+          echo "=== BEFORE fix ==="
+          grep -n "OPENHANDS_BUILD_GIT" "$DOCKERFILE" || echo "(ARG not present in this SDK version)"
+
+          # Remove the ARG/ENV block from its current position (before apt-get)
+          sed -i '/^ARG OPENHANDS_BUILD_GIT_SHA=unknown$/d' "$DOCKERFILE"
+          sed -i '/^ARG OPENHANDS_BUILD_GIT_REF=unknown$/d' "$DOCKERFILE"
+          sed -i '/^ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}$/d' "$DOCKERFILE"
+          sed -i '/^ENV OPENHANDS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}$/d' "$DOCKERFILE"
+
+          # Insert the ARG/ENV block AFTER the npm install step (after the expensive layers)
+          # Find the line with "npm install -g" and insert after the closing of that RUN block
+          sed -i '/^COPY --from=ghcr.io\/astral-sh\/uv \/uv \/uvx \/bin\/$/i\
+# NOTE: OPENHANDS_BUILD_GIT_SHA/REF must come AFTER expensive layers (apt-get, npm)\
+# to avoid busting the BuildKit cache on every SDK bump. See benchmarks#544.\
+ARG OPENHANDS_BUILD_GIT_SHA=unknown\
+ARG OPENHANDS_BUILD_GIT_REF=unknown\
+ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}\
+ENV OPENHANDS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}\
+' "$DOCKERFILE"
+
+          echo "=== AFTER fix ==="
+          grep -n "OPENHANDS_BUILD_GIT" "$DOCKERFILE"
+          echo "=== Full base-image-minimal stage ==="
+          sed -n '/^FROM.*base-image-minimal$/,/^FROM/p' "$DOCKERFILE" | head -50
+
       - name: Set up Docker Buildx with Blacksmith
         uses: useblacksmith/setup-docker-builder@v1
 
