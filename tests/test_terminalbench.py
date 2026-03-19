@@ -360,7 +360,7 @@ class TestConvertHarborToEvalOutput:
         assert entries[0]["metrics"]["total_cost_usd"] == 0.0
 
     def test_trial_with_exception(self, tmp_path: Path) -> None:
-        """Test handling of a trial with exception."""
+        """Test exception-only Harbor output is preserved for downstream reporting."""
         trial_result = {
             "task_name": "error-task",
             "trial_name": "error-task__err",
@@ -373,10 +373,26 @@ class TestConvertHarborToEvalOutput:
             tmp_path, [("error-task__err", trial_result)]
         )
         output_file = tmp_path / "output.jsonl"
+        report_file = tmp_path / "report.json"
 
-        # Should raise since all trials have exceptions and none succeeded
-        with pytest.raises(RuntimeError, match="All .* trials failed"):
-            convert_harbor_to_eval_output(harbor_dir, output_file)
+        convert_harbor_to_eval_output(harbor_dir, output_file)
+
+        with open(output_file) as f:
+            entries = [json.loads(line) for line in f]
+
+        assert entries == [
+            {
+                "instance_id": "error-task",
+                "error": "{'type': 'TimeoutError', 'message': 'Agent timed out'}",
+                "test_result": {},
+            }
+        ]
+
+        report = process_terminalbench_results(str(output_file), str(report_file))
+        assert report["total_instances"] == 1
+        assert report["completed_instances"] == 0
+        assert report["error_instances"] == 1
+        assert report["incomplete_ids"] == ["error-task"]
 
     def test_mixed_valid_and_exception_trials(self, tmp_path: Path) -> None:
         """Test handling mix of successful and exception trials."""

@@ -251,8 +251,11 @@ def convert_harbor_to_eval_output(
     if not results and not errors:
         raise RuntimeError(f"No trials processed from {harbor_output_dir}")
 
-    if not results and errors:
-        raise RuntimeError(f"All {len(errors)} trials failed from {harbor_output_dir}")
+    if not results:
+        logger.warning(
+            f"All {len(errors)} trials failed in {harbor_output_dir}; "
+            "writing error entries for downstream reporting"
+        )
 
     # Write results to output.jsonl
     with open(eval_output_path, "w") as f:
