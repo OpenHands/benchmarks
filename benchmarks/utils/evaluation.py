@@ -317,11 +317,11 @@ class Evaluation(ABC, BaseModel):
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
         """Async implementation of iterative mode evaluation."""
-        # Install thread-routed logging/stdout and set up main-thread defaults
-        # before spawning any workers.
-        from benchmarks.utils.worker_context import initialize as init_worker_ctx
+        # Set up shared logging with instance prefixing
+        from benchmarks.utils.worker_context import initialize as init_logging
 
-        init_worker_ctx()
+        log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
+        init_logging(log_dir)
 
         all_instances = self.prepare_instances()
 
@@ -445,6 +445,11 @@ class Evaluation(ABC, BaseModel):
             critic=self.metadata.critic,
             final_output_file="output.jsonl",
         )
+
+        # Split shared log into per-instance files
+        from benchmarks.utils.worker_context import split_logs
+
+        split_logs(log_dir)
 
         logger.info(
             f"Evaluation complete: {total_instances} total instances, "
@@ -683,7 +688,7 @@ class Evaluation(ABC, BaseModel):
         from benchmarks.utils.worker_context import instance_context
 
         with instance_context(log_dir, instance.id):
-            logger.info("[worker] start id=%s", instance.id)
+            # Instance ID is auto-prefixed by logging filter
 
             # Two-phase datapoint linking:
             # 1. Parent creates datapoint immediately (for UI progress tracking)

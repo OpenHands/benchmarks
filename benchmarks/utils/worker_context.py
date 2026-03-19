@@ -1,234 +1,124 @@
-"""Thread-local context for evaluation worker threads.
+"""Simple instance-tagged logging for evaluation workers.
 
-Provides per-thread logging and stdout/stderr redirection for asyncio workers.
+Each thread sets its current instance ID. A logging filter automatically
+prefixes all log messages with [instance_id]. After evaluation, logs can
+be split into per-instance files.
 
-Why thread-local routing is necessary:
-- Third-party code (SDK, OpenTelemetry, litellm) calls logging.getLogger()
-  and writes to the root logger. We can't pass explicit loggers to them.
-- sys.stdout/stderr are process-global. SDK code and tqdm print() to them.
-  The only way to route per-thread is a wrapper that checks thread-local state.
-
-This is the standard pattern (same as Django's locale.activate() per-request).
+This replaces complex thread-local routing with a simple prefix + post-process approach.
 """
-
-from __future__ import annotations
 
 import logging
 import os
-import sys
+import re
 import threading
 from contextlib import contextmanager
-from typing import Generator, TextIO
-
-from benchmarks.utils.console_logging import (
-    BG_BLUE,
-    CYAN_BRIGHT,
-    _ColorFormatter,
-    _ConsoleFilter,
-    _PlainFormatter,
-    _rich_logging_enabled,
-    format_line,
-)
+from typing import Generator
 
 
-# Single thread-local for all per-thread state
-_ctx = threading.local()
-_init_lock = threading.Lock()
-_initialized = False
+# Thread-local storage for current instance ID (just a string, not complex objects)
+_current_instance: threading.local = threading.local()
 
 
-# ---------------------------------------------------------------------------
-# Logging handlers (one instance each, attached to root logger)
-# ---------------------------------------------------------------------------
+class _InstanceFilter(logging.Filter):
+    """Adds [instance_id] prefix to all log messages."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        instance_id = getattr(_current_instance, "id", None)
+        if instance_id:
+            record.msg = f"[{instance_id}] {record.msg}"
+        return True
 
 
-class _FileHandler(logging.Handler):
-    """Writes to the per-thread file stored in _ctx.file_handler."""
-
-    def __init__(self) -> None:
-        super().__init__(level=logging.INFO)
-        self.formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
-        )
-
-    def emit(self, record: logging.LogRecord) -> None:
-        fh = getattr(_ctx, "file_handler", None)
-        if fh is None:
-            return  # Thread has no log file configured
-        msg = self.format(record)
-        try:
-            fh.stream.write(msg + "\n")
-            fh.stream.flush()
-        except (OSError, ValueError) as e:
-            # Write failed — log to stderr so we know something is wrong
-            if sys.__stderr__:
-                sys.__stderr__.write(f"[logging failed: {e}] {msg}\n")
+# Global filter instance (added to root logger once)
+_filter: _InstanceFilter | None = None
 
 
-class _ConsoleHandler(logging.Handler):
-    """Writes to stderr with per-thread formatter from _ctx."""
+def initialize(log_dir: str) -> None:
+    """Set up logging to a shared file with instance prefixing.
 
-    def __init__(self) -> None:
-        super().__init__(level=logging.INFO)
-
-    def emit(self, record: logging.LogRecord) -> None:
-        fmt = getattr(_ctx, "console_formatter", None)
-        if fmt is None:
-            return  # Thread has no console formatter
-        level = getattr(_ctx, "console_level", logging.WARNING)
-        filt = getattr(_ctx, "console_filter", None)
-        # Check level and filter
-        if record.levelno < level:
-            if not (filt and filt.filter(record)):
-                return
-        if sys.__stderr__:
-            try:
-                sys.__stderr__.write(fmt.format(record) + "\n")
-                sys.__stderr__.flush()
-            except (OSError, ValueError):
-                pass  # stderr failed — nothing left to try
-
-
-# ---------------------------------------------------------------------------
-# stdout/stderr wrapper
-# ---------------------------------------------------------------------------
-
-
-class _StdoutWrapper:
-    """Redirects writes to _ctx.output_file or original stream.
-
-    Explicit properties instead of __getattr__ to avoid hiding bugs.
+    Call once at the start of evaluation. All logs go to evaluation.log,
+    with each line prefixed by [instance_id].
     """
+    global _filter
 
-    def __init__(self, original: TextIO) -> None:
-        self._original = original
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "evaluation.log")
 
-    def _target(self) -> TextIO:
-        return getattr(_ctx, "output_file", None) or self._original
+    root = logging.getLogger()
 
-    def write(self, s: str) -> int:
-        return self._target().write(s)
+    # Remove existing handlers, add our shared file handler
+    root.handlers.clear()
 
-    def flush(self) -> None:
-        self._target().flush()
+    handler = logging.FileHandler(log_path, mode="a")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    )
+    handler.setLevel(logging.INFO)
+    root.addHandler(handler)
 
-    @property
-    def encoding(self) -> str:
-        return self._original.encoding
+    # Also log to stderr for visibility
+    console = logging.StreamHandler()
+    console.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+    console.setLevel(logging.WARNING)
+    root.addHandler(console)
 
-    @property
-    def closed(self) -> bool:
-        return self._original.closed
+    root.setLevel(logging.DEBUG)
 
-    def isatty(self) -> bool:
-        return self._original.isatty()
+    # Add filter to prefix instance ID
+    if _filter is None:
+        _filter = _InstanceFilter()
+        root.addFilter(_filter)
 
-    def fileno(self) -> int:
-        return self._original.fileno()
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def initialize() -> None:
-    """One-time setup: install routed handlers and stdout wrapper.
-
-    Also sets up main-thread defaults so it can log without instance_context.
-    """
-    global _initialized
-    with _init_lock:
-        if _initialized:
-            return
-        # Install routed handlers on root logger
-        root = logging.getLogger()
-        root.handlers.clear()
-        root.addHandler(_FileHandler())
-        root.addHandler(_ConsoleHandler())
-        root.setLevel(logging.DEBUG)
-
-        # Install stdout/stderr wrappers
-        if not isinstance(sys.stdout, _StdoutWrapper):
-            sys.stdout = _StdoutWrapper(sys.stdout)  # type: ignore[assignment]
-            sys.stderr = _StdoutWrapper(sys.stderr)  # type: ignore[assignment]
-
-        # Suppress noisy OTel context-detach errors
-        logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
-
-        _initialized = True
-
-    # Main-thread defaults (console only, WARNING+)
-    if not hasattr(_ctx, "console_formatter"):
-        _ctx.console_formatter = _PlainFormatter("main")
-        _ctx.console_filter = None
-        _ctx.console_level = logging.WARNING
+    # Suppress noisy OpenTelemetry context errors
+    logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
 
 
 @contextmanager
 def instance_context(log_dir: str, instance_id: str) -> Generator[None, None, None]:
-    """Set up per-instance logging and output redirection for this thread.
+    """Context manager that sets the current instance ID for logging.
 
-    Args:
-        log_dir: Directory for log files
-        instance_id: The evaluation instance ID
+    All log messages within this context will be prefixed with [instance_id].
     """
-    initialize()
+    # Ensure logging is initialized
+    if _filter is None:
+        initialize(log_dir)
 
-    log_path = os.path.join(log_dir, f"instance_{instance_id}.log")
-    output_path = os.path.join(log_dir, f"instance_{instance_id}.output.log")
-    short_id = (
-        instance_id.split("__")[-1][:20] if "__" in instance_id else instance_id[:20]
-    )
-    rich_mode = _rich_logging_enabled()
-
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
-    output_file = open(output_path, "a", buffering=1, encoding="utf-8")  # noqa: SIM115
-
-    # Set thread-local state
-    _ctx.file_handler = logging.FileHandler(log_path)
-    _ctx.output_file = output_file
-    if rich_mode:
-        _ctx.console_formatter = _ColorFormatter(instance_id)
-        _ctx.console_filter = _ConsoleFilter()
-        _ctx.console_level = logging.INFO
-    else:
-        _ctx.console_formatter = _PlainFormatter(instance_id)
-        _ctx.console_filter = None
-        _ctx.console_level = logging.WARNING
-
-    # Print startup message
-    if rich_mode:
-        if sys.__stderr__:
-            sys.__stderr__.write(
-                format_line(
-                    short_id=short_id,
-                    tag="START",
-                    message=f"{instance_id} | Logs: {log_path}",
-                    tag_bg=BG_BLUE,
-                    message_color=CYAN_BRIGHT,
-                    newline_before=True,
-                )
-                + "\n"
-            )
-            sys.__stderr__.flush()
-    else:
-        # Temporarily allow INFO for startup message
-        _ctx.console_level = logging.INFO
-        logging.getLogger().info(
-            f"=== Evaluation Started (instance {instance_id}) ===\n"
-            f"    • tail -f {log_path}      (logger)\n"
-            f"    • tail -f {output_path}   (stdout/stderr)"
-        )
-        _ctx.console_level = logging.WARNING
-
+    _current_instance.id = instance_id
     try:
+        logging.getLogger().info("start")
         yield
     finally:
-        # Clear thread-local state
-        for attr in ("file_handler", "output_file", "console_formatter", "console_filter"):
-            if hasattr(_ctx, attr):
-                delattr(_ctx, attr)
-        log_file.close()
-        output_file.close()
+        _current_instance.id = None
+
+
+def split_logs(log_dir: str) -> None:
+    """Split the shared evaluation.log into per-instance files.
+
+    Call after evaluation completes. Creates logs/instance_{id}.log files.
+    """
+    shared_log = os.path.join(log_dir, "evaluation.log")
+    if not os.path.exists(shared_log):
+        return
+
+    files: dict[str, object] = {}
+    pattern = re.compile(r"\[([^\]]+)\]")
+
+    try:
+        with open(shared_log, "r", encoding="utf-8") as f:
+            for line in f:
+                match = pattern.search(line)
+                if match:
+                    inst_id = match.group(1)
+                    if inst_id not in files:
+                        path = os.path.join(log_dir, f"instance_{inst_id}.log")
+                        files[inst_id] = open(path, "w", encoding="utf-8")
+                    files[inst_id].write(line)  # type: ignore[union-attr]
+    finally:
+        for fh in files.values():
+            fh.close()  # type: ignore[union-attr]
+
+    logging.getLogger().info(
+        "Split evaluation.log into %d per-instance files", len(files)
+    )
