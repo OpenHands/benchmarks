@@ -3,6 +3,13 @@
 Consolidates all per-thread routing infrastructure (logging handlers,
 stdout/stderr redirection) into a single module with one threading.local()
 and one context manager.
+
+Key design note: The SDK's RemoteConversation spawns a WebSocket daemon
+thread to process events.  Visualization callbacks (Console.print) fire
+on that child thread, which does NOT have its own ``_ctx.log_file``.
+To capture that output we maintain a process-level registry
+(``_log_file_registry``) keyed by thread ID so child threads can inherit
+the log file of the worker thread that spawned them.
 """
 
 from __future__ import annotations
@@ -12,7 +19,7 @@ import os
 import sys
 import threading
 from contextlib import contextmanager
-from typing import Generator
+from typing import IO, Generator
 
 from benchmarks.utils.console_logging import (
     BG_BLUE,
@@ -29,6 +36,12 @@ from benchmarks.utils.console_logging import (
 # Single thread-local for ALL per-thread state
 # ---------------------------------------------------------------------------
 _ctx = threading.local()
+
+# Process-level registry: thread-id → log file.
+# Worker threads register here so that child threads (e.g. the SDK's
+# WebSocket callback thread) can look up the log file of their creator.
+_log_file_registry: dict[int, IO[str]] = {}
+_registry_lock = threading.Lock()
 
 # One-time initialization guard
 _setup_lock = threading.Lock()
@@ -113,15 +126,31 @@ class _ThreadLocalWriter:
     """A sys.stdout/sys.stderr replacement that writes to a per-thread file.
 
     If the current thread has set ``_ctx.log_file``, writes go there.
-    Otherwise writes fall through to the original stream (usually the real
-    terminal stdout/stderr).
+    Otherwise, if the current thread was spawned by a worker that registered
+    a log file in ``_log_file_registry``, writes go there (this handles the
+    SDK's WebSocket callback thread which fires visualization events on a
+    child thread).  Finally falls through to the original stream.
     """
 
     def __init__(self, original: object) -> None:
         self._original = original
 
     def _target(self) -> object:
-        return getattr(_ctx, "log_file", None) or self._original
+        # Fast path: thread-local log file (set by instance_context)
+        log_file = getattr(_ctx, "log_file", None)
+        if log_file is not None:
+            return log_file
+        # Slow path: check if the current thread's *creator* registered
+        # a log file.  threading.current_thread() is cheap; the dict
+        # lookup is O(1).  We check the registry without locking for
+        # read performance — stale reads are harmless (worst case a
+        # write goes to the original stream for one call).
+        parent_id = getattr(threading.current_thread(), "_parent_thread_id", None)
+        if parent_id is not None:
+            parent_file = _log_file_registry.get(parent_id)
+            if parent_file is not None and not parent_file.closed:
+                return parent_file
+        return self._original
 
     # --- file-like API used by print() and the logging module ---------------
 
@@ -169,10 +198,26 @@ class _ThreadLocalWriter:
 # ---------------------------------------------------------------------------
 
 
+def _patch_thread_parent_tracking() -> None:
+    """Monkey-patch threading.Thread.__init__ to record the parent thread ID.
+
+    This lets child threads (e.g. the SDK's WebSocket callback thread)
+    discover which worker thread spawned them, so _ThreadLocalWriter can
+    route their stdout to the correct per-instance output file.
+    """
+    _orig_init = threading.Thread.__init__
+
+    def _init_with_parent(self: threading.Thread, *args: object, **kwargs: object) -> None:
+        _orig_init(self, *args, **kwargs)  # type: ignore[arg-type]
+        self._parent_thread_id = threading.current_thread().ident  # type: ignore[attr-defined]
+
+    threading.Thread.__init__ = _init_with_parent  # type: ignore[assignment]
+
+
 def initialize() -> None:
     """One-time setup: install handlers on root logger, install
     _ThreadLocalWriter on sys.stdout/stderr, suppress OTel logger,
-    set main-thread defaults.
+    patch Thread to track parent IDs, set main-thread defaults.
 
     Idempotent — safe to call multiple times.
     """
@@ -191,6 +236,9 @@ def initialize() -> None:
             if not isinstance(sys.stdout, _ThreadLocalWriter):
                 sys.stdout = _ThreadLocalWriter(sys.stdout)  # type: ignore[assignment]
                 sys.stderr = _ThreadLocalWriter(sys.stderr)  # type: ignore[assignment]
+
+            # Patch Thread to record parent thread ID for log-file inheritance
+            _patch_thread_parent_tracking()
 
             # Suppress noisy OpenTelemetry context-detach errors that happen
             # when spans created in the main thread are ended in worker threads.
@@ -269,6 +317,13 @@ def instance_context(log_dir: str, instance_id: str) -> Generator[None, None, No
         )
         _ctx.log_file = output_file
 
+        # Register in the process-level registry so child threads
+        # (e.g. WebSocket callback thread) can inherit this log file.
+        tid = threading.current_thread().ident
+        if tid is not None:
+            with _registry_lock:
+                _log_file_registry[tid] = output_file
+
         # --- Print startup message ---
         root_logger = logging.getLogger()
         if rich_mode:
@@ -303,6 +358,12 @@ def instance_context(log_dir: str, instance_id: str) -> Generator[None, None, No
         yield
 
     finally:
+        # Unregister from process-level registry
+        tid = threading.current_thread().ident
+        if tid is not None:
+            with _registry_lock:
+                _log_file_registry.pop(tid, None)
+
         # Restore previous state
         if had_log_file:
             _ctx.log_file = prev_log_file
