@@ -55,6 +55,7 @@ class PendingInstance:
     instance: EvalInstance
     datapoint_id: UUID | None = None
     task: asyncio.Task | None = field(default=None, repr=False)
+    start_time: float | None = None  # Set when task acquires semaphore
 
 
 OnResult = Callable[[EvalInstance, EvalOutput], None]
@@ -473,9 +474,6 @@ class Evaluation(ABC, BaseModel):
         """
         semaphore = asyncio.Semaphore(self.num_workers)
         pending_instances: dict[asyncio.Task, PendingInstance] = {}
-        # Track when each task actually starts running (after acquiring the
-        # semaphore). Only tasks present in this dict are subject to timeout.
-        active_start_times: dict[asyncio.Task, float] = {}
         attempt_outputs: List[EvalOutput] = []
         progress = tqdm(total=len(instances), desc=f"Attempt {attempt}", leave=False)
 
@@ -485,11 +483,10 @@ class Evaluation(ABC, BaseModel):
         ) -> Tuple[EvalInstance, EvalOutput]:
             """Process one instance with semaphore-based concurrency control."""
             async with semaphore:
-                # Record start time NOW — timeout counts from when the
-                # instance actually begins running, not from when it was queued.
+                # Record start time when task acquires semaphore (not when queued)
                 task = asyncio.current_task()
-                if task is not None:
-                    active_start_times[task] = time.monotonic()
+                if task is not None and task in pending_instances:
+                    pending_instances[task].start_time = time.monotonic()
                 # Run the sync processing function in a thread
                 return await asyncio.to_thread(
                     self._process_one_sync,
@@ -578,12 +575,16 @@ class Evaluation(ABC, BaseModel):
                         await on_result(pending_info.instance, error_output)
                         attempt_outputs.append(error_output)
 
-            # Check for per-instance timeouts (only active tasks have entries)
+            # Check for per-instance timeouts (only active tasks have start_time set)
             now = time.monotonic()
             timed_out_tasks = []
             for task in pending:
-                start = active_start_times.get(task)
-                if start and now - start > self.instance_timeout:
+                pending_info = pending_instances.get(task)
+                if (
+                    pending_info
+                    and pending_info.start_time
+                    and now - pending_info.start_time > self.instance_timeout
+                ):
                     timed_out_tasks.append(task)
 
             for task in timed_out_tasks:
@@ -759,14 +760,7 @@ class Evaluation(ABC, BaseModel):
                 raise AssertionError("unreachable")  # pragma: no cover
             finally:
                 if eval_span is not None:
-                    try:
-                        eval_span.end()
-                    except RuntimeError:
-                        # Expected: contextvars tokens created in the main
-                        # thread cannot be detached from a worker thread.
-                        pass
-                    except Exception as e:
-                        logger.warning("[worker] Unexpected span.end() error: %s", e)
+                    _safe_end_span(eval_span, "eval_span")
 
     def _execute_single_attempt(
         self,
@@ -896,17 +890,28 @@ class Evaluation(ABC, BaseModel):
             if workspace is not None:
                 self._cleanup_workspace(workspace, instance)
             if exec_span is not None:
-                try:
-                    exec_span.end()
-                except RuntimeError:
-                    # Expected: contextvars tokens created in the main
-                    # thread cannot be detached from a worker thread.
-                    pass
-                except Exception as e:
-                    logger.warning("[worker] Unexpected span.end() error: %s", e)
+                _safe_end_span(exec_span, "exec_span")
 
 
 # ---------- Thread-safety helpers ------------------------------------------------
+
+
+def _safe_end_span(span: Any, label: str) -> None:
+    """End a span, handling contextvars errors from cross-thread usage.
+
+    OpenTelemetry spans use contextvars tokens that can only be detached
+    in the thread where they were attached. When a span created in the main
+    thread is ended in a worker thread, LookupError is raised.
+    """
+    try:
+        span.end()
+    except LookupError:
+        # Expected when span was created in main thread but ended in worker.
+        # The span data is still recorded; only the context detach fails.
+        pass
+    except Exception as e:
+        logger.warning("[worker] %s.end() error: %s", label, e)
+
 
 # Lock to serialise writes to os.environ["LMNR_SPAN_CONTEXT"].
 # The env-var is read by prepare_workspace(); the lock ensures the value set by

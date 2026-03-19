@@ -171,11 +171,10 @@ def test_keyboard_interrupt_cleanup():
             f"Could not get evaluation process PID. Stdout: {stdout_lines}"
         )
 
-        # Wait for worker threads to start.
+        # Heuristic wait for worker threads to start.
         # With asyncio.to_thread(), workers are threads inside the process
         # (not child processes), so we can't enumerate them from outside.
-        # Instead we verify the process is still alive — if workers hadn't
-        # started their 60 s sleep, the process would have exited already.
+        # 3 seconds is a rough guess that workers have started their 60s sleep.
         print("Waiting for workers to start...")
         time.sleep(3)
 
