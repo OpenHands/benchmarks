@@ -1,0 +1,122 @@
+name: "Experiment: ARG ordering test (benchmarks#544)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      n-limit:
+        description: 'Number of images to build'
+        required: false
+        default: '50'
+        type: string
+      sdk-commit:
+        description: 'SDK commit to test'
+        required: false
+        default: 'main'
+        type: string
+
+jobs:
+  test-arg-ordering:
+    runs-on:
+      labels: blacksmith-32vcpu-ubuntu-2204
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Update SDK submodule
+        if: ${{ inputs.sdk-commit != '' }}
+        run: |
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          SDK_SHA=$(git rev-parse HEAD)
+          cd ../..
+          echo "SDK at $SDK_SHA"
+
+      - name: Apply ARG ordering fix
+        run: |
+          DOCKERFILE="vendor/software-agent-sdk/openhands-agent-server/openhands/agent_server/docker/Dockerfile"
+          echo "=== BEFORE fix ==="
+          grep -n "OPENHANDS_BUILD_GIT" "$DOCKERFILE" || echo "(ARG not present)"
+
+          # Remove ARG/ENV from current position
+          sed -i '/^ARG OPENHANDS_BUILD_GIT_SHA=unknown$/d' "$DOCKERFILE"
+          sed -i '/^ARG OPENHANDS_BUILD_GIT_REF=unknown$/d' "$DOCKERFILE"
+          sed -i '/^ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}$/d' "$DOCKERFILE"
+          sed -i '/^ENV OPENHANDS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}$/d' "$DOCKERFILE"
+
+          # Insert after npm install, before COPY uv
+          sed -i '/^COPY --from=ghcr.io\/astral-sh\/uv \/uv \/uvx \/bin\/$/i\
+ARG OPENHANDS_BUILD_GIT_SHA=unknown\
+ARG OPENHANDS_BUILD_GIT_REF=unknown\
+ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}\
+ENV OPENHANDS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}' "$DOCKERFILE"
+
+          echo "=== AFTER fix ==="
+          grep -n "OPENHANDS_BUILD_GIT" "$DOCKERFILE"
+
+      - name: Set up Docker Buildx with Blacksmith
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: make build
+
+      - name: Build images with ARG fix
+        run: |
+          set -euo pipefail
+          N_LIMIT="${{ inputs.n-limit || '50' }}"
+          echo "Building $N_LIMIT images with ARG ordering fix..."
+          uv run benchmarks/swtbench/build_images.py \
+            --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
+            --split test \
+            --image ghcr.io/openhands/eval-agent-server \
+            --target source-minimal \
+            --max-workers 4 \
+            --build-batch-size 15 \
+            --n-limit "$N_LIMIT" \
+            --force-build \
+            --push
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          OPENHANDS_BUILDKIT_CACHE_MODE: "off"
+
+      - name: Display build summary
+        if: always()
+        run: |
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "ARG Ordering Experiment Summary" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Archive build logs
+        if: always()
+        run: |
+          if [ -d builds ]; then
+            tar -czf build-logs.tar.gz builds/
+          fi
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: experiment-logs-${{ github.run_id }}
+          path: build-logs.tar.gz
+          retention-days: 7
+          if-no-files-found: warn
