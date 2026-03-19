@@ -191,7 +191,9 @@ def _split_file(shared_path: str, output_dir: str, filename_template: str) -> No
                     if not content.endswith("\n"):
                         content += "\n"
                     if inst_id not in files:
-                        path = os.path.join(output_dir, filename_template.format(inst_id))
+                        path = os.path.join(
+                            output_dir, filename_template.format(inst_id)
+                        )
                         files[inst_id] = open(path, "w", encoding="utf-8")
                     files[inst_id].write(content)
     finally:
