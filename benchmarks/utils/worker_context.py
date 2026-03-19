@@ -10,13 +10,18 @@ This replaces complex thread-local routing with a simple prefix + post-process a
 import logging
 import os
 import re
+import sys
 import threading
 from contextlib import contextmanager
-from typing import Generator
+from typing import IO, Generator, TextIO
 
 
 # Thread-local storage for current instance ID (just a string, not complex objects)
 _current_instance: threading.local = threading.local()
+
+# Shared output file for stdout/stderr capture
+_output_file: IO[str] | None = None
+_output_lock = threading.Lock()
 
 
 class _InstanceFilter(logging.Filter):
@@ -29,24 +34,66 @@ class _InstanceFilter(logging.Filter):
         return True
 
 
-# Global filter instance (added to root logger once)
+class _OutputCapture:
+    """Captures stdout/stderr to shared file with instance prefix."""
+
+    def __init__(self, original: TextIO) -> None:
+        self._original = original
+
+    def write(self, s: str) -> int:
+        # Always write to original (terminal)
+        result = self._original.write(s)
+
+        # Also write to shared output file with instance prefix
+        if _output_file and s.strip():
+            instance_id = getattr(_current_instance, "id", None)
+            if instance_id:
+                with _output_lock:
+                    _output_file.write(f"[{instance_id}] {s}")
+                    if not s.endswith("\n"):
+                        _output_file.write("\n")
+                    _output_file.flush()
+        return result
+
+    def flush(self) -> None:
+        self._original.flush()
+
+    @property
+    def encoding(self) -> str:
+        return self._original.encoding
+
+    @property
+    def closed(self) -> bool:
+        return self._original.closed
+
+    def isatty(self) -> bool:
+        return self._original.isatty()
+
+    def fileno(self) -> int:
+        return self._original.fileno()
+
+
+# Global state
 _filter: _InstanceFilter | None = None
+_initialized = False
 
 
 def initialize(log_dir: str) -> None:
-    """Set up logging to a shared file with instance prefixing.
+    """Set up logging and stdout capture to shared files.
 
     Call once at the start of evaluation. All logs go to evaluation.log,
-    with each line prefixed by [instance_id].
+    stdout/stderr go to evaluation.output.log, both with [instance_id] prefix.
     """
-    global _filter
+    global _filter, _output_file, _initialized
+
+    if _initialized:
+        return
 
     os.makedirs(log_dir, exist_ok=True)
+
+    # Set up logging
     log_path = os.path.join(log_dir, "evaluation.log")
-
     root = logging.getLogger()
-
-    # Remove existing handlers, add our shared file handler
     root.handlers.clear()
 
     handler = logging.FileHandler(log_path, mode="a")
@@ -58,31 +105,39 @@ def initialize(log_dir: str) -> None:
 
     # Also log to stderr for visibility
     console = logging.StreamHandler()
-    console.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    )
+    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     console.setLevel(logging.WARNING)
     root.addHandler(console)
 
     root.setLevel(logging.DEBUG)
 
     # Add filter to prefix instance ID
-    if _filter is None:
-        _filter = _InstanceFilter()
-        root.addFilter(_filter)
+    _filter = _InstanceFilter()
+    root.addFilter(_filter)
+
+    # Set up stdout/stderr capture
+    output_path = os.path.join(log_dir, "evaluation.output.log")
+    _output_file = open(output_path, "a", buffering=1, encoding="utf-8")
+
+    if not isinstance(sys.stdout, _OutputCapture):
+        sys.stdout = _OutputCapture(sys.stdout)  # type: ignore[assignment]
+        sys.stderr = _OutputCapture(sys.stderr)  # type: ignore[assignment]
 
     # Suppress noisy OpenTelemetry context errors
     logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
+
+    _initialized = True
 
 
 @contextmanager
 def instance_context(log_dir: str, instance_id: str) -> Generator[None, None, None]:
     """Context manager that sets the current instance ID for logging.
 
-    All log messages within this context will be prefixed with [instance_id].
+    All log messages and stdout/stderr within this context will be
+    prefixed with [instance_id].
     """
     # Ensure logging is initialized
-    if _filter is None:
+    if not _initialized:
         initialize(log_dir)
 
     _current_instance.id = instance_id
@@ -94,31 +149,47 @@ def instance_context(log_dir: str, instance_id: str) -> Generator[None, None, No
 
 
 def split_logs(log_dir: str) -> None:
-    """Split the shared evaluation.log into per-instance files.
+    """Split shared log files into per-instance files.
 
-    Call after evaluation completes. Creates logs/instance_{id}.log files.
+    Call after evaluation completes. Creates:
+    - logs/instance_{id}.log (from evaluation.log)
+    - logs/instance_{id}.output.log (from evaluation.output.log)
     """
-    shared_log = os.path.join(log_dir, "evaluation.log")
-    if not os.path.exists(shared_log):
+    _split_file(
+        os.path.join(log_dir, "evaluation.log"),
+        log_dir,
+        "instance_{}.log",
+    )
+    _split_file(
+        os.path.join(log_dir, "evaluation.output.log"),
+        log_dir,
+        "instance_{}.output.log",
+    )
+
+
+def _split_file(shared_path: str, output_dir: str, filename_template: str) -> None:
+    """Split a shared log file into per-instance files."""
+    if not os.path.exists(shared_path):
         return
 
-    files: dict[str, object] = {}
+    files: dict[str, IO[str]] = {}
     pattern = re.compile(r"\[([^\]]+)\]")
 
     try:
-        with open(shared_log, "r", encoding="utf-8") as f:
+        with open(shared_path, "r", encoding="utf-8") as f:
             for line in f:
                 match = pattern.search(line)
                 if match:
                     inst_id = match.group(1)
                     if inst_id not in files:
-                        path = os.path.join(log_dir, f"instance_{inst_id}.log")
+                        path = os.path.join(output_dir, filename_template.format(inst_id))
                         files[inst_id] = open(path, "w", encoding="utf-8")
-                    files[inst_id].write(line)  # type: ignore[union-attr]
+                    files[inst_id].write(line)
     finally:
         for fh in files.values():
-            fh.close()  # type: ignore[union-attr]
+            fh.close()
 
-    logging.getLogger().info(
-        "Split evaluation.log into %d per-instance files", len(files)
-    )
+    if files:
+        logging.getLogger().info(
+            "Split %s into %d per-instance files", shared_path, len(files)
+        )
