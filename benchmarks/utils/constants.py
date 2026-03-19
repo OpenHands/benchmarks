@@ -8,6 +8,10 @@ EVAL_AGENT_SERVER_IMAGE = os.getenv(
     "OPENHANDS_EVAL_AGENT_SERVER_IMAGE", "ghcr.io/openhands/eval-agent-server"
 )
 
+# Image name for eval base images (SDK-independent layer).
+# These are built once per SWE-bench base image and reused across SDK commits.
+EVAL_BASE_IMAGE = os.getenv("OPENHANDS_EVAL_BASE_IMAGE", "ghcr.io/openhands/eval-base")
+
 # Model identifier used in swebench-style prediction entries.
 # The swebench harness uses this value to create log directory structures
 # (logs/run_evaluation/{run_id}/{model_name_or_path}/{instance_id}/)

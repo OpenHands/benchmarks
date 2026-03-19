@@ -15,6 +15,12 @@ WRAPPED_REPOS: Final[frozenset[str]] = frozenset(
     {"sphinx-doc"}
 )  # Repos requiring docutils/roman wrapper
 
+# Base image tag version -- bump this when the base layer Dockerfile
+# (base-image-minimal stage in the SDK Dockerfile) changes so that stale
+# cached bases are rebuilt.  The version is prefixed to the eval-base tag:
+#   ghcr.io/openhands/eval-base:v1-sweb.eval.x86_64.django_1776_django-12155
+BASE_IMAGE_TAG_VERSION: Final[str] = "v1"
+
 # Build target type (matches openhands.agent_server.docker.build.TargetType)
 TargetType = Literal["binary", "binary-minimal", "source", "source-minimal"]
 BUILD_TARGET_SOURCE_MINIMAL: Final[TargetType] = "source-minimal"

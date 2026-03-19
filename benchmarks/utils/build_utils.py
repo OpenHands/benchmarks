@@ -30,7 +30,7 @@ from benchmarks.utils.buildx_utils import (
     maybe_prune_buildkit_cache,
     maybe_reset_buildkit,
 )
-from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE, EVAL_BASE_IMAGE
 from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
 from openhands.sdk import get_logger
 
@@ -480,6 +480,391 @@ def build_image(
     )
 
 
+def _get_sdk_dockerfile() -> Path:
+    """Return path to the SDK Dockerfile."""
+    return (
+        _sdk_root()
+        / "openhands-agent-server"
+        / "openhands"
+        / "agent_server"
+        / "docker"
+        / "Dockerfile"
+    )
+
+
+def build_base_image(
+    swebench_image: str,
+    base_image_tag: str,
+    push: bool = False,
+    force_build: bool = False,
+) -> BuildOutput:
+    """
+    Build an eval-base image from a SWE-bench base image.
+
+    Uses the SDK Dockerfile with ``--target base-image-minimal``.
+    The base-image-minimal stage is SDK-independent (no COPY from local context),
+    so we use an empty build context.
+
+    Args:
+        swebench_image: Official SWE-bench Docker image (e.g. docker.io/swebench/sweb.eval...).
+        base_image_tag: Full tag for the eval-base image (e.g. ghcr.io/openhands/eval-base:v1-...).
+        push: Whether to push to registry.
+        force_build: Rebuild even if the image already exists.
+    """
+    if not _force_build_enabled(force_build):
+        remote_check_started = time.monotonic()
+        if remote_image_exists(base_image_tag):
+            logger.info("Base image %s already exists. Skipping.", base_image_tag)
+            return BuildOutput(
+                base_image=swebench_image,
+                tags=[base_image_tag],
+                status="skipped_remote_exists",
+                skip_reason="remote_image_exists",
+                remote_check_seconds=_round_duration(
+                    time.monotonic() - remote_check_started
+                ),
+                build_seconds=0.0,
+            )
+
+    dockerfile = _get_sdk_dockerfile()
+    if not dockerfile.exists():
+        return BuildOutput(
+            base_image=swebench_image,
+            tags=[],
+            error=f"SDK Dockerfile not found at {dockerfile}",
+            status="failed",
+        )
+
+    # base-image-minimal doesn't COPY any local files, so an empty context works.
+    with tempfile.TemporaryDirectory(prefix="eval-base-ctx-") as ctx:
+        cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "--file",
+            str(dockerfile),
+            "--target",
+            "base-image-minimal",
+            "--build-arg",
+            f"BASE_IMAGE={swebench_image}",
+            "--platform",
+            "linux/amd64",
+            "--tag",
+            base_image_tag,
+        ]
+        if push:
+            cmd.append("--push")
+        else:
+            cmd.append("--load")
+        cmd.append(ctx)
+
+        logger.info("Building base image: %s", " ".join(cmd))
+        build_started = time.monotonic()
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        build_seconds = _round_duration(time.monotonic() - build_started)
+
+        if proc.stdout:
+            print(proc.stdout, end="")
+        if proc.stderr:
+            print(proc.stderr, end="", file=sys.stderr)
+
+        if proc.returncode != 0:
+            error = (
+                proc.stderr.strip()
+                or proc.stdout.strip()
+                or f"Base image build failed with exit code {proc.returncode}"
+            )
+            return BuildOutput(
+                base_image=swebench_image,
+                tags=[],
+                error=error,
+                status="failed",
+                build_seconds=build_seconds,
+            )
+
+    return BuildOutput(
+        base_image=swebench_image,
+        tags=[base_image_tag],
+        status="built",
+        build_seconds=build_seconds,
+    )
+
+
+def build_agent_layer(
+    base_image: str,
+    target_image: str,
+    custom_tag: str,
+    target: TargetType = "source-minimal",
+    push: bool = False,
+    force_build: bool = False,
+    cached_sdist: Path | None = None,
+) -> BuildOutput:
+    """
+    Build a thin agent-server image on top of a pre-built eval-base image.
+
+    Uses Dockerfile.eval-agent which has a builder stage (SDK venv) and a final
+    stage that just COPYs onto the pre-built base.  This is much faster than a
+    full build because the expensive base layer is already cached.
+
+    Signature matches ``build_image`` so it can be used as a drop-in replacement
+    via ``build_all_images(build_fn=build_agent_layer)``.
+    """
+    from openhands.agent_server.docker.build import _make_build_context
+
+    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+    short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
+    remote_check_seconds = 0.0
+
+    # Compute the agent tag (same format as the existing build_image output)
+    target_suffix = f"-{target}" if target != "binary" else ""
+    agent_tag = f"{target_image}:{short_sha}-{custom_tag}{target_suffix}"
+
+    if not _force_build_enabled(force_build):
+        remote_check_started = time.monotonic()
+        if remote_image_exists(agent_tag):
+            logger.info("Agent image %s already exists. Skipping.", agent_tag)
+            return BuildOutput(
+                base_image=base_image,
+                tags=[agent_tag],
+                status="skipped_remote_exists",
+                skip_reason="remote_image_exists",
+                remote_check_seconds=_round_duration(
+                    time.monotonic() - remote_check_started
+                ),
+                build_seconds=0.0,
+            )
+        remote_check_seconds = _round_duration(time.monotonic() - remote_check_started)
+
+    # Create SDK build context (same sdist extraction as the normal build)
+    sdk_root = _sdk_root()
+    agent_dockerfile = (
+        Path(__file__).resolve().parent.parent / "swebench" / "Dockerfile.eval-agent"
+    )
+    if not agent_dockerfile.exists():
+        return BuildOutput(
+            base_image=base_image,
+            tags=[],
+            error=f"Dockerfile.eval-agent not found at {agent_dockerfile}",
+            status="failed",
+        )
+
+    build_started = time.monotonic()
+    try:
+        ctx = _make_build_context(sdk_root, cached_sdist)
+    except Exception as exc:
+        return BuildOutput(
+            base_image=base_image,
+            tags=[],
+            error=f"Failed to create build context: {exc!r}",
+            status="failed",
+            remote_check_seconds=remote_check_seconds,
+            build_seconds=_round_duration(time.monotonic() - build_started),
+        )
+
+    try:
+        # Copy our thin Dockerfile into the build context
+        shutil.copy2(agent_dockerfile, ctx / "Dockerfile")
+
+        cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "--file",
+            str(ctx / "Dockerfile"),
+            "--build-arg",
+            f"BASE_IMAGE={base_image}",
+            "--build-arg",
+            f"OPENHANDS_BUILD_GIT_SHA={git_sha}",
+            "--build-arg",
+            f"OPENHANDS_BUILD_GIT_REF={git_ref}",
+            "--platform",
+            "linux/amd64",
+            "--tag",
+            agent_tag,
+        ]
+        if push:
+            cmd.append("--push")
+        else:
+            cmd.append("--load")
+        cmd.append(str(ctx))
+
+        logger.info("Building agent layer: %s", " ".join(cmd))
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        build_seconds = _round_duration(time.monotonic() - build_started)
+
+        if proc.stdout:
+            print(proc.stdout, end="")
+        if proc.stderr:
+            print(proc.stderr, end="", file=sys.stderr)
+
+        if proc.returncode != 0:
+            error = (
+                proc.stderr.strip()
+                or proc.stdout.strip()
+                or f"Agent layer build failed with exit code {proc.returncode}"
+            )
+            return BuildOutput(
+                base_image=base_image,
+                tags=[],
+                error=error,
+                status="failed",
+                remote_check_seconds=remote_check_seconds,
+                build_seconds=build_seconds,
+            )
+    finally:
+        shutil.rmtree(ctx, ignore_errors=True)
+
+    return BuildOutput(
+        base_image=base_image,
+        tags=[agent_tag],
+        status="built",
+        remote_check_seconds=remote_check_seconds,
+        build_seconds=build_seconds,
+    )
+
+
+def build_all_base_images(
+    base_images: list[str],
+    base_image_to_custom_tag_fn: Callable[[str], str],
+    base_image_tag_version: str,
+    build_dir: Path,
+    eval_base_image: str = EVAL_BASE_IMAGE,
+    push: bool = False,
+    max_workers: int = 8,
+    force_build: bool = False,
+    max_retries: int = 3,
+) -> int:
+    """
+    Build eval-base images for all unique SWE-bench base images.
+
+    These images contain the expensive base layer (apt-get, npm, etc.) without
+    any SDK dependency.  They are tagged by SWE-bench image ID only and persist
+    across SDK commits.
+
+    Returns:
+        Exit code: 0 if all builds succeeded, 1 if any failed.
+    """
+    build_log_dir = build_dir / "logs"
+    manifest_file = build_dir / "base-manifest.jsonl"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+
+    built = 0
+    skipped = 0
+    failures = 0
+    results: list[BuildOutput] = []
+
+    with (
+        manifest_file.open("w") as writer,
+        tqdm(
+            total=len(base_images),
+            desc="Building eval-base images",
+            leave=True,
+        ) as pbar,
+    ):
+        with ProcessPoolExecutor(max_workers=max_workers) as ex:
+            futures = {}
+            for swebench_image in base_images:
+                custom_tag = base_image_to_custom_tag_fn(swebench_image)
+                base_tag = f"{eval_base_image}:{base_image_tag_version}-{custom_tag}"
+                fut = ex.submit(
+                    _build_base_with_logging,
+                    log_dir=build_log_dir,
+                    swebench_image=swebench_image,
+                    base_image_tag=base_tag,
+                    push=push,
+                    force_build=force_build,
+                    max_retries=max_retries,
+                )
+                futures[fut] = swebench_image
+
+            for fut in as_completed(futures):
+                swebench_image = futures[fut]
+                try:
+                    result: BuildOutput = fut.result()
+                except Exception as e:
+                    logger.error("Base build failed for %s: %r", swebench_image, e)
+                    result = BuildOutput(
+                        base_image=swebench_image,
+                        tags=[],
+                        error=repr(e),
+                        status="failed",
+                    )
+
+                writer.write(result.model_dump_json() + "\n")
+                writer.flush()
+                results.append(result)
+
+                if result.error or not result.tags:
+                    failures += 1
+                elif result.status == "skipped_remote_exists":
+                    skipped += 1
+                else:
+                    built += 1
+                pbar.update(1)
+
+    logger.info(
+        "Base images done. Built=%d Skipped=%d Failed=%d", built, skipped, failures
+    )
+    return 1 if failures else 0
+
+
+def _build_base_with_logging(
+    log_dir: Path,
+    swebench_image: str,
+    base_image_tag: str,
+    push: bool = False,
+    force_build: bool = False,
+    max_retries: int = 3,
+) -> BuildOutput:
+    """Build a single base image with output capture and retries."""
+    assert max_retries >= 1
+    final_result: BuildOutput | None = None
+
+    for attempt in range(max_retries):
+        with capture_output(swebench_image, log_dir) as log_path:
+            if attempt > 0:
+                logger.info(
+                    "Retrying base build for %s (attempt %d/%d)",
+                    swebench_image,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(2 + attempt * 2)
+
+            try:
+                result = build_base_image(
+                    swebench_image=swebench_image,
+                    base_image_tag=base_image_tag,
+                    push=push,
+                    force_build=force_build,
+                )
+            except Exception as e:
+                result = BuildOutput(
+                    base_image=swebench_image,
+                    tags=[],
+                    error=repr(e),
+                    log_path=str(log_path),
+                    status="failed",
+                )
+
+            result.log_path = str(log_path)
+            if result.error:
+                logger.error(
+                    "Base build error for %s: %s", swebench_image, result.error
+                )
+                final_result = result
+                if attempt == max_retries - 1:
+                    break
+                continue
+
+            final_result = result
+            break
+
+    if final_result is None:
+        raise RuntimeError("Unreachable")
+    return final_result
+
+
 def ensure_local_image(
     agent_server_image: str,
     base_image: str,
@@ -529,6 +914,7 @@ def _build_with_logging(
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
     cached_sdist: Path | None = None,
+    build_fn: Callable[..., BuildOutput] | None = None,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -543,8 +929,12 @@ def _build_with_logging(
         post_build_fn: Optional callback called after successful build.
             Receives (build_result, push) and returns modified BuildOutput.
             If it returns an error, the build is retried.
+        build_fn: Optional override for the build function.
+            Must have the same signature as ``build_image``.
+            Defaults to ``build_image`` when None.
     """
     assert max_retries >= 1, "max_retries must be at least 1"
+    _build = build_fn or build_image
     overall_started_at = _utcnow_iso()
     overall_started_monotonic = time.monotonic()
     remote_check_total = 0.0
@@ -568,7 +958,7 @@ def _build_with_logging(
                 max_retries,
             )
             try:
-                result = build_image(
+                result = _build(
                     base_image,
                     target_image,
                     custom_tag,
@@ -680,6 +1070,7 @@ def build_all_images(
     force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    build_fn: Callable[..., BuildOutput] | None = None,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
@@ -702,6 +1093,9 @@ def build_all_images(
         post_build_fn: Optional callback called after each successful build.
             Receives (build_result, push) and returns modified BuildOutput.
             If it returns an error, the build is retried.
+        build_fn: Optional override for the per-image build function.
+            Must have the same signature as ``build_image``.
+            When set, the split base/agent build strategy is used.
 
     Returns:
         Exit code: 0 if all builds succeeded, 1 if any failed.
@@ -788,6 +1182,7 @@ def build_all_images(
                         max_retries=max_retries,
                         post_build_fn=post_build_fn,
                         cached_sdist=cached_sdist,
+                        build_fn=build_fn,
                     )
                     futures[fut] = base
 

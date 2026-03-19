@@ -3,12 +3,25 @@
 Build agent-server images for all unique SWE-Bench base images in a dataset split,
 optionally wrapping them with a lightweight layer that pins docutils<0.21 and installs roman.
 
+The build uses a two-phase "split" strategy to avoid full 9h+ rebuilds when only
+the SDK commit changes:
+
+  Phase 1 – eval-base images (SDK-independent, cached across SDK commits)
+    Tag: ghcr.io/openhands/eval-base:v1-sweb.eval.x86_64.django_1776_django-12155
+    Contains: SWE-bench base + apt/npm packages + user setup.
+    Only rebuilt when the SWE-bench upstream image or the base Dockerfile changes.
+
+  Phase 2 – agent-server images (thin layer, seconds per image)
+    Tag: ghcr.io/openhands/eval-agent-server:<SDK_SHA>-<custom_tag>-source-minimal
+    Contains: pre-built base + SDK venv (COPY from builder stage).
+
 Example:
   uv run benchmarks/swebench/build_images.py \
     --dataset princeton-nlp/SWE-bench_Verified --split test \
     --image ghcr.io/openhands/eval-agent-server --target source-minimal
 """
 
+import functools
 import sys
 from pathlib import Path
 
@@ -16,11 +29,14 @@ from benchmarks.swebench import constants
 from benchmarks.swebench.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     BuildOutput,
+    build_agent_layer,
+    build_all_base_images,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
     run_docker_build_layer,
 )
+from benchmarks.utils.constants import EVAL_BASE_IMAGE
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
@@ -56,6 +72,11 @@ def extract_custom_tag(base_image: str) -> str:
     name_tag = base_image.split("/")[-1]
     name = name_tag.split(":")[0]
     return name
+
+
+def eval_base_tag_for_custom_tag(custom_tag: str) -> str:
+    """Return the full eval-base image reference for a given custom tag."""
+    return f"{EVAL_BASE_IMAGE}:{constants.BASE_IMAGE_TAG_VERSION}-{custom_tag}"
 
 
 def should_wrap_custom_tag(custom_tag: str) -> bool:
@@ -157,6 +178,50 @@ def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:
     return result
 
 
+def _make_agent_layer_build_fn(
+    swebench_image_to_eval_base: dict[str, str],
+) -> functools.partial:
+    """
+    Create a build function that maps SWE-bench base images to pre-built
+    eval-base images and delegates to ``build_agent_layer``.
+
+    ``build_all_images`` passes ``base_image`` (the SWE-bench image) to the
+    build function.  We intercept it, look up the corresponding eval-base tag,
+    and forward to ``build_agent_layer``.
+    """
+
+    def _build(
+        base_image: str,
+        target_image: str,
+        custom_tag: str,
+        target="source-minimal",
+        push: bool = False,
+        force_build: bool = False,
+        cached_sdist=None,
+        *,
+        _mapping: dict[str, str] = swebench_image_to_eval_base,
+    ) -> BuildOutput:
+        eval_base = _mapping.get(base_image)
+        if eval_base is None:
+            return BuildOutput(
+                base_image=base_image,
+                tags=[],
+                error=f"No eval-base mapping for {base_image}",
+                status="failed",
+            )
+        return build_agent_layer(
+            base_image=eval_base,
+            target_image=target_image,
+            custom_tag=custom_tag,
+            target=target,
+            push=push,
+            force_build=force_build,
+            cached_sdist=cached_sdist,
+        )
+
+    return _build  # type: ignore[return-value]
+
+
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
     parser.set_defaults(**BUILD_DEFAULTS)
@@ -170,6 +235,37 @@ def main(argv: list[str]) -> int:
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
 
+    if args.dry_run:
+        print("\n".join(base_images))
+        return 0
+
+    # ── Phase 1: build eval-base images (SDK-independent, cached across commits) ──
+    logger.info(
+        "Phase 1: building %d eval-base images (SDK-independent)", len(base_images)
+    )
+    base_rc = build_all_base_images(
+        base_images=base_images,
+        base_image_to_custom_tag_fn=extract_custom_tag,
+        base_image_tag_version=constants.BASE_IMAGE_TAG_VERSION,
+        build_dir=build_dir,
+        push=args.push,
+        max_workers=args.max_workers,
+        force_build=args.force_build,
+        max_retries=args.max_retries,
+    )
+    if base_rc != 0:
+        logger.error("Phase 1 failed: some base images could not be built.")
+        return base_rc
+
+    # ── Phase 2: build thin agent layers on pre-built bases ──
+    logger.info("Phase 2: building %d agent layers on cached bases", len(base_images))
+
+    # Build mapping: SWE-bench image → eval-base tag
+    swebench_to_eval_base = {
+        img: eval_base_tag_for_custom_tag(extract_custom_tag(img))
+        for img in base_images
+    }
+
     return build_all_images(
         base_images=base_images,
         target=args.target,
@@ -178,11 +274,12 @@ def main(argv: list[str]) -> int:
         push=args.push,
         max_workers=args.max_workers,
         build_batch_size=args.build_batch_size,
-        dry_run=args.dry_run,
+        dry_run=False,
         force_build=args.force_build,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
         post_build_fn=_wrap_if_needed,
+        build_fn=_make_agent_layer_build_fn(swebench_to_eval_base),
     )
 
 
