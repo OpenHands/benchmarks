@@ -65,7 +65,10 @@ print(json.dumps(s))
 
 def normalize_pytest_cmd(test_cmd: str) -> str:
     """Replace bare pytest/pytest3 with python -m pytest to avoid PATH/permission issues."""
-    if re.match(r"pytest\d?$", test_cmd.strip()) and "python -m pytest" not in test_cmd:
+    if (
+        re.match(r"pytest\d?(\s|$)", test_cmd.strip())
+        and "python -m pytest" not in test_cmd
+    ):
         test_cmd = re.sub(r"\bpytest(\d?)", r"python -m pytest\1", test_cmd, count=1)
     return test_cmd
 

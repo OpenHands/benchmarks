@@ -14,6 +14,10 @@ from benchmarks.commit0.run_infer import get_pythonpath_prefix, normalize_pytest
         ("mypytest", "mypytest"),
         ("pytest-xdist", "pytest-xdist"),
         ("pytest_runner", "pytest_runner"),
+        (
+            "pytest --assert=plain --ignore=setup.py",
+            "python -m pytest --assert=plain --ignore=setup.py",
+        ),
     ],
     ids=[
         "bare_pytest",
@@ -22,6 +26,7 @@ from benchmarks.commit0.run_infer import get_pythonpath_prefix, normalize_pytest
         "substring_mypytest",
         "substring_pytest-xdist",
         "substring_pytest_runner",
+        "real-parsel-scenario",
     ],
 )
 def test_normalize_pytest_cmd(input_cmd, expected):
