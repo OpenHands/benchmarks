@@ -1,8 +1,14 @@
-"""Unified thread-safety context for evaluation worker threads.
+"""Thread-local context for evaluation worker threads.
 
-Consolidates all per-thread routing infrastructure (logging handlers,
-stdout/stderr redirection) into a single module with one threading.local()
-and one context manager.
+Provides per-thread logging and stdout/stderr redirection for asyncio workers.
+
+Why thread-local routing is necessary:
+- Third-party code (SDK, OpenTelemetry, litellm) calls logging.getLogger()
+  and writes to the root logger. We can't pass explicit loggers to them.
+- sys.stdout/stderr are process-global. SDK code and tqdm print() to them.
+  The only way to route per-thread is a wrapper that checks thread-local state.
+
+This is the standard pattern (same as Django's locale.activate() per-request).
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ import os
 import sys
 import threading
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, TextIO
 
 from benchmarks.utils.console_logging import (
     BG_BLUE,
@@ -25,28 +31,19 @@ from benchmarks.utils.console_logging import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Single thread-local for ALL per-thread state
-# ---------------------------------------------------------------------------
+# Single thread-local for all per-thread state
 _ctx = threading.local()
-
-# One-time initialization guard
-_setup_lock = threading.Lock()
+_init_lock = threading.Lock()
 _initialized = False
 
 
 # ---------------------------------------------------------------------------
-# Thread-routed logging handlers
+# Logging handlers (one instance each, attached to root logger)
 # ---------------------------------------------------------------------------
 
 
-class _RoutedFileHandler(logging.Handler):
-    """Routes log records to per-thread file handlers via _ctx.
-
-    A single instance is attached to the root logger. Each worker thread
-    stores its own FileHandler in _ctx.file_handler, and this handler
-    delegates to whichever FileHandler the current thread has.
-    """
+class _FileHandler(logging.Handler):
+    """Writes to the per-thread file stored in _ctx.file_handler."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
@@ -55,113 +52,79 @@ class _RoutedFileHandler(logging.Handler):
         )
 
     def emit(self, record: logging.LogRecord) -> None:
-        fh: logging.FileHandler | None = getattr(_ctx, "file_handler", None)
+        fh = getattr(_ctx, "file_handler", None)
         if fh is None:
-            return
-        record_msg = self.format(record)
+            return  # Thread has no log file configured
+        msg = self.format(record)
         try:
-            fh.stream.write(record_msg + "\n")
+            fh.stream.write(msg + "\n")
             fh.stream.flush()
-        except (OSError, ValueError):
-            # File handler failed (closed file, disk full, etc.) —
-            # fall back to stderr so the message isn't silently lost.
+        except (OSError, ValueError) as e:
+            # Write failed — log to stderr so we know something is wrong
             if sys.__stderr__:
-                try:
-                    sys.__stderr__.write(record_msg + "\n")
-                except Exception:
-                    pass
+                sys.__stderr__.write(f"[logging failed: {e}] {msg}\n")
 
 
-class _RoutedConsoleHandler(logging.Handler):
-    """Routes console output with per-thread formatter via _ctx.
-
-    All output goes to sys.__stderr__ to protect stdout (used for JSON
-    output parsing by shell scripts). Each worker thread stores its own
-    formatter/filter in _ctx.
-    """
+class _ConsoleHandler(logging.Handler):
+    """Writes to stderr with per-thread formatter from _ctx."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
 
     def emit(self, record: logging.LogRecord) -> None:
         fmt = getattr(_ctx, "console_formatter", None)
-        filt = getattr(_ctx, "console_filter", None)
-        level = getattr(_ctx, "console_level", logging.WARNING)
-        if record.levelno < level:
-            if filt and not filt.filter(record):
-                return
-            elif not filt:
-                return
         if fmt is None:
-            return
-        stream = sys.__stderr__
-        if stream:
+            return  # Thread has no console formatter
+        level = getattr(_ctx, "console_level", logging.WARNING)
+        filt = getattr(_ctx, "console_filter", None)
+        # Check level and filter
+        if record.levelno < level:
+            if not (filt and filt.filter(record)):
+                return
+        if sys.__stderr__:
             try:
-                msg = fmt.format(record)
-                stream.write(msg + "\n")
-                stream.flush()
+                sys.__stderr__.write(fmt.format(record) + "\n")
+                sys.__stderr__.flush()
             except (OSError, ValueError):
-                pass  # stderr itself failed — nothing left to fall back to
+                pass  # stderr failed — nothing left to try
 
 
 # ---------------------------------------------------------------------------
-# Thread-local stdout/stderr writer
+# stdout/stderr wrapper
 # ---------------------------------------------------------------------------
 
 
-class _ThreadLocalWriter:
-    """A sys.stdout/sys.stderr replacement that writes to a per-thread file.
+class _StdoutWrapper:
+    """Redirects writes to _ctx.output_file or original stream.
 
-    If the current thread has set ``_ctx.log_file``, writes go there.
-    Otherwise writes fall through to the original stream (usually the real
-    terminal stdout/stderr).
+    Explicit properties instead of __getattr__ to avoid hiding bugs.
     """
 
-    def __init__(self, original: object) -> None:
+    def __init__(self, original: TextIO) -> None:
         self._original = original
 
-    def _target(self) -> object:
-        return getattr(_ctx, "log_file", None) or self._original
-
-    # --- file-like API used by print() and the logging module ---------------
+    def _target(self) -> TextIO:
+        return getattr(_ctx, "output_file", None) or self._original
 
     def write(self, s: str) -> int:
-        target = self._target()
-        try:
-            return target.write(s)  # type: ignore[union-attr]
-        except (ValueError, OSError):
-            # Target closed/broken — try original, then __stderr__ as last resort
-            try:
-                return self._original.write(s)  # type: ignore[union-attr]
-            except Exception:
-                if sys.__stderr__:
-                    return sys.__stderr__.write(s)
-                return 0
+        return self._target().write(s)
 
     def flush(self) -> None:
-        target = self._target()
-        try:
-            target.flush()  # type: ignore[union-attr]
-        except (ValueError, OSError):
-            try:
-                self._original.flush()  # type: ignore[union-attr]
-            except Exception:
-                if sys.__stderr__:
-                    sys.__stderr__.flush()
+        self._target().flush()
 
     @property
     def encoding(self) -> str:
-        return self._target().encoding  # type: ignore[union-attr]
+        return self._original.encoding
 
     @property
     def closed(self) -> bool:
-        return self._target().closed  # type: ignore[union-attr]
+        return self._original.closed
 
     def isatty(self) -> bool:
-        return self._original.isatty()  # type: ignore[union-attr]
+        return self._original.isatty()
 
     def fileno(self) -> int:
-        return self._original.fileno()  # type: ignore[union-attr]
+        return self._original.fileno()
 
 
 # ---------------------------------------------------------------------------
@@ -170,35 +133,32 @@ class _ThreadLocalWriter:
 
 
 def initialize() -> None:
-    """One-time setup: install handlers on root logger, install
-    _ThreadLocalWriter on sys.stdout/stderr, suppress OTel logger,
-    set main-thread defaults.
+    """One-time setup: install routed handlers and stdout wrapper.
 
-    Idempotent — safe to call multiple times.
+    Also sets up main-thread defaults so it can log without instance_context.
     """
     global _initialized
-    with _setup_lock:
-        if not _initialized:
-            # Replace root logger handlers with thread-routed handlers
-            root_logger = logging.getLogger()
-            for handler in root_logger.handlers[:]:
-                root_logger.removeHandler(handler)
-            root_logger.addHandler(_RoutedFileHandler())
-            root_logger.addHandler(_RoutedConsoleHandler())
-            root_logger.setLevel(logging.DEBUG)
+    with _init_lock:
+        if _initialized:
+            return
+        # Install routed handlers on root logger
+        root = logging.getLogger()
+        root.handlers.clear()
+        root.addHandler(_FileHandler())
+        root.addHandler(_ConsoleHandler())
+        root.setLevel(logging.DEBUG)
 
-            # Install thread-local writers for stdout/stderr
-            if not isinstance(sys.stdout, _ThreadLocalWriter):
-                sys.stdout = _ThreadLocalWriter(sys.stdout)  # type: ignore[assignment]
-                sys.stderr = _ThreadLocalWriter(sys.stderr)  # type: ignore[assignment]
+        # Install stdout/stderr wrappers
+        if not isinstance(sys.stdout, _StdoutWrapper):
+            sys.stdout = _StdoutWrapper(sys.stdout)  # type: ignore[assignment]
+            sys.stderr = _StdoutWrapper(sys.stderr)  # type: ignore[assignment]
 
-            # Suppress noisy OpenTelemetry context-detach errors that happen
-            # when spans created in the main thread are ended in worker threads.
-            logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
+        # Suppress noisy OTel context-detach errors
+        logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
 
-            _initialized = True
+        _initialized = True
 
-    # Set main-thread defaults (plain formatter, WARNING+ only)
+    # Main-thread defaults (console only, WARNING+)
     if not hasattr(_ctx, "console_formatter"):
         _ctx.console_formatter = _PlainFormatter("main")
         _ctx.console_filter = None
@@ -207,125 +167,68 @@ def initialize() -> None:
 
 @contextmanager
 def instance_context(log_dir: str, instance_id: str) -> Generator[None, None, None]:
-    """Single context manager replacing setup_instance_logging() and
-    redirect_stdout_stderr().
-
-    Sets up:
-    1. Thread-routed logging (file handler + console formatter/filter)
-    2. stdout/stderr redirection to per-instance output log file
-
-    All state is stored in ``_ctx`` and restored on exit.
+    """Set up per-instance logging and output redirection for this thread.
 
     Args:
         log_dir: Directory for log files
         instance_id: The evaluation instance ID
     """
-    # Ensure global handlers are installed (idempotent)
     initialize()
 
-    log_file_path = os.path.join(log_dir, f"instance_{instance_id}.log")
-    output_log_path = os.path.join(log_dir, f"instance_{instance_id}.output.log")
+    log_path = os.path.join(log_dir, f"instance_{instance_id}.log")
+    output_path = os.path.join(log_dir, f"instance_{instance_id}.output.log")
     short_id = (
         instance_id.split("__")[-1][:20] if "__" in instance_id else instance_id[:20]
     )
     rich_mode = _rich_logging_enabled()
 
-    # Save previous state for restoration
-    prev_file_handler: logging.FileHandler | None = getattr(_ctx, "file_handler", None)
-    prev_console_formatter = getattr(_ctx, "console_formatter", None)
-    prev_console_filter = getattr(_ctx, "console_filter", None)
-    prev_console_level = getattr(_ctx, "console_level", None)
-    had_log_file = hasattr(_ctx, "log_file")
-    prev_log_file = getattr(_ctx, "log_file", None)
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
+    output_file = open(output_path, "a", buffering=1, encoding="utf-8")  # noqa: SIM115
 
-    output_file = None
-    fh = None
-    try:
-        os.makedirs(log_dir, exist_ok=True)
+    # Set thread-local state
+    _ctx.file_handler = logging.FileHandler(log_path)
+    _ctx.output_file = output_file
+    if rich_mode:
+        _ctx.console_formatter = _ColorFormatter(instance_id)
+        _ctx.console_filter = _ConsoleFilter()
+        _ctx.console_level = logging.INFO
+    else:
+        _ctx.console_formatter = _PlainFormatter(instance_id)
+        _ctx.console_filter = None
+        _ctx.console_level = logging.WARNING
 
-        # --- Set up logging file handler ---
-        if prev_file_handler is not None:
-            try:
-                prev_file_handler.close()
-            except Exception:
-                pass
-
-        fh = logging.FileHandler(log_file_path)
-        _ctx.file_handler = fh
-
-        # --- Set up console formatter/filter ---
-        if rich_mode:
-            _ctx.console_formatter = _ColorFormatter(instance_id)
-            _ctx.console_filter = _ConsoleFilter()
-            _ctx.console_level = logging.INFO
-        else:
-            _ctx.console_formatter = _PlainFormatter(instance_id)
-            _ctx.console_filter = None
-            _ctx.console_level = logging.WARNING
-
-        # --- Set up stdout/stderr redirect ---
-        output_file = open(  # noqa: SIM115
-            output_log_path, "a", buffering=1, encoding="utf-8"
-        )
-        _ctx.log_file = output_file
-
-        # --- Print startup message ---
-        root_logger = logging.getLogger()
-        if rich_mode:
-            print(
+    # Print startup message
+    if rich_mode:
+        if sys.__stderr__:
+            sys.__stderr__.write(
                 format_line(
                     short_id=short_id,
                     tag="START",
-                    message=f"{instance_id} | Logs: {log_file_path}",
+                    message=f"{instance_id} | Logs: {log_path}",
                     tag_bg=BG_BLUE,
                     message_color=CYAN_BRIGHT,
                     newline_before=True,
-                ),
-                file=sys.__stderr__,
+                )
+                + "\n"
             )
-            if sys.__stderr__ is not None:
-                sys.__stderr__.flush()
-        else:
-            # Temporarily allow INFO for the startup message
-            _ctx.console_level = logging.INFO
-            root_logger.info(
-                f"""
-    === Evaluation Started (instance {instance_id}) ===
-    View live output:
-    • tail -f {log_file_path}          (logger)
-    • tail -f {output_log_path}   (stdout/stderr)
-    ===============================================
-    """.strip()
-            )
-            # Restore WARNING+ for console after startup message
-            _ctx.console_level = logging.WARNING
+            sys.__stderr__.flush()
+    else:
+        # Temporarily allow INFO for startup message
+        _ctx.console_level = logging.INFO
+        logging.getLogger().info(
+            f"=== Evaluation Started (instance {instance_id}) ===\n"
+            f"    • tail -f {log_path}      (logger)\n"
+            f"    • tail -f {output_path}   (stdout/stderr)"
+        )
+        _ctx.console_level = logging.WARNING
 
+    try:
         yield
-
     finally:
-        # Restore previous state
-        if had_log_file:
-            _ctx.log_file = prev_log_file
-        elif hasattr(_ctx, "log_file"):
-            del _ctx.log_file
-
-        if prev_console_formatter is not None:
-            _ctx.console_formatter = prev_console_formatter
-        if prev_console_filter is not None:
-            _ctx.console_filter = prev_console_filter
-        if prev_console_level is not None:
-            _ctx.console_level = prev_console_level
-
-        # Don't restore prev_file_handler (it was closed above);
-        # just clear if there was no previous one
-        if prev_file_handler is None and hasattr(_ctx, "file_handler"):
-            del _ctx.file_handler
-
-        # Close files
-        if output_file is not None and not output_file.closed:
-            output_file.close()
-        if fh is not None:
-            try:
-                fh.close()
-            except Exception:
-                pass
+        # Clear thread-local state
+        for attr in ("file_handler", "output_file", "console_formatter", "console_filter"):
+            if hasattr(_ctx, attr):
+                delattr(_ctx, attr)
+        log_file.close()
+        output_file.close()

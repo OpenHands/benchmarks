@@ -761,12 +761,13 @@ class Evaluation(ABC, BaseModel):
                 if eval_span is not None:
                     try:
                         eval_span.end()
-                    except RuntimeError:
-                        # Expected: contextvars tokens created in the main
-                        # thread cannot be detached from a worker thread.
-                        pass
+                    except RuntimeError as e:
+                        # Contextvars tokens from main thread can't detach in worker.
+                        # Only ignore this specific error, log others.
+                        if "context" not in str(e).lower():
+                            logger.warning("[worker] span.end() RuntimeError: %s", e)
                     except Exception as e:
-                        logger.warning("[worker] Unexpected span.end() error: %s", e)
+                        logger.warning("[worker] span.end() error: %s", e)
 
     def _execute_single_attempt(
         self,
@@ -898,12 +899,13 @@ class Evaluation(ABC, BaseModel):
             if exec_span is not None:
                 try:
                     exec_span.end()
-                except RuntimeError:
-                    # Expected: contextvars tokens created in the main
-                    # thread cannot be detached from a worker thread.
-                    pass
+                except RuntimeError as e:
+                    # Contextvars tokens from main thread can't detach in worker.
+                    # Only ignore this specific error, log others.
+                    if "context" not in str(e).lower():
+                        logger.warning("[worker] exec_span.end() RuntimeError: %s", e)
                 except Exception as e:
-                    logger.warning("[worker] Unexpected span.end() error: %s", e)
+                    logger.warning("[worker] exec_span.end() error: %s", e)
 
 
 # ---------- Thread-safety helpers ------------------------------------------------
