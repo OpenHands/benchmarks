@@ -1,4 +1,47 @@
-# OpenHands Benchmarks
+# Evaluation Code for CodeScout
+
+This code repository is used for all the evaluation experiments for the paper [CodeScout: An Effective Recipe for Reinforcement Learning of Code Search Agents](https://arxiv.org/abs/2603.17829). 
+
+This codebase is developed by forking the [OpenHands/benchmarks](https://github.com/OpenHands/benchmarks) repository, originally designed for evaluating OpenHands v1 on various benchmarks, providing us several utility functions to build on top of. The original README of benchmarks repository is included [here](./README_upstream.md)
+
+> NOTE: While the repository contains evaluation code for several other benchmarks, this repository is only intended to be used for CodeScout related evaluations in the [agentic_code_search](./benchmarks/agentic_code_search/) directory.
+
+## Environment Setup
+
+### Pre-requisites
+
+Note that run experiments locally on a Unix machine. Before installing dependencies, you must install uv and ripgrep on the machine:
+
+1. `uv >= 0.8.13` : [Installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
+2. `ripgrep`: [Installation instructions](https://github.com/burntsushi/ripgrep?tab=readme-ov-file#installation).
+   - **Note**: We have used v15.1.0 in our experiments.
+   - We have installed ripgrep using cargo:
+   ```bash
+      # Step 1: Install Rust (if not already installed on the machine)
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+      source $HOME/.cargo/env
+
+      # Step 2: Install ripgrep via cargo
+      cargo install ripgrep --version 15.1.0
+
+      # Step 3: Verify if installation completed successfully - this command should execute without errors
+      rg --version       
+   ```
+
+## Installing Dependencies
+
+Note that this codebase requires querying LLMs via an OpenAI compatible endpoint. We use `vllm==0.10.2` to locally host models, and the command below will attempt to install this package in your environment. Furthermore, we have pinned a specific commit of the OpenHands software-agent-sdk for reproducibility purposes. You can install all the dependencies using:
+
+```bash
+make build
+```
+
+Make sure to activate the virtual environment using `source .venv/bin/activate` before running experiments.
+
+Refer to [this README](benchmarks/agentic_code_search/README.md) for more details on reproducing results reported in the CodeScout paper.
+
+----
+# Original README of the OpenHands Benchmarks repository
 
 This repository contains benchmark evaluation infrastructure for [OpenHands](https://github.com/OpenHands/OpenHands/) agents. It provides standardized evaluation pipelines for testing agent capabilities across various real-world tasks.
 
