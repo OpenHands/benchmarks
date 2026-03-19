@@ -62,8 +62,14 @@ class _RoutedFileHandler(logging.Handler):
         try:
             fh.stream.write(record_msg + "\n")
             fh.stream.flush()
-        except Exception:
-            pass
+        except (OSError, ValueError):
+            # File handler failed (closed file, disk full, etc.) —
+            # fall back to stderr so the message isn't silently lost.
+            if sys.__stderr__:
+                try:
+                    sys.__stderr__.write(record_msg + "\n")
+                except Exception:
+                    pass
 
 
 class _RoutedConsoleHandler(logging.Handler):
@@ -94,8 +100,8 @@ class _RoutedConsoleHandler(logging.Handler):
                 msg = fmt.format(record)
                 stream.write(msg + "\n")
                 stream.flush()
-            except Exception:
-                pass
+            except (OSError, ValueError):
+                pass  # stderr itself failed — nothing left to fall back to
 
 
 # ---------------------------------------------------------------------------
@@ -123,17 +129,25 @@ class _ThreadLocalWriter:
         target = self._target()
         try:
             return target.write(s)  # type: ignore[union-attr]
-        except ValueError:
-            # Handle "I/O operation on closed file" gracefully –
-            # fall back to original stream instead of crashing.
-            return self._original.write(s)  # type: ignore[union-attr]
+        except (ValueError, OSError):
+            # Target closed/broken — try original, then __stderr__ as last resort
+            try:
+                return self._original.write(s)  # type: ignore[union-attr]
+            except Exception:
+                if sys.__stderr__:
+                    return sys.__stderr__.write(s)
+                return 0
 
     def flush(self) -> None:
         target = self._target()
         try:
             target.flush()  # type: ignore[union-attr]
-        except ValueError:
-            self._original.flush()  # type: ignore[union-attr]
+        except (ValueError, OSError):
+            try:
+                self._original.flush()  # type: ignore[union-attr]
+            except Exception:
+                if sys.__stderr__:
+                    sys.__stderr__.flush()
 
     @property
     def encoding(self) -> str:

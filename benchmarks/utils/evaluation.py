@@ -50,14 +50,9 @@ TIMEOUT_CHECK_INTERVAL_SECONDS = 60
 
 @dataclass
 class PendingInstance:
-    """Tracks state for a pending evaluation instance.
-
-    start_time is None while the instance is queued behind the semaphore
-    and set to time.monotonic() when the instance actually begins running.
-    """
+    """Tracks state for a pending evaluation instance."""
 
     instance: EvalInstance
-    start_time: Optional[float] = None
     datapoint_id: UUID | None = None
     task: asyncio.Task | None = field(default=None, repr=False)
 
@@ -478,6 +473,9 @@ class Evaluation(ABC, BaseModel):
         """
         semaphore = asyncio.Semaphore(self.num_workers)
         pending_instances: dict[asyncio.Task, PendingInstance] = {}
+        # Track when each task actually starts running (after acquiring the
+        # semaphore). Only tasks present in this dict are subject to timeout.
+        active_start_times: dict[asyncio.Task, float] = {}
         attempt_outputs: List[EvalOutput] = []
         progress = tqdm(total=len(instances), desc=f"Attempt {attempt}", leave=False)
 
@@ -487,11 +485,11 @@ class Evaluation(ABC, BaseModel):
         ) -> Tuple[EvalInstance, EvalOutput]:
             """Process one instance with semaphore-based concurrency control."""
             async with semaphore:
-                # Reset start_time to NOW so the timeout counts from when the
+                # Record start time NOW — timeout counts from when the
                 # instance actually begins running, not from when it was queued.
                 task = asyncio.current_task()
-                if task and task in pending_instances:
-                    pending_instances[task].start_time = time.monotonic()
+                if task is not None:
+                    active_start_times[task] = time.monotonic()
                 # Run the sync processing function in a thread
                 return await asyncio.to_thread(
                     self._process_one_sync,
@@ -580,12 +578,12 @@ class Evaluation(ABC, BaseModel):
                         await on_result(pending_info.instance, error_output)
                         attempt_outputs.append(error_output)
 
-            # Check for per-instance timeouts (skip queued instances with no start_time)
+            # Check for per-instance timeouts (only active tasks have entries)
             now = time.monotonic()
             timed_out_tasks = []
             for task in pending:
-                st = pending_instances[task].start_time
-                if st is not None and now - st > self.instance_timeout:
+                start = active_start_times.get(task)
+                if start and now - start > self.instance_timeout:
                     timed_out_tasks.append(task)
 
             for task in timed_out_tasks:
@@ -763,10 +761,12 @@ class Evaluation(ABC, BaseModel):
                 if eval_span is not None:
                     try:
                         eval_span.end()
-                    except Exception:
-                        # contextvars tokens created in the main thread cannot
-                        # be detached from a worker thread — safe to ignore.
+                    except RuntimeError:
+                        # Expected: contextvars tokens created in the main
+                        # thread cannot be detached from a worker thread.
                         pass
+                    except Exception as e:
+                        logger.warning("[worker] Unexpected span.end() error: %s", e)
 
     def _execute_single_attempt(
         self,
@@ -898,10 +898,12 @@ class Evaluation(ABC, BaseModel):
             if exec_span is not None:
                 try:
                     exec_span.end()
-                except Exception:
-                    # contextvars tokens created in the main thread cannot
-                    # be detached from a worker thread — safe to ignore.
+                except RuntimeError:
+                    # Expected: contextvars tokens created in the main
+                    # thread cannot be detached from a worker thread.
                     pass
+                except Exception as e:
+                    logger.warning("[worker] Unexpected span.end() error: %s", e)
 
 
 # ---------- Thread-safety helpers ------------------------------------------------
