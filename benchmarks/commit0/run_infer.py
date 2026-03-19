@@ -459,7 +459,7 @@ class Commit0Evaluation(Evaluation):
         test_cmd = instance.data["test"]["test_cmd"]
         test_dir = instance.data["test"]["test_dir"]
         test_cmd = normalize_pytest_cmd(test_cmd)
-        src_dir = instance.data["test"].get("src_dir", "")
+        src_dir = instance.data.get("src_dir", "")
         env_prefix = get_pythonpath_prefix(src_dir)
         full_test_cmd = f"cd {repo_path} && {env_prefix}{test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
         logger.info(f"Running test command: {full_test_cmd}")
