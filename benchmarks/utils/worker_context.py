@@ -168,12 +168,17 @@ def split_logs(log_dir: str) -> None:
 
 
 def _split_file(shared_path: str, output_dir: str, filename_template: str) -> None:
-    """Split a shared log file into per-instance files."""
+    """Split a shared log file into per-instance files.
+
+    Strips the [instance_id] prefix from each line since the filename
+    already identifies the instance.
+    """
     if not os.path.exists(shared_path):
         return
 
     files: dict[str, IO[str]] = {}
-    pattern = re.compile(r"\[([^\]]+)\]")
+    # Match [instance_id] prefix and capture both the ID and the rest of the line
+    pattern = re.compile(r"\[([^\]]+)\] ?(.*)")
 
     try:
         with open(shared_path, "r", encoding="utf-8") as f:
@@ -181,10 +186,14 @@ def _split_file(shared_path: str, output_dir: str, filename_template: str) -> No
                 match = pattern.search(line)
                 if match:
                     inst_id = match.group(1)
+                    # Get content after the prefix, preserve line ending
+                    content = line[: match.start()] + match.group(2)
+                    if not content.endswith("\n"):
+                        content += "\n"
                     if inst_id not in files:
                         path = os.path.join(output_dir, filename_template.format(inst_id))
                         files[inst_id] = open(path, "w", encoding="utf-8")
-                    files[inst_id].write(line)
+                    files[inst_id].write(content)
     finally:
         for fh in files.values():
             fh.close()
