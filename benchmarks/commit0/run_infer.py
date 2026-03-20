@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shlex
 from typing import Any, List
 
@@ -60,6 +61,23 @@ s = r.get('summary', {})
 s['duration'] = r.get('duration', 0)
 print(json.dumps(s))
 """.strip()
+
+
+def normalize_pytest_cmd(test_cmd: str) -> str:
+    """Replace bare pytest/pytest3 with python -m pytest to avoid PATH/permission issues."""
+    if (
+        re.match(r"pytest\d?(\s|$)", test_cmd.strip())
+        and "python -m pytest" not in test_cmd
+    ):
+        test_cmd = re.sub(r"\bpytest(\d?)", r"python -m pytest\1", test_cmd, count=1)
+    return test_cmd
+
+
+def get_pythonpath_prefix(src_dir: str) -> str:
+    """Return PYTHONPATH env prefix for src-layout repos."""
+    if src_dir and src_dir.startswith("src"):
+        return "PYTHONPATH=src:$PYTHONPATH "
+    return ""
 
 
 def parse_report_summary(raw_json: str) -> dict:
@@ -440,10 +458,10 @@ class Commit0Evaluation(Evaluation):
         # Run tests
         test_cmd = instance.data["test"]["test_cmd"]
         test_dir = instance.data["test"]["test_dir"]
-        # Use python -m pytest instead of pytest command to avoid permission issues
-        if test_cmd.strip() == "pytest":
-            test_cmd = "python -m pytest"
-        full_test_cmd = f"cd {repo_path} && {test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
+        test_cmd = normalize_pytest_cmd(test_cmd)
+        src_dir = instance.data.get("src_dir", "")
+        env_prefix = get_pythonpath_prefix(src_dir)
+        full_test_cmd = f"cd {repo_path} && {env_prefix}{test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
         logger.info(f"Running test command: {full_test_cmd}")
         test_result = workspace.execute_command(full_test_cmd, timeout=600)
         logger.info(f"Test command exit code: {test_result.exit_code}")
