@@ -15,6 +15,7 @@ from pathlib import Path
 from benchmarks.swebench import constants
 from benchmarks.swebench.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
+    LIGHTWEIGHT_BUILD_ARGS,
     BuildOutput,
     build_all_images,
     default_build_output_dir,
@@ -170,6 +171,8 @@ def main(argv: list[str]) -> int:
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
 
+    extra_build_args = LIGHTWEIGHT_BUILD_ARGS if args.lightweight else None
+
     return build_all_images(
         base_images=base_images,
         target=args.target,
@@ -183,6 +186,7 @@ def main(argv: list[str]) -> int:
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
         post_build_fn=_wrap_if_needed,
+        extra_build_args=extra_build_args,
     )
 
 

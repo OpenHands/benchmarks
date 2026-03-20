@@ -59,6 +59,11 @@ on:
         required: false
         default: 'false'
         type: string
+      lightweight:
+        description: 'Build lightweight images (skip ACP, boto3, browser-use)'
+        required: false
+        default: 'true'
+        type: string
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
@@ -239,6 +244,7 @@ jobs:
         run: |
           set -euo pipefail
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+          LIGHTWEIGHT="${{ inputs.lightweight || 'true' }}"
 
           CMD="uv run benchmarks/swebench/build_images.py \
             --dataset '${DATASET}' \
@@ -258,6 +264,9 @@ jobs:
           fi
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
+          fi
+          if [ "${LIGHTWEIGHT}" = "true" ]; then
+            CMD="$CMD --lightweight"
           fi
 
           echo "Running: $CMD"
