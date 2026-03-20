@@ -73,6 +73,7 @@ on:
         required: false
         default: 'false'
         type: string
+
 concurrency:
   group: build-swt-bench-${{ github.ref }}
   cancel-in-progress: false
@@ -164,6 +165,7 @@ jobs:
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+
           # SWT-Bench uses source-minimal target (same as SWE-bench)
           TARGET="source-minimal"
 
@@ -198,6 +200,7 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
+
           echo "Running: $CMD"
           eval "$CMD"
         env:
