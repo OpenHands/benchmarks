@@ -359,6 +359,16 @@ def get_build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Rebuild images even if matching remote tags already exist",
     )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        default="default",
+        choices=["default", "acp-claude", "acp-codex"],
+        help=(
+            "Agent type determines which deps to include: "
+            "'default' skips ACP, 'acp-*' keeps ACP installed"
+        ),
+    )
     return parser
 
 
@@ -376,6 +386,13 @@ ACP_BUILD_ARGS: dict[str, str] = {
     "INSTALL_BOTO3": "false",
     "INSTALL_BROWSER": "false",
 }
+
+
+def build_args_for_agent_type(agent_type: str) -> dict[str, str]:
+    """Select build args based on agent type."""
+    if agent_type.startswith("acp-"):
+        return ACP_BUILD_ARGS
+    return LIGHTWEIGHT_BUILD_ARGS
 
 
 def _utcnow_iso() -> str:
@@ -547,6 +564,7 @@ def _build_with_logging(
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
     cached_sdist: Path | None = None,
+    extra_build_args: dict[str, str] | None = None,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -594,6 +612,11 @@ def _build_with_logging(
                     push,
                     force_build=force_build,
                     cached_sdist=cached_sdist,
+                    extra_build_args=(
+                        extra_build_args
+                        if extra_build_args is not None
+                        else LIGHTWEIGHT_BUILD_ARGS
+                    ),
                 )
             except Exception as e:
                 result = BuildOutput(
@@ -698,6 +721,7 @@ def build_all_images(
     force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    extra_build_args: dict[str, str] | None = None,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
@@ -806,6 +830,7 @@ def build_all_images(
                         max_retries=max_retries,
                         post_build_fn=post_build_fn,
                         cached_sdist=cached_sdist,
+                        extra_build_args=extra_build_args,
                     )
                     futures[fut] = base
 

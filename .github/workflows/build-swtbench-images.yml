@@ -73,6 +73,11 @@ on:
         required: false
         default: 'false'
         type: string
+      agent-type:
+        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
+        required: false
+        default: 'default'
+        type: string
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -200,6 +205,7 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
+          CMD="$CMD --agent-type ${AGENT_TYPE}"
 
           echo "Running: $CMD"
           eval "$CMD"
@@ -207,6 +213,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode }}
+          AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Build prebaked eval env images
         if: ${{ inputs.build-eval-env == 'true' }}
