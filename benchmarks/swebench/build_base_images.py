@@ -201,7 +201,7 @@ def build_all_base_images(
         manifest_file.open("w") as writer,
         tqdm(total=len(base_images), desc="Building base images", leave=True) as pbar,
     ):
-        _update_pbar(pbar, successes, failures, 0, None, "Queueing")
+        _update_pbar(pbar, successes, 0, failures, 0, None, "Queueing")
 
         with ProcessPoolExecutor(max_workers=max_workers) as ex:
             futures = {}
@@ -223,6 +223,7 @@ def build_all_base_images(
             _update_pbar(
                 pbar,
                 successes,
+                0,
                 failures,
                 len(in_progress),
                 next(iter(in_progress), None),
@@ -253,6 +254,7 @@ def build_all_base_images(
                 _update_pbar(
                     pbar,
                     successes,
+                    0,
                     failures,
                     len(in_progress),
                     next(iter(in_progress), None),
