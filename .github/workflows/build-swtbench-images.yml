@@ -64,9 +64,9 @@ on:
         default: '10'
         type: string
       cache-mode:
-        description: 'BuildKit cache export mode (max, min, off). Default: off'
+        description: 'BuildKit cache export mode (max, min, off). Default: max'
         required: false
-        default: 'off'
+        default: 'max'
         type: string
       force-build:
         description: 'Rebuild images even if matching remote tags already exist'
