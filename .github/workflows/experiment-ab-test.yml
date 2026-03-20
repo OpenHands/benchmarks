@@ -1,0 +1,249 @@
+name: "A/B Test: Image Build Root Cause (benchmarks#544)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (20 recommended)'
+        required: true
+        default: 'astropy__astropy-13033,astropy__astropy-13453,astropy__astropy-13579,astropy__astropy-14182,django__django-11283,django__django-11422,django__django-11564,django__django-11620,django__django-11742,django__django-11848,django__django-12125,django__django-12155,django__django-12276,django__django-12470,django__django-12700,django__django-12856,django__django-13028,django__django-13158,django__django-13315,django__django-13344'
+        type: string
+
+jobs:
+  ab-test:
+    runs-on:
+      labels: blacksmith-32vcpu-ubuntu-2204
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx with Blacksmith
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: make build
+
+      - name: Create instance selection file
+        run: |
+          echo "${{ inputs.instance-ids }}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' > /tmp/selected-instances.txt
+          echo "Selected $(wc -l < /tmp/selected-instances.txt) instances"
+          cat /tmp/selected-instances.txt
+
+      # ========================================================================
+      # TEST A: Baseline — current Dockerfile (ARG before apt-get, with npm)
+      # ========================================================================
+      - name: "TEST A: Build with CURRENT Dockerfile (ARG before, npm present)"
+        run: |
+          set -euo pipefail
+          echo "=== TEST A: Baseline (current Dockerfile) ==="
+          echo "Dockerfile state:"
+          grep -n "OPENHANDS_BUILD_GIT\|npm install\|apt-get" vendor/software-agent-sdk/openhands-agent-server/openhands/agent_server/docker/Dockerfile | head -20
+
+          uv run benchmarks/swtbench/build_images.py \
+            --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
+            --split test \
+            --image ghcr.io/openhands/eval-agent-server \
+            --target source-minimal \
+            --max-workers 4 \
+            --build-batch-size 15 \
+            --select /tmp/selected-instances.txt \
+            --force-build \
+            --push
+
+          # Save results
+          cp builds/eth-sri/SWT-bench_Verified_bm25_27k_zsp/test/manifest.jsonl /tmp/test-a-manifest.jsonl
+          rm -rf builds
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          OPENHANDS_BUILDKIT_CACHE_MODE: "off"
+
+      # ========================================================================
+      # TEST B: ARG fix only — move ARG after apt-get/npm (keep npm)
+      # ========================================================================
+      - name: "TEST B: Apply ARG ordering fix"
+        run: |
+          set -euo pipefail
+          DOCKERFILE="vendor/software-agent-sdk/openhands-agent-server/openhands/agent_server/docker/Dockerfile"
+
+          # Remove ARG/ENV from current position
+          sed -i '/^ARG OPENHANDS_BUILD_GIT_SHA=unknown$/d' "$DOCKERFILE"
+          sed -i '/^ARG OPENHANDS_BUILD_GIT_REF=unknown$/d' "$DOCKERFILE"
+          sed -i '/^ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}$/d' "$DOCKERFILE"
+          sed -i '/^ENV OPENHANDS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}$/d' "$DOCKERFILE"
+
+          # Insert after COPY uv line (after all expensive layers)
+          sed -i '/^COPY --from=ghcr.io\/astral-sh\/uv \/uv \/uvx \/bin\/$/a\
+ARG OPENHANDS_BUILD_GIT_SHA=unknown\
+ARG OPENHANDS_BUILD_GIT_REF=unknown\
+ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}\
+ENV OPENHANDS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}' "$DOCKERFILE"
+
+          echo "=== TEST B: ARG moved after expensive layers ==="
+          grep -n "OPENHANDS_BUILD_GIT\|npm install\|apt-get" "$DOCKERFILE" | head -20
+
+      - name: "TEST B: Build with ARG fix (warm sticky disk from Test A)"
+        run: |
+          set -euo pipefail
+          uv run benchmarks/swtbench/build_images.py \
+            --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
+            --split test \
+            --image ghcr.io/openhands/eval-agent-server \
+            --target source-minimal \
+            --max-workers 4 \
+            --build-batch-size 15 \
+            --select /tmp/selected-instances.txt \
+            --force-build \
+            --push
+
+          cp builds/eth-sri/SWT-bench_Verified_bm25_27k_zsp/test/manifest.jsonl /tmp/test-b-manifest.jsonl
+          rm -rf builds
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          OPENHANDS_BUILDKIT_CACHE_MODE: "off"
+
+      # ========================================================================
+      # TEST C: ARG fix + remove npm install
+      # ========================================================================
+      - name: "TEST C: Also remove npm install ACP"
+        run: |
+          set -euo pipefail
+          DOCKERFILE="vendor/software-agent-sdk/openhands-agent-server/openhands/agent_server/docker/Dockerfile"
+
+          # Remove the npm install block
+          sed -i '/^# Pre-install ACP servers/,/^$/d' "$DOCKERFILE"
+          # Remove the claude-code settings block
+          sed -i '/^# Configure Claude Code managed settings/,/^$/d' "$DOCKERFILE"
+
+          echo "=== TEST C: ARG fix + no npm install ==="
+          grep -n "OPENHANDS_BUILD_GIT\|npm install\|apt-get\|claude-code" "$DOCKERFILE" | head -20
+
+      - name: "TEST C: Build without npm install (warm sticky disk)"
+        run: |
+          set -euo pipefail
+          uv run benchmarks/swtbench/build_images.py \
+            --dataset eth-sri/SWT-bench_Verified_bm25_27k_zsp \
+            --split test \
+            --image ghcr.io/openhands/eval-agent-server \
+            --target source-minimal \
+            --max-workers 4 \
+            --build-batch-size 15 \
+            --select /tmp/selected-instances.txt \
+            --force-build \
+            --push
+
+          cp builds/eth-sri/SWT-bench_Verified_bm25_27k_zsp/test/manifest.jsonl /tmp/test-c-manifest.jsonl
+          rm -rf builds
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          OPENHANDS_BUILDKIT_CACHE_MODE: "off"
+
+      # ========================================================================
+      # Analysis: Compare all three
+      # ========================================================================
+      - name: "Compare results"
+        if: always()
+        run: |
+          python3 -c "
+          import json, statistics, os
+
+          results = {}
+          for label, path in [('A: baseline', '/tmp/test-a-manifest.jsonl'),
+                              ('B: ARG fix', '/tmp/test-b-manifest.jsonl'),
+                              ('C: ARG fix + no npm', '/tmp/test-c-manifest.jsonl')]:
+              if not os.path.exists(path):
+                  print(f'{label}: NO DATA (test did not complete)')
+                  continue
+              with open(path) as f:
+                  records = [json.loads(l) for l in f if l.strip()]
+              built = [r for r in records if r.get('status') == 'built']
+              if not built:
+                  print(f'{label}: 0 images built')
+                  continue
+              buildx = [r.get('sdk_buildx_wall_clock_seconds', 0) for r in built]
+              push = [r.get('sdk_push_layers_seconds', 0) for r in built]
+              cached = [r.get('sdk_cached_step_count', 0) for r in built]
+              build_only = [b - p for b, p in zip(buildx, push)]
+              total = sum(r.get('duration_seconds', 0) for r in built)
+              print(f'')
+              print(f'=== {label} ===')
+              print(f'  Built: {len(built)} images')
+              print(f'  Total wall-clock (sum): {total:.0f}s ({total/60:.1f}min)')
+              print(f'  Buildx p50: {statistics.median(buildx):.0f}s')
+              print(f'  Build-only p50: {statistics.median(build_only):.0f}s')
+              print(f'  Push p50: {statistics.median(push):.0f}s')
+              print(f'  Cached steps p50: {statistics.median(cached):.0f}')
+              print(f'  Throughput: {len(built)*3600/total:.1f} img/hr')
+              results[label] = {'buildx_p50': statistics.median(buildx), 'total': total, 'count': len(built), 'cached_p50': statistics.median(cached)}
+
+          if len(results) >= 2:
+              print()
+              print('=== COMPARISON ===')
+              base = results.get('A: baseline', {})
+              for label, data in results.items():
+                  if label == 'A: baseline':
+                      continue
+                  if base and base.get('buildx_p50'):
+                      diff = base['buildx_p50'] - data['buildx_p50']
+                      pct = diff / base['buildx_p50'] * 100
+                      print(f'{label} vs baseline: {diff:+.0f}s/image ({pct:+.1f}%)')
+                      print(f'  Cached steps: {base.get(\"cached_p50\", 0):.0f} -> {data.get(\"cached_p50\", 0):.0f}')
+          " | tee /tmp/comparison.txt
+
+      - name: Post results to issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMPARISON=$(cat /tmp/comparison.txt 2>/dev/null || echo "No comparison data")
+          gh issue comment 544 --repo OpenHands/benchmarks --body "## A/B Test Results (Run #${{ github.run_id }})
+
+          Three variants tested on the SAME runner (same sticky disk), SAME 20 images, sequentially:
+          - **Test A**: Baseline (current Dockerfile — ARG before apt-get, npm present)
+          - **Test B**: ARG fix only (ARG moved after expensive layers, npm still present)
+          - **Test C**: ARG fix + npm removed
+
+          Test A seeds the sticky disk cache. Tests B and C run on the warm cache.
+
+          \`\`\`
+          ${COMPARISON}
+          \`\`\`
+
+          [Full logs](https://github.com/OpenHands/benchmarks/actions/runs/${{ github.run_id }})"
+
+      - name: Archive manifests
+        if: always()
+        run: |
+          mkdir -p /tmp/ab-results
+          cp /tmp/test-*-manifest.jsonl /tmp/ab-results/ 2>/dev/null || true
+          cp /tmp/comparison.txt /tmp/ab-results/ 2>/dev/null || true
+          tar czf ab-test-results.tar.gz -C /tmp ab-results
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ab-test-results-${{ github.run_id }}
+          path: ab-test-results.tar.gz
+          retention-days: 30
