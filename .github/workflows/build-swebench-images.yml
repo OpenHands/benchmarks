@@ -64,6 +64,11 @@ on:
         required: false
         default: 'default'
         type: string
+      use-prebuilt-bases:
+        description: 'Use pre-built base images (two-phase build). Builds base images first, then agent layers on top. Much faster when only SDK changed.'
+        required: false
+        default: false
+        type: boolean
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
@@ -77,6 +82,7 @@ env:
   BUILD_BATCH_SIZE: '15'
   BUILDKIT_PRUNE_KEEP_GB: '60'
   BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
+  USE_PREBUILT_BASES: ''
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}
@@ -136,6 +142,7 @@ jobs:
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+          if [ "${{ inputs.use-prebuilt-bases }}" = "true" ]; then echo "USE_PREBUILT_BASES=true" >> "$GITHUB_ENV"; fi
 
       # Set N_LIMIT based on the label that triggered the workflow
       - name: Set N_LIMIT based on label
@@ -240,6 +247,31 @@ jobs:
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
           fi
 
+      - name: "Phase 1: Build and push base images (pre-built base mode)"
+        if: ${{ env.USE_PREBUILT_BASES == 'true' }}
+        run: |
+          set -euo pipefail
+
+          CMD="uv run benchmarks/swebench/build_base_images.py \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
+            --push \
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
+
+          if [ -n "${N_LIMIT}" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
+          fi
+          if [ -n "${SELECT_FILE}" ]; then
+            CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+
+          echo "Running: $CMD"
+          eval "$CMD"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
       - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
@@ -265,6 +297,11 @@ jobs:
             CMD="$CMD --force-build"
           fi
           CMD="$CMD --agent-type ${AGENT_TYPE}"
+
+          # Use pre-built bases if Phase 1 ran
+          if [ "${USE_PREBUILT_BASES}" = "true" ]; then
+            CMD="$CMD --use-prebuilt-bases"
+          fi
 
           echo "Running: $CMD"
           eval "$CMD"

@@ -428,6 +428,7 @@ def build_image(
     force_build: bool = False,
     cached_sdist: Path | None = None,
     extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
+    prebuilt_base: str | None = None,
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
@@ -451,6 +452,8 @@ def build_image(
         prebuilt_sdist=cached_sdist,
         sdk_version=sdk_version,
         extra_build_args=extra_build_args,
+        # Use pre-built base image to skip building base-image-minimal from scratch
+        prebuilt_base=prebuilt_base,
     )
     if _force_build_enabled(force_build):
         logger.info(
@@ -553,6 +556,7 @@ def _build_with_logging(
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
     cached_sdist: Path | None = None,
     extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
+    prebuilt_base: str | None = None,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -567,6 +571,8 @@ def _build_with_logging(
         post_build_fn: Optional callback called after successful build.
             Receives (build_result, push) and returns modified BuildOutput.
             If it returns an error, the build is retried.
+        prebuilt_base: Pre-built base image reference. When set, the SDK
+            build skips the base-image-minimal stage entirely.
     """
     assert max_retries >= 1, "max_retries must be at least 1"
     overall_started_at = _utcnow_iso()
@@ -601,6 +607,7 @@ def _build_with_logging(
                     force_build=force_build,
                     cached_sdist=cached_sdist,
                     extra_build_args=extra_build_args,
+                    prebuilt_base=prebuilt_base,
                 )
             except Exception as e:
                 result = BuildOutput(
@@ -706,6 +713,7 @@ def build_all_images(
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
     extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
+    prebuilt_base_fn: Callable[[str], str | None] | None = None,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
@@ -728,6 +736,9 @@ def build_all_images(
         post_build_fn: Optional callback called after each successful build.
             Receives (build_result, push) and returns modified BuildOutput.
             If it returns an error, the build is retried.
+        prebuilt_base_fn: Optional function that maps a base image to its
+            pre-built base image reference. When the returned value is not None,
+            the SDK build skips base-image-minimal and uses the pre-built base.
 
     Returns:
         Exit code: 0 if all builds succeeded, 1 if any failed.
@@ -802,6 +813,9 @@ def build_all_images(
                         if base_image_to_custom_tag_fn
                         else ""
                     )
+                    resolved_prebuilt = (
+                        prebuilt_base_fn(base) if prebuilt_base_fn else None
+                    )
                     fut = ex.submit(
                         _build_with_logging,
                         log_dir=build_log_dir,
@@ -815,6 +829,7 @@ def build_all_images(
                         post_build_fn=post_build_fn,
                         cached_sdist=cached_sdist,
                         extra_build_args=extra_build_args,
+                        prebuilt_base=resolved_prebuilt,
                     )
                     futures[fut] = base
 
