@@ -359,16 +359,6 @@ def get_build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Rebuild images even if matching remote tags already exist",
     )
-    parser.add_argument(
-        "--agent-type",
-        type=str,
-        default="default",
-        choices=["default", "acp-claude", "acp-codex"],
-        help=(
-            "Agent type determines which deps to include: "
-            "'default' skips ACP, 'acp-*' keeps ACP installed"
-        ),
-    )
     return parser
 
 
