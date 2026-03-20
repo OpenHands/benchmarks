@@ -178,6 +178,37 @@ def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:
     return result
 
 
+def _agent_layer_build(
+    base_image: str,
+    target_image: str,
+    custom_tag: str,
+    target="source-minimal",
+    push: bool = False,
+    force_build: bool = False,
+    cached_sdist=None,
+    *,
+    _mapping: dict[str, str],
+) -> BuildOutput:
+    """Build an agent layer image by looking up the eval-base for *base_image*."""
+    eval_base = _mapping.get(base_image)
+    if eval_base is None:
+        return BuildOutput(
+            base_image=base_image,
+            tags=[],
+            error=f"No eval-base mapping for {base_image}",
+            status="failed",
+        )
+    return build_agent_layer(
+        base_image=eval_base,
+        target_image=target_image,
+        custom_tag=custom_tag,
+        target=target,
+        push=push,
+        force_build=force_build,
+        cached_sdist=cached_sdist,
+    )
+
+
 def _make_agent_layer_build_fn(
     swebench_image_to_eval_base: dict[str, str],
 ) -> functools.partial:
@@ -188,38 +219,11 @@ def _make_agent_layer_build_fn(
     ``build_all_images`` passes ``base_image`` (the SWE-bench image) to the
     build function.  We intercept it, look up the corresponding eval-base tag,
     and forward to ``build_agent_layer``.
+
+    Returns a ``functools.partial`` (picklable) so that
+    ``ProcessPoolExecutor`` in ``build_all_images`` can serialize it.
     """
-
-    def _build(
-        base_image: str,
-        target_image: str,
-        custom_tag: str,
-        target="source-minimal",
-        push: bool = False,
-        force_build: bool = False,
-        cached_sdist=None,
-        *,
-        _mapping: dict[str, str] = swebench_image_to_eval_base,
-    ) -> BuildOutput:
-        eval_base = _mapping.get(base_image)
-        if eval_base is None:
-            return BuildOutput(
-                base_image=base_image,
-                tags=[],
-                error=f"No eval-base mapping for {base_image}",
-                status="failed",
-            )
-        return build_agent_layer(
-            base_image=eval_base,
-            target_image=target_image,
-            custom_tag=custom_tag,
-            target=target,
-            push=push,
-            force_build=force_build,
-            cached_sdist=cached_sdist,
-        )
-
-    return _build  # type: ignore[return-value]
+    return functools.partial(_agent_layer_build, _mapping=swebench_image_to_eval_base)
 
 
 def main(argv: list[str]) -> int:
