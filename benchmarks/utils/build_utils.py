@@ -562,7 +562,7 @@ def _build_with_logging(
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
     cached_sdist: Path | None = None,
-    extra_build_args: dict[str, str] | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -610,11 +610,7 @@ def _build_with_logging(
                     push,
                     force_build=force_build,
                     cached_sdist=cached_sdist,
-                    extra_build_args=(
-                        extra_build_args
-                        if extra_build_args is not None
-                        else LIGHTWEIGHT_BUILD_ARGS
-                    ),
+                    extra_build_args=extra_build_args,
                 )
             except Exception as e:
                 result = BuildOutput(
@@ -719,7 +715,7 @@ def build_all_images(
     force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
-    extra_build_args: dict[str, str] | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
