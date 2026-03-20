@@ -73,12 +73,6 @@ on:
         required: false
         default: 'false'
         type: string
-      lightweight:
-        description: 'Build lightweight images (skip ACP, boto3, browser-use)'
-        required: false
-        default: 'true'
-        type: string
-
 concurrency:
   group: build-swt-bench-${{ github.ref }}
   cancel-in-progress: false
@@ -170,8 +164,6 @@ jobs:
           N_LIMIT="${{ inputs.n-limit || '0' }}"
           INSTANCE_IDS="${{ inputs.instance-ids }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
-          LIGHTWEIGHT="${{ inputs.lightweight || 'true' }}"
-
           # SWT-Bench uses source-minimal target (same as SWE-bench)
           TARGET="source-minimal"
 
@@ -206,10 +198,6 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
-          if [ "${LIGHTWEIGHT}" = "true" ]; then
-            CMD="$CMD --lightweight"
-          fi
-
           echo "Running: $CMD"
           eval "$CMD"
         env:
