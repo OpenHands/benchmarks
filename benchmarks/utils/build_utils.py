@@ -362,6 +362,27 @@ def get_build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Build args for lightweight benchmark images: skip deps benchmarks don't use.
+# These correspond to ARGs in the SDK Dockerfile that default to "true".
+LIGHTWEIGHT_BUILD_ARGS: dict[str, str] = {
+    "INSTALL_ACP": "false",
+    "INSTALL_BOTO3": "false",
+}
+
+# Build args for ACP benchmark images: keep ACP but skip the rest.
+ACP_BUILD_ARGS: dict[str, str] = {
+    "INSTALL_ACP": "true",
+    "INSTALL_BOTO3": "false",
+}
+
+
+def build_args_for_agent_type(agent_type: str) -> dict[str, str]:
+    """Select build args based on agent type."""
+    if agent_type.startswith("acp-"):
+        return ACP_BUILD_ARGS
+    return LIGHTWEIGHT_BUILD_ARGS
+
+
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -406,6 +427,7 @@ def build_image(
     push: bool = False,
     force_build: bool = False,
     cached_sdist: Path | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
@@ -428,6 +450,7 @@ def build_image(
         git_sha=git_sha,
         prebuilt_sdist=cached_sdist,
         sdk_version=sdk_version,
+        extra_build_args=extra_build_args,
     )
     if _force_build_enabled(force_build):
         logger.info(
@@ -529,6 +552,7 @@ def _build_with_logging(
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
     cached_sdist: Path | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
@@ -576,6 +600,7 @@ def _build_with_logging(
                     push,
                     force_build=force_build,
                     cached_sdist=cached_sdist,
+                    extra_build_args=extra_build_args,
                 )
             except Exception as e:
                 result = BuildOutput(
@@ -680,6 +705,7 @@ def build_all_images(
     force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
@@ -788,6 +814,7 @@ def build_all_images(
                         max_retries=max_retries,
                         post_build_fn=post_build_fn,
                         cached_sdist=cached_sdist,
+                        extra_build_args=extra_build_args,
                     )
                     futures[fut] = base
 
