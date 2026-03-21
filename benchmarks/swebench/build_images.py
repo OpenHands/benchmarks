@@ -3,7 +3,7 @@
 Build agent-server images for all unique SWE-Bench base images in a dataset split,
 optionally wrapping them with a lightweight layer that pins docutils<0.21 and installs roman.
 
-The build uses a two-phase "split" strategy to avoid full 9h+ rebuilds when only
+The build uses a three-phase strategy to avoid full 9h+ rebuilds when only
 the SDK commit changes:
 
   Phase 1 – eval-base images (SDK-independent, cached across SDK commits)
@@ -11,9 +11,15 @@ the SDK commit changes:
     Contains: SWE-bench base + apt/npm packages + user setup.
     Only rebuilt when the SWE-bench upstream image or the base Dockerfile changes.
 
-  Phase 2 – agent-server images (thin layer, seconds per image)
+  Phase 1.5 – SDK venv image (built once per SDK commit, shared across all images)
+    Tag: ghcr.io/openhands/eval-sdk-venv:<SDK_SHA>
+    Contains: SDK venv with all dependencies.
+    Only rebuilt when the SDK commit changes.
+
+  Phase 2 – agent-server images (thin COPY layer, seconds per image)
     Tag: ghcr.io/openhands/eval-agent-server:<SDK_SHA>-<custom_tag>-source-minimal
-    Contains: pre-built base + SDK venv (COPY from builder stage).
+    Contains: pre-built base + SDK venv (COPY from SDK venv image).
+    No pip install, no compilation — just a COPY + push.
 
 Example:
   uv run benchmarks/swebench/build_images.py \
@@ -32,6 +38,7 @@ from benchmarks.utils.build_utils import (
     build_agent_layer,
     build_all_base_images,
     build_all_images,
+    build_sdk_venv_image,
     default_build_output_dir,
     get_build_parser,
     run_docker_build_layer,
@@ -188,6 +195,7 @@ def _agent_layer_build(
     cached_sdist=None,
     *,
     _mapping: dict[str, str],
+    _sdk_venv_tag: str,
 ) -> BuildOutput:
     """Build an agent layer image by looking up the eval-base for *base_image*."""
     eval_base = _mapping.get(base_image)
@@ -206,11 +214,13 @@ def _agent_layer_build(
         push=push,
         force_build=force_build,
         cached_sdist=cached_sdist,
+        sdk_venv_tag=_sdk_venv_tag,
     )
 
 
 def _make_agent_layer_build_fn(
     swebench_image_to_eval_base: dict[str, str],
+    sdk_venv_tag: str,
 ) -> functools.partial:
     """
     Create a build function that maps SWE-bench base images to pre-built
@@ -223,7 +233,11 @@ def _make_agent_layer_build_fn(
     Returns a ``functools.partial`` (picklable) so that
     ``ProcessPoolExecutor`` in ``build_all_images`` can serialize it.
     """
-    return functools.partial(_agent_layer_build, _mapping=swebench_image_to_eval_base)
+    return functools.partial(
+        _agent_layer_build,
+        _mapping=swebench_image_to_eval_base,
+        _sdk_venv_tag=sdk_venv_tag,
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -261,6 +275,18 @@ def main(argv: list[str]) -> int:
         logger.error("Phase 1 failed: some base images could not be built.")
         return base_rc
 
+    # ── Phase 1.5: build SDK venv image once (shared across all images) ──
+    logger.info("Phase 1.5: building SDK venv image (once per SDK commit)")
+    try:
+        sdk_venv_tag = build_sdk_venv_image(
+            push=args.push,
+            force_build=args.force_build,
+        )
+    except RuntimeError as exc:
+        logger.error("Phase 1.5 failed: %s", exc)
+        return 1
+    logger.info("SDK venv image ready: %s", sdk_venv_tag)
+
     # ── Phase 2: build thin agent layers on pre-built bases ──
     logger.info("Phase 2: building %d agent layers on cached bases", len(base_images))
 
@@ -283,7 +309,7 @@ def main(argv: list[str]) -> int:
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
         post_build_fn=_wrap_if_needed,
-        build_fn=_make_agent_layer_build_fn(swebench_to_eval_base),
+        build_fn=_make_agent_layer_build_fn(swebench_to_eval_base, sdk_venv_tag),
     )
 
 

@@ -30,7 +30,11 @@ from benchmarks.utils.buildx_utils import (
     maybe_prune_buildkit_cache,
     maybe_reset_buildkit,
 )
-from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE, EVAL_BASE_IMAGE
+from benchmarks.utils.constants import (
+    EVAL_AGENT_SERVER_IMAGE,
+    EVAL_BASE_IMAGE,
+    EVAL_SDK_VENV_IMAGE,
+)
 from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
 from openhands.sdk import get_logger
 
@@ -590,6 +594,81 @@ def build_base_image(
     )
 
 
+def build_sdk_venv_image(
+    push: bool = False,
+    force_build: bool = False,
+    cached_sdist: Path | None = None,
+    sdk_venv_image: str = EVAL_SDK_VENV_IMAGE,
+) -> str:
+    """
+    Build the SDK venv image once per SDK commit.
+
+    Returns the full image tag (e.g. ``ghcr.io/openhands/eval-sdk-venv:abc1234``).
+    Raises ``RuntimeError`` if the build fails.
+    """
+    from openhands.agent_server.docker.build import _make_build_context
+
+    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+    short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
+    venv_tag = f"{sdk_venv_image}:{short_sha}"
+
+    if not _force_build_enabled(force_build) and remote_image_exists(venv_tag):
+        logger.info("SDK venv image %s already exists. Skipping build.", venv_tag)
+        return venv_tag
+
+    sdk_root = _sdk_root()
+    venv_dockerfile = (
+        Path(__file__).resolve().parent.parent / "swebench" / "Dockerfile.sdk-venv"
+    )
+    if not venv_dockerfile.exists():
+        raise RuntimeError(f"Dockerfile.sdk-venv not found at {venv_dockerfile}")
+
+    ctx = _make_build_context(sdk_root, cached_sdist)
+    try:
+        shutil.copy2(venv_dockerfile, ctx / "Dockerfile")
+
+        cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "--file",
+            str(ctx / "Dockerfile"),
+            "--platform",
+            "linux/amd64",
+            "--tag",
+            venv_tag,
+        ]
+        if push:
+            cmd.append("--push")
+        else:
+            cmd.append("--load")
+        cmd.append(str(ctx))
+
+        logger.info("Building SDK venv image: %s", " ".join(cmd))
+        started = time.monotonic()
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        elapsed = _round_duration(time.monotonic() - started)
+
+        if proc.stdout:
+            print(proc.stdout, end="")
+        if proc.stderr:
+            print(proc.stderr, end="", file=sys.stderr)
+
+        if proc.returncode != 0:
+            error = (
+                proc.stderr.strip()
+                or proc.stdout.strip()
+                or f"SDK venv build failed with exit code {proc.returncode}"
+            )
+            raise RuntimeError(f"SDK venv build failed after {elapsed}s: {error}")
+
+        logger.info("SDK venv image built in %.1fs: %s", elapsed, venv_tag)
+    finally:
+        shutil.rmtree(ctx, ignore_errors=True)
+
+    return venv_tag
+
+
 def build_agent_layer(
     base_image: str,
     target_image: str,
@@ -598,19 +677,21 @@ def build_agent_layer(
     push: bool = False,
     force_build: bool = False,
     cached_sdist: Path | None = None,
+    sdk_venv_tag: str | None = None,
 ) -> BuildOutput:
     """
     Build a thin agent-server image on top of a pre-built eval-base image.
 
-    Uses Dockerfile.eval-agent which has a builder stage (SDK venv) and a final
-    stage that just COPYs onto the pre-built base.  This is much faster than a
-    full build because the expensive base layer is already cached.
+    Uses Dockerfile.eval-agent which COPYs the SDK venv from a pre-built
+    SDK venv image onto the eval-base.  This is much faster than a full build
+    because both the base layer and SDK venv are already built.
+
+    If *sdk_venv_tag* is provided, the Dockerfile uses it as a COPY source
+    instead of rebuilding the venv (seconds per image vs minutes).
 
     Signature matches ``build_image`` so it can be used as a drop-in replacement
     via ``build_all_images(build_fn=build_agent_layer)``.
     """
-    from openhands.agent_server.docker.build import _make_build_context
-
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
     short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
     remote_check_seconds = 0.0
@@ -635,8 +716,6 @@ def build_agent_layer(
             )
         remote_check_seconds = _round_duration(time.monotonic() - remote_check_started)
 
-    # Create SDK build context (same sdist extraction as the normal build)
-    sdk_root = _sdk_root()
     agent_dockerfile = (
         Path(__file__).resolve().parent.parent / "swebench" / "Dockerfile.eval-agent"
     )
@@ -648,21 +727,19 @@ def build_agent_layer(
             status="failed",
         )
 
-    build_started = time.monotonic()
-    try:
-        ctx = _make_build_context(sdk_root, cached_sdist)
-    except Exception as exc:
+    if not sdk_venv_tag:
         return BuildOutput(
             base_image=base_image,
             tags=[],
-            error=f"Failed to create build context: {exc!r}",
+            error="sdk_venv_tag is required — build the SDK venv image first",
             status="failed",
-            remote_check_seconds=remote_check_seconds,
-            build_seconds=_round_duration(time.monotonic() - build_started),
         )
 
-    try:
-        # Copy our thin Dockerfile into the build context
+    build_started = time.monotonic()
+
+    # Minimal context: just the Dockerfile (no SDK sources needed)
+    with tempfile.TemporaryDirectory(prefix="eval-agent-ctx-") as ctx_str:
+        ctx = Path(ctx_str)
         shutil.copy2(agent_dockerfile, ctx / "Dockerfile")
 
         cmd = [
@@ -673,6 +750,8 @@ def build_agent_layer(
             str(ctx / "Dockerfile"),
             "--build-arg",
             f"BASE_IMAGE={base_image}",
+            "--build-arg",
+            f"SDK_VENV_IMAGE={sdk_venv_tag}",
             "--build-arg",
             f"OPENHANDS_BUILD_GIT_SHA={git_sha}",
             "--build-arg",
@@ -711,8 +790,6 @@ def build_agent_layer(
                 remote_check_seconds=remote_check_seconds,
                 build_seconds=build_seconds,
             )
-    finally:
-        shutil.rmtree(ctx, ignore_errors=True)
 
     return BuildOutput(
         base_image=base_image,

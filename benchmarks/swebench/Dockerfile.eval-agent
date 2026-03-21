@@ -1,46 +1,22 @@
 # syntax=docker/dockerfile:1.7
 #
-# Thin agent layer: builds SDK venv and copies it onto a pre-built eval-base image.
+# Thin agent layer: copies a pre-built SDK venv onto a pre-built eval-base image.
 #
 # This Dockerfile is used in the "split build" strategy where:
 #   1. eval-base images (apt, npm, user setup) are built once per SWE-bench base
 #      image and cached across SDK commits.
-#   2. This thin layer just builds the SDK venv (builder stage) and COPYs it onto
-#      the cached base -- typically completing in seconds per image.
-#
-# The builder stage mirrors the SDK Dockerfile's builder stage.
+#   2. The SDK venv image is built once per SDK commit and shared across all images.
+#   3. This thin layer just COPYs the venv from the shared SDK venv image onto
+#      the cached base -- completing in seconds per image.
 
 ARG BASE_IMAGE
+ARG SDK_VENV_IMAGE
 ARG USERNAME=openhands
-ARG UID=10001
-ARG GID=10001
 
 ####################################################################################
-# Builder: install SDK into a venv
+# Final image: pre-built base + agent-server venv from SDK venv image
 ####################################################################################
-FROM python:3.13-bookworm AS builder
-ARG USERNAME UID GID
-ENV UV_PROJECT_ENVIRONMENT=/agent-server/.venv
-ENV UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python
-
-COPY --from=ghcr.io/astral-sh/uv /uv /uvx /bin/
-
-RUN groupadd -g ${GID} ${USERNAME} \
- && useradd -m -u ${UID} -g ${GID} -s /usr/sbin/nologin ${USERNAME}
-USER ${USERNAME}
-WORKDIR /agent-server
-# Cache-friendly: lockfiles first
-COPY --chown=${USERNAME}:${USERNAME} pyproject.toml uv.lock README.md LICENSE ./
-COPY --chown=${USERNAME}:${USERNAME} openhands-sdk ./openhands-sdk
-COPY --chown=${USERNAME}:${USERNAME} openhands-tools ./openhands-tools
-COPY --chown=${USERNAME}:${USERNAME} openhands-workspace ./openhands-workspace
-COPY --chown=${USERNAME}:${USERNAME} openhands-agent-server ./openhands-agent-server
-RUN --mount=type=cache,target=/home/${USERNAME}/.cache,uid=${UID},gid=${GID} \
-    uv python install 3.13 && uv venv --python 3.13 .venv && uv sync --frozen --no-editable --managed-python --extra boto3
-
-####################################################################################
-# Final image: pre-built base + agent-server venv from builder
-####################################################################################
+FROM ${SDK_VENV_IMAGE} AS sdk-venv
 FROM ${BASE_IMAGE}
 ARG USERNAME=openhands
 
@@ -50,5 +26,5 @@ ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}
 ENV OPENHANDS_BUILD_GIT_REF=${OPENHANDS_BUILD_GIT_REF}
 
 ENV UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python
-COPY --chown=${USERNAME}:${USERNAME} --from=builder /agent-server /agent-server
+COPY --chown=${USERNAME}:${USERNAME} --from=sdk-venv /agent-server /agent-server
 ENTRYPOINT ["/agent-server/.venv/bin/python", "-m", "openhands.agent_server"]
