@@ -78,6 +78,11 @@ on:
         required: false
         default: 'default'
         type: string
+      use-prebuilt-bases:
+        description: 'Use pre-built base images (two-phase build). Much faster when only SDK changed.'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -110,6 +115,7 @@ jobs:
       N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
+      USE_PREBUILT_BASES: ''
 
     steps:
       - name: Determine checkout ref
@@ -157,6 +163,35 @@ jobs:
       - name: Install dependencies
         run: |
           make build
+
+      - name: "Phase 1: Build and push base images (pre-built base mode)"
+        if: ${{ inputs.use-prebuilt-bases == true }}
+        run: |
+          set -euo pipefail
+
+          DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
+          SPLIT="${{ inputs.split || 'test' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          N_LIMIT="${{ inputs.n-limit || '0' }}"
+          INSTANCE_IDS="${{ inputs.instance-ids }}"
+
+          CMD="uv run benchmarks/swebench/build_base_images.py \
+            --dataset ${DATASET} \
+            --split ${SPLIT} \
+            --push \
+            --max-workers ${MAX_WORKERS} \
+            --max-retries 3"
+
+          if [ "$N_LIMIT" != "0" ]; then
+            CMD="$CMD --n-limit ${N_LIMIT}"
+          fi
+
+          echo "USE_PREBUILT_BASES=true" >> "$GITHUB_ENV"
+          echo "Running: $CMD"
+          eval "$CMD"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
 
       - name: Build and push SWT-Bench images
         run: |
@@ -207,12 +242,17 @@ jobs:
           fi
           CMD="$CMD --agent-type ${AGENT_TYPE}"
 
+          # Use pre-built bases if Phase 1 ran
+          if [ "${USE_PREBUILT_BASES}" = "true" ]; then
+            CMD="$CMD --use-prebuilt-bases"
+          fi
+
           echo "Running: $CMD"
           eval "$CMD"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode }}
+          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.use-prebuilt-bases == true && 'off' || inputs.cache-mode }}
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Build prebaked eval env images
