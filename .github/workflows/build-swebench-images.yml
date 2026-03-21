@@ -310,6 +310,10 @@ jobs:
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
+          # When using pre-built bases, disable cache export to avoid the ~100s
+          # per-image overhead of writing cache back to the registry. The builder
+          # stage is already cached from the first image in the batch.
+          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ env.USE_PREBUILT_BASES == 'true' && 'off' || 'max' }}
 
       - name: Archive build logs
         if: always()
