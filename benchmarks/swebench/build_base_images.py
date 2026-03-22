@@ -32,18 +32,24 @@ from benchmarks.swebench.build_images import (
 )
 from benchmarks.utils.build_utils import (
     BuildOutput,
+    _get_sdk_submodule_info,
     _update_pbar,
     capture_output,
     default_build_output_dir,
 )
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
 
-# Default registry for pre-built base images
+# Default registries
 EVAL_BASE_IMAGE = os.getenv("OPENHANDS_EVAL_BASE_IMAGE", "ghcr.io/openhands/eval-base")
+EVAL_BUILDER_IMAGE = os.getenv(
+    "OPENHANDS_EVAL_BUILDER_IMAGE", "ghcr.io/openhands/eval-builder"
+)
+AGENT_LAYER_DOCKERFILE = Path(__file__).with_name("Dockerfile.agent-layer")
 
 
 def _get_sdk_dockerfile() -> Path:
@@ -264,6 +270,274 @@ def build_all_base_images(
     logger.info(
         "Base images done. Built=%d  Failed=%d  Manifest=%s",
         successes,
+        failures,
+        str(manifest_file),
+    )
+    return 1 if failures else 0
+
+
+def build_builder_image(
+    builder_image: str = EVAL_BUILDER_IMAGE,
+    push: bool = False,
+    platform: str = "linux/amd64",
+) -> BuildOutput:
+    """Build and push the SDK builder image (Phase 0).
+
+    Uses the SDK's build() function with target=builder to create the builder
+    stage as a standalone image containing /agent-server with the venv.
+    """
+    from openhands.agent_server.docker.build import BuildOptions, build_with_telemetry
+
+    _, git_sha, sdk_version = _get_sdk_submodule_info()
+    short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
+    tag = f"{builder_image}:{short_sha}-source-minimal"
+
+    if remote_image_exists(tag):
+        logger.info("Builder image %s already exists. Skipping.", tag)
+        return BuildOutput(base_image="builder", tags=[tag], error=None)
+
+    logger.info("Building builder image: %s", tag)
+    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+    opts = BuildOptions(
+        base_image="python:3.13-bookworm",
+        custom_tags="builder",
+        image=builder_image,
+        target="builder",
+        platforms=[platform],
+        push=push,
+        git_ref=git_ref,
+        git_sha=git_sha,
+        sdk_version=sdk_version,
+        include_base_tag=False,
+    )
+    try:
+        result = build_with_telemetry(opts)
+        # The tag we care about is the custom one
+        return BuildOutput(base_image="builder", tags=[tag], error=None)
+    except Exception as e:
+        return BuildOutput(base_image="builder", tags=[], error=repr(e))
+
+
+def assemble_agent_image(
+    base_tag: str,
+    builder_tag: str,
+    final_tags: list[str],
+    push: bool = False,
+    platform: str = "linux/amd64",
+) -> BuildOutput:
+    """Assemble a final agent image from pre-built base + builder (Phase 2).
+
+    Uses the thin Dockerfile.agent-layer which just does FROM + COPY.
+    Since both base and builder layers are already in GHCR, the push only
+    transfers the manifest (GHCR cross-repo blob mounting).
+    """
+    if not AGENT_LAYER_DOCKERFILE.exists():
+        return BuildOutput(
+            base_image=base_tag,
+            tags=[],
+            error=f"Agent layer Dockerfile not found at {AGENT_LAYER_DOCKERFILE}",
+        )
+
+    cmd = [
+        "docker",
+        "buildx",
+        "build",
+        "--file",
+        str(AGENT_LAYER_DOCKERFILE),
+        "--build-arg",
+        f"BASE_IMAGE={base_tag}",
+        "--build-arg",
+        f"BUILDER_IMAGE={builder_tag}",
+        "--platform",
+        platform,
+    ]
+    for t in final_tags:
+        cmd.extend(["--tag", t])
+
+    if push:
+        cmd.append("--push")
+    else:
+        cmd.append("--load")
+
+    # Minimal context - the Dockerfile doesn't COPY from context
+    cmd.append(str(AGENT_LAYER_DOCKERFILE.parent))
+
+    logger.info("Assembling agent image: %s", " ".join(cmd))
+    proc = subprocess.run(cmd, text=True, capture_output=True)
+
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+    if proc.returncode != 0:
+        error = (
+            proc.stderr.strip()
+            or proc.stdout.strip()
+            or f"Assembly failed with exit code {proc.returncode}"
+        )
+        return BuildOutput(base_image=base_tag, tags=[], error=error)
+
+    return BuildOutput(base_image=base_tag, tags=final_tags, error=None)
+
+
+def _assemble_with_logging(
+    log_dir: Path,
+    base_image: str,
+    custom_tag: str,
+    builder_tag: str,
+    target_image: str,
+    sdk_short_sha: str,
+    target: str,
+    push: bool = False,
+    max_retries: int = 3,
+    force_build: bool = False,
+) -> BuildOutput:
+    """Assemble a single agent image with logging and retry."""
+    import time
+
+    base_tag = base_image_tag(custom_tag)
+    # Match the tag format from the SDK's BuildOptions.all_tags
+    final_tag = f"{target_image}:{sdk_short_sha}-{custom_tag}-{target}"
+
+    if not force_build and remote_image_exists(final_tag):
+        logger.info("Agent image %s already exists. Skipping.", final_tag)
+        return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
+
+    assert max_retries >= 1
+    for attempt in range(max_retries):
+        with capture_output(base_image, log_dir) as log_path:
+            if attempt > 0:
+                logger.info(
+                    "Retrying assembly for %s (attempt %d/%d)",
+                    base_image,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(2 + attempt * 2)
+            try:
+                result = assemble_agent_image(
+                    base_tag=base_tag,
+                    builder_tag=builder_tag,
+                    final_tags=[final_tag],
+                    push=push,
+                )
+            except Exception as e:
+                result = BuildOutput(
+                    base_image=base_image,
+                    tags=[],
+                    error=repr(e),
+                    log_path=str(log_path),
+                )
+            result.log_path = str(log_path)
+            if result.error:
+                logger.error("Assembly error for %s: %s", base_image, result.error)
+                if attempt == max_retries - 1:
+                    return result
+                continue
+            return result
+
+    raise RuntimeError("Unreachable")
+
+
+def assemble_all_agent_images(
+    base_images: list[str],
+    builder_tag: str,
+    build_dir: Path,
+    target_image: str = EVAL_AGENT_SERVER_IMAGE,
+    target: str = "source-minimal",
+    push: bool = False,
+    max_workers: int = 12,
+    max_retries: int = 3,
+    force_build: bool = False,
+) -> int:
+    """Assemble all agent images using thin Dockerfile (Phase 2)."""
+    _, git_sha, _ = _get_sdk_submodule_info()
+    sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
+
+    build_log_dir = build_dir / "assembly-logs"
+    manifest_file = build_dir / "manifest.jsonl"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+
+    built = 0
+    skipped = 0
+    failures = 0
+    mu = Lock()
+
+    with (
+        manifest_file.open("w") as writer,
+        tqdm(
+            total=len(base_images), desc="Assembling agent images", leave=True
+        ) as pbar,
+    ):
+        _update_pbar(pbar, built, skipped, failures, 0, None, "Queueing")
+
+        with ProcessPoolExecutor(max_workers=max_workers) as ex:
+            futures = {}
+            in_progress: set[str] = set()
+            for base in base_images:
+                in_progress.add(base)
+                custom_tag = extract_custom_tag(base)
+                fut = ex.submit(
+                    _assemble_with_logging,
+                    log_dir=build_log_dir,
+                    base_image=base,
+                    custom_tag=custom_tag,
+                    builder_tag=builder_tag,
+                    target_image=target_image,
+                    sdk_short_sha=sdk_short_sha,
+                    target=target,
+                    push=push,
+                    max_retries=max_retries,
+                    force_build=force_build,
+                )
+                futures[fut] = base
+
+            _update_pbar(
+                pbar,
+                built,
+                skipped,
+                failures,
+                len(in_progress),
+                next(iter(in_progress), None),
+                "Assembling",
+            )
+
+            for fut in as_completed(futures):
+                base = futures[fut]
+                try:
+                    result: BuildOutput = fut.result()
+                except Exception as e:
+                    logger.error("Assembly failed for %s: %r", base, e)
+                    result = BuildOutput(base_image=base, tags=[], error=repr(e))
+
+                writer.write(result.model_dump_json() + "\n")
+                writer.flush()
+
+                with mu:
+                    if result.error or not result.tags:
+                        failures += 1
+                        status = "❌ Failed"
+                    else:
+                        built += 1
+                        status = "✅ Done"
+
+                in_progress.discard(base)
+                pbar.update(1)
+                _update_pbar(
+                    pbar,
+                    built,
+                    skipped,
+                    failures,
+                    len(in_progress),
+                    next(iter(in_progress), None),
+                    status,
+                )
+
+    logger.info(
+        "Assembly done. Built=%d  Skipped=%d  Failed=%d  Manifest=%s",
+        built,
+        skipped,
         failures,
         str(manifest_file),
     )

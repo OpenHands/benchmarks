@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.7
+#
+# Thin assembly Dockerfile for agent-server images.
+#
+# References pre-built base and builder images that are already in GHCR,
+# so the only new layer is the COPY of /agent-server onto the base.
+# GHCR cross-repo blob mounting means shared layers are not re-uploaded.
+#
+# Usage:
+#   docker buildx build \
+#     --file Dockerfile.agent-layer \
+#     --build-arg BASE_IMAGE=ghcr.io/openhands/eval-base:instance-tag \
+#     --build-arg BUILDER_IMAGE=ghcr.io/openhands/eval-builder:sdk-sha \
+#     --tag ghcr.io/openhands/eval-agent-server:final-tag \
+#     --push .
+
+ARG BUILDER_IMAGE
+ARG BASE_IMAGE
+
+FROM ${BUILDER_IMAGE} AS builder
+FROM ${BASE_IMAGE}
+
+ARG USERNAME=openhands
+ENV UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python
+COPY --chown=${USERNAME}:${USERNAME} --from=builder /agent-server /agent-server
+ENTRYPOINT ["/agent-server/.venv/bin/python", "-m", "openhands.agent_server"]

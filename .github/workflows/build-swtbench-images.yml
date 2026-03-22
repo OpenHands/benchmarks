@@ -164,6 +164,25 @@ jobs:
         run: |
           make build
 
+      - name: "Phase 0: Build and push builder image (pre-built base mode)"
+        if: ${{ inputs.use-prebuilt-bases == true }}
+        run: |
+          set -euo pipefail
+          uv run python -c "
+          from benchmarks.swebench.build_base_images import build_builder_image
+          result = build_builder_image(push=True)
+          if result.error:
+              raise RuntimeError(f'Builder build failed: {result.error}')
+          print(f'Builder image: {result.tags[0]}')
+          import os
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'BUILDER_TAG={result.tags[0]}\n')
+              f.write('USE_PREBUILT_BASES=true\n')
+          "
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
       - name: "Phase 1: Build and push base images (pre-built base mode)"
         if: ${{ inputs.use-prebuilt-bases == true }}
         run: |
@@ -171,9 +190,8 @@ jobs:
 
           DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
           SPLIT="${{ inputs.split || 'test' }}"
-          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '12' }}"
           N_LIMIT="${{ inputs.n-limit || '0' }}"
-          INSTANCE_IDS="${{ inputs.instance-ids }}"
 
           CMD="uv run benchmarks/swebench/build_base_images.py \
             --dataset ${DATASET} \
@@ -186,14 +204,52 @@ jobs:
             CMD="$CMD --n-limit ${N_LIMIT}"
           fi
 
-          echo "USE_PREBUILT_BASES=true" >> "$GITHUB_ENV"
           echo "Running: $CMD"
           eval "$CMD"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
-      - name: Build and push SWT-Bench images
+      - name: "Phase 2: Assemble agent images (pre-built base mode)"
+        if: ${{ inputs.use-prebuilt-bases == true }}
+        run: |
+          set -euo pipefail
+
+          DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
+          SPLIT="${{ inputs.split || 'test' }}"
+          N_LIMIT="${{ inputs.n-limit || '0' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '12' }}"
+          MAX_RETRIES="${{ inputs.max-retries || '3' }}"
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+
+          uv run python -c "
+          from benchmarks.swebench.build_images import collect_unique_base_images
+          from benchmarks.swebench.build_base_images import assemble_all_agent_images
+          from benchmarks.utils.build_utils import default_build_output_dir
+          import sys
+
+          base_images = collect_unique_base_images(
+              '${DATASET}', '${SPLIT}',
+              int('${N_LIMIT}') if '${N_LIMIT}' and '${N_LIMIT}' != '0' else 0,
+          )
+          build_dir = default_build_output_dir('${DATASET}', '${SPLIT}')
+          rc = assemble_all_agent_images(
+              base_images=base_images,
+              builder_tag='${BUILDER_TAG}',
+              build_dir=build_dir,
+              push=True,
+              max_workers=int('${MAX_WORKERS}'),
+              max_retries=int('${MAX_RETRIES}'),
+              force_build=('${FORCE_BUILD}' == 'true'),
+          )
+          sys.exit(rc)
+          "
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
+      - name: Build and push SWT-Bench images (standard mode)
+        if: ${{ env.USE_PREBUILT_BASES != 'true' }}
         run: |
           set -euo pipefail
 

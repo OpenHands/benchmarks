@@ -247,6 +247,25 @@ jobs:
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
           fi
 
+      - name: "Phase 0: Build and push builder image (pre-built base mode)"
+        if: ${{ env.USE_PREBUILT_BASES == 'true' }}
+        run: |
+          set -euo pipefail
+          uv run python -c "
+          from benchmarks.swebench.build_base_images import build_builder_image
+          result = build_builder_image(push=True)
+          if result.error:
+              raise RuntimeError(f'Builder build failed: {result.error}')
+          print(f'Builder image: {result.tags[0]}')
+          # Export for next steps
+          import os
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'BUILDER_TAG={result.tags[0]}\n')
+          "
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+
       - name: "Phase 1: Build and push base images (pre-built base mode)"
         if: ${{ env.USE_PREBUILT_BASES == 'true' }}
         run: |
@@ -272,7 +291,42 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
 
-      - name: Build and push SWE-Bench images
+      - name: "Phase 2: Assemble agent images (pre-built base mode)"
+        if: ${{ env.USE_PREBUILT_BASES == 'true' }}
+        run: |
+          set -euo pipefail
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+
+          uv run python -c "
+          from benchmarks.swebench.build_images import collect_unique_base_images
+          from benchmarks.swebench.build_base_images import assemble_all_agent_images
+          from benchmarks.utils.build_utils import default_build_output_dir
+          import sys
+
+          base_images = collect_unique_base_images(
+              '${DATASET}', '${SPLIT}',
+              int('${N_LIMIT}') if '${N_LIMIT}' else 0,
+              '${SELECT_FILE}' if '${SELECT_FILE}' else None,
+          )
+          build_dir = default_build_output_dir('${DATASET}', '${SPLIT}')
+          rc = assemble_all_agent_images(
+              base_images=base_images,
+              builder_tag='${BUILDER_TAG}',
+              build_dir=build_dir,
+              push=True,
+              max_workers=int('${MAX_WORKERS}'),
+              max_retries=int('${MAX_RETRIES}'),
+              force_build=('${FORCE_BUILD}' == 'true'),
+          )
+          sys.exit(rc)
+          "
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          FORCE_BUILD: ${{ inputs.force-build || 'false' }}
+
+      - name: Build and push SWE-Bench images (standard mode)
+        if: ${{ env.USE_PREBUILT_BASES != 'true' }}
         run: |
           set -euo pipefail
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
@@ -298,11 +352,6 @@ jobs:
           fi
           CMD="$CMD --agent-type ${AGENT_TYPE}"
 
-          # Use pre-built bases if Phase 1 ran
-          if [ "${USE_PREBUILT_BASES}" = "true" ]; then
-            CMD="$CMD --use-prebuilt-bases"
-          fi
-
           echo "Running: $CMD"
           eval "$CMD"
         env:
@@ -310,10 +359,6 @@ jobs:
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
-          # When using pre-built bases, disable cache export to avoid the ~100s
-          # per-image overhead of writing cache back to the registry. The builder
-          # stage is already cached from the first image in the batch.
-          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ env.USE_PREBUILT_BASES == 'true' && 'off' || 'max' }}
 
       - name: Archive build logs
         if: always()
