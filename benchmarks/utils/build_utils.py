@@ -391,6 +391,14 @@ def _round_duration(seconds: float) -> float:
     return round(seconds, 3)
 
 
+def _calculate_throughput_images_per_hour(
+    built_count: int, duration_seconds: float
+) -> float:
+    if duration_seconds <= 0:
+        return 0.0
+    return (built_count / duration_seconds) * 3600
+
+
 def _force_build_enabled(force_build: bool = False) -> bool:
     env_force_build = os.getenv("FORCE_BUILD", "0").lower() in ("1", "true", "yes")
     return force_build or env_force_build
@@ -915,8 +923,8 @@ def build_all_images(
                         prune_threshold_pct,
                     )
             batch_duration = time.monotonic() - batch_started_monotonic
-            batch_throughput = (
-                (batch_built / batch_duration) * 3600 if batch_duration else 0.0
+            batch_throughput = _calculate_throughput_images_per_hour(
+                batch_built, batch_duration
             )
             logger.info(
                 "Finished batch %d/%d in %.1fs: built=%d skipped=%d failed=%d throughput=%.1f built images/hour",
@@ -936,7 +944,7 @@ def build_all_images(
     )
     summary_file.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
     overall_duration = time.monotonic() - overall_started_monotonic
-    throughput = (built / overall_duration) * 3600 if overall_duration else 0.0
+    throughput = _calculate_throughput_images_per_hour(built, overall_duration)
     logger.info(
         "Done in %.1fs. Built=%d Skipped=%d Failed=%d Retried=%d Throughput=%.1f built images/hour Manifest=%s Summary=%s",
         overall_duration,

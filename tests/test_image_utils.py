@@ -562,6 +562,13 @@ class TestCachedSdistReuse:
 
 
 class TestBuildAllImagesThroughputLogging:
+    def test_calculate_throughput_images_per_hour(self):
+        from benchmarks.utils.build_utils import _calculate_throughput_images_per_hour
+
+        assert _calculate_throughput_images_per_hour(2, 20.0) == 360.0
+        assert _calculate_throughput_images_per_hour(2, 45.0) == 160.0
+        assert _calculate_throughput_images_per_hour(2, 0.0) == 0.0
+
     @patch("benchmarks.utils.build_utils.logger.info")
     @patch(
         "benchmarks.utils.build_utils.time.monotonic",
@@ -638,6 +645,9 @@ class TestBuildAllImagesThroughputLogging:
 
         assert exit_code == 0
 
+        # Times: start=100, batch_start=110, batch_end=130, overall_end=145.
+        # Batch throughput is 2 built images / 20s = 360/hr.
+        # Final throughput is 2 built images / 45s = 160/hr.
         info_logs = [
             call.args[0] % call.args[1:]
             for call in mock_logger_info.call_args_list
