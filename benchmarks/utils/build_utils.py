@@ -916,10 +916,10 @@ def build_all_images(
                     )
             batch_duration = time.monotonic() - batch_started_monotonic
             batch_throughput = (
-                (len(batch) / batch_duration) * 3600 if batch_duration else 0.0
+                (batch_built / batch_duration) * 3600 if batch_duration else 0.0
             )
             logger.info(
-                "Finished batch %d/%d in %.1fs: built=%d skipped=%d failed=%d throughput=%.1f images/hour",
+                "Finished batch %d/%d in %.1fs: built=%d skipped=%d failed=%d throughput=%.1f built images/hour",
                 batch_idx,
                 total_batches,
                 batch_duration,
@@ -936,11 +936,9 @@ def build_all_images(
     )
     summary_file.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
     overall_duration = time.monotonic() - overall_started_monotonic
-    throughput = (
-        (len(base_images) / overall_duration) * 3600 if overall_duration else 0.0
-    )
+    throughput = (built / overall_duration) * 3600 if overall_duration else 0.0
     logger.info(
-        "Done in %.1fs. Built=%d Skipped=%d Failed=%d Retried=%d Throughput=%.1f images/hour Manifest=%s Summary=%s",
+        "Done in %.1fs. Built=%d Skipped=%d Failed=%d Retried=%d Throughput=%.1f built images/hour Manifest=%s Summary=%s",
         overall_duration,
         built,
         skipped,
