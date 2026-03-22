@@ -397,12 +397,27 @@ def assemble_agent_image(
     cmd.append(str(AGENT_LAYER_DOCKERFILE.parent))
 
     logger.info("Assembling agent image: %s", " ".join(cmd))
+
+    import time
+    from openhands.agent_server.docker.build import _parse_buildkit_telemetry
+
+    started = time.monotonic()
     proc = subprocess.run(cmd, text=True, capture_output=True)
+    wall_clock = time.monotonic() - started
 
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
         print(proc.stderr, end="", file=sys.stderr)
+
+    # Parse BuildKit telemetry from stderr
+    telemetry = _parse_buildkit_telemetry(proc.stderr or "")
+    telemetry.buildx_wall_clock_seconds = round(wall_clock, 3)
+    logger.info(
+        "[assembly] Telemetry for %s: %s",
+        final_tags[0] if final_tags else base_tag,
+        telemetry.model_dump_json(),
+    )
 
     if proc.returncode != 0:
         error = (
