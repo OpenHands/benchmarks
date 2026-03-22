@@ -561,6 +561,103 @@ class TestCachedSdistReuse:
         ]
 
 
+class TestBuildAllImagesThroughputLogging:
+    @patch("benchmarks.utils.build_utils.logger.info")
+    @patch(
+        "benchmarks.utils.build_utils.time.monotonic",
+        side_effect=[100.0, 110.0, 130.0, 145.0],
+    )
+    def test_throughput_logs_count_only_built_images(
+        self,
+        _mock_monotonic,
+        mock_logger_info,
+        tmp_path: Path,
+    ):
+        from benchmarks.utils import build_utils
+
+        @contextlib.contextmanager
+        def fake_prepare_cached_sdist():
+            yield None
+
+        class FakeFuture:
+            def __init__(self, result: BuildOutput):
+                self._result = result
+
+            def result(self) -> BuildOutput:
+                return self._result
+
+        class FakeExecutor:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def submit(self, fn, **kwargs):
+                base = kwargs["base_image"]
+                if base == "base-2":
+                    result = BuildOutput(
+                        base_image=base,
+                        tags=[f"tag:{base}"],
+                        error=None,
+                        status="skipped_remote_exists",
+                        skip_reason="remote_image_exists",
+                        duration_seconds=1.0,
+                    )
+                else:
+                    result = BuildOutput(
+                        base_image=base,
+                        tags=[f"tag:{base}"],
+                        error=None,
+                        status="built",
+                        duration_seconds=10.0,
+                    )
+                return FakeFuture(result)
+
+        with (
+            patch.object(
+                build_utils,
+                "_prepare_cached_sdist",
+                side_effect=fake_prepare_cached_sdist,
+            ),
+            patch.object(build_utils, "ProcessPoolExecutor", FakeExecutor),
+            patch.object(
+                build_utils, "as_completed", side_effect=lambda futures: futures
+            ),
+            patch.object(build_utils, "buildkit_disk_usage", return_value=(0, 0)),
+            patch.object(build_utils, "maybe_prune_buildkit_cache", return_value=False),
+        ):
+            exit_code = build_utils.build_all_images(
+                base_images=["base-1", "base-2", "base-3"],
+                target="source-minimal",
+                build_dir=tmp_path,
+            )
+
+        assert exit_code == 0
+
+        # Times: start=100, batch_start=110, batch_end=130, overall_end=145.
+        # Batch throughput is 2 built images / 20s = 360/hr.
+        # Final throughput is 2 built images / 45s = 160/hr.
+        info_logs = [
+            call.args[0] % call.args[1:]
+            for call in mock_logger_info.call_args_list
+            if call.args and isinstance(call.args[0], str)
+        ]
+
+        assert (
+            "Finished batch 1/1 in 20.0s: built=2 skipped=1 failed=0 throughput=360.0 built images/hour"
+            in info_logs
+        )
+        assert (
+            "Done in 45.0s. Built=2 Skipped=1 Failed=0 Retried=0 Throughput=160.0 built images/hour "
+            f"Manifest={tmp_path / 'manifest.jsonl'} Summary={tmp_path / 'build-summary.json'}"
+            in info_logs
+        )
+
+
 class TestBuildWithLoggingTelemetry:
     @patch("benchmarks.utils.build_utils.maybe_reset_buildkit")
     @patch("benchmarks.utils.build_utils.time.monotonic", side_effect=[100.0, 109.5])
