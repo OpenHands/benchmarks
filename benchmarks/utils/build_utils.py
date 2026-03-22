@@ -915,18 +915,22 @@ def build_all_images(
                         prune_threshold_pct,
                     )
             batch_duration = time.monotonic() - batch_started_monotonic
-            batch_throughput = (
+            batch_processed_throughput = (
                 (len(batch) / batch_duration) * 3600 if batch_duration else 0.0
             )
+            batch_built_throughput = (
+                (batch_built / batch_duration) * 3600 if batch_duration else 0.0
+            )
             logger.info(
-                "Finished batch %d/%d in %.1fs: built=%d skipped=%d failed=%d throughput=%.1f images/hour",
+                "Finished batch %d/%d in %.1fs: built=%d skipped=%d failed=%d processed_throughput=%.1f images/hour built_throughput=%.1f built images/hour",
                 batch_idx,
                 total_batches,
                 batch_duration,
                 batch_built,
                 batch_skipped,
                 batch_failures,
-                batch_throughput,
+                batch_processed_throughput,
+                batch_built_throughput,
             )
 
     summary_file = build_dir / "build-summary.json"
@@ -934,19 +938,24 @@ def build_all_images(
         [result.model_dump(mode="json") for result in results],
         manifest_files=1 if results else 0,
     )
-    summary_file.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
     overall_duration = time.monotonic() - overall_started_monotonic
-    throughput = (
+    summary.wall_clock_seconds = _round_duration(overall_duration)
+    summary.processed_images_per_hour = (
         (len(base_images) / overall_duration) * 3600 if overall_duration else 0.0
     )
+    summary.built_images_per_hour = (
+        (built / overall_duration) * 3600 if overall_duration else 0.0
+    )
+    summary_file.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
     logger.info(
-        "Done in %.1fs. Built=%d Skipped=%d Failed=%d Retried=%d Throughput=%.1f images/hour Manifest=%s Summary=%s",
+        "Done in %.1fs. Built=%d Skipped=%d Failed=%d Retried=%d ProcessedThroughput=%.1f images/hour BuiltThroughput=%.1f built images/hour Manifest=%s Summary=%s",
         overall_duration,
         built,
         skipped,
         failures,
         summary.retried,
-        throughput,
+        summary.processed_images_per_hour,
+        summary.built_images_per_hour,
         str(manifest_file),
         str(summary_file),
     )

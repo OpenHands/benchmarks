@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from benchmarks.utils.build_manifest import (
     format_duration,
     load_eval_env_summary,
@@ -87,6 +89,8 @@ def test_summarize_build_records_tracks_statuses_and_timings():
     assert summary.status_counts["built"] == 2
     assert summary.status_counts["skipped_remote_exists"] == 1
     assert summary.status_counts["failed"] == 1
+    assert summary.processed_images_per_hour == pytest.approx(124.13793103448276)
+    assert summary.built_images_per_hour == pytest.approx(62.06896551724138)
     assert summary.average_build_seconds == 25.0
     assert summary.median_build_seconds == 25.0
     assert summary.max_build_seconds == 30.0
@@ -105,6 +109,14 @@ def test_summarize_build_records_tracks_statuses_and_timings():
     assert summary.cumulative_sdk_export_manifest_seconds == 2.0
     assert summary.cumulative_sdk_cache_import_misses == 1
     assert summary.cumulative_sdk_cached_steps == 3
+    assert any(
+        "counts every completed image outcome" in note
+        for note in summary.throughput_notes
+    )
+    assert any(
+        "missing registry cache manifests" in note
+        for note in summary.cache_metric_notes
+    )
     assert [build.base_image for build in summary.slowest_builds] == [
         "repo/image-a",
         "repo/image-d",
@@ -142,12 +154,17 @@ def test_render_build_summary_markdown_includes_profiling_fields():
     assert "## Example Build Summary" in markdown
     assert "**Built:** 1" in markdown
     assert "**Retried:** 1" in markdown
+    assert "**Processed Throughput:** 85.7 images/hour" in markdown
+    assert "**Built Throughput:** 85.7 built images/hour" in markdown
     assert "### Phase Totals" in markdown
     assert "**SDK Cache Imports:** 5s" in markdown
     assert "**SDK Cache Exports:** 7s" in markdown
     assert "**SDK Push Layers:** 4s" in markdown
-    assert "**SDK Cache Import Misses:** 2" in markdown
+    assert "**Registry Cache Manifest Misses:** 2" in markdown
+    assert "**BuildKit Cached Steps (Any Source):** 6" in markdown
     assert "### Slowest Built Images" in markdown
+    assert "### Throughput Notes" in markdown
+    assert "### Cache Metric Notes" in markdown
     assert "`repo/image-a`" in markdown
     assert "42s" in markdown
 
