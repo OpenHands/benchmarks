@@ -276,6 +276,13 @@ def build_all_base_images(
     return 1 if failures else 0
 
 
+def builder_image_tag(builder_image: str = EVAL_BUILDER_IMAGE) -> str:
+    """Compute the builder image tag from the SDK SHA."""
+    _, git_sha, _ = _get_sdk_submodule_info()
+    short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
+    return f"{builder_image}:{short_sha}"
+
+
 def build_builder_image(
     builder_image: str = EVAL_BUILDER_IMAGE,
     push: bool = False,
@@ -283,39 +290,66 @@ def build_builder_image(
 ) -> BuildOutput:
     """Build and push the SDK builder image (Phase 0).
 
-    Uses the SDK's build() function with target=builder to create the builder
-    stage as a standalone image containing /agent-server with the venv.
+    Builds the builder stage from the SDK Dockerfile as a standalone image
+    containing /agent-server with the venv. Uses the SDK sdist as build context.
     """
-    from openhands.agent_server.docker.build import BuildOptions, build_with_telemetry
-
-    _, git_sha, sdk_version = _get_sdk_submodule_info()
-    short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
-    tag = f"{builder_image}:{short_sha}-source-minimal"
+    tag = builder_image_tag(builder_image)
 
     if remote_image_exists(tag):
         logger.info("Builder image %s already exists. Skipping.", tag)
         return BuildOutput(base_image="builder", tags=[tag], error=None)
 
     logger.info("Building builder image: %s", tag)
-    git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
-    opts = BuildOptions(
-        base_image="python:3.13-bookworm",
-        custom_tags="builder",
-        image=builder_image,
-        target="builder",
-        platforms=[platform],
-        push=push,
-        git_ref=git_ref,
-        git_sha=git_sha,
-        sdk_version=sdk_version,
-        include_base_tag=False,
-    )
+
+    # Builder target needs the SDK source as build context.
+    # Use the SDK's _make_build_context to create a clean sdist-based context.
+    from openhands.agent_server.docker.build import _make_build_context
+
+    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
+    ctx = _make_build_context(sdk_path)
+
     try:
-        result = build_with_telemetry(opts)
-        # The tag we care about is the custom one
+        cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "--file",
+            str(ctx / "Dockerfile"),
+            "--target",
+            "builder",
+            "--platform",
+            platform,
+            "--tag",
+            tag,
+        ]
+        if push:
+            cmd.append("--push")
+        else:
+            cmd.append("--load")
+        cmd.append(str(ctx))
+
+        logger.info("Building builder: %s", " ".join(cmd))
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+
+        if proc.stdout:
+            print(proc.stdout, end="")
+        if proc.stderr:
+            print(proc.stderr, end="", file=sys.stderr)
+
+        if proc.returncode != 0:
+            error = (
+                proc.stderr.strip()
+                or proc.stdout.strip()
+                or f"Builder build failed with exit code {proc.returncode}"
+            )
+            return BuildOutput(base_image="builder", tags=[], error=error)
+
         return BuildOutput(base_image="builder", tags=[tag], error=None)
-    except Exception as e:
-        return BuildOutput(base_image="builder", tags=[], error=repr(e))
+    finally:
+        import shutil
+
+        shutil.rmtree(ctx, ignore_errors=True)
 
 
 def assemble_agent_image(
