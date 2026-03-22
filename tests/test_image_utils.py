@@ -566,7 +566,7 @@ class TestCachedSdistReuse:
         "benchmarks.utils.build_utils.time.monotonic",
         side_effect=[100.0, 110.0, 130.0, 145.0],
     )
-    def test_build_all_images_writes_explicit_processed_and_built_throughput(
+    def test_build_all_images_uses_built_images_for_throughput(
         self,
         _mock_monotonic,
         mock_logger_info,
@@ -639,12 +639,7 @@ class TestCachedSdistReuse:
 
         summary = json.loads((tmp_path / "build-summary.json").read_text("utf-8"))
         assert summary["wall_clock_seconds"] == 45.0
-        assert summary["processed_images_per_hour"] == 240.0
-        assert summary["built_images_per_hour"] == 160.0
-        assert any(
-            "counts every completed image outcome" in note
-            for note in summary["throughput_notes"]
-        )
+        assert summary["throughput_images_per_hour"] == 160.0
 
         done_logs = [
             call.args[0] % call.args[1:]
@@ -654,7 +649,7 @@ class TestCachedSdistReuse:
             and call.args[0].startswith("Done in ")
         ]
         assert done_logs == [
-            "Done in 45.0s. Built=2 Skipped=1 Failed=0 Retried=0 ProcessedThroughput=240.0 images/hour BuiltThroughput=160.0 built images/hour "
+            "Done in 45.0s. Built=2 Skipped=1 Failed=0 Retried=0 Throughput=160.0 built images/hour "
             f"Manifest={tmp_path / 'manifest.jsonl'} Summary={tmp_path / 'build-summary.json'}"
         ]
 

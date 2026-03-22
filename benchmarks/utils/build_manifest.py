@@ -34,8 +34,7 @@ class BuildManifestSummary(BaseModel):
     started_at: str | None = None
     finished_at: str | None = None
     wall_clock_seconds: float | None = None
-    processed_images_per_hour: float | None = None
-    built_images_per_hour: float | None = None
+    throughput_images_per_hour: float | None = None
     cumulative_duration_seconds: float = 0.0
     cumulative_remote_check_seconds: float = 0.0
     cumulative_build_seconds: float = 0.0
@@ -57,8 +56,6 @@ class BuildManifestSummary(BaseModel):
     skip_reasons: dict[str, int] = Field(default_factory=dict)
     slowest_builds: list[SlowBuild] = Field(default_factory=list)
     failed_builds: list[FailedBuild] = Field(default_factory=list)
-    throughput_notes: list[str] = Field(default_factory=list)
-    cache_metric_notes: list[str] = Field(default_factory=list)
 
 
 def _normalize_float(value: Any) -> float | None:
@@ -205,31 +202,9 @@ def summarize_build_records(
         wall_clock_seconds = (
             max(finished_at_candidates) - min(started_at_candidates)
         ).total_seconds()
-    processed_images_per_hour = None
-    built_images_per_hour = None
+    throughput_images_per_hour = None
     if wall_clock_seconds and wall_clock_seconds > 0:
-        processed_images_per_hour = (total / wall_clock_seconds) * 3600
-        built_images_per_hour = (built / wall_clock_seconds) * 3600
-
-    throughput_notes = [
-        "`processed_images_per_hour` counts every completed image outcome, including skips.",
-        "`built_images_per_hour` counts only images that were actually built.",
-    ]
-    if skipped:
-        throughput_notes.append(
-            "Prefer `built_images_per_hour` when comparing build throughput across skip-heavy runs."
-        )
-
-    cache_metric_notes = [
-        (
-            "`cumulative_sdk_cache_import_misses` counts missing registry cache "
-            "manifests, not expensive Dockerfile layer cache misses."
-        ),
-        (
-            "`cumulative_sdk_cached_steps` counts BuildKit `CACHED` steps from any "
-            "cache source; it does not prove registry cache reuse."
-        ),
-    ]
+        throughput_images_per_hour = (built / wall_clock_seconds) * 3600
 
     average_build_seconds = (
         statistics.mean(build_durations) if build_durations else None
@@ -253,8 +228,7 @@ def summarize_build_records(
         started_at=started_at,
         finished_at=finished_at,
         wall_clock_seconds=wall_clock_seconds,
-        processed_images_per_hour=processed_images_per_hour,
-        built_images_per_hour=built_images_per_hour,
+        throughput_images_per_hour=throughput_images_per_hour,
         cumulative_duration_seconds=cumulative_duration,
         cumulative_remote_check_seconds=_sum_float_field(
             records, "remote_check_seconds"
@@ -294,8 +268,6 @@ def summarize_build_records(
         skip_reasons=dict(skip_reasons),
         slowest_builds=slowest_builds,
         failed_builds=failed_builds,
-        throughput_notes=throughput_notes,
-        cache_metric_notes=cache_metric_notes,
     )
 
 
@@ -350,13 +322,9 @@ def render_build_summary_markdown(
             f"**Cumulative Image Time:** {format_duration(summary.cumulative_duration_seconds)}",
         ]
     )
-    if summary.processed_images_per_hour is not None:
+    if summary.throughput_images_per_hour is not None:
         lines.append(
-            f"**Processed Throughput:** {summary.processed_images_per_hour:.1f} images/hour"
-        )
-    if summary.built_images_per_hour is not None:
-        lines.append(
-            f"**Built Throughput:** {summary.built_images_per_hour:.1f} built images/hour"
+            f"**Throughput:** {summary.throughput_images_per_hour:.1f} built images/hour"
         )
 
     phase_lines = [
@@ -427,16 +395,6 @@ def render_build_summary_markdown(
             lines.append(
                 f"- `{build.base_image}`: {build.error} (attempts={build.attempt_count})"
             )
-
-    if summary.throughput_notes:
-        lines.extend(["", "### Throughput Notes", ""])
-        for note in summary.throughput_notes:
-            lines.append(f"- {note}")
-
-    if summary.cache_metric_notes:
-        lines.extend(["", "### Cache Metric Notes", ""])
-        for note in summary.cache_metric_notes:
-            lines.append(f"- {note}")
 
     return "\n".join(lines)
 
