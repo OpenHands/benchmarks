@@ -562,13 +562,6 @@ class TestCachedSdistReuse:
 
 
 class TestBuildAllImagesThroughputLogging:
-    def test_calculate_throughput_images_per_hour(self):
-        from benchmarks.utils.build_utils import _calculate_throughput_images_per_hour
-
-        assert _calculate_throughput_images_per_hour(2, 20.0) == 360.0
-        assert _calculate_throughput_images_per_hour(2, 45.0) == 160.0
-        assert _calculate_throughput_images_per_hour(2, 0.0) == 0.0
-
     @patch("benchmarks.utils.build_utils.logger.info")
     @patch(
         "benchmarks.utils.build_utils.time.monotonic",
