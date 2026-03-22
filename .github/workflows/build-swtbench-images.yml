@@ -64,9 +64,9 @@ on:
         default: '10'
         type: string
       cache-mode:
-        description: 'BuildKit cache export mode (max, min, off). Default: max'
+        description: 'BuildKit cache export mode (max, min, off). Default: off'
         required: false
-        default: 'max'
+        default: 'off'
         type: string
       force-build:
         description: 'Rebuild images even if matching remote tags already exist'
@@ -213,6 +213,8 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode }}
+          BUILDKIT_PRUNE_THRESHOLD_PCT: '85'
+          BUILDKIT_PRUNE_KEEP_GB: '20'
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Build prebaked eval env images
