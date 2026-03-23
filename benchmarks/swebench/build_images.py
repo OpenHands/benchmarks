@@ -171,6 +171,14 @@ def main(argv: list[str]) -> int:
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
 
+    # Append ACP suffix to image tags so ACP and non-ACP images are distinct.
+    # This prevents IfNotPresent pull policy from using stale non-ACP images.
+    def tag_fn(base: str) -> str:
+        tag = extract_custom_tag(base)
+        if args.agent_type.startswith("acp-"):
+            tag += "-acp"
+        return tag
+
     return build_all_images(
         base_images=base_images,
         target=args.target,
@@ -182,7 +190,7 @@ def main(argv: list[str]) -> int:
         dry_run=args.dry_run,
         force_build=args.force_build,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=extract_custom_tag,
+        base_image_to_custom_tag_fn=tag_fn,
         post_build_fn=_wrap_if_needed,
         extra_build_args=build_args_for_agent_type(args.agent_type),
     )
