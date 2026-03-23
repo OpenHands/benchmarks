@@ -74,7 +74,7 @@ if __name__ == "__main__":
         eval_output_dir="{tmpdir}",
         details={{}},
         eval_limit=0,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )

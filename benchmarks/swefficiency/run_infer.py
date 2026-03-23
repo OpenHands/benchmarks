@@ -1,3 +1,4 @@
+import argparse
 import json
 import multiprocessing
 import os
@@ -148,6 +149,18 @@ class SWEfficiencyEvaluation(Evaluation):
         default=DOCKER_DEFAULTS["mem_limit"],
         description="Memory limit per container",
     )
+    cleanup_agent_image: bool = Field(
+        default=DOCKER_DEFAULTS["cleanup_agent_image"],
+        description="Whether to delete per-instance agent image after workspace cleanup",
+    )
+    cleanup_base_image: bool = Field(
+        default=DOCKER_DEFAULTS["cleanup_base_image"],
+        description="Whether to delete per-instance base image after workspace cleanup",
+    )
+    prune_buildkit_cache: bool = Field(
+        default=DOCKER_DEFAULTS["prune_buildkit_cache"],
+        description="Whether to run docker buildx prune after workspace cleanup",
+    )
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -223,6 +236,7 @@ class SWEfficiencyEvaluation(Evaluation):
                 "working_dir": "/workspace",
                 "forward_env": forward_env or [],
                 "mem_limit": self.mem_limit,
+                "cleanup_image": self.cleanup_agent_image,
             }
 
             if cpu_group is not None:
@@ -234,6 +248,11 @@ class SWEfficiencyEvaluation(Evaluation):
             # Store CPU group and queue on workspace for automatic cleanup
             workspace._cpu_group = cpu_group
             workspace._cpu_groups_queue = self.cpu_groups_queue
+            workspace._prune_buildkit_cache_on_cleanup = self.prune_buildkit_cache
+            cleanup_images: list[str] = []
+            if self.cleanup_base_image:
+                cleanup_images.append(base_docker_image)
+            workspace._images_to_cleanup = cleanup_images
 
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -409,12 +428,30 @@ def main() -> None:
         default=DOCKER_DEFAULTS["num_cpus_to_skip"],
         help="Number of CPUs to skip at the beginning",
     )
+    parser.add_argument(
+        "--cleanup-agent-image",
+        action=argparse.BooleanOptionalAction,
+        default=DOCKER_DEFAULTS["cleanup_agent_image"],
+        help="Delete per-instance agent-server image during workspace cleanup",
+    )
+    parser.add_argument(
+        "--cleanup-base-image",
+        action=argparse.BooleanOptionalAction,
+        default=DOCKER_DEFAULTS["cleanup_base_image"],
+        help="Delete per-instance base image during workspace cleanup",
+    )
+    parser.add_argument(
+        "--prune-buildkit-cache",
+        action=argparse.BooleanOptionalAction,
+        default=DOCKER_DEFAULTS["prune_buildkit_cache"],
+        help="Run docker buildx prune --all --force during workspace cleanup",
+    )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
-    # Validate max_attempts
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    # Validate n_critic_runs
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     llm_config_path = args.llm_config_path
     if not os.path.isfile(llm_config_path):
@@ -450,7 +487,7 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
@@ -482,6 +519,9 @@ def main() -> None:
         cpu_groups_queue=cpu_groups_queue,
         num_cpus_per_worker=args.num_cpus_per_worker,
         mem_limit=args.mem_limit,
+        cleanup_agent_image=args.cleanup_agent_image,
+        cleanup_base_image=args.cleanup_base_image,
+        prune_buildkit_cache=args.prune_buildkit_cache,
     )
 
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))

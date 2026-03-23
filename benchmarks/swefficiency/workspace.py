@@ -48,6 +48,8 @@ class ResourceLimitedDockerWorkspace(DockerWorkspace):
     # CPU group management - set by caller for automatic cleanup
     _cpu_group: list[int] | None = PrivateAttr(default=None)
     _cpu_groups_queue: Any = PrivateAttr(default=None)
+    _images_to_cleanup: list[str] = PrivateAttr(default_factory=list)
+    _prune_buildkit_cache_on_cleanup: bool = PrivateAttr(default=False)
 
     def _start_container(self, image: str, context: Any) -> None:
         """Start the Docker container with resource limits.
@@ -74,7 +76,12 @@ class ResourceLimitedDockerWorkspace(DockerWorkspace):
             logger.info(f"Setting CPU limit: {self.nano_cpus / 1e9} CPUs")
 
         if self.mem_limit is not None:
-            update_flags += ["--memory", self.mem_limit]
+            update_flags += [
+                "--memory",
+                self.mem_limit,
+                "--memory-swap",
+                self.mem_limit,
+            ]
             logger.info(f"Setting memory limit: {self.mem_limit}")
 
         if update_flags:
@@ -96,3 +103,20 @@ class ResourceLimitedDockerWorkspace(DockerWorkspace):
             except Exception as e:
                 logger.warning(f"Failed to return CPU group to queue: {e}")
             self._cpu_group = None
+
+        for image in self._images_to_cleanup:
+            result = execute_command(["docker", "rmi", "-f", image])
+            if result.returncode == 0:
+                logger.info(f"Deleted Docker image: {image}")
+            else:
+                logger.warning(
+                    f"Failed to delete Docker image {image}: {result.stderr}"
+                )
+        self._images_to_cleanup = []
+
+        if self._prune_buildkit_cache_on_cleanup:
+            result = execute_command(["docker", "buildx", "prune", "--all", "--force"])
+            if result.returncode == 0:
+                logger.info("Pruned Docker buildx cache")
+            else:
+                logger.warning(f"Failed to prune Docker buildx cache: {result.stderr}")
