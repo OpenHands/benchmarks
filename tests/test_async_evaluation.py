@@ -249,7 +249,7 @@ def test_evaluation_run_end_to_end(tmp_path):
         eval_output_dir=str(tmp_path),
         details={},
         eval_limit=4,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -324,7 +324,7 @@ def test_evaluation_timeout_cancels_instance(tmp_path):
         eval_output_dir=str(tmp_path),
         details={},
         eval_limit=2,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
