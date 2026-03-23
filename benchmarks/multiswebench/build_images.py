@@ -15,6 +15,7 @@ from pathlib import Path
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.utils.build_utils import (
     build_all_images,
+    build_args_for_agent_type,
     default_build_output_dir,
     get_build_parser,
 )
@@ -121,6 +122,7 @@ def main():
         build_batch_size=args.build_batch_size,
         dry_run=False,
         force_build=args.force_build,
+        extra_build_args=build_args_for_agent_type(args.agent_type),
     )
 
 

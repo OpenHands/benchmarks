@@ -17,6 +17,7 @@ from benchmarks.swebenchmultilingual.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     BuildOutput,
     build_all_images,
+    build_args_for_agent_type,
     default_build_output_dir,
     get_build_parser,
     run_docker_build_layer,
@@ -183,6 +184,7 @@ def main(argv: list[str]) -> int:
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
         post_build_fn=_wrap_if_needed,
+        extra_build_args=build_args_for_agent_type(args.agent_type),
     )
 
 

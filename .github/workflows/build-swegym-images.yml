@@ -50,6 +50,11 @@ on:
         required: false
         default: 'false'
         type: string
+      agent-type:
+        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
+        required: false
+        default: 'default'
+        type: string
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
@@ -248,6 +253,7 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
+          CMD="$CMD --agent-type ${AGENT_TYPE}"
 
           echo "Running: $CMD"
           eval "$CMD"
@@ -255,6 +261,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
+          AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Archive build logs
         if: always()

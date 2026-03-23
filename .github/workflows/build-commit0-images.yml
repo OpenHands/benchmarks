@@ -54,6 +54,11 @@ on:
         required: false
         default: 'false'
         type: string
+      agent-type:
+        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
+        required: false
+        default: 'default'
+        type: string
 
 env:
   DATASET: wentingzhao/commit0_combined
@@ -190,12 +195,14 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
+          CMD="$CMD --agent-type ${AGENT_TYPE}"
 
           echo "Running: $CMD"
           eval "$CMD"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Archive build logs
         if: always()

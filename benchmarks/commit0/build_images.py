@@ -16,6 +16,7 @@ from commit0.harness.constants import SPLIT
 from benchmarks.commit0.config import BUILD_DEFAULTS, INFER_DEFAULTS
 from benchmarks.utils.build_utils import (
     build_all_images,
+    build_args_for_agent_type,
     default_build_output_dir,
     get_build_parser,
 )
@@ -129,6 +130,7 @@ def main(argv: list[str]) -> int:
         force_build=args.force_build,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
+        extra_build_args=build_args_for_agent_type(args.agent_type),
     )
 
 
