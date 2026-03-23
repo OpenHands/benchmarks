@@ -52,6 +52,8 @@ class TestEvaluation(Evaluation):
     def evaluate_instance(
         self, instance: EvalInstance, workspace: RemoteWorkspace
     ) -> EvalOutput:
+        # Signal that this worker has started
+        open(os.path.join("{tmpdir}", f"worker_started_{{instance.id}}"), "w").close()
         # Simulate long-running task
         time.sleep(60)  # Long sleep
         return EvalOutput(
@@ -171,16 +173,22 @@ def test_keyboard_interrupt_cleanup():
             f"Could not get evaluation process PID. Stdout: {stdout_lines}"
         )
 
-        # Heuristic wait for worker threads to start.
-        # With asyncio.to_thread(), workers are threads inside the process
-        # (not child processes), so we can't enumerate them from outside.
-        # 3 seconds is a rough guess that workers have started their 60s sleep.
+        # Wait for at least one worker thread to start by polling for
+        # sentinel files written by evaluate_instance().
         print("Waiting for workers to start...")
-        time.sleep(3)
-
-        assert process.poll() is None, (
-            f"Process exited prematurely with code {process.returncode}"
-        )
+        for _ in range(100):  # 10 seconds max
+            started = [
+                f for f in os.listdir(tmpdir) if f.startswith("worker_started_")
+            ]
+            if started:
+                print(f"Workers started: {len(started)} sentinel(s) found")
+                break
+            assert process.poll() is None, (
+                f"Process exited prematurely with code {process.returncode}"
+            )
+            time.sleep(0.1)
+        else:
+            pytest.fail("Workers never started (no sentinel files found)")
 
         # Send SIGINT to the subprocess
         print("\n=== Sending SIGINT ===")
