@@ -178,6 +178,8 @@ class SWTBenchEvaluation(Evaluation):
         # Create a custom tag for the image
         name_tag = official_docker_image.split("/")[-1]
         custom_tag = name_tag.split(":")[0]
+        if self.metadata.agent_type.startswith("acp-"):
+            custom_tag += "-acp"
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
 
