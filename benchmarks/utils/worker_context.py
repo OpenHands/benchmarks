@@ -75,14 +75,13 @@ class _RoutedFileHandler(logging.Handler):
         try:
             fh.stream.write(record_msg + "\n")
             fh.stream.flush()
-        except (OSError, ValueError):
+        except (OSError, ValueError) as e:
             # File handler failed (closed file, disk full, etc.) —
             # fall back to stderr so the message isn't silently lost.
             if sys.__stderr__:
-                try:
-                    sys.__stderr__.write(record_msg + "\n")
-                except Exception:
-                    pass
+                sys.__stderr__.write(f"LOGGING FAILURE: {e}\n{record_msg}\n")
+            else:
+                raise  # Don't hide logging system failures
 
 
 class _RoutedConsoleHandler(logging.Handler):
@@ -158,25 +157,26 @@ class _ThreadLocalWriter:
         target = self._target()
         try:
             return target.write(s)  # type: ignore[union-attr]
-        except (ValueError, OSError):
+        except (ValueError, OSError) as e:
             # Target closed/broken — try original, then __stderr__ as last resort
             try:
                 return self._original.write(s)  # type: ignore[union-attr]
             except Exception:
                 if sys.__stderr__:
-                    return sys.__stderr__.write(s)
-                return 0
+                    sys.__stderr__.write(f"STDOUT WRITE FAILURE: {e}\n")
+                raise  # Don't hide I/O failures
 
     def flush(self) -> None:
         target = self._target()
         try:
             target.flush()  # type: ignore[union-attr]
-        except (ValueError, OSError):
+        except (ValueError, OSError) as e:
             try:
                 self._original.flush()  # type: ignore[union-attr]
             except Exception:
                 if sys.__stderr__:
-                    sys.__stderr__.flush()
+                    sys.__stderr__.write(f"FLUSH FAILURE: {e}\n")
+                raise  # Don't hide I/O failures
 
     @property
     def encoding(self) -> str:

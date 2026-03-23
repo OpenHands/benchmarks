@@ -910,7 +910,7 @@ def _safe_end_span(span: Any, label: str) -> None:
         # The span data is still recorded; only the context detach fails.
         pass
     except Exception as e:
-        logger.warning("[worker] %s.end() error: %s", label, e)
+        logger.warning("[worker] %s.end() unexpected error (%s): %s", label, type(e).__name__, e)
 
 
 # Lock to serialise writes to os.environ["LMNR_SPAN_CONTEXT"].
