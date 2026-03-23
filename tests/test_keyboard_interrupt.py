@@ -177,9 +177,7 @@ def test_keyboard_interrupt_cleanup():
         # sentinel files written by evaluate_instance().
         print("Waiting for workers to start...")
         for _ in range(100):  # 10 seconds max
-            started = [
-                f for f in os.listdir(tmpdir) if f.startswith("worker_started_")
-            ]
+            started = [f for f in os.listdir(tmpdir) if f.startswith("worker_started_")]
             if started:
                 print(f"Workers started: {len(started)} sentinel(s) found")
                 break
