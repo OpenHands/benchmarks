@@ -8,7 +8,6 @@ instances to be dropped and never recorded in the attempt file.
 import json
 
 import numpy as np
-import pytest
 
 from benchmarks.utils.evaluation import _to_serializable
 
@@ -80,10 +79,10 @@ def test_to_serializable_list_and_tuple():
 
 def _make_eval(tmp_path):
     """Instantiate a minimal concrete Evaluation subclass for testing."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
 
     from benchmarks.utils.evaluation import Evaluation
-    from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+    from benchmarks.utils.models import EvalMetadata
 
     class _DummyEval(Evaluation):
         def prepare_instances(self):
