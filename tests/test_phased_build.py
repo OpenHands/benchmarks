@@ -1,4 +1,4 @@
-"""Tests for the phased benchmark image build (build_base_images + build_phased_images)."""
+"""Tests for the phased benchmark image build (build_base_images + build_images)."""
 
 import json
 import subprocess
@@ -401,25 +401,25 @@ class TestBuildBuilderImage:
 
 
 # ---------------------------------------------------------------------------
-# Phase orchestration (build_phased_images.main)
+# Phase orchestration (build_images.main)
 # ---------------------------------------------------------------------------
 
 
 class TestPhasedOrchestration:
     @patch(
-        "benchmarks.swebench.build_phased_images.assemble_all_agent_images",
+        "benchmarks.swebench.build_images.assemble_all_agent_images",
         return_value=0,
     )
     @patch(
-        "benchmarks.swebench.build_phased_images.build_all_base_images", return_value=0
+        "benchmarks.swebench.build_images.build_all_base_images", return_value=0
     )
-    @patch("benchmarks.swebench.build_phased_images.build_builder_image")
+    @patch("benchmarks.swebench.build_images.build_builder_image")
     @patch(
-        "benchmarks.swebench.build_phased_images.collect_unique_base_images",
+        "benchmarks.swebench.build_images.collect_unique_base_images",
         return_value=["img-a"],
     )
     def test_happy_path(self, _collect, mock_builder, mock_bases, mock_assemble):
-        from benchmarks.swebench.build_phased_images import main
+        from benchmarks.swebench.build_images import main
 
         mock_builder.return_value = BuildOutput(
             base_image="builder",
@@ -435,13 +435,13 @@ class TestPhasedOrchestration:
         mock_assemble.assert_called_once()
         assert mock_assemble.call_args.kwargs["builder_tag"] == "builder:abc"
 
-    @patch("benchmarks.swebench.build_phased_images.build_builder_image")
+    @patch("benchmarks.swebench.build_images.build_builder_image")
     @patch(
-        "benchmarks.swebench.build_phased_images.collect_unique_base_images",
+        "benchmarks.swebench.build_images.collect_unique_base_images",
         return_value=["img-a"],
     )
     def test_builder_failure_aborts(self, _collect, mock_builder):
-        from benchmarks.swebench.build_phased_images import main
+        from benchmarks.swebench.build_images import main
 
         mock_builder.return_value = BuildOutput(
             base_image="builder",
@@ -453,15 +453,15 @@ class TestPhasedOrchestration:
         assert rc == 1
 
     @patch(
-        "benchmarks.swebench.build_phased_images.build_all_base_images", return_value=1
+        "benchmarks.swebench.build_images.build_all_base_images", return_value=1
     )
-    @patch("benchmarks.swebench.build_phased_images.build_builder_image")
+    @patch("benchmarks.swebench.build_images.build_builder_image")
     @patch(
-        "benchmarks.swebench.build_phased_images.collect_unique_base_images",
+        "benchmarks.swebench.build_images.collect_unique_base_images",
         return_value=["img-a"],
     )
     def test_base_failure_aborts_before_assembly(self, _collect, mock_builder, _bases):
-        from benchmarks.swebench.build_phased_images import main
+        from benchmarks.swebench.build_images import main
 
         mock_builder.return_value = BuildOutput(
             base_image="builder",
