@@ -11,6 +11,7 @@ import argparse
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from threading import Lock
@@ -575,6 +576,7 @@ def assemble_all_agent_images(
     max_workers: int = 12,
     max_retries: int = 3,
     force_build: bool = False,
+    custom_tag_fn: Callable[[str], str] | None = None,
 ) -> int:
     """Assemble all agent images using thin Dockerfile (Phase 2)."""
     _, git_sha, _ = _get_sdk_submodule_info()
@@ -600,9 +602,10 @@ def assemble_all_agent_images(
         with ProcessPoolExecutor(max_workers=max_workers) as ex:
             futures = {}
             in_progress: set[str] = set()
+            _tag_fn = custom_tag_fn or extract_custom_tag
             for base in base_images:
                 in_progress.add(base)
-                custom_tag = extract_custom_tag(base)
+                custom_tag = _tag_fn(base)
                 fut = ex.submit(
                     _assemble_with_logging,
                     log_dir=build_log_dir,

@@ -15,7 +15,7 @@ from benchmarks.swebench.build_base_images import (
     build_all_base_images,
     build_builder_image,
 )
-from benchmarks.swebench.build_images import collect_unique_base_images
+from benchmarks.swebench.build_images import collect_unique_base_images, extract_custom_tag
 from benchmarks.utils.build_utils import default_build_output_dir
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 
@@ -75,6 +75,12 @@ def get_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Rebuild final images even if matching remote tags already exist",
     )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        default="default",
+        help="Agent type: default, acp-claude, acp-codex",
+    )
     return parser
 
 
@@ -108,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     if rc != 0:
         return rc
 
+    def custom_tag_fn(base: str) -> str:
+        tag = extract_custom_tag(base)
+        if args.agent_type.startswith("acp-"):
+            tag += "-acp"
+        return tag
+
     return assemble_all_agent_images(
         base_images=base_images,
         builder_tag=builder_result.tags[0],
@@ -118,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         max_workers=args.max_workers,
         max_retries=args.max_retries,
         force_build=args.force_build,
+        custom_tag_fn=custom_tag_fn,
     )
 
 

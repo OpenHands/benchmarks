@@ -78,11 +78,6 @@ on:
         required: false
         default: 'default'
         type: string
-      use-prebuilt-bases:
-        description: 'Use the phased local-build path (builder image + base images + local final assembly).'
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
   group: build-swt-bench-${{ github.ref }}
@@ -115,7 +110,6 @@ jobs:
       N_LIMIT: '0'
       INSTANCE_IDS: ''
       SELECT_FILE: ''
-      USE_PREBUILT_BASES: ''
 
     steps:
       - name: Determine checkout ref
@@ -143,7 +137,6 @@ jobs:
           if [ -n "${{ inputs.build-batch-size }}" ]; then echo "BUILD_BATCH_SIZE=${{ inputs.build-batch-size }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
-          if [ "${{ inputs.use-prebuilt-bases }}" = "true" ]; then echo "USE_PREBUILT_BASES=true" >> "$GITHUB_ENV"; fi
 
       - name: Build selected instances file
         run: |
@@ -199,15 +192,10 @@ jobs:
         run: |
           make build
 
-      - name: Build and push SWT-Bench images (phased mode)
-        if: ${{ env.USE_PREBUILT_BASES == 'true' }}
+      - name: Build and push SWT-Bench images
         run: |
           set -euo pipefail
 
-          DATASET="${DATASET}"
-          SPLIT="${SPLIT}"
-          N_LIMIT="${N_LIMIT}"
-          MAX_WORKERS="${MAX_WORKERS}"
           MAX_RETRIES="${{ inputs.max-retries || '3' }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
@@ -228,48 +216,6 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
-
-          echo "Running: $CMD"
-          eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-
-      - name: Build and push SWT-Bench images (standard mode)
-        if: ${{ env.USE_PREBUILT_BASES != 'true' }}
-        run: |
-          set -euo pipefail
-
-          # Get inputs with defaults
-          DATASET="${DATASET}"
-          SPLIT="${SPLIT}"
-          MAX_WORKERS="${MAX_WORKERS}"
-          BUILD_BATCH_SIZE="${BUILD_BATCH_SIZE}"
-          N_LIMIT="${N_LIMIT}"
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
-
-          # SWT-Bench uses source-minimal target (same as SWE-bench)
-          TARGET="source-minimal"
-
-          CMD="uv run benchmarks/swtbench/build_images.py \
-            --dataset ${DATASET} \
-            --split ${SPLIT} \
-            --image ghcr.io/openhands/eval-agent-server \
-            --target ${TARGET} \
-            --max-workers ${MAX_WORKERS} \
-            --build-batch-size ${BUILD_BATCH_SIZE} \
-            --push"
-
-          # Add n-limit if specified
-          if [ "$N_LIMIT" != "0" ]; then
-            CMD="$CMD --n-limit ${N_LIMIT}"
-          fi
-          if [ -n "${SELECT_FILE}" ]; then
-            CMD="$CMD --select ${SELECT_FILE}"
-          fi
-          if [ "${FORCE_BUILD}" = "true" ]; then
-            CMD="$CMD --force-build"
-          fi
           CMD="$CMD --agent-type ${AGENT_TYPE}"
 
           echo "Running: $CMD"
@@ -277,7 +223,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode }}
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Build prebaked eval env images

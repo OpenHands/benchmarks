@@ -64,11 +64,6 @@ on:
         required: false
         default: 'default'
         type: string
-      use-prebuilt-bases:
-        description: 'Use the phased local-build path (builder image + base images + local final assembly).'
-        required: false
-        default: false
-        type: boolean
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
@@ -82,7 +77,6 @@ env:
   BUILD_BATCH_SIZE: '15'
   BUILDKIT_PRUNE_KEEP_GB: '60'
   BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
-  USE_PREBUILT_BASES: ''
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}
@@ -142,7 +136,6 @@ jobs:
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
-          if [ "${{ inputs.use-prebuilt-bases }}" = "true" ]; then echo "USE_PREBUILT_BASES=true" >> "$GITHUB_ENV"; fi
 
       # Set N_LIMIT based on the label that triggered the workflow
       - name: Set N_LIMIT based on label
@@ -247,8 +240,7 @@ jobs:
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
           fi
 
-      - name: Build and push SWE-Bench images (phased mode)
-        if: ${{ env.USE_PREBUILT_BASES == 'true' }}
+      - name: Build and push SWE-Bench images
         run: |
           set -euo pipefail
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
@@ -270,39 +262,6 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
-
-          echo "Running: $CMD"
-          eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-          FORCE_BUILD: ${{ inputs.force-build || 'false' }}
-
-      - name: Build and push SWE-Bench images (standard mode)
-        if: ${{ env.USE_PREBUILT_BASES != 'true' }}
-        run: |
-          set -euo pipefail
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
-
-          CMD="uv run benchmarks/swebench/build_images.py \
-            --dataset '${DATASET}' \
-            --split '${SPLIT}' \
-            --image ghcr.io/openhands/eval-agent-server \
-            --push \
-            --max-workers '${MAX_WORKERS}' \
-            --build-batch-size '${BUILD_BATCH_SIZE}' \
-            --max-retries '${MAX_RETRIES}'"
-
-          # Only include --n-limit if provided (non-empty)
-          if [ -n "${N_LIMIT}" ]; then
-            CMD="$CMD --n-limit '${N_LIMIT}'"
-          fi
-          if [ -n "${SELECT_FILE}" ]; then
-            CMD="$CMD --select '${SELECT_FILE}'"
-          fi
-          if [ "${FORCE_BUILD}" = "true" ]; then
-            CMD="$CMD --force-build"
-          fi
           CMD="$CMD --agent-type ${AGENT_TYPE}"
 
           echo "Running: $CMD"
@@ -310,7 +269,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          BUILDKIT_RESET_ON_FAILURE: 1
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Archive build logs
