@@ -11,6 +11,7 @@ from benchmarks.swebench.build_images import (
     should_wrap_instance_id,
     wrap_image,
 )
+from benchmarks.utils.image_utils import apply_acp_suffix
 from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
@@ -161,9 +162,9 @@ class SWEBenchEvaluation(Evaluation):
 
         official_docker_image = get_official_docker_image(instance.id)
         build_target = constants.DEFAULT_BUILD_TARGET
-        custom_tag = extract_custom_tag(official_docker_image)
-        if self.metadata.agent_type.startswith("acp-"):
-            custom_tag += "-acp"
+        custom_tag = apply_acp_suffix(
+            extract_custom_tag(official_docker_image), self.metadata.agent_type
+        )
         # For non-binary targets, append target suffix
         suffix = (
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
