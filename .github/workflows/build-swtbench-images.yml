@@ -24,11 +24,6 @@ on:
         required: false
         default: '4'
         type: string
-      build-batch-size:
-        description: 'Number of agent-server images to submit per batch'
-        required: false
-        default: '15'
-        type: string
       n-limit:
         description: 'Limit number of images to build (0 for all)'
         required: false
@@ -62,11 +57,6 @@ on:
         description: 'Env images per batch for eval env builds'
         required: false
         default: '10'
-        type: string
-      cache-mode:
-        description: 'BuildKit cache export mode (max, min, off). Default: max'
-        required: false
-        default: 'max'
         type: string
       force-build:
         description: 'Rebuild images even if matching remote tags already exist'
@@ -108,7 +98,6 @@ jobs:
       DATASET: ${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}
       SPLIT: ${{ inputs.split || 'test' }}
       MAX_WORKERS: ${{ inputs.max-workers || '4' }}
-      BUILD_BATCH_SIZE: ${{ inputs.build-batch-size || '15' }}
       N_LIMIT: ${{ inputs.n-limit || '0' }}
       INSTANCE_IDS: ${{ inputs.instance-ids || '' }}
       SELECT_FILE: ''
