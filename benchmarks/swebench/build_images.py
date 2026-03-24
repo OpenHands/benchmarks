@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 
 from benchmarks.swebench import constants
-from benchmarks.swebench.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     BuildOutput,
     default_build_output_dir,

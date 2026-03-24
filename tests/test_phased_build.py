@@ -407,13 +407,11 @@ class TestBuildBuilderImage:
 
 class TestPhasedOrchestration:
     @patch(
-        "benchmarks.swebench.build_images.assemble_all_agent_images",
+        "benchmarks.swebench.build_base_images.assemble_all_agent_images",
         return_value=0,
     )
-    @patch(
-        "benchmarks.swebench.build_images.build_all_base_images", return_value=0
-    )
-    @patch("benchmarks.swebench.build_images.build_builder_image")
+    @patch("benchmarks.swebench.build_base_images.build_all_base_images", return_value=0)
+    @patch("benchmarks.swebench.build_base_images.build_builder_image")
     @patch(
         "benchmarks.swebench.build_images.collect_unique_base_images",
         return_value=["img-a"],
@@ -435,7 +433,7 @@ class TestPhasedOrchestration:
         mock_assemble.assert_called_once()
         assert mock_assemble.call_args.kwargs["builder_tag"] == "builder:abc"
 
-    @patch("benchmarks.swebench.build_images.build_builder_image")
+    @patch("benchmarks.swebench.build_base_images.build_builder_image")
     @patch(
         "benchmarks.swebench.build_images.collect_unique_base_images",
         return_value=["img-a"],
@@ -452,10 +450,8 @@ class TestPhasedOrchestration:
         rc = main(["--dataset", "test-ds", "--split", "test"])
         assert rc == 1
 
-    @patch(
-        "benchmarks.swebench.build_images.build_all_base_images", return_value=1
-    )
-    @patch("benchmarks.swebench.build_images.build_builder_image")
+    @patch("benchmarks.swebench.build_base_images.build_all_base_images", return_value=1)
+    @patch("benchmarks.swebench.build_base_images.build_builder_image")
     @patch(
         "benchmarks.swebench.build_images.collect_unique_base_images",
         return_value=["img-a"],
