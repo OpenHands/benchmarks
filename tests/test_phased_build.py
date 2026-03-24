@@ -11,7 +11,9 @@ from benchmarks.utils.build_utils import BuildOutput
 
 # ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
+# Production uses ProcessPoolExecutor for true parallelism across builds.
+# Tests substitute ThreadPoolExecutor to avoid pickling issues with mocks.
+def _thread_pool(**kw):
 
 
 def _ok_proc(stdout="", stderr=""):
