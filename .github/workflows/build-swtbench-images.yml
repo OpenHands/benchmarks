@@ -199,7 +199,7 @@ jobs:
           MAX_RETRIES="${{ inputs.max-retries || '3' }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
-          CMD="uv run benchmarks/swebench/build_phased_images.py \
+          CMD="uv run benchmarks/swebench/build_images.py \
             --dataset '${DATASET}' \
             --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \

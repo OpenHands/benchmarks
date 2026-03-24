@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-Build agent-server images for all unique SWE-Bench base images in a dataset split,
-optionally wrapping them with a lightweight layer that pins docutils<0.21 and installs roman.
+Build agent-server images for all unique SWE-Bench base images in a dataset split.
+
+Uses a three-phase build pipeline:
+  1. Build shared builder image (SDK + dependencies)
+  2. Build per-instance base images
+  3. Assemble final agent images locally
 
 Example:
   uv run benchmarks/swebench/build_images.py \
     --dataset princeton-nlp/SWE-bench_Verified --split test \
-    --image ghcr.io/openhands/eval-agent-server --target source-minimal
+    --image ghcr.io/openhands/eval-agent-server
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -16,12 +21,10 @@ from benchmarks.swebench import constants
 from benchmarks.swebench.config import BUILD_DEFAULTS
 from benchmarks.utils.build_utils import (
     BuildOutput,
-    build_all_images,
-    build_args_for_agent_type,
     default_build_output_dir,
-    get_build_parser,
     run_docker_build_layer,
 )
+from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
@@ -158,12 +161,81 @@ def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:
     return result
 
 
-def main(argv: list[str]) -> int:
-    parser = get_build_parser()
-    parser.set_defaults(**BUILD_DEFAULTS)
+def get_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Build agent-server images using the three-phase pipeline."
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="princeton-nlp/SWE-bench_Verified",
+        help="Dataset name",
+    )
+    parser.add_argument("--split", type=str, default="test", help="Dataset split")
+    parser.add_argument(
+        "--image",
+        default=EVAL_AGENT_SERVER_IMAGE,
+        help="Target repo/name for final agent images",
+    )
+    parser.add_argument(
+        "--target",
+        default="source-minimal",
+        help="Final image target tag suffix",
+    )
+    parser.add_argument(
+        "--push",
+        action="store_true",
+        help="Push built images to the registry",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=12,
+        help="Concurrent builds",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Retries per image build",
+    )
+    parser.add_argument(
+        "--n-limit",
+        type=int,
+        default=0,
+        help="Limit number of images (0 = no limit)",
+    )
+    parser.add_argument(
+        "--select",
+        type=str,
+        default=None,
+        help="Path to text file containing instance IDs to select",
+    )
+    parser.add_argument(
+        "--force-build",
+        action="store_true",
+        help="Rebuild final images even if matching remote tags already exist",
+    )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        default="default",
+        help="Agent type: default, acp-claude, acp-codex",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    from benchmarks.swebench.build_base_images import (
+        assemble_all_agent_images,
+        build_all_base_images,
+        build_builder_image,
+    )
+
+    parser = get_parser()
     args = parser.parse_args(argv)
 
-    base_images: list[str] = collect_unique_base_images(
+    base_images = collect_unique_base_images(
         args.dataset,
         args.split,
         args.n_limit,
@@ -171,30 +243,45 @@ def main(argv: list[str]) -> int:
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
 
+    builder_result = build_builder_image(push=args.push)
+    if builder_result.error or not builder_result.tags:
+        print(
+            builder_result.error or "Builder image build produced no tags",
+            file=sys.stderr,
+        )
+        return 1
+
+    rc = build_all_base_images(
+        base_images=base_images,
+        build_dir=build_dir,
+        push=args.push,
+        max_workers=args.max_workers,
+        max_retries=args.max_retries,
+    )
+    if rc != 0:
+        return rc
+
     # Append ACP suffix to image tags so ACP and non-ACP images are distinct.
     # This prevents IfNotPresent pull policy from using stale non-ACP images.
-    def tag_fn(base: str) -> str:
+    def custom_tag_fn(base: str) -> str:
         tag = extract_custom_tag(base)
         if args.agent_type.startswith("acp-"):
             tag += "-acp"
         return tag
 
-    return build_all_images(
+    return assemble_all_agent_images(
         base_images=base_images,
-        target=args.target,
+        builder_tag=builder_result.tags[0],
         build_dir=build_dir,
-        image=args.image,
+        target_image=args.image,
+        target=args.target,
         push=args.push,
         max_workers=args.max_workers,
-        build_batch_size=args.build_batch_size,
-        dry_run=args.dry_run,
-        force_build=args.force_build,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=tag_fn,
-        post_build_fn=_wrap_if_needed,
-        extra_build_args=build_args_for_agent_type(args.agent_type),
+        force_build=args.force_build,
+        custom_tag_fn=custom_tag_fn,
     )
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
