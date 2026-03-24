@@ -24,11 +24,6 @@ on:
         required: false
         default: '12'
         type: string
-      build-batch-size:
-        description: 'Number of images to submit per batch'
-        required: false
-        default: '15'
-        type: string
       max-retries:
         description: 'Retries per image build'
         required: false
@@ -74,9 +69,6 @@ env:
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
-  BUILD_BATCH_SIZE: '15'
-  BUILDKIT_PRUNE_KEEP_GB: '60'
-  BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}
@@ -131,7 +123,6 @@ jobs:
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.build-batch-size }}" ]; then echo "BUILD_BATCH_SIZE=${{ inputs.build-batch-size }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
