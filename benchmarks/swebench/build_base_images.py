@@ -41,7 +41,7 @@ EVAL_BASE_IMAGE = os.getenv("OPENHANDS_EVAL_BASE_IMAGE", "ghcr.io/openhands/eval
 EVAL_BUILDER_IMAGE = os.getenv(
     "OPENHANDS_EVAL_BUILDER_IMAGE", "ghcr.io/openhands/eval-builder"
 )
-AGENT_LAYER_DOCKERFILE = Path(__file__).with_name("Dockerfile.agent-layer")
+AGENT_LAYER_DOCKERFILE = Path(__file__).parent.parent / "utils" / "Dockerfile.agent-layer"
 
 
 def _get_sdk_dockerfile() -> Path:
