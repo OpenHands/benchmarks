@@ -127,39 +127,6 @@ def wrap_image(agent_image: str, push: bool = False) -> BuildOutput:
     )
 
 
-def _wrap_if_needed(result: BuildOutput, push: bool) -> BuildOutput:
-    """
-    Post-build callback that wraps images for repos that need docutils/roman.
-
-    This is passed to build_all_images as post_build_fn, integrating wrapping
-    into the main build pass with automatic retry support.
-    """
-    if not result.tags:
-        return result
-
-    agent_image = result.tags[0]
-    # Extract custom tag from the built image tag to check if wrapping is needed
-    # Format: ghcr.io/openhands/eval-agent-server:SHA-sweb.eval.x86_64.REPO_...-target
-    tag_part = agent_image.split(":")[-1] if ":" in agent_image else ""
-    # Remove SDK SHA prefix and target suffix to get the custom tag
-    parts = tag_part.split("-", 1)
-    custom_tag = parts[1].rsplit("-", 1)[0] if len(parts) > 1 else tag_part
-
-    if not should_wrap_custom_tag(custom_tag):
-        return result
-
-    logger.info("Image %s needs wrapping, applying docutils/roman layer", agent_image)
-    wrap_result = wrap_image(agent_image, push)
-    if wrap_result.error:
-        return BuildOutput(
-            base_image=result.base_image,
-            tags=result.tags,
-            error=f"Wrapping failed: {wrap_result.error}",
-        )
-
-    return result
-
-
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build agent-server images using the three-phase pipeline."
