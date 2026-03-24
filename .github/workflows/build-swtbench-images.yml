@@ -101,14 +101,16 @@ jobs:
       packages: write
       issues: write
 
-    # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+    # Resolve inputs with fallback defaults so both workflow_dispatch and
+    # pull_request_target triggers work without a separate override step.
+    # INSTANCE_IDS/SELECT_FILE must be initialized for set -euo pipefail.
     env:
-      DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
-      SPLIT: test
-      MAX_WORKERS: '4'
-      BUILD_BATCH_SIZE: '15'
-      N_LIMIT: '0'
-      INSTANCE_IDS: ''
+      DATASET: ${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}
+      SPLIT: ${{ inputs.split || 'test' }}
+      MAX_WORKERS: ${{ inputs.max-workers || '4' }}
+      BUILD_BATCH_SIZE: ${{ inputs.build-batch-size || '15' }}
+      N_LIMIT: ${{ inputs.n-limit || '0' }}
+      INSTANCE_IDS: ${{ inputs.instance-ids || '' }}
       SELECT_FILE: ''
 
     steps:
@@ -127,16 +129,6 @@ jobs:
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
-
-      - name: Apply workflow_dispatch overrides (if any)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.build-batch-size }}" ]; then echo "BUILD_BATCH_SIZE=${{ inputs.build-batch-size }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
 
       - name: Build selected instances file
         run: |
