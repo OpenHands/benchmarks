@@ -39,6 +39,8 @@ TAVILY_API_KEY=xxx uv run python -m benchmarks.gaia.run_infer \
     --num-workers 4
 ```
 
+You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
+
 ### Step 2: Get Score
 
 After running inference, calculate the accuracy score:

@@ -11,6 +11,8 @@ Before running any benchmarks, you need to set up the environment see main READM
 uv run swtbench-infer .llm_config/sonnet-4.json --n-critic-runs 3 --n-limit 500 --max-iterations 500 --critic finish_with_patch
 ```
 
+You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
+
 ### 2. Selecting Specific Instances
 
 You can run evaluation on a specific subset of instances using the `--select` option:

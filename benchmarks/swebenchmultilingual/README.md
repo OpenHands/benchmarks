@@ -40,6 +40,8 @@ uv run swebenchmultilingual-infer path/to/llm_config.json \
     --workspace docker
 ```
 
+You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
+
 **Selecting specific instances:**
 
 You can run evaluation on a specific subset by creating a text file with instance IDs:
