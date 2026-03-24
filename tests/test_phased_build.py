@@ -410,7 +410,9 @@ class TestPhasedOrchestration:
         "benchmarks.swebench.build_base_images.assemble_all_agent_images",
         return_value=0,
     )
-    @patch("benchmarks.swebench.build_base_images.build_all_base_images", return_value=0)
+    @patch(
+        "benchmarks.swebench.build_base_images.build_all_base_images", return_value=0
+    )
     @patch("benchmarks.swebench.build_base_images.build_builder_image")
     @patch(
         "benchmarks.swebench.build_images.collect_unique_base_images",
@@ -450,7 +452,9 @@ class TestPhasedOrchestration:
         rc = main(["--dataset", "test-ds", "--split", "test"])
         assert rc == 1
 
-    @patch("benchmarks.swebench.build_base_images.build_all_base_images", return_value=1)
+    @patch(
+        "benchmarks.swebench.build_base_images.build_all_base_images", return_value=1
+    )
     @patch("benchmarks.swebench.build_base_images.build_builder_image")
     @patch(
         "benchmarks.swebench.build_images.collect_unique_base_images",
