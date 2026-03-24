@@ -46,14 +46,20 @@ AGENT_LAYER_DOCKERFILE = (
 )
 
 
-def _get_sdk_dockerfile() -> Path:
-    """Locate the SDK Dockerfile from the vendor submodule.
+def _get_repo_root() -> Path:
+    """Get the repository root using git."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return Path(result.stdout.strip())
 
-    NOTE: This assumes the file lives at ``benchmarks/swebench/build_base_images.py``
-    so that three ``.parent`` hops reach the repo root.  If this file moves, update
-    the traversal or switch to ``git rev-parse --show-toplevel``.
-    """
-    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+
+def _get_sdk_dockerfile() -> Path:
+    """Locate the SDK Dockerfile from the vendor submodule."""
+    benchmarks_root = _get_repo_root()
     dockerfile = (
         benchmarks_root
         / "vendor"
@@ -308,8 +314,7 @@ def build_builder_image(
     # Use the SDK's _make_build_context to create a clean sdist-based context.
     from openhands.agent_server.docker.build import _make_build_context
 
-    benchmarks_root = Path(__file__).resolve().parent.parent.parent
-    sdk_path = benchmarks_root / "vendor" / "software-agent-sdk"
+    sdk_path = _get_repo_root() / "vendor" / "software-agent-sdk"
     ctx = _make_build_context(sdk_path)
 
     try:

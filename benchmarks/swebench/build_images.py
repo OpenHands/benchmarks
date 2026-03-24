@@ -25,7 +25,7 @@ from benchmarks.utils.build_utils import (
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import apply_acp_suffix, remote_image_exists
 from openhands.sdk import get_logger
 
 
@@ -227,13 +227,8 @@ def main(argv: list[str] | None = None) -> int:
     if rc != 0:
         return rc
 
-    # Append ACP suffix to image tags so ACP and non-ACP images are distinct.
-    # This prevents IfNotPresent pull policy from using stale non-ACP images.
     def custom_tag_fn(base: str) -> str:
-        tag = extract_custom_tag(base)
-        if args.agent_type.startswith("acp-"):
-            tag += "-acp"
-        return tag
+        return apply_acp_suffix(extract_custom_tag(base), args.agent_type)
 
     return assemble_all_agent_images(
         base_images=base_images,
