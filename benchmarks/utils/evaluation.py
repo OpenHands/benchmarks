@@ -48,6 +48,34 @@ logger = get_logger(__name__)
 TIMEOUT_CHECK_INTERVAL_SECONDS = 60
 
 
+def _to_serializable(obj: Any) -> Any:
+    """Recursively convert numpy scalars/arrays to JSON-serializable Python types.
+
+    Pandas ``row.to_dict()`` preserves numpy dtypes, which Pydantic's
+    ``model_dump_json`` cannot serialise.  This is used by
+    ``_create_error_output`` to sanitise ``instance.data`` before storing it
+    in an ``EvalOutput``.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return obj
+
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _to_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_to_serializable(v) for v in obj)
+    return obj
+
+
 @dataclass
 class PendingInstance:
     """Tracks state for a pending evaluation instance."""
@@ -156,7 +184,7 @@ class Evaluation(ABC, BaseModel):
                 f"Instance failed after {retry_count} retries. Last error: {str(error)}"
             )[:200],
             history=[],
-            instance=instance.data,
+            instance=_to_serializable(instance.data),
         )
 
     def _capture_conversation_archive(
