@@ -145,29 +145,9 @@ jobs:
             echo "Building all images based on label: build-multiswebench"
           fi
 
-      - name: Build selected instances file
-        run: |
-          set -euo pipefail
-
-          if [ -z "${INSTANCE_IDS}" ]; then
-            echo "No instance IDs provided; skipping select file creation."
-            exit 0
-          fi
-
-          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
-          echo "Creating selected instances file at ${SELECT_FILE}"
-
-          echo "${INSTANCE_IDS}" \
-            | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | sed '/^$/d' > "${SELECT_FILE}"
-
-          echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
-          # Skip n-limit when explicit instance IDs are provided to avoid double filtering
-          echo "N_LIMIT=" >> "$GITHUB_ENV"
-
-          echo "Selected instance IDs:"
-          cat "${SELECT_FILE}"
+      - uses: ./.github/actions/build-select-file
+        with:
+          instance-ids: ${{ env.INSTANCE_IDS }}
 
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly

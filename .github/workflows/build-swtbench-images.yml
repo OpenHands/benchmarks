@@ -119,29 +119,9 @@ jobs:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
 
-      - name: Build selected instances file
-        run: |
-          set -euo pipefail
-
-          INSTANCE_IDS="${INSTANCE_IDS}"
-          if [ -z "${INSTANCE_IDS}" ]; then
-            echo "No instance IDs provided; skipping select file creation."
-            exit 0
-          fi
-
-          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
-          echo "Creating selected instances file at ${SELECT_FILE}"
-
-          echo "${INSTANCE_IDS}" \
-            | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | sed '/^$/d' > "${SELECT_FILE}"
-
-          echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
-          echo "N_LIMIT=0" >> "$GITHUB_ENV"
-
-          echo "Selected instance IDs:"
-          cat "${SELECT_FILE}"
+      - uses: ./.github/actions/build-select-file
+        with:
+          instance-ids: ${{ env.INSTANCE_IDS }}
 
       - name: Update SDK submodule
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
