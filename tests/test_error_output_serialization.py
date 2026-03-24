@@ -79,10 +79,10 @@ def test_to_serializable_list_and_tuple():
 
 def _make_eval(tmp_path):
     """Instantiate a minimal concrete Evaluation subclass for testing."""
-    from unittest.mock import MagicMock
-
     from benchmarks.utils.evaluation import Evaluation
     from benchmarks.utils.models import EvalMetadata
+    from openhands.sdk.critic import PassCritic
+    from openhands.sdk.llm import LLM
 
     class _DummyEval(Evaluation):
         def prepare_instances(self):
@@ -94,17 +94,9 @@ def _make_eval(tmp_path):
         def evaluate_instance(self, instance, workspace):
             raise NotImplementedError
 
-    llm_mock = MagicMock()
-    llm_mock.model = "test-model"
-    llm_mock.model_dump_json.return_value = "{}"
-    llm_mock.model_copy.return_value = llm_mock
-    llm_mock.temperature = 0.0
-
-    critic_mock = MagicMock()
-    critic_mock.model_dump.return_value = {"kind": "mock"}
-
+    llm = LLM(model="test-model")
     metadata = EvalMetadata(
-        llm=llm_mock,
+        llm=llm,
         dataset="test_ds",
         dataset_split="test",
         max_iterations=10,
@@ -112,7 +104,7 @@ def _make_eval(tmp_path):
         details={},
         eval_limit=1,
         max_retries=1,
-        critic=critic_mock,
+        critic=PassCritic(),
     )
     return _DummyEval(metadata=metadata, num_workers=1)
 
