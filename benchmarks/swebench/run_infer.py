@@ -11,7 +11,6 @@ from benchmarks.swebench.build_images import (
     should_wrap_instance_id,
     wrap_image,
 )
-from benchmarks.utils.image_utils import apply_acp_suffix
 from benchmarks.swebench.config import INFER_DEFAULTS
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
@@ -34,7 +33,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import apply_acp_suffix, remote_image_exists
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
