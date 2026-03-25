@@ -29,8 +29,3 @@ EVAL_DEFAULTS = {
     "modal": True,
     "timeout": 3600,
 }
-
-# Build defaults (used by build_images.py)
-BUILD_DEFAULTS = {
-    "max_workers": 32,
-}

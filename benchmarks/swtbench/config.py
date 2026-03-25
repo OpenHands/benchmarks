@@ -28,8 +28,3 @@ EVAL_DEFAULTS = {
     "split": "test",
     "workers": 24,
 }
-
-# Build defaults (used by build_images.py)
-BUILD_DEFAULTS = {
-    "max_workers": 16,
-}

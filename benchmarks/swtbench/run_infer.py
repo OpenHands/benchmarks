@@ -25,7 +25,11 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.image_utils import (
+    apply_acp_suffix,
+    create_docker_workspace,
+    remote_image_exists,
+)
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -177,7 +181,7 @@ class SWTBenchEvaluation(Evaluation):
 
         # Create a custom tag for the image
         name_tag = official_docker_image.split("/")[-1]
-        custom_tag = name_tag.split(":")[0]
+        custom_tag = apply_acp_suffix(name_tag.split(":")[0], self.metadata.agent_type)
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
 

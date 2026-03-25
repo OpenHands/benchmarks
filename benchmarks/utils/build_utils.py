@@ -376,13 +376,6 @@ ACP_BUILD_ARGS: dict[str, str] = {
 }
 
 
-def build_args_for_agent_type(agent_type: str) -> dict[str, str]:
-    """Select build args based on agent type."""
-    if agent_type.startswith("acp-"):
-        return ACP_BUILD_ARGS
-    return LIGHTWEIGHT_BUILD_ARGS
-
-
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 

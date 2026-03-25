@@ -24,11 +24,6 @@ on:
         required: false
         default: '4'
         type: string
-      build-batch-size:
-        description: 'Number of agent-server images to submit per batch'
-        required: false
-        default: '15'
-        type: string
       n-limit:
         description: 'Limit number of images to build (0 for all)'
         required: false
@@ -63,11 +58,6 @@ on:
         required: false
         default: '10'
         type: string
-      cache-mode:
-        description: 'BuildKit cache export mode (max, min, off). Default: max'
-        required: false
-        default: 'max'
-        type: string
       force-build:
         description: 'Rebuild images even if matching remote tags already exist'
         required: false
@@ -101,14 +91,15 @@ jobs:
       packages: write
       issues: write
 
-    # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+    # Resolve inputs with fallback defaults so both workflow_dispatch and
+    # pull_request_target triggers work without a separate override step.
+    # INSTANCE_IDS/SELECT_FILE must be initialized for set -euo pipefail.
     env:
-      DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
-      SPLIT: test
-      MAX_WORKERS: '4'
-      BUILD_BATCH_SIZE: '15'
-      N_LIMIT: '0'
-      INSTANCE_IDS: ''
+      DATASET: ${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}
+      SPLIT: ${{ inputs.split || 'test' }}
+      MAX_WORKERS: ${{ inputs.max-workers || '4' }}
+      N_LIMIT: ${{ inputs.n-limit || '0' }}
+      INSTANCE_IDS: ${{ inputs.instance-ids || '' }}
       SELECT_FILE: ''
 
     steps:
@@ -127,6 +118,10 @@ jobs:
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
+
+      - uses: ./.github/actions/build-select-file
+        with:
+          instance-ids: ${{ env.INSTANCE_IDS }}
 
       - name: Update SDK submodule
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
@@ -162,45 +157,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Get inputs with defaults
-          DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
-          SPLIT="${{ inputs.split || 'test' }}"
-          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
-          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '15' }}"
-          N_LIMIT="${{ inputs.n-limit || '0' }}"
-          INSTANCE_IDS="${{ inputs.instance-ids }}"
+          MAX_RETRIES="${{ inputs.max-retries || '3' }}"
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
-          # SWT-Bench uses source-minimal target (same as SWE-bench)
-          TARGET="source-minimal"
-
-          SELECT_FILE=""
-          if [ -n "${INSTANCE_IDS}" ]; then
-            SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
-            echo "Creating selected instances file at ${SELECT_FILE}"
-            echo "${INSTANCE_IDS}" \
-              | tr ',' '\n' \
-              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-              | sed '/^$/d' > "${SELECT_FILE}"
-            # When explicit instances are provided, ignore n-limit to avoid double filtering
-            N_LIMIT="0"
-          fi
-
-          CMD="uv run benchmarks/swtbench/build_images.py \
-            --dataset ${DATASET} \
-            --split ${SPLIT} \
+          CMD="uv run benchmarks/swebench/build_images.py \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \
-            --target ${TARGET} \
-            --max-workers ${MAX_WORKERS} \
-            --build-batch-size ${BUILD_BATCH_SIZE} \
-            --push"
+            --push \
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
 
-          # Add n-limit if specified
-          if [ "$N_LIMIT" != "0" ]; then
-            CMD="$CMD --n-limit ${N_LIMIT}"
+          if [ "${N_LIMIT}" != "0" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
           fi
           if [ -n "${SELECT_FILE}" ]; then
-            CMD="$CMD --select ${SELECT_FILE}"
+            CMD="$CMD --select '${SELECT_FILE}'"
           fi
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
@@ -212,7 +184,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          OPENHANDS_BUILDKIT_CACHE_MODE: ${{ inputs.cache-mode }}
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Build prebaked eval env images

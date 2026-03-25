@@ -24,11 +24,6 @@ on:
         required: false
         default: '12'
         type: string
-      build-batch-size:
-        description: 'Number of images to submit per batch'
-        required: false
-        default: '15'
-        type: string
       max-retries:
         description: 'Retries per image build'
         required: false
@@ -74,9 +69,6 @@ env:
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
-  BUILD_BATCH_SIZE: '15'
-  BUILDKIT_PRUNE_KEEP_GB: '60'
-  BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
 
 concurrency:
   group: build-swe-bench-${{ github.ref }}
@@ -131,7 +123,6 @@ jobs:
           if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.build-batch-size }}" ]; then echo "BUILD_BATCH_SIZE=${{ inputs.build-batch-size }}" >> "$GITHUB_ENV"; fi
           if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
           if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
@@ -153,29 +144,9 @@ jobs:
             echo "Building all images based on label: build-swebench"
           fi
 
-      - name: Build selected instances file
-        run: |
-          set -euo pipefail
-
-          if [ -z "${INSTANCE_IDS}" ]; then
-            echo "No instance IDs provided; skipping select file creation."
-            exit 0
-          fi
-
-          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
-          echo "Creating selected instances file at ${SELECT_FILE}"
-
-          echo "${INSTANCE_IDS}" \
-            | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | sed '/^$/d' > "${SELECT_FILE}"
-
-          echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
-          # Skip n-limit when explicit instance IDs are provided to avoid double filtering
-          echo "N_LIMIT=" >> "$GITHUB_ENV"
-
-          echo "Selected instance IDs:"
-          cat "${SELECT_FILE}"
+      - uses: ./.github/actions/build-select-file
+        with:
+          instance-ids: ${{ env.INSTANCE_IDS }}
 
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly
@@ -251,10 +222,8 @@ jobs:
             --image ghcr.io/openhands/eval-agent-server \
             --push \
             --max-workers '${MAX_WORKERS}' \
-            --build-batch-size '${BUILD_BATCH_SIZE}' \
             --max-retries '${MAX_RETRIES}'"
 
-          # Only include --n-limit if provided (non-empty)
           if [ -n "${N_LIMIT}" ]; then
             CMD="$CMD --n-limit '${N_LIMIT}'"
           fi
@@ -271,7 +240,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          BUILDKIT_RESET_ON_FAILURE: 1
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Archive build logs
