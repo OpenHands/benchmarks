@@ -362,7 +362,6 @@ def get_build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 
