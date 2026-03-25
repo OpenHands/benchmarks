@@ -164,15 +164,18 @@ def main(argv: list[str] | None = None) -> int:
     build_dir = default_build_output_dir(args.dataset, args.split)
 
     # Phase 0: Build shared builder image (SDK + dependencies)
+    logger.info("Phase 0: Building shared builder image")
     builder_result = build_builder_image(push=args.push)
     if builder_result.error or not builder_result.tags:
-        print(
-            builder_result.error or "Builder image build produced no tags",
-            file=sys.stderr,
+        logger.error(
+            "Phase 0 failed: %s",
+            builder_result.error or "builder image produced no tags",
         )
         return 1
+    logger.info("Phase 0 complete: %s", builder_result.tags[0])
 
     # Phase 1: Build per-instance base images
+    logger.info("Phase 1: Building %d base images", len(base_images))
     rc = build_all_base_images(
         base_images=base_images,
         build_dir=build_dir,
@@ -181,14 +184,14 @@ def main(argv: list[str] | None = None) -> int:
         max_retries=args.max_retries,
     )
     if rc != 0:
+        logger.error("Phase 1 failed (exit code %d)", rc)
         return rc
+    logger.info("Phase 1 complete: all base images built")
 
     # Phase 2: Assemble final agent images locally
     # No wrapping needed for multimodal (no docutils/roman dependency)
-    def custom_tag_fn(base: str) -> str:
-        return extract_custom_tag(base)
-
-    return assemble_all_agent_images(
+    logger.info("Phase 2: Assembling %d agent images", len(base_images))
+    rc = assemble_all_agent_images(
         base_images=base_images,
         builder_tag=builder_result.tags[0],
         build_dir=build_dir,
@@ -198,9 +201,14 @@ def main(argv: list[str] | None = None) -> int:
         max_workers=args.max_workers,
         max_retries=args.max_retries,
         force_build=args.force_build,
-        custom_tag_fn=custom_tag_fn,
+        custom_tag_fn=extract_custom_tag,
     )
+    if rc != 0:
+        logger.error("Phase 2 failed (exit code %d)", rc)
+        return rc
+    logger.info("Phase 2 complete: all agent images assembled")
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
