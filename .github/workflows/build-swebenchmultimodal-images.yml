@@ -209,7 +209,7 @@ jobs:
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
           fi
 
-      - name: Build and push SWE-Bench Multimodal images
+      - name: Build and push SWE-Bench Multimodal images (three-phase pipeline)
         run: |
           set -euo pipefail
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
@@ -238,7 +238,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          BUILDKIT_RESET_ON_FAILURE: 1
 
       - name: Archive build logs
         if: always()
