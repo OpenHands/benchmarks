@@ -20,7 +20,6 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-
 ACCEPT = ",".join(
     [
         "application/vnd.oci.image.index.v1+json",
