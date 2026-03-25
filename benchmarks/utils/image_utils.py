@@ -20,13 +20,6 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def apply_acp_suffix(custom_tag: str, agent_type: str) -> str:
-    """Append ``-acp`` suffix for ACP agent types to keep image tags distinct."""
-    if agent_type.startswith("acp-"):
-        return f"{custom_tag}-acp"
-    return custom_tag
-
-
 ACCEPT = ",".join(
     [
         "application/vnd.oci.image.index.v1+json",

@@ -362,16 +362,10 @@ def get_build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-# Build args for lightweight benchmark images: skip deps benchmarks don't use.
+# Build args for benchmark images: skip deps benchmarks don't use.
 # These correspond to ARGs in the SDK Dockerfile that default to "true".
+# ACP dependencies are always installed (default since SDK PR #2535, 2026-03-20).
 LIGHTWEIGHT_BUILD_ARGS: dict[str, str] = {
-    "INSTALL_ACP": "false",
-    "INSTALL_BOTO3": "false",
-}
-
-# Build args for ACP benchmark images: keep ACP but skip the rest.
-ACP_BUILD_ARGS: dict[str, str] = {
-    "INSTALL_ACP": "true",
     "INSTALL_BOTO3": "false",
 }
 

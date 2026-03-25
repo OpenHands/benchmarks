@@ -25,7 +25,7 @@ from benchmarks.utils.build_utils import (
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.image_utils import apply_acp_suffix, remote_image_exists
+from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
 
 
@@ -228,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         return rc
 
     def custom_tag_fn(base: str) -> str:
-        return apply_acp_suffix(extract_custom_tag(base), args.agent_type)
+        return extract_custom_tag(base)
 
     return assemble_all_agent_images(
         base_images=base_images,
