@@ -142,6 +142,10 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The three-phase build functions live in benchmarks.swebench.build_base_images
+    # because the infrastructure is identical (same SDK Dockerfile, same base images,
+    # same builder/base/assembly pattern). Multimodal images differ only at inference
+    # time, not at the Docker image level.
     from benchmarks.swebench.build_base_images import (
         assemble_all_agent_images,
         build_all_base_images,
