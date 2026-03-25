@@ -104,21 +104,11 @@ jobs:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
 
-      - name: Apply workflow_dispatch overrides (if any)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.repo-split }}" ]; then echo "REPO_SPLIT=${{ inputs.repo-split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.sdk-commit }}" ]; then echo "SDK_COMMIT=${{ inputs.sdk-commit }}" >> "$GITHUB_ENV"; fi
-
       - name: Build selected instances file
         run: |
           set -euo pipefail
 
+          INSTANCE_IDS="${{ inputs.instance-ids }}"
           if [ -z "${INSTANCE_IDS}" ]; then
             echo "No instance IDs provided; skipping select file creation."
             exit 0
@@ -133,6 +123,7 @@ jobs:
             | sed '/^$/d' > "${SELECT_FILE}"
 
           echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
+          # Skip n-limit when explicit instance IDs are provided to avoid double filtering
           echo "N_LIMIT=" >> "$GITHUB_ENV"
 
           echo "Selected instance IDs:"
@@ -172,6 +163,13 @@ jobs:
         run: |
           set -euo pipefail
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+
+          # Use inputs with fallbacks for workflow_dispatch; for pull_request_target, inputs are empty so fallbacks apply
+          DATASET="${{ inputs.dataset || 'wentingzhao/commit0_combined' }}"
+          SPLIT="${{ inputs.split || 'test' }}"
+          REPO_SPLIT="${{ inputs.repo-split || 'lite' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '16' }}"
+          N_LIMIT="${{ inputs.n-limit }}"
 
           CMD="uv run benchmarks/commit0/build_images.py \
             --dataset '${DATASET}' \

@@ -116,19 +116,6 @@ jobs:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
 
-      # If this was a manual dispatch, override defaults with provided inputs.
-      - name: Apply workflow_dispatch overrides (if any)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.language }}" ]; then echo "LANGUAGE=${{ inputs.language }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
-          # Empty string means "no limit"
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
-
       # Set N_LIMIT based on the label that triggered the workflow
       - name: Set N_LIMIT based on label
         if: ${{ github.event_name == 'pull_request_target' }}
@@ -149,6 +136,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          INSTANCE_IDS="${{ inputs.instance-ids }}"
           if [ -z "${INSTANCE_IDS}" ]; then
             echo "No instance IDs provided; skipping select file creation."
             exit 0
@@ -237,6 +225,22 @@ jobs:
           set -euo pipefail
           FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
+          # Use inputs with fallbacks for workflow_dispatch; for pull_request_target, inputs are empty so fallbacks apply
+          DATASET="${{ inputs.dataset || 'bytedance-research/Multi-SWE-Bench' }}"
+          SPLIT="${{ inputs.split || 'test' }}"
+          MAX_WORKERS="${{ inputs.max-workers || '12' }}"
+          MAX_RETRIES="${{ inputs.max-retries || '5' }}"
+          LANGUAGE="${{ inputs.language || 'java' }}"
+
+          # N_LIMIT handling:
+          # - For workflow_dispatch: use input value (empty string = no limit, otherwise use provided value)
+          # - For pull_request_target: use value from "Set N_LIMIT based on label" step (via GITHUB_ENV)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            N_LIMIT="${{ inputs.n-limit }}"
+          fi
+          # If N_LIMIT is still not set (e.g., pull_request_target without label override), use default
+          N_LIMIT="${N_LIMIT:-50}"
+
           CMD="uv run benchmarks/multiswebench/build_images.py \
             --dataset '${DATASET}' \
             --split '${SPLIT}' \
@@ -262,7 +266,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           BUILDKIT_RESET_ON_FAILURE: 1
-          LANGUAGE: ${{ env.LANGUAGE }}
+          LANGUAGE: ${{ inputs.language || 'java' }}
 
       - name: Archive build logs
         if: always()
