@@ -21,9 +21,13 @@ logger = get_logger(__name__)
 
 
 def apply_acp_suffix(custom_tag: str, agent_type: str) -> str:
-    """Append ``-acp`` suffix for ACP agent types to keep image tags distinct."""
-    if agent_type.startswith("acp-"):
-        return f"{custom_tag}-acp"
+    """Return *custom_tag* unchanged.
+
+    Previously appended ``-acp`` so ACP agents used separate images.
+    All images now ship with ACP dependencies, so the suffix is no
+    longer needed and was causing image-not-found errors because the
+    build step produces tags without ``-acp``.
+    """
     return custom_tag
 
 
