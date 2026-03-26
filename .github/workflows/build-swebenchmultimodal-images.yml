@@ -238,6 +238,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          BUILDKIT_RESET_ON_FAILURE: 1
 
       - name: Archive build logs
         if: always()
