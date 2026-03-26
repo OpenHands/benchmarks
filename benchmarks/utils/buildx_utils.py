@@ -112,16 +112,7 @@ class BackgroundBuildKitPruner:
         if self._future is not None:
             if not self._future.done():
                 return
-            try:
-                pruned_count = self._future.result()
-                logger.info(
-                    "Background BuildKit prune completed for %d completed images",
-                    pruned_count,
-                )
-            except Exception as e:
-                logger.warning("Background BuildKit prune failed: %s", e)
-            finally:
-                self._future = None
+            self._handle_future_result()
         self._launch_next()
 
     def wait(self) -> None:
@@ -133,18 +124,24 @@ class BackgroundBuildKitPruner:
                     self._launch_next()
                 if self._future is None:
                     break
-                try:
-                    pruned_count = self._future.result()
-                    logger.info(
-                        "Background BuildKit prune completed for %d completed images",
-                        pruned_count,
-                    )
-                except Exception as e:
-                    logger.warning("Background BuildKit prune failed: %s", e)
-                finally:
-                    self._future = None
+                self._handle_future_result()
         finally:
             self._executor.shutdown(wait=True)
+
+    def _handle_future_result(self) -> None:
+        """Process a completed prune future and reset internal state."""
+        if self._future is None:
+            return
+        try:
+            pruned_count = self._future.result()
+            logger.info(
+                "Background BuildKit prune completed for %d completed images",
+                pruned_count,
+            )
+        except Exception as e:
+            logger.warning("Background BuildKit prune failed: %s", e)
+        finally:
+            self._future = None
 
     def _launch_next(self) -> None:
         if (
@@ -298,12 +295,9 @@ def prune_buildkit_cache(
             logger.warning(proc.stderr.strip())
         return proc
 
-    # Prefer the newer --max-storage flag; fall back to --keep-storage if unsupported.
     storage_flag: list[str] = []
-    fallback_flag: list[str] = []
     if keep_storage_gb is not None and keep_storage_gb > 0:
-        storage_flag = ["--max-storage", f"{keep_storage_gb}g"]
-        fallback_flag = ["--keep-storage", f"{keep_storage_gb}g"]
+        storage_flag = ["--keep-storage", f"{keep_storage_gb}g"]
 
     filter_flags: list[str] = []
     if filters:
@@ -311,13 +305,6 @@ def prune_buildkit_cache(
             filter_flags += ["--filter", f]
 
     proc = _run(base_cmd + storage_flag + filter_flags)
-    if (
-        proc.returncode != 0
-        and fallback_flag
-        and "--max-storage" in " ".join(storage_flag)
-    ):
-        if "unknown flag: --max-storage" in proc.stderr:
-            proc = _run(base_cmd + fallback_flag + filter_flags)
 
     if proc.returncode != 0:
         raise RuntimeError(

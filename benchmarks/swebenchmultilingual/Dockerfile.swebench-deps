@@ -1,0 +1,13 @@
+ARG SDK_IMAGE
+FROM ${SDK_IMAGE}
+
+USER root
+
+# Ensure the conda test environment used by SWE-Bench has docutils<0.21 and roman
+SHELL ["/bin/bash", "-c"]
+RUN conda run -n testbed pip install --no-deps --force-reinstall 'docutils<0.21' 'roman' \
+    || (source /opt/miniconda3/bin/activate testbed && pip install --no-deps --force-reinstall 'docutils<0.21' 'roman')
+# Also install into the base environment for safety
+RUN pip install --no-deps --force-reinstall 'docutils<0.21' 'roman'
+
+USER openhands

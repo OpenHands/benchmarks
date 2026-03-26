@@ -1,6 +1,6 @@
 import json
 import os
-from typing import List
+from typing import Any, List
 
 import requests
 from jinja2 import Environment, FileSystemLoader
@@ -10,6 +10,14 @@ from benchmarks.swebenchmultimodal.build_images import (
     get_official_docker_image,
 )
 from benchmarks.swebenchmultimodal.config import INFER_DEFAULTS
+from benchmarks.utils.acp import (
+    add_acp_agent_metadata,
+    build_acp_agent,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+    workspace_keepalive,
+)
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -40,6 +48,8 @@ from openhands.sdk import (
     Tool,
     get_logger,
 )
+from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -153,6 +163,8 @@ class SWEBenchEvaluation(Evaluation):
                            Used by APIRemoteWorkspace for remote runtime allocation.
             forward_env: Environment variables to forward into the workspace.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         # Use multimodal image
         official_docker_image = get_official_docker_image(instance.id)
         build_target = "source-minimal"
@@ -229,25 +241,34 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_default_tools(
-            # Enable browser tools for frontend development tasks
-            enable_browser=True,
-        )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-            # TODO: we can enable condenser and security analyzer later
-            # and have them configurable via EvalMetadata
-            # condenser=get_default_condenser(
-            #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
-            # ),
-            # security_analyzer=LLMSecurityAnalyzer(),
-        )
+        if is_acp_agent(self.metadata.agent_type):
+            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
+        else:
+            tools = get_default_tools(
+                # Enable browser tools for frontend development tasks
+                enable_browser=True,
+            )
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            condenser = None
+            if self.metadata.enable_condenser:
+                condenser = LLMSummarizingCondenser(
+                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    max_size=self.metadata.condenser_max_size,
+                    keep_first=self.metadata.condenser_keep_first,
+                )
+            agent = Agent(
+                llm=self.metadata.llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+                condenser=condenser,
+                # TODO: we can enable security analyzer later
+                # security_analyzer=LLMSecurityAnalyzer(),
+            )
 
         assert isinstance(workspace, RemoteWorkspace)
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
@@ -287,71 +308,72 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         # Handle image assets for multimodal instances
-        if "image_assets" in instance.data and instance.data["image_assets"]:
-            try:
-                assets = json.loads(instance.data["image_assets"])
-                if "problem_statement" in assets and assets["problem_statement"]:
-                    image_urls = assets["problem_statement"]
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            if "image_assets" in instance.data and instance.data["image_assets"]:
+                try:
+                    assets = json.loads(instance.data["image_assets"])
+                    if "problem_statement" in assets and assets["problem_statement"]:
+                        image_urls = assets["problem_statement"]
 
-                    # Filter and validate image URLs
-                    valid_urls = []
-                    index_dict = {}
-                    for url in image_urls:
-                        if is_valid_image_url(url):
-                            if url in instruction:
-                                valid_urls.append(url)
-                                idx = instruction.find(url)
-                                index_dict[url] = idx
+                        # Filter and validate image URLs
+                        valid_urls = []
+                        index_dict = {}
+                        for url in image_urls:
+                            if is_valid_image_url(url):
+                                if url in instruction:
+                                    valid_urls.append(url)
+                                    idx = instruction.find(url)
+                                    index_dict[url] = idx
+                                else:
+                                    logger.warning(
+                                        f"Image URL {url} not found in instruction, skipping"
+                                    )
                             else:
-                                logger.warning(
-                                    f"Image URL {url} not found in instruction, skipping"
+                                logger.info(
+                                    f"Image URL {url} is invalid or inaccessible, skipping"
                                 )
+
+                        if valid_urls:
+                            # Sort URLs by their position in the instruction
+                            sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
+                            sorted_urls = [item[0] for item in sorted_urls]
+
+                            # Add image numbering to instruction
+                            modified_instruction = instruction
+                            for idx, url in enumerate(sorted_urls):
+                                modified_instruction = modified_instruction.replace(
+                                    url, f"{url} (Image: {idx + 1})"
+                                )
+
+                            logger.info(
+                                f"Sending instruction with {len(sorted_urls)} valid images"
+                            )
+
+                            # Create message with both text and images
+                            message = Message(
+                                role="user",
+                                content=[
+                                    TextContent(text=modified_instruction),
+                                    ImageContent(image_urls=sorted_urls),
+                                ],
+                            )
+                            conversation.send_message(message)
                         else:
                             logger.info(
-                                f"Image URL {url} is invalid or inaccessible, skipping"
+                                "No valid image URLs found, sending text-only instruction"
                             )
-
-                    if valid_urls:
-                        # Sort URLs by their position in the instruction
-                        sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
-                        sorted_urls = [item[0] for item in sorted_urls]
-
-                        # Add image numbering to instruction
-                        modified_instruction = instruction
-                        for idx, url in enumerate(sorted_urls):
-                            modified_instruction = modified_instruction.replace(
-                                url, f"{url} (Image: {idx + 1})"
-                            )
-
-                        logger.info(
-                            f"Sending instruction with {len(sorted_urls)} valid images"
-                        )
-
-                        # Create message with both text and images
-                        message = Message(
-                            role="user",
-                            content=[
-                                TextContent(text=modified_instruction),
-                                ImageContent(image_urls=sorted_urls),
-                            ],
-                        )
-                        conversation.send_message(message)
+                            conversation.send_message(instruction)
                     else:
-                        logger.info(
-                            "No valid image URLs found, sending text-only instruction"
-                        )
+                        logger.info("No problem_statement images found in image_assets")
                         conversation.send_message(instruction)
-                else:
-                    logger.info("No problem_statement images found in image_assets")
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning(f"Failed to parse image_assets: {e}")
                     conversation.send_message(instruction)
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Failed to parse image_assets: {e}")
+            else:
+                logger.info("No image_assets found, sending text-only instruction")
                 conversation.send_message(instruction)
-        else:
-            logger.info("No image_assets found, sending text-only instruction")
-            conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -384,13 +406,18 @@ class SWEBenchEvaluation(Evaluation):
             logger=logger,
         )
 
+        # Build test_result with optional ACP agent metadata
+        test_result: dict[str, Any] = {
+            "git_patch": git_patch,
+        }
+        if isinstance(agent, ACPAgent):
+            add_acp_agent_metadata(test_result, agent)
+
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result={
-                "git_patch": git_patch,
-            },
+            test_result=test_result,
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
@@ -406,9 +433,9 @@ def main() -> None:
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
-    # Validate max_attempts
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    # Validate n_critic_runs
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
@@ -429,6 +456,12 @@ def main() -> None:
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
 
+    # Handle condenser configuration
+    # --disable-condenser takes precedence over --enable-condenser and defaults
+    enable_condenser = args.enable_condenser
+    if args.disable_condenser:
+        enable_condenser = False
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -439,12 +472,16 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
+        enable_condenser=enable_condenser,
+        condenser_max_size=args.condenser_max_size,
+        condenser_keep_first=args.condenser_keep_first,
     )
 
     # Run orchestrator with a simple JSONL writer

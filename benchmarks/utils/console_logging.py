@@ -355,82 +355,6 @@ class _PlainFormatter(logging.Formatter):
         )
 
 
-def setup_instance_logging(log_dir: str, instance_id: str) -> None:
-    """
-    Configure logging for a worker process handling a single instance.
-
-    Behavior depends on RICH_LOGGING env var:
-    - RICH_LOGGING=1: Colored console output with filtered messages
-    - RICH_LOGGING not set: Original plain logging style
-
-    In both modes:
-    - All INFO+ logs go to per-instance file (instance_<id>.log)
-    - Console shows WARNING+ and selected important patterns
-    """
-    log_file = os.path.join(log_dir, f"instance_{instance_id}.log")
-    output_log_file = os.path.join(log_dir, f"instance_{instance_id}.output.log")
-    short_id = (
-        instance_id.split("__")[-1][:20] if "__" in instance_id else instance_id[:20]
-    )
-
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
-    rich_mode = _rich_logging_enabled()
-
-    # Console handler
-    console_handler = logging.StreamHandler(sys.__stdout__ if rich_mode else None)
-    console_handler.setLevel(logging.INFO)
-
-    if rich_mode:
-        console_handler.addFilter(_ConsoleFilter())
-        console_handler.setFormatter(_ColorFormatter(instance_id))
-    else:
-        console_handler.setFormatter(_PlainFormatter(instance_id))
-
-    root_logger.addHandler(console_handler)
-    root_logger.setLevel(logging.DEBUG)
-
-    # Print startup message
-    if rich_mode:
-        print(
-            format_line(
-                short_id=short_id,
-                tag="START",
-                message=f"{instance_id} | Logs: {log_file}",
-                tag_bg=BG_BLUE,
-                message_color=CYAN_BRIGHT,
-                newline_before=True,
-            ),
-            file=sys.__stdout__,
-        )
-        if sys.__stdout__ is not None:
-            sys.__stdout__.flush()
-    else:
-        # Original startup message style
-        root_logger.info(
-            f"""
-    === Evaluation Started (instance {instance_id}) ===
-    View live output:
-    • tail -f {log_file}          (logger)
-    • tail -f {output_log_file}   (stdout/stderr)
-    ===============================================
-    """.strip()
-        )
-        # Original behavior: set console to WARNING+ after initial message
-        console_handler.setLevel(logging.WARNING)
-
-    # File handler for full logs
-    os.makedirs(log_dir, exist_ok=True)
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    )
-    file_handler.setLevel(logging.INFO)
-    root_logger.addHandler(file_handler)
-
-
 # ---------------------------------------------------------------------------
 # Instance summary (printed at end of each instance)
 # ---------------------------------------------------------------------------
@@ -452,7 +376,12 @@ def summarize_instance(
     """Log a summary line for a completed instance"""
     # Lazy imports to avoid circular dependencies
     from openhands.sdk.conversation.state import ConversationExecutionStatus
-    from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
+    from openhands.sdk.event import (
+        ACPToolCallEvent,
+        ActionEvent,
+        AgentErrorEvent,
+        MessageEvent,
+    )
     from openhands.sdk.event.conversation_error import ConversationErrorEvent
     from openhands.sdk.tool.builtins.finish import FinishAction
 
@@ -472,6 +401,7 @@ def summarize_instance(
         and getattr(e, "action", None) is not None
         for e in events
     )
+    n_acp_tool_calls = sum(isinstance(e, ACPToolCallEvent) for e in events)
     n_agent_msgs = sum(
         isinstance(e, MessageEvent) and getattr(e, "source", None) == "agent"
         for e in events
@@ -541,12 +471,18 @@ def summarize_instance(
     )
 
     # Tool call count coloring
-    if n_tool_calls == 0:
+    # For ACP agents, n_tool_calls will be low (just "finish") but n_acp_tool_calls shows actual work
+    total_tool_calls = n_tool_calls + n_acp_tool_calls
+    if total_tool_calls == 0:
         tool_calls_tag = f"{err_c}{n_tool_calls}{reset}"
-    elif n_tool_calls < n_agent_msgs:
+    elif total_tool_calls < n_agent_msgs:
         tool_calls_tag = f"{warn_c}{n_tool_calls}{reset}"
     else:
         tool_calls_tag = f"{white_c}{n_tool_calls}{reset}"
+
+    # ACP tool calls (Claude Code internal tool calls)
+    if n_acp_tool_calls > 0:
+        tool_calls_tag = f"{tool_calls_tag} {dim_c}(acp:{n_acp_tool_calls}){reset}"
 
     # Errors coloring
     errors_tag_color = warn_c if (n_agent_errors > 0 or n_conv_errors > 0) else ok_c

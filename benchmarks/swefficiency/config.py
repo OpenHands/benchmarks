@@ -14,6 +14,9 @@ INFER_DEFAULTS = {
 # Docker resource defaults
 DOCKER_DEFAULTS = {
     "num_cpus_per_worker": 4,
-    "mem_limit": "16g",
-    "num_cpus_to_skip": 0,
+    "mem_limit": "32g",
+    "num_cpus_to_skip": 4,  # Skip first N CPUs to avoid contention with host processes
+    "cleanup_agent_image": True,
+    "cleanup_base_image": True,
+    "prune_buildkit_cache": False,
 }
