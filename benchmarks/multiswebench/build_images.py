@@ -118,7 +118,9 @@ def main():
         ),
         base_image_to_custom_tag_fn=extract_custom_tag,
         max_workers=args.num_workers,
+        build_batch_size=args.build_batch_size,
         dry_run=False,
+        force_build=args.force_build,
     )
 
 

@@ -21,6 +21,8 @@ uv run swebenchmultimodal-infer \
   --output-dir ./output
 ```
 
+You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
+
 ### Running Evaluation
 
 After running inference, you can evaluate the results using:

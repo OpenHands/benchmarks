@@ -7,21 +7,24 @@ import argparse
 import contextlib
 import io
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Callable
+from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
 from tqdm.auto import tqdm
 
 from benchmarks.swebench.constants import TargetType
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.build_manifest import summarize_build_records
 from benchmarks.utils.buildx_utils import (
     buildkit_disk_usage,
     maybe_prune_buildkit_cache,
@@ -41,6 +44,25 @@ class BuildOutput(BaseModel):
     tags: list[str]
     error: str | None = None
     log_path: str | None = None
+    status: Literal["built", "skipped_remote_exists", "failed"] = "built"
+    skip_reason: str | None = None
+    attempt_count: int = 1
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_seconds: float | None = None
+    remote_check_seconds: float | None = None
+    build_seconds: float | None = None
+    post_build_seconds: float | None = None
+    sdk_build_context_seconds: float | None = None
+    sdk_buildx_wall_clock_seconds: float | None = None
+    sdk_cleanup_seconds: float | None = None
+    sdk_cache_import_seconds: float | None = None
+    sdk_cache_import_miss_count: int | None = None
+    sdk_cache_export_seconds: float | None = None
+    sdk_image_export_seconds: float | None = None
+    sdk_push_layers_seconds: float | None = None
+    sdk_export_manifest_seconds: float | None = None
+    sdk_cached_step_count: int | None = None
 
 
 def run_docker_build_layer(
@@ -198,6 +220,57 @@ def _get_sdk_submodule_info() -> tuple[str, str, str]:
     return git_ref, git_sha, sdk_version
 
 
+def _sdk_root() -> Path:
+    benchmarks_root = Path(__file__).resolve().parent.parent.parent
+    return benchmarks_root / "vendor" / "software-agent-sdk"
+
+
+def _pre_build_sdist() -> Path:
+    """
+    Build the SDK sdist once and reuse it across all image builds in a run.
+
+    The caller must clean up the parent directory of the returned tarball.
+    """
+    sdk_path = _sdk_root()
+    sdist_dir = Path(tempfile.mkdtemp(prefix="shared-sdist-")).resolve()
+
+    logger.info("Pre-building SDK sdist from %s", sdk_path)
+    start = time.monotonic()
+    proc = subprocess.run(
+        ["uv", "build", "--sdist", "--out-dir", str(sdist_dir)],
+        cwd=str(sdk_path),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        shutil.rmtree(sdist_dir, ignore_errors=True)
+        raise RuntimeError(f"Failed to build SDK sdist: {proc.stderr}")
+
+    sdists = sorted(sdist_dir.glob("*.tar.gz"))
+    if len(sdists) != 1:
+        shutil.rmtree(sdist_dir, ignore_errors=True)
+        raise RuntimeError(f"Expected 1 SDK sdist, got {len(sdists)}")
+
+    logger.info("Pre-built SDK sdist in %.1fs: %s", time.monotonic() - start, sdists[0])
+    return sdists[0]
+
+
+@contextlib.contextmanager
+def _prepare_cached_sdist():
+    cached_sdist_path: Path | None = None
+    try:
+        try:
+            cached_sdist_path = _pre_build_sdist()
+        except Exception as e:
+            logger.warning(
+                "Failed to pre-build SDK sdist; each image will build its own: %s", e
+            )
+        yield cached_sdist_path
+    finally:
+        if cached_sdist_path:
+            shutil.rmtree(cached_sdist_path.parent, ignore_errors=True)
+
+
 @contextlib.contextmanager
 def capture_output(base_name: str, out_dir: Path):
     """
@@ -270,9 +343,67 @@ def get_build_parser() -> argparse.ArgumentParser:
         "--max-workers", type=int, default=1, help="Concurrent builds (be cautious)"
     )
     parser.add_argument(
+        "--build-batch-size",
+        type=int,
+        default=None,
+        help=(
+            "Number of images to submit per batch. Defaults to BUILD_BATCH_SIZE "
+            "when unset."
+        ),
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="List base images only, don’t build"
     )
+    parser.add_argument(
+        "--force-build",
+        action="store_true",
+        help="Rebuild images even if matching remote tags already exist",
+    )
     return parser
+
+
+# Build args for benchmark images: skip deps benchmarks don't use.
+# These correspond to ARGs in the SDK Dockerfile that default to "true".
+# ACP dependencies are always installed (default since SDK PR #2535, 2026-03-20).
+LIGHTWEIGHT_BUILD_ARGS: dict[str, str] = {
+    "INSTALL_BOTO3": "false",
+}
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _round_duration(seconds: float) -> float:
+    return round(seconds, 3)
+
+
+def _force_build_enabled(force_build: bool = False) -> bool:
+    env_force_build = os.getenv("FORCE_BUILD", "0").lower() in ("1", "true", "yes")
+    return force_build or env_force_build
+
+
+def _apply_sdk_telemetry(output: BuildOutput, telemetry: object | None) -> BuildOutput:
+    if telemetry is None:
+        return output
+
+    output.sdk_build_context_seconds = getattr(telemetry, "build_context_seconds", None)
+    output.sdk_buildx_wall_clock_seconds = getattr(
+        telemetry, "buildx_wall_clock_seconds", None
+    )
+    output.sdk_cleanup_seconds = getattr(telemetry, "cleanup_seconds", None)
+    output.sdk_cache_import_seconds = getattr(telemetry, "cache_import_seconds", None)
+    output.sdk_cache_import_miss_count = getattr(
+        telemetry, "cache_import_miss_count", None
+    )
+    output.sdk_cache_export_seconds = getattr(telemetry, "cache_export_seconds", None)
+    output.sdk_image_export_seconds = getattr(telemetry, "image_export_seconds", None)
+    output.sdk_push_layers_seconds = getattr(telemetry, "push_layers_seconds", None)
+    output.sdk_export_manifest_seconds = getattr(
+        telemetry, "export_manifest_seconds", None
+    )
+    output.sdk_cached_step_count = getattr(telemetry, "cached_step_count", None)
+    return output
 
 
 def build_image(
@@ -281,13 +412,17 @@ def build_image(
     custom_tag: str,
     target: TargetType = "source-minimal",
     push: bool = False,
+    force_build: bool = False,
+    cached_sdist: Path | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> BuildOutput:
     # Importing here because openhands.agent_server.docker.build runs git checks
     # which fails when installed as a package outside the git repo
-    from openhands.agent_server.docker.build import BuildOptions, build
+    from openhands.agent_server.docker.build import BuildOptions, build_with_telemetry
 
     # Get SDK info from submodule to ensure tags use the correct SDK SHA
     git_ref, git_sha, sdk_version = _get_sdk_submodule_info()
+    remote_check_seconds = 0.0
 
     opts = BuildOptions(
         base_image=base_image,
@@ -300,15 +435,59 @@ def build_image(
         # Override git info to use SDK submodule info instead of benchmarks repo
         git_ref=git_ref,
         git_sha=git_sha,
+        prebuilt_sdist=cached_sdist,
         sdk_version=sdk_version,
+        extra_build_args=extra_build_args,
     )
-    for t in opts.all_tags:
-        # Check if image exists or not
-        if remote_image_exists(t):
-            logger.info("Image %s already exists. Skipping build.", t)
-            return BuildOutput(base_image=base_image, tags=[t], error=None)
-    tags = build(opts)
-    return BuildOutput(base_image=base_image, tags=tags, error=None)
+    if _force_build_enabled(force_build):
+        logger.info(
+            "FORCE_BUILD set, rebuilding remote image for %s even if it exists.",
+            base_image,
+        )
+    else:
+        for t in opts.all_tags:
+            # Check if image exists or not
+            remote_check_started = time.monotonic()
+            exists = remote_image_exists(t)
+            remote_check_seconds += time.monotonic() - remote_check_started
+            if exists:
+                logger.info("Image %s already exists. Skipping build.", t)
+                return BuildOutput(
+                    base_image=base_image,
+                    tags=[t],
+                    error=None,
+                    status="skipped_remote_exists",
+                    skip_reason="remote_image_exists",
+                    remote_check_seconds=_round_duration(remote_check_seconds),
+                    build_seconds=0.0,
+                )
+    build_started = time.monotonic()
+    try:
+        build_result = build_with_telemetry(opts)
+        tags = build_result.tags
+    except Exception as exc:
+        return _apply_sdk_telemetry(
+            BuildOutput(
+                base_image=base_image,
+                tags=[],
+                error=repr(exc),
+                status="failed",
+                remote_check_seconds=_round_duration(remote_check_seconds),
+                build_seconds=_round_duration(time.monotonic() - build_started),
+            ),
+            getattr(exc, "telemetry", None),
+        )
+    return _apply_sdk_telemetry(
+        BuildOutput(
+            base_image=base_image,
+            tags=tags,
+            error=None,
+            status="built",
+            remote_check_seconds=_round_duration(remote_check_seconds),
+            build_seconds=_round_duration(time.monotonic() - build_started),
+        ),
+        build_result.telemetry,
+    )
 
 
 def ensure_local_image(
@@ -322,7 +501,7 @@ def ensure_local_image(
     Returns True if a build occurred, False if the image already existed.
     Set FORCE_BUILD=1 to skip auto-detection and always rebuild.
     """
-    force_build = os.getenv("FORCE_BUILD", "0").lower() in ("1", "true", "yes")
+    force_build = _force_build_enabled()
     if not force_build and local_image_exists(agent_server_image):
         logger.info(f"Using pre-built image {agent_server_image}")
         return False
@@ -356,13 +535,19 @@ def _build_with_logging(
     custom_tag: str = "",
     target: TargetType = "source-minimal",
     push: bool = False,
+    force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    cached_sdist: Path | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> BuildOutput:
     """
     Module-level function for building a single image with output capture.
     Must be at module level to be picklable for ProcessPoolExecutor.
     Automatically retries failed builds up to max_retries times.
+    Timing fields on the returned BuildOutput are cumulative across all attempts:
+    remote/build/post-build seconds are summed across retries, while
+    duration_seconds is the overall wall-clock duration including retry sleeps.
 
     Args:
         custom_tag: Custom tag (already resolved) to pass to build_image.
@@ -371,61 +556,110 @@ def _build_with_logging(
             If it returns an error, the build is retried.
     """
     assert max_retries >= 1, "max_retries must be at least 1"
+    overall_started_at = _utcnow_iso()
+    overall_started_monotonic = time.monotonic()
+    remote_check_total = 0.0
+    build_total = 0.0
+    post_build_total = 0.0
+    final_result: BuildOutput | None = None
+    attempts_used = 0
+
     for attempt in range(max_retries):
+        attempts_used = attempt + 1
         with capture_output(base_image, log_dir) as log_path:
             if attempt > 0:
                 logger.info(
                     f"Retrying build for {base_image} (attempt {attempt + 1}/{max_retries})"
                 )
                 time.sleep(2 + attempt * 2)
+            logger.info(
+                "Starting build for %s (attempt %d/%d)",
+                base_image,
+                attempt + 1,
+                max_retries,
+            )
             try:
-                result = build_image(base_image, target_image, custom_tag, target, push)
+                result = build_image(
+                    base_image,
+                    target_image,
+                    custom_tag,
+                    target,
+                    push,
+                    force_build=force_build,
+                    cached_sdist=cached_sdist,
+                    extra_build_args=extra_build_args,
+                )
             except Exception as e:
                 result = BuildOutput(
                     base_image=base_image,
                     tags=[],
                     error=repr(e),
                     log_path=str(log_path),
+                    status="failed",
                 )
+            remote_check_total += result.remote_check_seconds or 0.0
+            build_total += result.build_seconds or 0.0
             result.log_path = str(log_path)
             if result.error:
                 logger.error("Build error for %s: %s", base_image, result.error)
+                final_result = result
                 maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                 if attempt == max_retries - 1:
                     logger.error("Max retries reached for %s. Giving up.", base_image)
-                    return result
+                    break
                 continue
 
             # Apply post-build step if provided
             if post_build_fn:
+                post_build_started = time.monotonic()
                 result = post_build_fn(result, push)
+                post_build_total += time.monotonic() - post_build_started
                 result.log_path = str(log_path)
                 if result.error:
+                    result.status = "failed"
                     logger.error(
                         "Post-build error for %s: %s", base_image, result.error
                     )
+                    final_result = result
                     maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                     if attempt == max_retries - 1:
                         logger.error(
                             "Max retries reached for %s. Giving up.", base_image
                         )
-                        return result
+                        break
                     continue
 
-            return result
+            final_result = result
+            break
 
-    raise RuntimeError("Unreachable code reached in _build_with_logging")
+    if final_result is None:
+        raise RuntimeError("Unreachable code reached in _build_with_logging")
+
+    final_result.attempt_count = attempts_used
+    final_result.started_at = overall_started_at
+    final_result.finished_at = _utcnow_iso()
+    final_result.duration_seconds = _round_duration(
+        time.monotonic() - overall_started_monotonic
+    )
+    final_result.remote_check_seconds = _round_duration(remote_check_total)
+    final_result.build_seconds = _round_duration(build_total)
+    final_result.post_build_seconds = _round_duration(post_build_total)
+    if final_result.error:
+        final_result.status = "failed"
+
+    return final_result
 
 
 def _update_pbar(
     pbar: tqdm,
-    successes: int,
+    built: int,
+    skipped: int,
     failures: int,
     running: int,
     sample: str | None,
     last_event: str | None,
 ):
-    postfix = f"✅ {successes}  ❌ {failures}  🏃 {running}"
+    postfix = f"🛠 {built}  ⏭ {skipped}  ❌ {failures}  🏃 {running}"
     if sample:
         postfix += f" ({sample})"
     if last_event:
@@ -453,9 +687,12 @@ def build_all_images(
     push: bool = False,
     base_image_to_custom_tag_fn: Callable[[str], str] | None = None,
     max_workers: int = 1,
+    build_batch_size: int | None = None,
     dry_run: bool = False,
+    force_build: bool = False,
     max_retries: int = 3,
     post_build_fn: Callable[[BuildOutput, bool], BuildOutput] | None = None,
+    extra_build_args: dict[str, str] = LIGHTWEIGHT_BUILD_ARGS,
 ) -> int:
     """
     Build all specified base images concurrently, logging output and
@@ -470,7 +707,10 @@ def build_all_images(
         base_image_to_custom_tag_fn: Function to extract a custom tag from a base image.
             Evaluated before scheduling builds so it can safely be a closure.
         max_workers: Number of concurrent builds.
+        build_batch_size: Number of images to submit per batch. If None, use the
+            BUILD_BATCH_SIZE environment variable.
         dry_run: If True, only list base images without building.
+        force_build: If True, rebuild even when matching remote images already exist.
         max_retries: Number of times to retry each failed build (default: 3).
         post_build_fn: Optional callback called after each successful build.
             Receives (build_result, push) and returns modified BuildOutput.
@@ -488,13 +728,20 @@ def build_all_images(
         print("\n".join(base_images))
         return 0
 
-    successes = 0
+    built = 0
+    skipped = 0
     failures = 0
     mu = Lock()
+    results: list[BuildOutput] = []
+    overall_started_monotonic = time.monotonic()
 
     # Batch/prune settings (tunable via env to control disk usage on sticky runners)
     # Default to smaller batches and more aggressive pruning on shared runners.
-    batch_size = int(os.getenv("BUILD_BATCH_SIZE", "15"))
+    batch_size = (
+        build_batch_size
+        if build_batch_size is not None
+        else int(os.getenv("BUILD_BATCH_SIZE", "15"))
+    )
     prune_keep_storage_gb = int(os.getenv("BUILDKIT_PRUNE_KEEP_GB", "60"))
     prune_threshold_pct = float(os.getenv("BUILDKIT_PRUNE_THRESHOLD_PCT", "60"))
     # Prune aggressively by default; filters like "unused-for=12h" prevented GC from
@@ -512,21 +759,26 @@ def build_all_images(
     total_batches = len(batches)
 
     with (
+        _prepare_cached_sdist() as cached_sdist,
         manifest_file.open("w") as writer,
         tqdm(
             total=len(base_images), desc="Building agent-server images", leave=True
         ) as pbar,
     ):
-        _update_pbar(pbar, successes, failures, 0, None, "Queueing")
+        _update_pbar(pbar, built, skipped, failures, 0, None, "Queueing")
 
         for batch_idx, batch in enumerate(batches, start=1):
             if not batch:
                 continue
 
+            batch_started_monotonic = time.monotonic()
             logger.info(
                 "Starting batch %d/%d (%d images)", batch_idx, total_batches, len(batch)
             )
             in_progress: set[str] = set()
+            batch_built = 0
+            batch_skipped = 0
+            batch_failures = 0
 
             with ProcessPoolExecutor(max_workers=max_workers) as ex:
                 futures = {}
@@ -545,14 +797,18 @@ def build_all_images(
                         custom_tag=resolved_tag,
                         target=target,
                         push=push,
+                        force_build=force_build,
                         max_retries=max_retries,
                         post_build_fn=post_build_fn,
+                        cached_sdist=cached_sdist,
+                        extra_build_args=extra_build_args,
                     )
                     futures[fut] = base
 
                 _update_pbar(
                     pbar,
-                    successes,
+                    built,
+                    skipped,
                     failures,
                     len(in_progress),
                     next(iter(in_progress), None),
@@ -566,28 +822,51 @@ def build_all_images(
                         result: BuildOutput = fut.result()
                     except Exception as e:
                         logger.error("Build failed for %s: %r", base, e)
-                        result = BuildOutput(base_image=base, tags=[], error=repr(e))
+                        result = BuildOutput(
+                            base_image=base,
+                            tags=[],
+                            error=repr(e),
+                            status="failed",
+                        )
 
                     writer.write(result.model_dump_json() + "\n")
                     writer.flush()
+                    results.append(result)
 
                     with mu:
                         if result.error or not result.tags:
                             failures += 1
+                            batch_failures += 1
                             status = "❌ Failed"
+                        elif result.status == "skipped_remote_exists":
+                            skipped += 1
+                            batch_skipped += 1
+                            status = "⏭ Skipped"
                         else:
-                            successes += 1
-                            status = "✅ Done"
+                            built += 1
+                            batch_built += 1
+                            status = "✅ Built"
 
                     in_progress.discard(base)
                     pbar.update(1)
                     _update_pbar(
                         pbar,
-                        successes,
+                        built,
+                        skipped,
                         failures,
                         len(in_progress),
                         next(iter(in_progress), None),
                         status,
+                    )
+                    logger.debug(
+                        "Image %s completed status=%s attempts=%d duration=%ss build=%ss remote_check=%ss post_build=%ss",
+                        base,
+                        result.status,
+                        result.attempt_count,
+                        result.duration_seconds,
+                        result.build_seconds,
+                        result.remote_check_seconds,
+                        result.post_build_seconds,
                     )
 
             used, total = buildkit_disk_usage()
@@ -622,10 +901,38 @@ def build_all_images(
                         total_batches,
                         prune_threshold_pct,
                     )
+            batch_duration = time.monotonic() - batch_started_monotonic
+            batch_throughput = (
+                (batch_built / batch_duration) * 3600 if batch_duration else 0.0
+            )
+            logger.info(
+                "Finished batch %d/%d in %.1fs: built=%d skipped=%d failed=%d throughput=%.1f built images/hour",
+                batch_idx,
+                total_batches,
+                batch_duration,
+                batch_built,
+                batch_skipped,
+                batch_failures,
+                batch_throughput,
+            )
+
+    summary_file = build_dir / "build-summary.json"
+    summary = summarize_build_records(
+        [result.model_dump(mode="json") for result in results],
+        manifest_files=1 if results else 0,
+    )
+    summary_file.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
+    overall_duration = time.monotonic() - overall_started_monotonic
+    throughput = (built / overall_duration) * 3600 if overall_duration else 0.0
     logger.info(
-        "Done. Built=%d  Failed=%d  Manifest=%s",
-        successes,
+        "Done in %.1fs. Built=%d Skipped=%d Failed=%d Retried=%d Throughput=%.1f built images/hour Manifest=%s Summary=%s",
+        overall_duration,
+        built,
+        skipped,
         failures,
+        summary.retried,
+        throughput,
         str(manifest_file),
+        str(summary_file),
     )
     return 1 if failures else 0

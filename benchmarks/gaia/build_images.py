@@ -81,9 +81,15 @@ def main(argv: list[str]) -> int:
     # inflating the image and causing runtime OOM crashes.
     _, git_sha, _ = _get_sdk_submodule_info()
     base_gaia_image = f"{args.image}:{git_sha[:7]}-gaia-{args.target}"
-    if not args.dry_run and remote_image_exists(base_gaia_image):
+    if (
+        not args.dry_run
+        and not args.force_build
+        and remote_image_exists(base_gaia_image)
+    ):
         logger.info("Image %s already exists. Skipping build.", base_gaia_image)
         return 0
+    if args.force_build and not args.dry_run:
+        logger.info("FORCE_BUILD set, rebuilding GAIA image %s", base_gaia_image)
 
     # Build base GAIA image
     build_dir = default_build_output_dir("gaia", "validation")
@@ -94,7 +100,9 @@ def main(argv: list[str]) -> int:
         image=args.image,
         push=args.push,
         max_workers=1,  # Only building one image
+        build_batch_size=args.build_batch_size,
         dry_run=args.dry_run,
+        force_build=args.force_build,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=tag_fn,
     )

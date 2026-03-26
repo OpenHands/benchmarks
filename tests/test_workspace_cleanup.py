@@ -38,7 +38,7 @@ def test_workspace_cleanup_called_on_success():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -61,7 +61,7 @@ def test_workspace_cleanup_called_on_success():
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
+    result_instance, result_output = evaluator._process_one_sync(
         test_instance, critic_attempt=1
     )
 
@@ -89,7 +89,7 @@ def test_workspace_cleanup_called_on_failure():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -112,7 +112,7 @@ def test_workspace_cleanup_called_on_failure():
             raise RuntimeError("Test evaluation failure")
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
+    result_instance, result_output = evaluator._process_one_sync(
         test_instance, critic_attempt=1
     )
 
@@ -149,7 +149,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -172,7 +172,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
+    result_instance, result_output = evaluator._process_one_sync(
         test_instance, critic_attempt=1
     )
 
@@ -205,7 +205,7 @@ def test_workspace_cleanup_with_retries():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=2,
         critic=PassCritic(),
     )
@@ -242,7 +242,7 @@ def test_workspace_cleanup_with_retries():
             )
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
+    result_instance, result_output = evaluator._process_one_sync(
         test_instance, critic_attempt=1
     )
 
@@ -284,7 +284,7 @@ def test_datapoint_trace_id_linked_in_worker():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -313,7 +313,7 @@ def test_datapoint_trace_id_linked_in_worker():
         mock_service = Mock()
         mock_lmnr_svc.get.return_value = mock_service
 
-        result_instance, result_output = evaluator._process_one_mp(
+        result_instance, result_output = evaluator._process_one_sync(
             test_instance,
             critic_attempt=1,
             lmnr_datapoint_id=datapoint_id,
@@ -359,7 +359,7 @@ def test_datapoint_trace_id_not_linked_without_datapoint():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -387,7 +387,7 @@ def test_datapoint_trace_id_not_linked_without_datapoint():
         mock_service = Mock()
         mock_lmnr_svc.get.return_value = mock_service
 
-        result_instance, result_output = evaluator._process_one_mp(
+        result_instance, result_output = evaluator._process_one_sync(
             test_instance,
             critic_attempt=1,
             # No lmnr_datapoint_id passed
@@ -426,7 +426,7 @@ def test_update_datapoint_trace_id_failure_does_not_break_eval():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -459,7 +459,7 @@ def test_update_datapoint_trace_id_failure_does_not_break_eval():
         mock_lmnr_svc.get.return_value = mock_service
 
         # Should not raise despite update_datapoint_trace_id failure
-        result_instance, result_output = evaluator._process_one_mp(
+        result_instance, result_output = evaluator._process_one_sync(
             test_instance,
             critic_attempt=1,
             lmnr_datapoint_id=datapoint_id,

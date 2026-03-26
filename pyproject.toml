@@ -65,6 +65,8 @@ openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
 openagentsafety-eval = "benchmarks.openagentsafety.eval_infer:main"
 swebenchmultimodal-infer = "benchmarks.swebenchmultimodal.run_infer:main"
 swebenchmultimodal-eval = "benchmarks.swebenchmultimodal.eval_infer:main"
+swebenchmultilingual-infer = "benchmarks.swebenchmultilingual.run_infer:main"
+swebenchmultilingual-eval = "benchmarks.swebenchmultilingual.eval_infer:main"
 swefficiency-infer = "benchmarks.swefficiency.run_infer:main"
 terminalbench-infer = "benchmarks.terminalbench.run_infer:main"
 terminalbench-eval = "benchmarks.terminalbench.eval_infer:main"
@@ -89,9 +91,13 @@ dev = [
     "ruff>=0.12.10",
     "pycodestyle>=2.12.0",
     "pytest>=8.0.0",
+    "pytest-asyncio>=1.0.0",
     "pytest-cov>=6.0.0",
     "pytest-forked>=1.6.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 # Ruff configuration
 [tool.ruff]
