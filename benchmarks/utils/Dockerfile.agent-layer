@@ -29,7 +29,7 @@ ENV UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python
 COPY --from=builder /usr/local/bin/python3.13 /usr/local/bin/python3.13
 COPY --from=builder /usr/local/lib/python3.13 /usr/local/lib/python3.13
 COPY --from=builder /usr/local/lib/libpython3.13* /usr/local/lib/
-RUN ldconfig
+ENV LD_LIBRARY_PATH=/usr/local/lib
 
 COPY --chown=${USERNAME}:${USERNAME} --from=builder /agent-server /agent-server
 ENTRYPOINT ["/agent-server/.venv/bin/python", "-m", "openhands.agent_server"]
