@@ -85,13 +85,13 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         type=str,
-        default=BUILD_DEFAULTS.get("dataset", "princeton-nlp/SWE-bench_Multimodal"),
+        default="princeton-nlp/SWE-bench_Multimodal",
         help="Dataset name",
     )
     parser.add_argument(
         "--split",
         type=str,
-        default=BUILD_DEFAULTS.get("split", "dev"),
+        default="dev",
         help="Dataset split",
     )
     parser.add_argument(

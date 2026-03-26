@@ -64,9 +64,6 @@ env:
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
-  BUILD_BATCH_SIZE: '15'
-  BUILDKIT_PRUNE_KEEP_GB: '60'
-  BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
 
 concurrency:
   group: build-swe-bench-multimodal-${{ github.ref }}
@@ -238,7 +235,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          BUILDKIT_RESET_ON_FAILURE: 1
 
       - name: Archive build logs
         if: always()
