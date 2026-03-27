@@ -10,7 +10,7 @@ def get_tools_for_preset(
     """Get the list of tools for the given preset.
 
     Args:
-        preset: The tool preset to use (default, gemini, gpt5, or planning).
+        preset: The tool preset to use (default, gemini, gpt5, planning, or nemotron).
         enable_browser: Whether to include browser tools.
 
     Returns:
@@ -29,6 +29,10 @@ def get_tools_for_preset(
 
         # Planning preset doesn't support browser tools
         return get_planning_tools()
+    elif preset == "nemotron":
+        from openhands.tools.preset.nemotron import get_nemotron_tools
+
+        return get_nemotron_tools(enable_browser=enable_browser)
     else:  # default
         from openhands.tools.preset.default import get_default_tools
 

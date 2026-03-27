@@ -36,6 +36,14 @@ def test_get_tools_for_preset_planning():
     assert all(isinstance(tool, Tool) for tool in tools)
 
 
+def test_get_tools_for_preset_nemotron():
+    """Test that nemotron preset returns the expected tools."""
+    tools = get_tools_for_preset("nemotron")
+    assert isinstance(tools, list)
+    assert len(tools) > 0
+    assert all(isinstance(tool, Tool) for tool in tools)
+
+
 def test_get_tools_for_preset_with_browser():
     """Test that enable_browser parameter is accepted."""
     # Test with browser enabled - should not raise
