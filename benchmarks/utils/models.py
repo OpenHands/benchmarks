@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 
 # Tool preset type for selecting which file editing toolset to use
-ToolPresetType = Literal["default", "gemini", "gpt5", "planning", "nemotron"]
+ToolPresetType = Literal["default", "gemini", "gpt5", "planning"]
 
 
 class EvalMetadata(BaseModel):
