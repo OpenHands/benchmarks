@@ -5,7 +5,7 @@ and openhands-sdk as the agent. Results are saved in a format compatible
 with the standard evaluation pipeline.
 
 Usage:
-    uv run terminalbench-infer <llm_config_path> --dataset terminal-bench@head
+    uv run terminalbench-infer <llm_config_path> --dataset terminal-bench@2.0
 """
 
 import argparse
@@ -51,15 +51,17 @@ def run_harbor_evaluation(
     output_dir: str,
     num_workers: int = 1,
     task_ids: list[str] | None = None,
+    n_limit: int | None = None,
 ) -> Path:
     """Run harbor evaluation with openhands-sdk agent.
 
     Args:
         llm: LLM configuration for the agent.
-        dataset: Harbor dataset name (e.g., terminal-bench@head).
+        dataset: Harbor dataset name (e.g., terminal-bench@2.0).
         output_dir: Directory to store output files.
         num_workers: Number of parallel workers.
         task_ids: Optional list of specific task IDs to run.
+        n_limit: Optional maximum number of dataset tasks to run.
 
     Returns:
         Path to the harbor output directory.
@@ -101,6 +103,9 @@ def run_harbor_evaluation(
         for task_id in task_ids:
             cmd.extend(["--task-name", task_id])
 
+    if n_limit is not None:
+        cmd.extend(["--n-tasks", str(n_limit)])
+
     logger.info(f"Running harbor command: {' '.join(cmd)}")
     logger.info(f"Output directory: {harbor_output_dir}")
 
@@ -122,7 +127,7 @@ def run_harbor_evaluation(
 
     except FileNotFoundError:
         raise RuntimeError(
-            "Harbor CLI not found. Please install harbor: pip install harbor-bench"
+            "Harbor CLI not found. Please install harbor: pip install harbor"
         )
 
     return harbor_output_dir
@@ -246,8 +251,11 @@ def convert_harbor_to_eval_output(
     if not results and not errors:
         raise RuntimeError(f"No trials processed from {harbor_output_dir}")
 
-    if not results and errors:
-        raise RuntimeError(f"All {len(errors)} trials failed from {harbor_output_dir}")
+    if not results:
+        logger.warning(
+            f"All {len(errors)} trials failed in {harbor_output_dir}; "
+            "writing error entries for downstream reporting"
+        )
 
     # Write results to output.jsonl
     with open(eval_output_path, "w") as f:
@@ -300,7 +308,7 @@ Examples:
         "--dataset",
         type=str,
         default=INFER_DEFAULTS["dataset"],
-        help="Harbor dataset name (e.g., terminal-bench@head, terminal-bench@2.0)",
+        help="Harbor dataset name (e.g., terminal-bench@2.0)",
     )
     parser.add_argument(
         "--output-dir",
@@ -313,6 +321,11 @@ Examples:
         type=int,
         default=INFER_DEFAULTS["num_workers"],
         help="Number of parallel workers",
+    )
+    parser.add_argument(
+        "--n-limit",
+        type=int,
+        help="Maximum number of dataset tasks to run after Harbor filtering",
     )
     parser.add_argument(
         "--select",
@@ -352,9 +365,9 @@ Examples:
     if not args.skip_harbor and not check_harbor_installed():
         logger.error(
             "Harbor CLI is not installed. Please install it:\n"
-            "  pip install harbor-bench\n"
+            "  pip install harbor\n"
             "  # or\n"
-            "  uv pip install harbor-bench"
+            "  uv pip install harbor"
         )
         sys.exit(1)
 
@@ -404,6 +417,7 @@ Examples:
                 output_dir=structured_output_dir,
                 num_workers=args.num_workers,
                 task_ids=task_ids,
+                n_limit=args.n_limit,
             )
 
             # Convert harbor output to standard format

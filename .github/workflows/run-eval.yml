@@ -14,6 +14,7 @@ on:
           - swtbench
           - commit0
           - swebenchmultimodal
+          - terminalbench
       sdk_ref:
         description: SDK commit/ref to evaluate
         required: true
