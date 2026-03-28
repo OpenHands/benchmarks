@@ -207,6 +207,7 @@ class SWEBenchEvaluation(Evaluation):
                 f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
+            api_timeout = float(os.getenv("REMOTE_API_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
                 runtime_api_url=os.getenv(
                     "RUNTIME_API_URL", "https://runtime.eval.all-hands.dev"
@@ -215,6 +216,7 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 init_timeout=startup_timeout,
                 startup_wait_timeout=startup_timeout,
+                api_timeout=api_timeout,
                 target_type="source" if "source" in build_target else "binary",
                 forward_env=forward_env or [],
                 resource_factor=resource_factor,
