@@ -94,7 +94,7 @@ def compute_required_images(
     try:
         os.chdir(swt_bench_dir)
         dataset_entries = load_swebench_dataset(
-            name=dataset, split=split, is_swt=True, filter_swt=True
+            name=dataset, split=split, is_swt=False, filter_swt=True
         )
     finally:
         os.chdir(cwd)
