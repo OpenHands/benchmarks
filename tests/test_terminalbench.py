@@ -218,22 +218,46 @@ class TestRunHarborEvaluation:
         """Test that the default dataset name matches Harbor's published registry."""
         assert INFER_DEFAULTS["dataset"] == "terminal-bench@2.0"
 
-    def test_run_harbor_evaluation_passes_filters_and_limits(
+    def test_run_harbor_evaluation_passes_filters_limits_and_streams_logs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test Harbor command includes task filters and n-limit for CI runs."""
-        captured: dict[str, list[str]] = {}
+        """Test Harbor invocation includes filters, limits, and streamed logs."""
+        captured: dict[str, object] = {}
 
-        def fake_run(cmd: list[str], capture_output: bool, text: bool):
+        class FakeStream:
+            def __init__(self, lines: list[str]) -> None:
+                self._lines = lines
+
+            def __iter__(self):
+                return iter(self._lines)
+
+        class FakeProcess:
+            def __init__(self) -> None:
+                self.pid = 4321
+                self.stdout = FakeStream(["trial started\n", "trial finished\n"])
+                self.stderr = FakeStream(["trial warning\n"])
+
+            def wait(self) -> int:
+                return 0
+
+        def fake_popen(
+            cmd: list[str],
+            stdout,
+            stderr,
+            text: bool,
+            bufsize: int,
+            env: dict[str, str],
+        ) -> FakeProcess:
             captured["cmd"] = cmd
-            return type(
-                "Completed",
-                (),
-                {"returncode": 0, "stdout": "ok", "stderr": ""},
-            )()
+            captured["stdout"] = stdout
+            captured["stderr"] = stderr
+            captured["text"] = text
+            captured["bufsize"] = bufsize
+            captured["env"] = env
+            return FakeProcess()
 
         monkeypatch.setattr(
-            "benchmarks.terminalbench.run_infer.subprocess.run", fake_run
+            "benchmarks.terminalbench.run_infer.subprocess.Popen", fake_popen
         )
 
         harbor_output_dir = run_harbor_evaluation(
@@ -272,6 +296,15 @@ class TestRunHarborEvaluation:
         assert cmd[cmd.index("--n-tasks") + 1] == "5"
         assert "LLM_API_KEY=test-key" in cmd
         assert "LLM_BASE_URL=https://proxy.example.com" in cmd
+
+        env = captured["env"]
+        assert env["PYTHONUNBUFFERED"] == "1"
+        assert env["PYTHONIOENCODING"] == "utf-8"
+
+        assert (tmp_path / "harbor.stdout.log").read_text() == "trial started\ntrial finished\n"
+        assert (tmp_path / "harbor.stderr.log").read_text() == "trial warning\n"
+        assert "LLM_API_KEY=<redacted>" in (tmp_path / "harbor.command.sh").read_text()
+        assert "test-key" not in (tmp_path / "harbor.command.sh").read_text()
 
 
 class TestConvertHarborToEvalOutput:

@@ -11,8 +11,10 @@ Usage:
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +30,40 @@ logger = get_logger(__name__)
 
 # Output filename for results
 OUTPUT_FILENAME = "output.jsonl"
+
+
+def _redact_harbor_command(cmd: list[str]) -> str:
+    redacted_parts: list[str] = []
+    for part in cmd:
+        if part.startswith("LLM_API_KEY="):
+            redacted_parts.append("LLM_API_KEY=<redacted>")
+        else:
+            redacted_parts.append(part)
+    return shlex.join(redacted_parts)
+
+
+def _stream_harbor_pipe(
+    stream,
+    log_path: Path,
+    stream_name: str,
+    collected_lines: list[str],
+) -> None:
+    if stream is None:
+        return
+
+    with log_path.open("w", encoding="utf-8") as log_file:
+        for raw_line in stream:
+            log_file.write(raw_line)
+            line = raw_line.rstrip()
+            if not line:
+                continue
+            collected_lines.append(line)
+            logger.info(f"[harbor {stream_name}] {line}")
+
+
+def _summarize_recent_lines(lines: list[str], max_lines: int = 5) -> str:
+    recent = [line for line in lines if line][-max_lines:]
+    return " | ".join(recent)
 
 
 def check_harbor_installed() -> bool:
@@ -106,29 +142,68 @@ def run_harbor_evaluation(
     if n_limit is not None:
         cmd.extend(["--n-tasks", str(n_limit)])
 
-    logger.info(f"Running harbor command: {' '.join(cmd)}")
+    harbor_stdout_log = Path(output_dir) / "harbor.stdout.log"
+    harbor_stderr_log = Path(output_dir) / "harbor.stderr.log"
+    harbor_command_file = Path(output_dir) / "harbor.command.sh"
+    harbor_command_file.write_text(_redact_harbor_command(cmd) + "\n", encoding="utf-8")
+
+    logger.info(f"Running harbor command: {_redact_harbor_command(cmd)}")
     logger.info(f"Output directory: {harbor_output_dir}")
+    logger.info(f"Harbor stdout log: {harbor_stdout_log}")
+    logger.info(f"Harbor stderr log: {harbor_stderr_log}")
+
+    harbor_env = os.environ.copy()
+    harbor_env["PYTHONUNBUFFERED"] = "1"
+    harbor_env.setdefault("PYTHONIOENCODING", "utf-8")
+
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
 
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            bufsize=1,
+            env=harbor_env,
         )
-
-        if result.returncode != 0:
-            logger.error(f"Harbor command failed with code {result.returncode}")
-            logger.error(f"stdout: {result.stdout}")
-            logger.error(f"stderr: {result.stderr}")
-            raise RuntimeError(f"Harbor evaluation failed: {result.stderr}")
-
-        logger.info("Harbor evaluation completed successfully")
-        logger.info(f"stdout: {result.stdout}")
-
     except FileNotFoundError:
         raise RuntimeError(
             "Harbor CLI not found. Please install harbor: pip install harbor"
         )
+
+    logger.info(f"Harbor process started with pid={process.pid}")
+
+    stdout_thread = threading.Thread(
+        target=_stream_harbor_pipe,
+        args=(process.stdout, harbor_stdout_log, "stdout", stdout_lines),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_stream_harbor_pipe,
+        args=(process.stderr, harbor_stderr_log, "stderr", stderr_lines),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
+    returncode = process.wait()
+    stdout_thread.join()
+    stderr_thread.join()
+
+    if returncode != 0:
+        recent_output = _summarize_recent_lines(stderr_lines) or _summarize_recent_lines(
+            stdout_lines
+        )
+        logger.error(f"Harbor command failed with code {returncode}")
+        raise RuntimeError(
+            "Harbor evaluation failed with exit code "
+            f"{returncode}. See {harbor_stdout_log} and {harbor_stderr_log}."
+            + (f" Recent log lines: {recent_output}" if recent_output else "")
+        )
+
+    logger.info("Harbor evaluation completed successfully")
 
     return harbor_output_dir
 
@@ -384,18 +459,6 @@ Examples:
     logger.info(f"Output directory: {structured_output_dir}")
     os.makedirs(structured_output_dir, exist_ok=True)
 
-    # Save metadata
-    metadata = {
-        "llm": llm.model_dump_json(),
-        "dataset": args.dataset,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "harbor_agent": HARBOR_DEFAULTS["agent_name"],
-        "note": args.note,
-    }
-    metadata_path = Path(structured_output_dir) / "metadata.json"
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f, indent=2)
-
     # Collect task IDs if specified
     task_ids: list[str] | None = None
     if args.select:
@@ -405,6 +468,34 @@ Examples:
     elif args.task_id:
         task_ids = list(args.task_id)  # Convert to ensure it's a list
         logger.info(f"Running {len(task_ids)} specified task IDs")
+
+    if task_ids:
+        logger.info(
+            "Terminal-Bench selected task IDs: " + ", ".join(task_ids)
+        )
+    elif args.n_limit is not None:
+        logger.warning(
+            "No explicit Terminal-Bench task IDs selected; Harbor will run the "
+            f"first {args.n_limit} tasks after dataset filtering from {args.dataset}"
+        )
+
+    # Save metadata
+    metadata = {
+        "llm": llm.model_dump_json(),
+        "dataset": args.dataset,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "harbor_agent": HARBOR_DEFAULTS["agent_name"],
+        "note": args.note,
+        "num_workers": args.num_workers,
+        "n_limit": args.n_limit,
+        "selected_task_ids": task_ids,
+        "harbor_stdout_log": "harbor.stdout.log",
+        "harbor_stderr_log": "harbor.stderr.log",
+        "harbor_command_file": "harbor.command.sh",
+    }
+    metadata_path = Path(structured_output_dir) / "metadata.json"
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
 
     output_path = Path(structured_output_dir) / OUTPUT_FILENAME
 

@@ -105,5 +105,6 @@ When converting between OpenHands format and benchmark-specific formats:
 - Harbor's installable package is `harbor` (not `harbor-bench`).
 - The Harbor dataset name used in CI is `terminal-bench@2.0`.
 - For CI smoke tests, pass `--n-limit <count>` to `terminalbench-infer` so Harbor only runs the requested subset.
+- Benchmark-level Harbor visibility belongs here rather than in the evaluation wrapper: `terminalbench-infer` should emit the selected task IDs, write `harbor.command.sh`, and stream Harbor output to `harbor.stdout.log` / `harbor.stderr.log` under the eval output directory.
 
 </BENCHMARK_SPECIFIC>
