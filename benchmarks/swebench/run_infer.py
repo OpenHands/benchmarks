@@ -360,7 +360,11 @@ class SWEBenchEvaluation(Evaluation):
             "git_patch": git_patch,
         }
         if isinstance(agent, ACPAgent):
-            add_acp_agent_metadata(test_result, agent)
+            add_acp_agent_metadata(
+                test_result,
+                agent,
+                agent_state=getattr(conversation.state, "agent_state", None),
+            )
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
