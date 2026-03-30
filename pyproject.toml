@@ -19,6 +19,7 @@ dependencies = [
     "openhands-workspace",
     "modal>=1.1.4",
     "swebench==4.1.0",
+    "swesmith>=0.0.9",
     "commit0",
     "pytest-json-report",
     # SWT-Bench dependencies (since the git package doesn't install them properly)
@@ -78,6 +79,8 @@ hybridgym-funcgen-infer = "benchmarks.hybridgym_funcgen.run_infer:main"
 hybridgym-funcgen-eval = "benchmarks.hybridgym_funcgen.eval_infer:main"
 hybridgym-issuelocalize-infer = "benchmarks.hybridgym_issuelocalize.run_infer:main"
 hybridgym-issuelocalize-eval = "benchmarks.hybridgym_issuelocalize.eval_infer:main"
+swesmith-infer = "benchmarks.swesmith.run_infer:main"
+swesmith-eval = "benchmarks.swesmith.eval_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
