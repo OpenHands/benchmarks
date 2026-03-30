@@ -44,6 +44,11 @@ on:
         required: false
         default: ''
         type: string
+      extensions-ref:
+        description: 'Extensions repository branch/ref to use (for testing feature branches with skills/plugins). Leave blank to use main.'
+        required: false
+        default: 'main'
+        type: string
       benchmarks-commit:
         description: 'Benchmarks repo commit/ref to use (for manual override)'
         required: false
@@ -177,6 +182,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
 
       - name: Archive build logs
         if: always()
