@@ -25,12 +25,14 @@ ACP_PROMPT_TIMEOUT: float = 3600.0
 _ACP_ENV_VARS: dict[str, list[str]] = {
     "acp-claude": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
     "acp-codex": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+    "acp-gemini": ["GEMINI_API_KEY"],
 }
 
 # Mapping of ACP agent types to their ACP command.
 _ACP_COMMANDS: dict[str, list[str]] = {
     "acp-claude": ["claude-agent-acp"],
     "acp-codex": ["codex-acp"],
+    "acp-gemini": ["gemini", "--acp"],
 }
 
 
