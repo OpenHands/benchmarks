@@ -883,16 +883,13 @@ class Evaluation(ABC, BaseModel):
             if runtime_runs:
                 out.runtime_runs = runtime_runs
 
-            # Query exact cost from the LiteLLM proxy virtual key and
-            # write it into accumulated_cost so existing consumers pick it up.
+            # Query exact cost from the LiteLLM proxy virtual key.
+            # Stored alongside the SDK's token-count estimate so both
+            # values are available in the output JSON.
             if virtual_key is not None:
                 proxy_cost = get_key_spend(virtual_key)
                 if proxy_cost is not None:
-                    if out.metrics is None:
-                        from openhands.sdk.llm import Metrics
-
-                        out.metrics = Metrics()
-                    out.metrics.accumulated_cost = proxy_cost
+                    out.test_result["proxy_cost"] = proxy_cost
                     logger.info(
                         "[worker] proxy cost for %s: $%.6f",
                         instance.id,
