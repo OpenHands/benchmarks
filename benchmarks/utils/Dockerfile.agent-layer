@@ -35,12 +35,5 @@ COPY --from=builder /usr/local/lib/libpython3.13.so* /usr/local/lib/
 COPY --from=builder /usr/local/bin/python3 /usr/local/bin/python3
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
-# Ensure ACP servers are present even when the eval-base image was cached
-# before a new server was added (eval-base tags don't include SDK SHA).
-# npm install -g is idempotent — no-op for already-installed packages.
-USER root
-RUN npm install -g @zed-industries/claude-agent-acp @zed-industries/codex-acp @google/gemini-cli
-USER ${USERNAME}
-
 COPY --chown=${USERNAME}:${USERNAME} --from=builder /agent-server /agent-server
 ENTRYPOINT ["/agent-server/.venv/bin/python", "-m", "openhands.agent_server"]
