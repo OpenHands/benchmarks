@@ -122,23 +122,25 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
 
 def add_acp_agent_metadata(
     test_result: dict[str, Any],
-    agent: ACPAgent,
     conversation: Any,
 ) -> None:
     """Add ACP agent metadata to an eval result payload.
 
-    For remote conversations the local agent object may not have agent_name/version
-    populated (they're PrivateAttrs set on the remote instance).  The ACPAgent stores
-    this info in ``state.agent_state`` during init, which syncs back via the
-    conversation state.
+    The ACPAgent stores agent_name/version in ``state.agent_state`` during init.
+    This syncs back in the ``full_state`` ConversationStateUpdateEvent.  We scan
+    the conversation events (last to first) to extract it.
     """
-    name: str = cast(Any, agent).agent_name or ""
-    version: str = cast(Any, agent).agent_version or ""
-    if not name:
-        agent_state = getattr(conversation.state, "agent_state", None)
-        if agent_state:
+    name = ""
+    version = ""
+    for ev in reversed(list(conversation.state.events)):
+        ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
+        if ev_dict.get("key") == "full_state":
+            val = ev_dict.get("value", {})
+            agent_state = val.get("agent_state", {}) if isinstance(val, dict) else {}
             name = agent_state.get("acp_agent_name", "")
             version = agent_state.get("acp_agent_version", "")
+            if name:
+                break
     test_result["acp_agent_name"] = name
     test_result["acp_agent_version"] = version
 
