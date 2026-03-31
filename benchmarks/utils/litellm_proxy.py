@@ -6,10 +6,12 @@ its own virtual key so the proxy tracks spend independently.
 
 Requires:
     - LLM_BASE_URL: The LiteLLM proxy URL (existing env var)
-    - LITELLM_MASTER_KEY: Admin key for the proxy's /key/* endpoints
+    - LITELLM_MASTER_KEY or LLM_API_KEY: Admin key for the proxy's /key/*
+      endpoints.  Falls back to ``LLM_API_KEY`` (the shared eval key) which
+      already has admin permissions on the CI proxy.
 
-When LITELLM_MASTER_KEY is not set, all functions are no-ops so existing
-workflows are unaffected.
+When neither key is set, all functions are no-ops so existing workflows
+are unaffected.
 
 Thread-safety:
     The virtual key for the current instance is stored in a ``threading.local``
@@ -37,9 +39,14 @@ _thread_local = threading.local()
 
 
 def _get_config() -> Tuple[str, str] | None:
-    """Return (base_url, master_key) or None if not configured."""
+    """Return (base_url, master_key) or None if not configured.
+
+    Tries ``LITELLM_MASTER_KEY`` first, then falls back to ``LLM_API_KEY``
+    which is the shared eval key that already has admin permissions on the
+    LiteLLM proxy in CI.
+    """
     base_url = os.getenv("LLM_BASE_URL", "").rstrip("/")
-    master_key = os.getenv("LITELLM_MASTER_KEY", "")
+    master_key = os.getenv("LITELLM_MASTER_KEY") or os.getenv("LLM_API_KEY") or ""
     if not base_url or not master_key:
         return None
     return base_url, master_key
