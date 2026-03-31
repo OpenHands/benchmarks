@@ -39,31 +39,21 @@ def read_jsonl_file(file_path: Path) -> List[Optional[Dict]]:
 
 
 def extract_accumulated_cost(jsonl_data: List[Optional[Dict]]) -> float:
-    """Sum the costs from each line in JSONL data.
-
-    Prefers ``proxy_cost`` (exact USD from LiteLLM proxy virtual key tracking)
-    when present, falling back to ``metrics.accumulated_cost`` (token-count
-    estimate) otherwise.  The two sources are never mixed for the same entry.
-    """
+    """Sum the accumulated costs from each line in JSONL data."""
     if not jsonl_data:
         return 0.0
 
     total_cost = 0.0
 
+    # Sum accumulated costs from each line
     for entry in jsonl_data:
         # Skip None entries that can occur from null JSON values
         if entry is None:
             continue
-
-        # Prefer proxy-reported cost (exact) over token-count estimate.
-        proxy_cost = entry.get("proxy_cost")
-        if proxy_cost is not None:
-            total_cost += float(proxy_cost)
-        else:
-            metrics = entry.get("metrics") or {}
-            accumulated_cost = metrics.get("accumulated_cost", 0.0)
-            if accumulated_cost is not None:
-                total_cost += float(accumulated_cost)
+        metrics = entry.get("metrics") or {}
+        accumulated_cost = metrics.get("accumulated_cost", 0.0)
+        if accumulated_cost is not None:
+            total_cost += float(accumulated_cost)
 
     return total_cost
 
