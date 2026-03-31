@@ -352,11 +352,7 @@ class SWTBenchEvaluation(Evaluation):
             "git_patch": git_patch,
         }
         if isinstance(agent, ACPAgent):
-            add_acp_agent_metadata(
-                test_result,
-                agent,
-                agent_state=getattr(conversation.state, "agent_state", None),
-            )
+            add_acp_agent_metadata(test_result, agent, conversation)
 
         out = EvalOutput(
             instance_id=instance.id,

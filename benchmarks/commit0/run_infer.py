@@ -597,11 +597,7 @@ class Commit0Evaluation(Evaluation):
             "eval_result": eval_result,
         }
         if isinstance(agent, ACPAgent):
-            add_acp_agent_metadata(
-                output_test_result,
-                agent,
-                agent_state=getattr(conversation.state, "agent_state", None),
-            )
+            add_acp_agent_metadata(output_test_result, agent, conversation)
 
         out = EvalOutput(
             instance_id=instance.id,
