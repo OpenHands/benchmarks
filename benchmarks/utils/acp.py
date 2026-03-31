@@ -111,11 +111,16 @@ def extract_acp_model_hint(llm_model: str) -> str | None:
 
 def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
     """Create an ACPAgent while remaining compatible with older type stubs."""
-    return cast(Any, ACPAgent)(
+    agent = cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
         acp_model=extract_acp_model_hint(llm_model),
         acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
     )
+    # Set the actual model name on metrics so litellm cost calculation
+    # can look up the correct per-token rates (the dummy LLM defaults
+    # to "acp-managed" which litellm doesn't recognize).
+    agent.llm.metrics.model_name = llm_model
+    return agent
 
 
 def add_acp_agent_metadata(test_result: dict[str, Any], agent: ACPAgent) -> None:

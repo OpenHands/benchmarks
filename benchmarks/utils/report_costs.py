@@ -58,6 +58,24 @@ def extract_accumulated_cost(jsonl_data: List[Optional[Dict]]) -> float:
     return total_cost
 
 
+def extract_litellm_cost(jsonl_data: List[Optional[Dict]]) -> float:
+    """Sum the litellm-calculated costs from each line in JSONL data."""
+    if not jsonl_data:
+        return 0.0
+
+    total_cost = 0.0
+
+    for entry in jsonl_data:
+        if entry is None:
+            continue
+        metrics = entry.get("metrics") or {}
+        litellm_cost = metrics.get("litellm_cost", 0.0)
+        if litellm_cost is not None:
+            total_cost += float(litellm_cost)
+
+    return total_cost
+
+
 def format_duration(seconds: float) -> str:
     """Format duration in seconds to mm:ss format."""
     minutes = int(seconds // 60)
@@ -177,6 +195,7 @@ def calculate_costs(directory_path: str) -> None:
     }
 
     main_cost: Optional[float] = None
+    main_litellm_cost: Optional[float] = None
     main_total_duration: Optional[float] = None
 
     # Process main output file
@@ -186,12 +205,15 @@ def calculate_costs(directory_path: str) -> None:
 
         jsonl_data = read_jsonl_file(output_file)
         cost = extract_accumulated_cost(jsonl_data)
+        l_cost = extract_litellm_cost(jsonl_data)
         time_stats = calculate_time_statistics(jsonl_data)
         main_cost = cost
+        main_litellm_cost = l_cost
         main_total_duration = time_stats.get("total_duration", 0.0)
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
+        print(f"    LiteLLM Cost: ${l_cost:.6f}")
         print("    Time Stats:")
         print(
             f"      Average Duration: {format_duration(time_stats['average_duration'])}"
@@ -205,11 +227,13 @@ def calculate_costs(directory_path: str) -> None:
             "filename": output_file.name,
             "lines": len(jsonl_data),
             "cost": cost,
+            "litellm_cost": l_cost,
             "time_statistics": time_stats,
         }
 
     # Process critic files individually
     critic_total_cost = 0.0
+    critic_total_litellm_cost = 0.0
     critic_total_duration = 0.0
     if critic_files:
         print("\nCritic Attempt Files:")
@@ -219,12 +243,15 @@ def calculate_costs(directory_path: str) -> None:
 
             jsonl_data = read_jsonl_file(critic_file)
             cost = extract_accumulated_cost(jsonl_data)
+            l_cost = extract_litellm_cost(jsonl_data)
             time_stats = calculate_time_statistics(jsonl_data)
             critic_total_cost += cost
+            critic_total_litellm_cost += l_cost
             critic_total_duration += time_stats.get("total_duration", 0.0)
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
+            print(f"    LiteLLM Cost: ${l_cost:.6f}")
             print("    Time Stats:")
             print(
                 f"      Average Duration: {format_duration(time_stats['average_duration'])}"
@@ -239,11 +266,13 @@ def calculate_costs(directory_path: str) -> None:
                     "filename": critic_file.name,
                     "lines": len(jsonl_data),
                     "cost": cost,
+                    "litellm_cost": l_cost,
                     "time_statistics": time_stats,
                 }
             )
 
         print(f"\n  Total Critic Files Cost: ${critic_total_cost:.6f}")
+        print(f"  Total Critic Files LiteLLM Cost: ${critic_total_litellm_cost:.6f}")
 
     # Summary
     print("\n" + "=" * 80)
@@ -253,6 +282,9 @@ def calculate_costs(directory_path: str) -> None:
     # - If critic files exist, they contain all attempts; use their sum.
     # - Otherwise, fall back to the main output cost.
     total_cost = critic_total_cost if critic_files else (main_cost or 0.0)
+    total_litellm_cost = (
+        critic_total_litellm_cost if critic_files else (main_litellm_cost or 0.0)
+    )
 
     # Total duration represents total time across all instances:
     # - If critic files exist, use their sum.
@@ -266,13 +298,21 @@ def calculate_costs(directory_path: str) -> None:
     if critic_files:
         print(f"  Sum Critic Files (all attempts): ${critic_total_cost:.6f}")
     print(f"  Total Cost (no double-count): ${total_cost:.6f}")
+    print(f"  Total LiteLLM Cost: ${total_litellm_cost:.6f}")
 
-    summary = {"total_cost": total_cost, "total_duration": total_duration}
+    summary = {
+        "total_cost": total_cost,
+        "total_litellm_cost": total_litellm_cost,
+        "total_duration": total_duration,
+    }
 
     if main_cost is not None:
         summary["only_main_output_cost"] = main_cost
+    if main_litellm_cost is not None:
+        summary["only_main_output_litellm_cost"] = main_litellm_cost
     if critic_files:
         summary["sum_critic_files"] = critic_total_cost
+        summary["sum_critic_files_litellm"] = critic_total_litellm_cost
 
     report_data["summary"] = summary
 
