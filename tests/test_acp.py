@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from benchmarks.utils.acp import (
+    _get_acp_env,
+    build_acp_agent,
     get_acp_command,
     get_acp_forward_env,
     is_acp_agent,
@@ -64,22 +66,24 @@ def test_get_acp_command_returns_copy():
 
 
 # ---- get_acp_forward_env ----------------------------------------------------
+# After the security fix (#386), provider credentials are no longer added to
+# forward_env.  Only LMNR (Laminar) tracing vars are forwarded.
 
 
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
-def test_forward_env_claude_appends_key_and_base_url():
+def test_forward_env_claude_no_provider_keys():
+    """Provider keys must NOT appear in forward_env (leak risk)."""
     result = get_acp_forward_env("acp-claude", [])
     assert result is not None
-    assert "ANTHROPIC_API_KEY" in result
-    assert "ANTHROPIC_BASE_URL" in result
+    assert "ANTHROPIC_API_KEY" not in result
+    assert "ANTHROPIC_BASE_URL" not in result
 
 
-@patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"})
-def test_forward_env_codex_appends_key_and_base_url():
+def test_forward_env_codex_no_provider_keys():
+    """Provider keys must NOT appear in forward_env (leak risk)."""
     result = get_acp_forward_env("acp-codex", [])
     assert result is not None
-    assert "OPENAI_API_KEY" in result
-    assert "OPENAI_BASE_URL" in result
+    assert "OPENAI_API_KEY" not in result
+    assert "OPENAI_BASE_URL" not in result
 
 
 @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
@@ -99,60 +103,82 @@ def test_forward_env_default_none_returns_none():
     assert get_acp_forward_env("default") is None
 
 
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_none_becomes_list():
     result = get_acp_forward_env("acp-claude", None)
     assert result is not None
-    assert "ANTHROPIC_API_KEY" in result
-    assert "ANTHROPIC_BASE_URL" in result
+    assert isinstance(result, list)
 
 
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
-def test_forward_env_does_not_duplicate():
-    result = get_acp_forward_env(
-        "acp-claude", ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"]
-    )
-    assert result is not None
-    # Should not add duplicates
-    assert result.count("ANTHROPIC_API_KEY") == 1
-    assert result.count("ANTHROPIC_BASE_URL") == 1
-
-
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_preserves_existing():
     result = get_acp_forward_env("acp-claude", ["OTHER_VAR"])
     assert result is not None
     assert "OTHER_VAR" in result
-    assert "ANTHROPIC_API_KEY" in result
-    assert "ANTHROPIC_BASE_URL" in result
+    # Provider keys must not leak into forward_env
+    assert "ANTHROPIC_API_KEY" not in result
 
 
-@patch.dict(os.environ, {}, clear=True)
-def test_forward_env_missing_key_raises():
-    # Remove the key entirely so getenv returns None
-    os.environ.pop("ANTHROPIC_API_KEY", None)
-    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY not found"):
-        get_acp_forward_env("acp-claude", [])
-
-
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_does_not_mutate_input():
     original = ["FOO"]
     result = get_acp_forward_env("acp-claude", original)
     assert original == ["FOO"]  # not mutated
     assert result is not None
     assert "FOO" in result
-    assert "ANTHROPIC_API_KEY" in result
-    assert "ANTHROPIC_BASE_URL" in result
 
 
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"})
 def test_forward_env_accepts_tuple():
     """Tuples should be handled without error (converted to list)."""
     result = get_acp_forward_env("acp-claude", list(("EXISTING",)))
     assert result is not None
-    assert "ANTHROPIC_API_KEY" in result
     assert "EXISTING" in result
+
+
+# ---- _get_acp_env -----------------------------------------------------------
+
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test", "ANTHROPIC_BASE_URL": "https://proxy"})
+def test_get_acp_env_claude():
+    env = _get_acp_env("acp-claude")
+    assert env == {"ANTHROPIC_API_KEY": "sk-ant-test", "ANTHROPIC_BASE_URL": "https://proxy"}
+
+
+@patch.dict(os.environ, {"OPENAI_API_KEY": "sk-oai-test", "OPENAI_BASE_URL": "https://proxy"})
+def test_get_acp_env_codex():
+    env = _get_acp_env("acp-codex")
+    assert env == {"OPENAI_API_KEY": "sk-oai-test", "OPENAI_BASE_URL": "https://proxy"}
+
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=True)
+def test_get_acp_env_omits_unset_base_url():
+    """Base URL is optional — omitted when not set."""
+    env = _get_acp_env("acp-claude")
+    assert env == {"ANTHROPIC_API_KEY": "sk-test"}
+    assert "ANTHROPIC_BASE_URL" not in env
+
+
+@patch.dict(os.environ, {}, clear=True)
+def test_get_acp_env_missing_key_raises():
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY not found"):
+        _get_acp_env("acp-claude")
+
+
+def test_get_acp_env_default_returns_empty():
+    assert _get_acp_env("default") == {}
+
+
+# ---- build_acp_agent --------------------------------------------------------
+
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"})
+def test_build_acp_agent_passes_acp_env():
+    """build_acp_agent should set acp_env with provider credentials."""
+    agent = build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
+    assert agent.acp_env == {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"}
+
+
+@patch.dict(os.environ, {}, clear=True)
+def test_build_acp_agent_missing_key_raises():
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY not found"):
+        build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
 
 
 # ---- setup_acp_workspace ----------------------------------------------------
