@@ -6,12 +6,9 @@ its own virtual key so the proxy tracks spend independently.
 
 Requires:
     - LLM_BASE_URL: The LiteLLM proxy URL (existing env var)
-    - LITELLM_MASTER_KEY or LLM_API_KEY: Admin key for the proxy's /key/*
-      endpoints.  Falls back to ``LLM_API_KEY`` (the shared eval key) which
-      already has admin permissions on the CI proxy.
+    - LLM_API_KEY: The shared eval key with admin permissions on the proxy
 
-When neither key is set, all functions are no-ops so existing workflows
-are unaffected.
+When either is unset, all functions are no-ops.
 
 Thread-safety:
     The virtual key for the current instance is stored in a ``threading.local``
@@ -39,17 +36,12 @@ _thread_local = threading.local()
 
 
 def _get_config() -> Tuple[str, str] | None:
-    """Return (base_url, master_key) or None if not configured.
-
-    Tries ``LITELLM_MASTER_KEY`` first, then falls back to ``LLM_API_KEY``
-    which is the shared eval key that already has admin permissions on the
-    LiteLLM proxy in CI.
-    """
+    """Return (base_url, api_key) or None if not configured."""
     base_url = os.getenv("LLM_BASE_URL", "").rstrip("/")
-    master_key = os.getenv("LITELLM_MASTER_KEY") or os.getenv("LLM_API_KEY") or ""
-    if not base_url or not master_key:
+    api_key = os.getenv("LLM_API_KEY", "")
+    if not base_url or not api_key:
         return None
-    return base_url, master_key
+    return base_url, api_key
 
 
 def create_virtual_key(
@@ -71,7 +63,7 @@ def create_virtual_key(
     config = _get_config()
     if config is None:
         return None
-    base_url, master_key = config
+    base_url, api_key = config
 
     metadata: dict[str, str] = {"instance_id": instance_id}
     if run_id:
@@ -80,7 +72,7 @@ def create_virtual_key(
     try:
         resp = httpx.post(
             f"{base_url}/key/generate",
-            headers={"Authorization": f"Bearer {master_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             json={"metadata": metadata, "max_budget": max_budget},
             timeout=_TIMEOUT,
         )
@@ -109,13 +101,13 @@ def get_key_spend(key: str) -> float | None:
     config = _get_config()
     if config is None:
         return None
-    base_url, master_key = config
+    base_url, api_key = config
 
     try:
         resp = httpx.get(
             f"{base_url}/key/info",
             params={"key": key},
-            headers={"Authorization": f"Bearer {master_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
@@ -136,12 +128,12 @@ def delete_key(key: str) -> None:
     config = _get_config()
     if config is None:
         return
-    base_url, master_key = config
+    base_url, api_key = config
 
     try:
         resp = httpx.post(
             f"{base_url}/key/delete",
-            headers={"Authorization": f"Bearer {master_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             json={"keys": [key]},
             timeout=_TIMEOUT,
         )
