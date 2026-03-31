@@ -29,6 +29,12 @@ from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
+from benchmarks.utils.litellm_proxy import (
+    create_virtual_key,
+    delete_key,
+    get_key_spend,
+    set_current_virtual_key,
+)
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -815,6 +821,7 @@ class Evaluation(ABC, BaseModel):
         """
         workspace = None
         exec_span = None
+        virtual_key: str | None = None
         try:
             # Serialize span context and inject via environment variable so
             # workspace can pick it up. Use a lock to avoid races between
@@ -835,6 +842,13 @@ class Evaluation(ABC, BaseModel):
                     f"runtime_failure_count={runtime_failure_count}, "
                     f"resource_factor={resource_factor}"
                 )
+
+            # Create a per-instance LiteLLM virtual key for exact cost tracking.
+            # The key is stored in thread-local so build_acp_agent() can inject
+            # it into the ACP subprocess env. No-op when LITELLM_MASTER_KEY unset.
+            run_id = os.getenv("UNIQUE_EVAL_NAME")
+            virtual_key = create_virtual_key(instance.id, run_id=run_id)
+            set_current_virtual_key(virtual_key)
 
             workspace = self.prepare_workspace(
                 instance,
@@ -868,6 +882,18 @@ class Evaluation(ABC, BaseModel):
             out = self.evaluate_instance(instance, workspace)
             if runtime_runs:
                 out.runtime_runs = runtime_runs
+
+            # Query exact cost from the LiteLLM proxy virtual key.
+            if virtual_key is not None:
+                proxy_cost = get_key_spend(virtual_key)
+                if proxy_cost is not None:
+                    out.proxy_cost = proxy_cost
+                    logger.info(
+                        "[worker] proxy cost for %s: $%.6f",
+                        instance.id,
+                        proxy_cost,
+                    )
+
             logger.info("[worker] done id=%s", instance.id)
             return out
         except Exception as e:
@@ -915,6 +941,10 @@ class Evaluation(ABC, BaseModel):
                 return error_output
             return None
         finally:
+            # Clean up the per-instance virtual key and thread-local.
+            if virtual_key is not None:
+                delete_key(virtual_key)
+            set_current_virtual_key(None)
             if workspace is not None:
                 self._cleanup_workspace(workspace, instance)
             if exec_span is not None:

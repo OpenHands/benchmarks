@@ -198,6 +198,14 @@ class EvalOutput(OpenHandsModel):
     metadata: EvalMetadata | None = None
     history: list[Event] = Field(default_factory=list)
     metrics: Metrics | None = None
+    proxy_cost: float | None = Field(
+        default=None,
+        description=(
+            "Exact cost in USD reported by the LiteLLM proxy via virtual key "
+            "spend tracking. When present, this is more accurate than "
+            "metrics.accumulated_cost (which is a token-count estimate)."
+        ),
+    )
     error: str | None = None
 
     # Optionally save the input test instance
