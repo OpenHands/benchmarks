@@ -25,12 +25,14 @@ ACP_PROMPT_TIMEOUT: float = 3600.0
 _ACP_ENV_VARS: dict[str, list[str]] = {
     "acp-claude": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
     "acp-codex": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+    "acp-gemini": ["GEMINI_API_KEY", "GEMINI_BASE_URL"],
 }
 
 # Mapping of ACP agent types to their ACP command.
 _ACP_COMMANDS: dict[str, list[str]] = {
     "acp-claude": ["claude-agent-acp"],
     "acp-codex": ["codex-acp"],
+    "acp-gemini": ["gemini", "--acp"],
 }
 
 
@@ -118,10 +120,29 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
     )
 
 
-def add_acp_agent_metadata(test_result: dict[str, Any], agent: ACPAgent) -> None:
-    """Add ACP agent metadata to an eval result payload."""
-    test_result["acp_agent_name"] = cast(Any, agent).agent_name
-    test_result["acp_agent_version"] = cast(Any, agent).agent_version
+def add_acp_agent_metadata(
+    test_result: dict[str, Any],
+    conversation: Any,
+) -> None:
+    """Add ACP agent metadata to an eval result payload.
+
+    The ACPAgent stores agent_name/version in ``state.agent_state`` during init.
+    This syncs back in the ``full_state`` ConversationStateUpdateEvent.  We scan
+    the conversation events (last to first) to extract it.
+    """
+    name = ""
+    version = ""
+    for ev in reversed(list(conversation.state.events)):
+        ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
+        if ev_dict.get("key") == "full_state":
+            val = ev_dict.get("value", {})
+            agent_state = val.get("agent_state", {}) if isinstance(val, dict) else {}
+            name = agent_state.get("acp_agent_name", "")
+            version = agent_state.get("acp_agent_version", "")
+            if name:
+                break
+    test_result["acp_agent_name"] = name
+    test_result["acp_agent_version"] = version
 
 
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:

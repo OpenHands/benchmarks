@@ -105,8 +105,8 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         "--agent-type",
         type=str,
         default="default",
-        choices=["default", "acp-claude", "acp-codex"],
-        help="Agent type: 'default' for standard Agent, 'acp-claude' for ACPAgent (Claude Code), 'acp-codex' for ACPAgent (Codex)",
+        choices=["default", "acp-claude", "acp-codex", "acp-gemini"],
+        help="Agent type: 'default' for standard Agent, 'acp-claude' for ACPAgent (Claude Code), 'acp-codex' for ACPAgent (Codex), 'acp-gemini' for ACPAgent (Gemini CLI)",
     )
     parser.add_argument(
         "--enable-condenser",

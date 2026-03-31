@@ -24,6 +24,10 @@ def test_is_acp_agent_codex():
     assert is_acp_agent("acp-codex") is True
 
 
+def test_is_acp_agent_gemini():
+    assert is_acp_agent("acp-gemini") is True
+
+
 def test_is_acp_agent_default():
     assert is_acp_agent("default") is False
 
@@ -41,6 +45,10 @@ def test_get_acp_command_claude():
 
 def test_get_acp_command_codex():
     assert get_acp_command("acp-codex") == ["codex-acp"]
+
+
+def test_get_acp_command_gemini():
+    assert get_acp_command("acp-gemini") == ["gemini", "--acp"]
 
 
 def test_get_acp_command_unknown_raises():
@@ -72,6 +80,13 @@ def test_forward_env_codex_appends_key_and_base_url():
     assert result is not None
     assert "OPENAI_API_KEY" in result
     assert "OPENAI_BASE_URL" in result
+
+
+@patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+def test_forward_env_gemini_appends_key():
+    result = get_acp_forward_env("acp-gemini", [])
+    assert result is not None
+    assert "GEMINI_API_KEY" in result
 
 
 def test_forward_env_default_returns_unchanged():
@@ -153,6 +168,13 @@ def test_setup_acp_workspace_noop_for_default():
 def test_setup_acp_workspace_noop_for_codex():
     workspace = MagicMock()
     setup_acp_workspace("acp-codex", workspace)
+    workspace.execute_command.assert_not_called()
+    workspace.file_upload.assert_not_called()
+
+
+def test_setup_acp_workspace_noop_for_gemini():
+    workspace = MagicMock()
+    setup_acp_workspace("acp-gemini", workspace)
     workspace.execute_command.assert_not_called()
     workspace.file_upload.assert_not_called()
 
