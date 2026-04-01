@@ -231,7 +231,6 @@ class SWEBenchEvaluation(Evaluation):
                 resource_factor=resource_factor,
                 init_timeout=startup_timeout,
                 startup_wait_timeout=startup_timeout,
-                image_pull_policy="Always",
             )
         else:
             raise ValueError(
