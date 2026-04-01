@@ -3,7 +3,6 @@
 import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from benchmarks.utils.build_utils import BuildOutput
@@ -40,10 +39,19 @@ def _thread_pool(**kw):
 
 
 class TestBuildBaseImage:
+    def setup_method(self):
+        from benchmarks.swebench.build_base_images import _dockerfile_content_hash
+
+        _dockerfile_content_hash.cache_clear()
+
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
+    )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
     )
-    def test_skips_when_remote_exists(self, _):
+    def test_skips_when_remote_exists(self, _exists, _dockerfile):
         from benchmarks.swebench.build_base_images import build_base_image
 
         result = build_base_image("ubuntu:22.04", "custom-tag", push=False)
@@ -56,7 +64,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=Path("/fake/Dockerfile"),
+        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -77,7 +85,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=Path("/fake/Dockerfile"),
+        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -276,6 +284,11 @@ class TestAssembleAgentImage:
 
 
 class TestBuildAllBaseImages:
+    def setup_method(self):
+        from benchmarks.swebench.build_base_images import _dockerfile_content_hash
+
+        _dockerfile_content_hash.cache_clear()
+
     @patch("benchmarks.swebench.build_base_images._build_base_with_logging")
     @patch(
         "benchmarks.swebench.build_base_images.ProcessPoolExecutor", new=_thread_pool
@@ -323,7 +336,11 @@ class TestBuildAllBaseImages:
 
         assert rc == 0
 
-    def test_dry_run_prints_without_building(self, tmp_path, capsys):
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
+    )
+    def test_dry_run_prints_without_building(self, _dockerfile, tmp_path, capsys):
         from benchmarks.swebench.build_base_images import build_all_base_images
 
         rc = build_all_base_images(
@@ -479,14 +496,62 @@ class TestPhasedOrchestration:
 
 
 class TestBaseImageTag:
-    def test_default_registry(self):
+    def setup_method(self):
+        from benchmarks.swebench.build_base_images import _dockerfile_content_hash
+
+        _dockerfile_content_hash.cache_clear()
+
+    @patch(
+        "benchmarks.swebench.build_base_images._dockerfile_content_hash",
+        return_value="abc1234",
+    )
+    def test_default_registry(self, _mock_hash):
         from benchmarks.swebench.build_base_images import base_image_tag
 
         tag = base_image_tag("my-custom-tag")
-        assert tag.endswith(":my-custom-tag")
+        assert tag.endswith(":abc1234-my-custom-tag")
 
-    def test_custom_registry(self):
+    @patch(
+        "benchmarks.swebench.build_base_images._dockerfile_content_hash",
+        return_value="abc1234",
+    )
+    def test_custom_registry(self, _mock_hash):
         from benchmarks.swebench.build_base_images import base_image_tag
 
         tag = base_image_tag("abc", image="my-registry/my-repo")
-        assert tag == "my-registry/my-repo:abc"
+        assert tag == "my-registry/my-repo:abc1234-abc"
+
+    def test_hash_changes_with_dockerfile_content(self):
+        import hashlib
+
+        from benchmarks.swebench.build_base_images import (
+            _dockerfile_content_hash,
+            base_image_tag,
+        )
+
+        content_a = "FROM ubuntu:22.04\n"
+        content_b = "FROM ubuntu:22.04\nRUN npm install\n"
+
+        with patch(
+            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+            return_value=MagicMock(read_text=MagicMock(return_value=content_a)),
+        ):
+            _dockerfile_content_hash.cache_clear()
+            tag1 = base_image_tag("inst")
+
+        with patch(
+            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+            return_value=MagicMock(read_text=MagicMock(return_value=content_b)),
+        ):
+            _dockerfile_content_hash.cache_clear()
+            tag2 = base_image_tag("inst")
+
+        # Same instance but different Dockerfile content → different tags.
+        assert tag1 != tag2
+        assert tag1.endswith("-inst")
+        assert tag2.endswith("-inst")
+        # Verify the hashes match expected SHA-256 prefixes.
+        expected_a = hashlib.sha256(content_a.encode()).hexdigest()[:7]
+        expected_b = hashlib.sha256(content_b.encode()).hexdigest()[:7]
+        assert f":{expected_a}-inst" in tag1
+        assert f":{expected_b}-inst" in tag2
