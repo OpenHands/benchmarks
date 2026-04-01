@@ -149,8 +149,6 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
 
-        For ACPAgent, the provider API key is forwarded to the container.
-
         Args:
             instance: The evaluation instance to prepare workspace for.
             resource_factor: Resource factor for runtime allocation (default: 1).
