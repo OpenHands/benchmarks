@@ -54,7 +54,9 @@ class TestBuildBaseImage:
     def test_skips_when_remote_exists(self, _exists, _dockerfile):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", push=False)
+        result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=False, content_hash="abc1234"
+        )
         assert result.error is None
         assert len(result.tags) == 1
         assert "custom-tag" in result.tags[0]
@@ -73,7 +75,9 @@ class TestBuildBaseImage:
     def test_success(self, _exists, _dockerfile, mock_run):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", push=True)
+        result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=True, content_hash="abc1234"
+        )
         assert result.error is None
         assert len(result.tags) == 1
         cmd = mock_run.call_args[0][0]
@@ -94,7 +98,7 @@ class TestBuildBaseImage:
     def test_failure_returns_error(self, _exists, _dockerfile, _run):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag")
+        result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
         assert result.error is not None
         assert result.tags == []
 
@@ -124,6 +128,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=3,
+            content_hash="abc1234",
         )
         assert result.error is None
         assert result.tags == ["tag:1"]
@@ -147,6 +152,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=2,
+            content_hash="abc1234",
         )
         assert result.error == "permanent error"
         assert mock_build.call_count == 2
@@ -168,6 +174,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=1,
+            content_hash="abc1234",
         )
         assert result.error is not None
         assert "docker crash" in result.error

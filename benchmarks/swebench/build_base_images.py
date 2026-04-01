@@ -104,7 +104,8 @@ def build_base_image(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
-    content_hash: str = "",
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Build a single base image using the SDK Dockerfile's base-image-minimal target."""
     dockerfile = _get_sdk_dockerfile()
@@ -165,7 +166,8 @@ def _build_base_with_logging(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     max_retries: int = 3,
-    content_hash: str = "",
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Build a single base image with logging and retry support."""
     import time
@@ -530,7 +532,8 @@ def _assemble_with_logging(
     push: bool = False,
     max_retries: int = 3,
     force_build: bool = False,
-    content_hash: str = "",
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Assemble a single agent image with logging and retry."""
     import time
