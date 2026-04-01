@@ -28,26 +28,14 @@ SDK_SHA = get_sdk_sha()
 SDK_SHORT_SHA = SDK_SHA[:7]
 
 
-def _get_dockerfile_content_hash() -> str:
-    """Return the 7-char content hash of the SDK Dockerfile.
-
-    This is the same hash used to tag eval-base images so that Dockerfile
-    changes auto-invalidate cached images.  We include it in the image tag
-    prefix so that the pull side constructs tags that match the build side.
-    """
-    from benchmarks.swebench.build_base_images import dockerfile_content_hash
-
-    return dockerfile_content_hash()
-
-
 # Centralized image tag prefix used by all benchmark runners.
 #
 # Docker image tags follow the format: <prefix>-<custom_tag>-<target>
-# e.g. "acd5adc-245a238-sweb.eval.x86_64.django_1776_django-12155-source-minimal"
+# e.g. "abc1234-sweb.eval.x86_64.django_1776_django-12155-binary"
 #
-# The prefix includes both the SDK submodule short SHA and the Dockerfile
-# content hash so that changes to either invalidate cached images.
-# Set the IMAGE_TAG_PREFIX environment variable to override.
+# By default this is the SDK submodule short SHA. Set the IMAGE_TAG_PREFIX
+# environment variable to override (e.g. when using pre-built images from
+# a different SDK revision or a CI-provided tag).
 # Check for deprecated env var and warn users
 _deprecated_sdk_short_sha = os.getenv("SDK_SHORT_SHA")
 if _deprecated_sdk_short_sha is not None:
@@ -60,7 +48,21 @@ if _deprecated_sdk_short_sha is not None:
     )
 
 IMAGE_TAG_PREFIX = (
-    os.getenv("IMAGE_TAG_PREFIX")
-    or _deprecated_sdk_short_sha
-    or f"{SDK_SHORT_SHA}-{_get_dockerfile_content_hash()}"
+    os.getenv("IMAGE_TAG_PREFIX") or _deprecated_sdk_short_sha or SDK_SHORT_SHA
 )
+
+
+def get_phased_image_tag_prefix() -> str:
+    """Return the image tag prefix for phased-build benchmarks (swebench, swebenchmultimodal, swtbench).
+
+    Phased-build assembly images include the Dockerfile content hash in
+    their tags so that Dockerfile changes invalidate cached assemblies.
+    The tag format is: ``{sdk_short_sha}-{content_hash}-{custom_tag}-{target}``.
+
+    Benchmarks on the legacy build path (gaia, commit0, etc.) should
+    continue to use :data:`IMAGE_TAG_PREFIX` which does NOT include the
+    content hash.
+    """
+    from benchmarks.swebench.build_base_images import dockerfile_content_hash
+
+    return os.getenv("IMAGE_TAG_PREFIX") or _deprecated_sdk_short_sha or f"{SDK_SHORT_SHA}-{dockerfile_content_hash()}"

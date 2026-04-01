@@ -38,7 +38,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import (
     Agent,
     Conversation,
@@ -174,7 +174,7 @@ class SWEBenchEvaluation(Evaluation):
 
         if self.metadata.workspace_type == "docker":
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             )
             ensure_local_image(
                 agent_server_image=agent_server_image,
@@ -195,7 +195,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
 
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             )
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
@@ -204,7 +204,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {get_phased_image_tag_prefix()}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
