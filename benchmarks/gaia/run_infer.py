@@ -415,7 +415,7 @@ class GAIAEvaluation(Evaluation):
             "ground_truth": ground_truth,
         }
         if isinstance(agent, ACPAgent):
-            add_acp_agent_metadata(test_result_data, agent)
+            add_acp_agent_metadata(test_result_data, conversation)
 
         # Return evaluation output
         return EvalOutput(
