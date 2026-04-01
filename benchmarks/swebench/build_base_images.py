@@ -106,10 +106,11 @@ def build_base_image(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    content_hash: str = "",
 ) -> BuildOutput:
     """Build a single base image using the SDK Dockerfile's base-image-minimal target."""
     dockerfile = _get_sdk_dockerfile()
-    tag = base_image_tag(custom_tag, image)
+    tag = base_image_tag(custom_tag, image, content_hash=content_hash)
 
     # Check registry first
     if remote_image_exists(tag):
@@ -166,6 +167,7 @@ def _build_base_with_logging(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     max_retries: int = 3,
+    content_hash: str = "",
 ) -> BuildOutput:
     """Build a single base image with logging and retry support."""
     import time
@@ -182,7 +184,13 @@ def _build_base_with_logging(
                 )
                 time.sleep(2 + attempt * 2)
             try:
-                result = build_base_image(base_image, custom_tag, image, push)
+                result = build_base_image(
+                    base_image,
+                    custom_tag,
+                    image,
+                    push,
+                    content_hash=content_hash,
+                )
             except Exception as e:
                 result = BuildOutput(
                     base_image=base_image,
@@ -214,11 +222,13 @@ def build_all_base_images(
     build_log_dir = build_dir / "base-logs"
     manifest_file = build_dir / "base-manifest.jsonl"
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    content_hash = dockerfile_content_hash()
 
     if dry_run:
-        h = dockerfile_content_hash()
         for base in base_images:
-            tag = base_image_tag(extract_custom_tag(base), image, content_hash=h)
+            tag = base_image_tag(
+                extract_custom_tag(base), image, content_hash=content_hash
+            )
             print(f"{base} -> {tag}")
         return 0
 
@@ -246,6 +256,7 @@ def build_all_base_images(
                     image=image,
                     push=push,
                     max_retries=max_retries,
+                    content_hash=content_hash,
                 )
                 futures[fut] = base
 
