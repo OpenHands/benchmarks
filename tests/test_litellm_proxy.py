@@ -51,8 +51,9 @@ class TestGetConfig:
     def test_strips_trailing_slash(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com/")
         monkeypatch.setenv("LLM_API_KEY", "sk-test")
-        base_url, _ = _get_config()
-        assert base_url == "https://proxy.example.com"
+        result = _get_config()
+        assert result is not None
+        assert result[0] == "https://proxy.example.com"
 
 
 # ---- create_virtual_key -------------------------------------------------------
