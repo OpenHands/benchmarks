@@ -65,8 +65,9 @@ def get_phased_image_tag_prefix() -> str:
     """
     from benchmarks.swebench.build_base_images import dockerfile_content_hash
 
+    # Only IMAGE_TAG_PREFIX (explicit override) bypasses the content hash.
+    # The deprecated SDK_SHORT_SHA env var must NOT short-circuit here,
+    # because run_eval.sh sets it and we need the content hash included.
     return (
-        os.getenv("IMAGE_TAG_PREFIX")
-        or _deprecated_sdk_short_sha
-        or f"{SDK_SHORT_SHA}-{dockerfile_content_hash()}"
+        os.getenv("IMAGE_TAG_PREFIX") or f"{SDK_SHORT_SHA}-{dockerfile_content_hash()}"
     )

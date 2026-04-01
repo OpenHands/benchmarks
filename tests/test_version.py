@@ -76,8 +76,12 @@ class TestPhasedImageTagPrefix:
         with patch.dict(os.environ, {"IMAGE_TAG_PREFIX": "custom-tag"}):
             assert mod.get_phased_image_tag_prefix() == "custom-tag"
 
-    def test_deprecated_sdk_short_sha_env_fallback(self):
-        """SDK_SHORT_SHA env var is honored for phased prefix."""
+    def test_deprecated_sdk_short_sha_does_not_bypass_content_hash(self):
+        """SDK_SHORT_SHA env var must NOT short-circuit the content hash."""
         with pytest.warns(DeprecationWarning, match="SDK_SHORT_SHA"):
             mod = _reload_version(SDK_SHORT_SHA="legacy-tag")
-        assert mod.get_phased_image_tag_prefix() == "legacy-tag"
+        prefix = mod.get_phased_image_tag_prefix()
+        # Should still include content hash, not just "legacy-tag"
+        assert prefix.startswith(mod.SDK_SHORT_SHA + "-")
+        content_hash = prefix[len(mod.SDK_SHORT_SHA) + 1 :]
+        assert len(content_hash) == 7
