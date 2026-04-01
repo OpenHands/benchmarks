@@ -6,7 +6,7 @@ its own virtual key so the proxy tracks spend independently.
 
 Requires:
     - LLM_BASE_URL: The LiteLLM proxy URL (existing env var)
-    - LLM_API_KEY: The shared eval key with admin permissions on the proxy
+    - LLM_API_MASTER_KEY: Admin key for virtual key management (SOPS secret)
 
 When either is unset, all functions are no-ops.
 
@@ -36,12 +36,12 @@ _thread_local = threading.local()
 
 
 def _get_config() -> Tuple[str, str] | None:
-    """Return (base_url, api_key) or None if not configured."""
+    """Return (base_url, master_key) or None if not configured."""
     base_url = os.getenv("LLM_BASE_URL", "").rstrip("/")
-    api_key = os.getenv("LLM_API_KEY", "")
-    if not base_url or not api_key:
+    master_key = os.getenv("LLM_API_MASTER_KEY", "")
+    if not base_url or not master_key:
         return None
-    return base_url, api_key
+    return base_url, master_key
 
 
 def create_virtual_key(

@@ -30,27 +30,27 @@ def _response(status_code: int, json: dict) -> httpx.Response:
 class TestGetConfig:
     def test_returns_none_when_no_env(self, monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
-        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_MASTER_KEY", raising=False)
         assert _get_config() is None
 
     def test_returns_none_when_no_api_key(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_MASTER_KEY", raising=False)
         assert _get_config() is None
 
     def test_returns_none_when_no_base_url(self, monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
-        monkeypatch.setenv("LLM_API_KEY", "sk-test")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-test")
         assert _get_config() is None
 
     def test_returns_tuple_when_configured(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-test")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-test")
         assert _get_config() == ("https://proxy.example.com", "sk-test")
 
     def test_strips_trailing_slash(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com/")
-        monkeypatch.setenv("LLM_API_KEY", "sk-test")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-test")
         result = _get_config()
         assert result is not None
         assert result[0] == "https://proxy.example.com"
@@ -62,12 +62,12 @@ class TestGetConfig:
 class TestCreateVirtualKey:
     def test_returns_none_when_not_configured(self, monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
-        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_MASTER_KEY", raising=False)
         assert create_virtual_key("inst-1") is None
 
     def test_success(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(200, {"key": "sk-virtual-123"})
         with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
@@ -76,7 +76,7 @@ class TestCreateVirtualKey:
 
     def test_sends_correct_payload(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(200, {"key": "sk-v"})
         with patch(
@@ -94,7 +94,7 @@ class TestCreateVirtualKey:
 
     def test_raises_on_http_error(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(401, {"error": "unauthorized"})
         with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
@@ -103,7 +103,7 @@ class TestCreateVirtualKey:
 
     def test_raises_on_connection_error(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         with patch(
             "benchmarks.utils.litellm_proxy.httpx.post",
@@ -114,7 +114,7 @@ class TestCreateVirtualKey:
 
     def test_raises_on_timeout(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         with patch(
             "benchmarks.utils.litellm_proxy.httpx.post",
@@ -130,12 +130,12 @@ class TestCreateVirtualKey:
 class TestGetKeySpend:
     def test_returns_none_when_not_configured(self, monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
-        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_MASTER_KEY", raising=False)
         assert get_key_spend("sk-v") is None
 
     def test_success(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(200, {"info": {"spend": 0.014112}})
         with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
@@ -144,7 +144,7 @@ class TestGetKeySpend:
 
     def test_returns_none_on_http_500(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(500, {"error": "internal"})
         with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
@@ -152,7 +152,7 @@ class TestGetKeySpend:
 
     def test_returns_none_on_connection_error(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         with patch(
             "benchmarks.utils.litellm_proxy.httpx.post",
@@ -167,13 +167,13 @@ class TestGetKeySpend:
 class TestDeleteKey:
     def test_noop_when_not_configured(self, monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
-        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_MASTER_KEY", raising=False)
         # Should not raise
         delete_key("sk-v")
 
     def test_success(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(200, {})
         with patch(
@@ -186,7 +186,7 @@ class TestDeleteKey:
 
     def test_swallows_http_error(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(403, {"error": "forbidden"})
         with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
@@ -195,7 +195,7 @@ class TestDeleteKey:
 
     def test_swallows_connection_error(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
-        monkeypatch.setenv("LLM_API_KEY", "sk-admin")
+        monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         with patch(
             "benchmarks.utils.litellm_proxy.httpx.post",
