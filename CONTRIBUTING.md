@@ -17,7 +17,7 @@ benchmarks/<benchmark_name>/
 └── prompts/               # Prompt templates
 ```
 
-**One benchmark per folder.** For similar benchmarks (e.g., SWE-bench and SWT-bench), it's acceptable to replicate code if it remains simple.
+**One benchmark per folder.** For similar benchmarks (e.g., SWE-bench and SWE-bench MultiModal), it's preferable to duplicate code than to merge them.
 
 ## Required Files
 
