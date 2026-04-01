@@ -136,13 +136,21 @@ def test_forward_env_accepts_tuple():
 # ---- _get_acp_env -----------------------------------------------------------
 
 
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test", "ANTHROPIC_BASE_URL": "https://proxy"})
+@patch.dict(
+    os.environ,
+    {"ANTHROPIC_API_KEY": "sk-ant-test", "ANTHROPIC_BASE_URL": "https://proxy"},
+)
 def test_get_acp_env_claude():
     env = _get_acp_env("acp-claude")
-    assert env == {"ANTHROPIC_API_KEY": "sk-ant-test", "ANTHROPIC_BASE_URL": "https://proxy"}
+    assert env == {
+        "ANTHROPIC_API_KEY": "sk-ant-test",
+        "ANTHROPIC_BASE_URL": "https://proxy",
+    }
 
 
-@patch.dict(os.environ, {"OPENAI_API_KEY": "sk-oai-test", "OPENAI_BASE_URL": "https://proxy"})
+@patch.dict(
+    os.environ, {"OPENAI_API_KEY": "sk-oai-test", "OPENAI_BASE_URL": "https://proxy"}
+)
 def test_get_acp_env_codex():
     env = _get_acp_env("acp-codex")
     assert env == {"OPENAI_API_KEY": "sk-oai-test", "OPENAI_BASE_URL": "https://proxy"}
@@ -156,7 +164,9 @@ def test_get_acp_env_omits_unset_base_url():
     assert "ANTHROPIC_BASE_URL" not in env
 
 
-@patch.dict(os.environ, {"GEMINI_API_KEY": "gem-test", "GEMINI_BASE_URL": "https://proxy"})
+@patch.dict(
+    os.environ, {"GEMINI_API_KEY": "gem-test", "GEMINI_BASE_URL": "https://proxy"}
+)
 def test_get_acp_env_gemini():
     env = _get_acp_env("acp-gemini")
     assert env == {"GEMINI_API_KEY": "gem-test", "GEMINI_BASE_URL": "https://proxy"}
@@ -175,11 +185,16 @@ def test_get_acp_env_default_returns_empty():
 # ---- build_acp_agent --------------------------------------------------------
 
 
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"})
+@patch.dict(
+    os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"}
+)
 def test_build_acp_agent_passes_acp_env():
     """build_acp_agent should set acp_env with provider credentials."""
     agent = build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
-    assert agent.acp_env == {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"}
+    assert agent.acp_env == {
+        "ANTHROPIC_API_KEY": "sk-test",
+        "ANTHROPIC_BASE_URL": "https://proxy",
+    }
 
 
 @patch.dict(os.environ, {}, clear=True)
