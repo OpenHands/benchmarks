@@ -4,6 +4,7 @@ import threading
 from unittest.mock import patch
 
 import httpx
+import pytest
 
 from benchmarks.utils.litellm_proxy import (
     _get_config,
@@ -90,15 +91,16 @@ class TestCreateVirtualKey:
         assert kwargs["json"]["max_budget"] == 10.0
         assert kwargs["headers"]["Authorization"] == "Bearer sk-admin"
 
-    def test_returns_none_on_http_error(self, monkeypatch):
+    def test_raises_on_http_error(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
         monkeypatch.setenv("LLM_API_KEY", "sk-admin")
 
         mock_resp = _response(401, {"error": "unauthorized"})
         with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
-            assert create_virtual_key("inst-1") is None
+            with pytest.raises(RuntimeError, match="virtual key creation failed"):
+                create_virtual_key("inst-1")
 
-    def test_returns_none_on_connection_error(self, monkeypatch):
+    def test_raises_on_connection_error(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
         monkeypatch.setenv("LLM_API_KEY", "sk-admin")
 
@@ -106,9 +108,10 @@ class TestCreateVirtualKey:
             "benchmarks.utils.litellm_proxy.httpx.post",
             side_effect=httpx.ConnectError("refused"),
         ):
-            assert create_virtual_key("inst-1") is None
+            with pytest.raises(RuntimeError, match="virtual key creation failed"):
+                create_virtual_key("inst-1")
 
-    def test_returns_none_on_timeout(self, monkeypatch):
+    def test_raises_on_timeout(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com")
         monkeypatch.setenv("LLM_API_KEY", "sk-admin")
 
@@ -116,7 +119,8 @@ class TestCreateVirtualKey:
             "benchmarks.utils.litellm_proxy.httpx.post",
             side_effect=httpx.ReadTimeout("timed out"),
         ):
-            assert create_virtual_key("inst-1") is None
+            with pytest.raises(RuntimeError, match="virtual key creation failed"):
+                create_virtual_key("inst-1")
 
 
 # ---- get_key_spend -------------------------------------------------------------
@@ -133,7 +137,7 @@ class TestGetKeySpend:
         monkeypatch.setenv("LLM_API_KEY", "sk-admin")
 
         mock_resp = _response(200, {"info": {"spend": 0.014112}})
-        with patch("benchmarks.utils.litellm_proxy.httpx.get", return_value=mock_resp):
+        with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
             spend = get_key_spend("sk-virtual-123")
         assert spend == 0.014112
 
@@ -142,7 +146,7 @@ class TestGetKeySpend:
         monkeypatch.setenv("LLM_API_KEY", "sk-admin")
 
         mock_resp = _response(500, {"error": "internal"})
-        with patch("benchmarks.utils.litellm_proxy.httpx.get", return_value=mock_resp):
+        with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
             assert get_key_spend("sk-v") is None
 
     def test_returns_none_on_connection_error(self, monkeypatch):
@@ -150,7 +154,7 @@ class TestGetKeySpend:
         monkeypatch.setenv("LLM_API_KEY", "sk-admin")
 
         with patch(
-            "benchmarks.utils.litellm_proxy.httpx.get",
+            "benchmarks.utils.litellm_proxy.httpx.post",
             side_effect=httpx.ConnectError("refused"),
         ):
             assert get_key_spend("sk-v") is None

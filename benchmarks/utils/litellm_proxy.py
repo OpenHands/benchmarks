@@ -57,8 +57,10 @@ def create_virtual_key(
         max_budget: Safety budget cap in USD per instance.
 
     Returns:
-        The virtual key string, or None if proxy is not configured or the
-        request fails.
+        The virtual key string, or None if proxy is not configured.
+
+    Raises:
+        RuntimeError: If proxy is configured but key creation fails.
     """
     config = _get_config()
     if config is None:
@@ -81,12 +83,10 @@ def create_virtual_key(
         logger.info("[litellm-proxy] Created virtual key for instance %s", instance_id)
         return key
     except Exception as e:
-        logger.warning(
-            "[litellm-proxy] Failed to create virtual key for %s: %s",
-            instance_id,
-            e,
-        )
-        return None
+        raise RuntimeError(
+            f"LiteLLM proxy is configured but virtual key creation failed "
+            f"for {instance_id}: {e}"
+        ) from e
 
 
 def get_key_spend(key: str) -> float | None:
@@ -104,10 +104,10 @@ def get_key_spend(key: str) -> float | None:
     base_url, api_key = config
 
     try:
-        resp = httpx.get(
+        resp = httpx.post(
             f"{base_url}/key/info",
-            params={"key": key},
             headers={"Authorization": f"Bearer {api_key}"},
+            json={"keys": [key]},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
