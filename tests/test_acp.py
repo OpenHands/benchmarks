@@ -86,11 +86,12 @@ def test_forward_env_codex_no_provider_keys():
     assert "OPENAI_BASE_URL" not in result
 
 
-@patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
-def test_forward_env_gemini_appends_key():
+def test_forward_env_gemini_no_provider_keys():
+    """Provider keys must NOT appear in forward_env (leak risk)."""
     result = get_acp_forward_env("acp-gemini", [])
     assert result is not None
-    assert "GEMINI_API_KEY" in result
+    assert "GEMINI_API_KEY" not in result
+    assert "GEMINI_BASE_URL" not in result
 
 
 def test_forward_env_default_returns_unchanged():
@@ -153,6 +154,12 @@ def test_get_acp_env_omits_unset_base_url():
     env = _get_acp_env("acp-claude")
     assert env == {"ANTHROPIC_API_KEY": "sk-test"}
     assert "ANTHROPIC_BASE_URL" not in env
+
+
+@patch.dict(os.environ, {"GEMINI_API_KEY": "gem-test", "GEMINI_BASE_URL": "https://proxy"})
+def test_get_acp_env_gemini():
+    env = _get_acp_env("acp-gemini")
+    assert env == {"GEMINI_API_KEY": "gem-test", "GEMINI_BASE_URL": "https://proxy"}
 
 
 @patch.dict(os.environ, {}, clear=True)
