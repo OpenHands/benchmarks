@@ -14,13 +14,15 @@ benchmarks/<benchmark_name>/
 ├── run_infer.py           # Inference entrypoint
 ├── eval_infer.py          # Evaluation entrypoint
 ├── build_images.py        # Docker image building (if needed)
-└── prompts/               # Prompt templates
+└── prompts/               # Prompt templates (optional; not all benchmarks use this)
 ```
 
 **One benchmark per folder.** For similar benchmarks (e.g., SWE-bench and SWE-bench MultiModal), it's preferable to duplicate code than to merge them.
 **benchmark_name should be lower case slug** No dashes, nor underscores, so SWE-bench MultiModal becomes swebenchmultimodal.
 
-## Required Files
+## Required Files for New Benchmarks
+
+When adding a new benchmark, include these files as appropriate for your benchmark:
 
 ### run_infer.py
 
@@ -41,7 +43,7 @@ benchmarks/<benchmark_name>/
 
 ### build_images.py (when applicable)
 
-- Builds Docker images for evaluation
+- Builds Docker images for evaluation (only needed if using Docker for evaluation)
 - Supports `--push` flag to push images to registry
 - Handles parallel builds with `--max-workers`
 
