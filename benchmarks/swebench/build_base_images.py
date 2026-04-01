@@ -86,17 +86,15 @@ def dockerfile_content_hash() -> str:
 
 
 def base_image_tag(
-    custom_tag: str, image: str = EVAL_BASE_IMAGE, content_hash: str = ""
+    custom_tag: str, image: str = EVAL_BASE_IMAGE, *, content_hash: str
 ) -> str:
     """Compute the full registry tag for a pre-built base image.
 
     The tag includes a content hash of the SDK Dockerfile so that
     any change to the Dockerfile automatically invalidates cached images.
-    Callers in hot loops should compute *content_hash* once via
-    ``dockerfile_content_hash()`` and pass it in.
+    Compute *content_hash* once via ``dockerfile_content_hash()`` and
+    pass it to all calls.
     """
-    if not content_hash:
-        content_hash = dockerfile_content_hash()
     return f"{image}:{content_hash}-{custom_tag}"
 
 

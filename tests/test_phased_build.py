@@ -1,11 +1,16 @@
 """Tests for the phased benchmark image build (build_base_images + build_images)."""
 
 import json
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from benchmarks.utils.build_utils import BuildOutput
+
+
+# 7-char lowercase hex hash prefix expected in base image tags.
+_HASH_RE = re.compile(r":([0-9a-f]{7})-")
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +46,7 @@ def _thread_pool(**kw):
 class TestBuildBaseImage:
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
@@ -59,7 +64,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -80,7 +85,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -328,7 +333,7 @@ class TestBuildAllBaseImages:
 
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     def test_dry_run_prints_without_building(self, _dockerfile, tmp_path, capsys):
         from benchmarks.swebench.build_base_images import build_all_base_images
@@ -485,41 +490,34 @@ class TestPhasedOrchestration:
 # ---------------------------------------------------------------------------
 
 
-_mock_dockerfile = patch(
-    "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-    return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
-)
-
-
 class TestBaseImageTag:
-    @_mock_dockerfile
-    def test_default_registry(self, _):
+    def test_default_registry(self):
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        tag = base_image_tag("my-custom-tag")
-        assert tag.endswith("-my-custom-tag")
+        tag = base_image_tag("my-custom-tag", content_hash="abc1234")
+        assert tag.endswith(":abc1234-my-custom-tag")
+        assert _HASH_RE.search(tag), f"tag missing 7-char hex prefix: {tag}"
 
-    @_mock_dockerfile
-    def test_custom_registry(self, _):
+    def test_custom_registry(self):
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        tag = base_image_tag("abc", image="my-registry/my-repo")
-        assert tag.startswith("my-registry/my-repo:")
-        assert tag.endswith("-abc")
+        tag = base_image_tag("abc", image="my-registry/my-repo", content_hash="abc1234")
+        assert tag == "my-registry/my-repo:abc1234-abc"
 
     def test_hash_changes_with_dockerfile_content(self):
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        with patch(
-            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-            return_value=MagicMock(read_text=MagicMock(return_value="v1")),
-        ):
-            tag1 = base_image_tag("x")
-
-        with patch(
-            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-            return_value=MagicMock(read_text=MagicMock(return_value="v2")),
-        ):
-            tag2 = base_image_tag("x")
-
+        tag1 = base_image_tag("x", content_hash="aaaaaaa")
+        tag2 = base_image_tag("x", content_hash="bbbbbbb")
         assert tag1 != tag2
+
+    def test_dockerfile_content_hash_format(self):
+        from benchmarks.swebench.build_base_images import dockerfile_content_hash
+
+        with patch(
+            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+            return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+        ):
+            h = dockerfile_content_hash()
+
+        assert re.fullmatch(r"[0-9a-f]{7}", h), f"expected 7-char hex, got {h!r}"
