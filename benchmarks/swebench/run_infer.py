@@ -149,8 +149,6 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
 
-        For ACPAgent, the provider API key is forwarded to the container.
-
         Args:
             instance: The evaluation instance to prepare workspace for.
             resource_factor: Resource factor for runtime allocation (default: 1).
@@ -360,7 +358,7 @@ class SWEBenchEvaluation(Evaluation):
             "git_patch": git_patch,
         }
         if isinstance(agent, ACPAgent):
-            add_acp_agent_metadata(test_result, agent)
+            add_acp_agent_metadata(test_result, conversation)
 
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(

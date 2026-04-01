@@ -25,12 +25,14 @@ ACP_PROMPT_TIMEOUT: float = 3600.0
 _ACP_ENV_VARS: dict[str, list[str]] = {
     "acp-claude": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
     "acp-codex": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+    "acp-gemini": ["GEMINI_API_KEY", "GEMINI_BASE_URL"],
 }
 
 # Mapping of ACP agent types to their ACP command.
 _ACP_COMMANDS: dict[str, list[str]] = {
     "acp-claude": ["claude-agent-acp"],
     "acp-codex": ["codex-acp"],
+    "acp-gemini": ["gemini", "--acp"],
 }
 
 
@@ -59,24 +61,18 @@ def get_acp_forward_env(
     """Ensure the required env vars are forwarded for ACP agent types.
 
     For non-ACP agent types (e.g. ``"default"``), *forward_env* is returned
-    unchanged.  Raises ``ValueError`` if the required API key is not set in
-    the current environment.
+    unchanged.
 
-    For ACP agent types, both the API key and base URL are forwarded to enable
-    routing through the LiteLLM proxy. LMNR_ENV_VARS are also included to
-    enable Laminar tracing within the ACP subprocess.
+    For ACP agent types, LMNR_ENV_VARS are included in forward_env to enable
+    Laminar tracing within the workspace.  Provider credentials (API keys,
+    base URLs) are **not** forwarded here — they are passed via
+    ``ACPAgent.acp_env`` in :func:`build_acp_agent` to avoid leaking them
+    into logged workspace payloads.
     """
-    env_vars = _ACP_ENV_VARS.get(agent_type)
-    if env_vars is None:
+    if agent_type not in _ACP_ENV_VARS:
         return forward_env
 
     forward_env = list(forward_env or [])
-    for env_var in env_vars:
-        if env_var not in forward_env:
-            # Only the API key is strictly required; base URL defaults to provider
-            if "API_KEY" in env_var and not os.getenv(env_var):
-                raise ValueError(f"{env_var} not found in environment")
-            forward_env.append(env_var)
 
     # Include Laminar env vars for tracing in ACP agents
     for lmnr_var in LMNR_ENV_VARS:
@@ -109,19 +105,64 @@ def extract_acp_model_hint(llm_model: str) -> str | None:
     return model
 
 
+def _get_acp_env(agent_type: str) -> dict[str, str]:
+    """Build the ``acp_env`` dict for the given ACP *agent_type*.
+
+    Reads the provider credentials from the current process environment and
+    returns them as a dict suitable for ``ACPAgent.acp_env``.  This keeps
+    credentials out of the workspace ``forward_env`` (which is logged) and
+    instead passes them directly to the ACP subprocess.
+
+    Raises ``ValueError`` if the required API key is not set.
+    """
+    env_var_names = _ACP_ENV_VARS.get(agent_type, [])
+    acp_env: dict[str, str] = {}
+    for var in env_var_names:
+        value = os.getenv(var)
+        if value:
+            acp_env[var] = value
+        elif "API_KEY" in var:
+            raise ValueError(f"{var} not found in environment")
+    return acp_env
+
+
 def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
-    """Create an ACPAgent while remaining compatible with older type stubs."""
+    """Create an ACPAgent while remaining compatible with older type stubs.
+
+    Provider credentials are passed via ``acp_env`` so they reach the ACP
+    subprocess without being included in the workspace ``forward_env``.
+    """
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
         acp_model=extract_acp_model_hint(llm_model),
         acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
+        acp_env=_get_acp_env(agent_type),
     )
 
 
-def add_acp_agent_metadata(test_result: dict[str, Any], agent: ACPAgent) -> None:
-    """Add ACP agent metadata to an eval result payload."""
-    test_result["acp_agent_name"] = cast(Any, agent).agent_name
-    test_result["acp_agent_version"] = cast(Any, agent).agent_version
+def add_acp_agent_metadata(
+    test_result: dict[str, Any],
+    conversation: Any,
+) -> None:
+    """Add ACP agent metadata to an eval result payload.
+
+    The ACPAgent stores agent_name/version in ``state.agent_state`` during init.
+    This syncs back in the ``full_state`` ConversationStateUpdateEvent.  We scan
+    the conversation events (last to first) to extract it.
+    """
+    name = ""
+    version = ""
+    for ev in reversed(list(conversation.state.events)):
+        ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
+        if ev_dict.get("key") == "full_state":
+            val = ev_dict.get("value", {})
+            agent_state = val.get("agent_state", {}) if isinstance(val, dict) else {}
+            name = agent_state.get("acp_agent_name", "")
+            version = agent_state.get("acp_agent_version", "")
+            if name:
+                break
+    test_result["acp_agent_name"] = name
+    test_result["acp_agent_version"] = version
 
 
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
