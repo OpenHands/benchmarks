@@ -173,9 +173,7 @@ class SWEBenchEvaluation(Evaluation):
         suffix = f"-{build_target}" if build_target != "binary" else ""
 
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             ensure_local_image(
                 agent_server_image=agent_server_image,
                 base_image=official_docker_image,
@@ -194,9 +192,7 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "

@@ -65,4 +65,8 @@ def get_phased_image_tag_prefix() -> str:
     """
     from benchmarks.swebench.build_base_images import dockerfile_content_hash
 
-    return os.getenv("IMAGE_TAG_PREFIX") or _deprecated_sdk_short_sha or f"{SDK_SHORT_SHA}-{dockerfile_content_hash()}"
+    return (
+        os.getenv("IMAGE_TAG_PREFIX")
+        or _deprecated_sdk_short_sha
+        or f"{SDK_SHORT_SHA}-{dockerfile_content_hash()}"
+    )
