@@ -8,7 +8,6 @@ images, then assemble final images locally.
 """
 
 import argparse
-import functools
 import hashlib
 import os
 import subprocess
@@ -80,23 +79,15 @@ def _get_sdk_dockerfile() -> Path:
     return dockerfile
 
 
-@functools.lru_cache(maxsize=1)
-def _dockerfile_content_hash() -> str:
-    """Return a 7-char SHA-256 hash of the SDK Dockerfile content.
-
-    Cached so that repeated calls (once per instance) don't re-read the file.
-    """
-    dockerfile = _get_sdk_dockerfile().read_text()
-    return hashlib.sha256(dockerfile.encode()).hexdigest()[:7]
-
-
 def base_image_tag(custom_tag: str, image: str = EVAL_BASE_IMAGE) -> str:
     """Compute the full registry tag for a pre-built base image.
 
     The tag includes a short content hash of the SDK Dockerfile so that
     any change to the Dockerfile automatically invalidates cached images.
     """
-    return f"{image}:{_dockerfile_content_hash()}-{custom_tag}"
+    dockerfile = _get_sdk_dockerfile().read_text()
+    content_hash = hashlib.sha256(dockerfile.encode()).hexdigest()[:7]
+    return f"{image}:{content_hash}-{custom_tag}"
 
 
 def build_base_image(
