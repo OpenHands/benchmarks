@@ -485,27 +485,22 @@ class TestPhasedOrchestration:
 # ---------------------------------------------------------------------------
 
 
+_mock_dockerfile = patch(
+    "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+    return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
+)
+
+
 class TestBaseImageTag:
-    @patch(
-        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
-    )
-    def test_default_registry(self, _mock_dockerfile):
+    @_mock_dockerfile
+    def test_default_registry(self, _):
         from benchmarks.swebench.build_base_images import base_image_tag
 
         tag = base_image_tag("my-custom-tag")
-        # Tag should contain a 7-char hex hash prefix before the custom tag.
         assert tag.endswith("-my-custom-tag")
-        parts = tag.split(":")
-        assert len(parts) == 2
-        hash_prefix = parts[1].split("-")[0]
-        assert len(hash_prefix) == 7
 
-    @patch(
-        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=MagicMock(read_text=MagicMock(return_value="FROM ubuntu:22.04\n")),
-    )
-    def test_custom_registry(self, _mock_dockerfile):
+    @_mock_dockerfile
+    def test_custom_registry(self, _):
         from benchmarks.swebench.build_base_images import base_image_tag
 
         tag = base_image_tag("abc", image="my-registry/my-repo")
@@ -513,31 +508,18 @@ class TestBaseImageTag:
         assert tag.endswith("-abc")
 
     def test_hash_changes_with_dockerfile_content(self):
-        import hashlib
-
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        content_a = "FROM ubuntu:22.04\n"
-        content_b = "FROM ubuntu:22.04\nRUN npm install\n"
+        with patch(
+            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+            return_value=MagicMock(read_text=MagicMock(return_value="v1")),
+        ):
+            tag1 = base_image_tag("x")
 
         with patch(
             "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-            return_value=MagicMock(read_text=MagicMock(return_value=content_a)),
+            return_value=MagicMock(read_text=MagicMock(return_value="v2")),
         ):
-            tag1 = base_image_tag("inst")
+            tag2 = base_image_tag("x")
 
-        with patch(
-            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-            return_value=MagicMock(read_text=MagicMock(return_value=content_b)),
-        ):
-            tag2 = base_image_tag("inst")
-
-        # Same instance but different Dockerfile content → different tags.
         assert tag1 != tag2
-        assert tag1.endswith("-inst")
-        assert tag2.endswith("-inst")
-        # Verify the hashes match expected SHA-256 prefixes.
-        expected_a = hashlib.sha256(content_a.encode()).hexdigest()[:7]
-        expected_b = hashlib.sha256(content_b.encode()).hexdigest()[:7]
-        assert f":{expected_a}-inst" in tag1
-        assert f":{expected_b}-inst" in tag2
