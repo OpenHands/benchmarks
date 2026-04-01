@@ -8,6 +8,7 @@ images, then assemble final images locally.
 """
 
 import argparse
+import hashlib
 import os
 import subprocess
 import sys
@@ -78,9 +79,23 @@ def _get_sdk_dockerfile() -> Path:
     return dockerfile
 
 
-def base_image_tag(custom_tag: str, image: str = EVAL_BASE_IMAGE) -> str:
-    """Compute the full registry tag for a pre-built base image."""
-    return f"{image}:{custom_tag}"
+def dockerfile_content_hash() -> str:
+    """Return a 7-char SHA-256 hash of the SDK Dockerfile content."""
+    content = _get_sdk_dockerfile().read_text()
+    return hashlib.sha256(content.encode()).hexdigest()[:7]
+
+
+def base_image_tag(
+    custom_tag: str, image: str = EVAL_BASE_IMAGE, *, content_hash: str
+) -> str:
+    """Compute the full registry tag for a pre-built base image.
+
+    The tag includes a content hash of the SDK Dockerfile so that
+    any change to the Dockerfile automatically invalidates cached images.
+    Compute *content_hash* once via ``dockerfile_content_hash()`` and
+    pass it to all calls.
+    """
+    return f"{image}:{content_hash}-{custom_tag}"
 
 
 def build_base_image(
@@ -89,10 +104,12 @@ def build_base_image(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Build a single base image using the SDK Dockerfile's base-image-minimal target."""
     dockerfile = _get_sdk_dockerfile()
-    tag = base_image_tag(custom_tag, image)
+    tag = base_image_tag(custom_tag, image, content_hash=content_hash)
 
     # Check registry first
     if remote_image_exists(tag):
@@ -149,6 +166,8 @@ def _build_base_with_logging(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     max_retries: int = 3,
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Build a single base image with logging and retry support."""
     import time
@@ -165,7 +184,13 @@ def _build_base_with_logging(
                 )
                 time.sleep(2 + attempt * 2)
             try:
-                result = build_base_image(base_image, custom_tag, image, push)
+                result = build_base_image(
+                    base_image,
+                    custom_tag,
+                    image,
+                    push,
+                    content_hash=content_hash,
+                )
             except Exception as e:
                 result = BuildOutput(
                     base_image=base_image,
@@ -197,10 +222,13 @@ def build_all_base_images(
     build_log_dir = build_dir / "base-logs"
     manifest_file = build_dir / "base-manifest.jsonl"
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    content_hash = dockerfile_content_hash()
 
     if dry_run:
         for base in base_images:
-            tag = base_image_tag(extract_custom_tag(base), image)
+            tag = base_image_tag(
+                extract_custom_tag(base), image, content_hash=content_hash
+            )
             print(f"{base} -> {tag}")
         return 0
 
@@ -228,6 +256,7 @@ def build_all_base_images(
                     image=image,
                     push=push,
                     max_retries=max_retries,
+                    content_hash=content_hash,
                 )
                 futures[fut] = base
 
@@ -503,11 +532,13 @@ def _assemble_with_logging(
     push: bool = False,
     max_retries: int = 3,
     force_build: bool = False,
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Assemble a single agent image with logging and retry."""
     import time
 
-    base_tag = base_image_tag(custom_tag)
+    base_tag = base_image_tag(custom_tag, content_hash=content_hash)
     # Match the tag format from the SDK's BuildOptions.all_tags
     final_tag = f"{target_image}:{sdk_short_sha}-{custom_tag}-{target}"
 
@@ -588,6 +619,7 @@ def assemble_all_agent_images(
     """Assemble all agent images using thin Dockerfile (Phase 2)."""
     _, git_sha, _ = _get_sdk_submodule_info()
     sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
+    content_hash = dockerfile_content_hash()
 
     build_log_dir = build_dir / "assembly-logs"
     manifest_file = build_dir / "manifest.jsonl"
@@ -626,6 +658,7 @@ def assemble_all_agent_images(
                     push=push,
                     max_retries=max_retries,
                     force_build=force_build,
+                    content_hash=content_hash,
                 )
                 futures[fut] = base
 

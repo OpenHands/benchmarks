@@ -1,12 +1,16 @@
 """Tests for the phased benchmark image build (build_base_images + build_images)."""
 
 import json
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from benchmarks.utils.build_utils import BuildOutput
+
+
+# 7-char lowercase hex hash prefix expected in base image tags.
+_HASH_RE = re.compile(r":([0-9a-f]{7})-")
 
 
 # ---------------------------------------------------------------------------
@@ -41,12 +45,18 @@ def _thread_pool(**kw):
 
 class TestBuildBaseImage:
     @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
     )
-    def test_skips_when_remote_exists(self, _):
+    def test_skips_when_remote_exists(self, _exists, _dockerfile):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", push=False)
+        result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=False, content_hash="abc1234"
+        )
         assert result.error is None
         assert len(result.tags) == 1
         assert "custom-tag" in result.tags[0]
@@ -56,7 +66,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=Path("/fake/Dockerfile"),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -65,7 +75,9 @@ class TestBuildBaseImage:
     def test_success(self, _exists, _dockerfile, mock_run):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", push=True)
+        result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=True, content_hash="abc1234"
+        )
         assert result.error is None
         assert len(result.tags) == 1
         cmd = mock_run.call_args[0][0]
@@ -77,7 +89,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=Path("/fake/Dockerfile"),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -86,7 +98,7 @@ class TestBuildBaseImage:
     def test_failure_returns_error(self, _exists, _dockerfile, _run):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag")
+        result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
         assert result.error is not None
         assert result.tags == []
 
@@ -116,6 +128,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=3,
+            content_hash="abc1234",
         )
         assert result.error is None
         assert result.tags == ["tag:1"]
@@ -139,6 +152,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=2,
+            content_hash="abc1234",
         )
         assert result.error == "permanent error"
         assert mock_build.call_count == 2
@@ -160,6 +174,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=1,
+            content_hash="abc1234",
         )
         assert result.error is not None
         assert "docker crash" in result.error
@@ -323,7 +338,11 @@ class TestBuildAllBaseImages:
 
         assert rc == 0
 
-    def test_dry_run_prints_without_building(self, tmp_path, capsys):
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    def test_dry_run_prints_without_building(self, _dockerfile, tmp_path, capsys):
         from benchmarks.swebench.build_base_images import build_all_base_images
 
         rc = build_all_base_images(
@@ -482,11 +501,30 @@ class TestBaseImageTag:
     def test_default_registry(self):
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        tag = base_image_tag("my-custom-tag")
-        assert tag.endswith(":my-custom-tag")
+        tag = base_image_tag("my-custom-tag", content_hash="abc1234")
+        assert tag.endswith(":abc1234-my-custom-tag")
+        assert _HASH_RE.search(tag), f"tag missing 7-char hex prefix: {tag}"
 
     def test_custom_registry(self):
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        tag = base_image_tag("abc", image="my-registry/my-repo")
-        assert tag == "my-registry/my-repo:abc"
+        tag = base_image_tag("abc", image="my-registry/my-repo", content_hash="abc1234")
+        assert tag == "my-registry/my-repo:abc1234-abc"
+
+    def test_hash_changes_with_dockerfile_content(self):
+        from benchmarks.swebench.build_base_images import base_image_tag
+
+        tag1 = base_image_tag("x", content_hash="aaaaaaa")
+        tag2 = base_image_tag("x", content_hash="bbbbbbb")
+        assert tag1 != tag2
+
+    def test_dockerfile_content_hash_format(self):
+        from benchmarks.swebench.build_base_images import dockerfile_content_hash
+
+        with patch(
+            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+            return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+        ):
+            h = dockerfile_content_hash()
+
+        assert re.fullmatch(r"[0-9a-f]{7}", h), f"expected 7-char hex, got {h!r}"
