@@ -18,6 +18,7 @@ benchmarks/<benchmark_name>/
 ```
 
 **One benchmark per folder.** For similar benchmarks (e.g., SWE-bench and SWE-bench MultiModal), it's preferable to duplicate code than to merge them.
+**benchmark_name should be lower case slug** No dashes, nor underscores, so SWE-bench MultiModal becomes swebenchmultimodal.
 
 ## Required Files
 
