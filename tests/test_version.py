@@ -29,10 +29,14 @@ class TestImageTagPrefix:
             os.environ.pop(key, None)
         importlib.reload(version_mod)
 
-    def test_default_uses_sdk_short_sha(self):
-        """When no env vars are set, IMAGE_TAG_PREFIX defaults to SDK_SHORT_SHA."""
+    def test_default_includes_sdk_sha_and_content_hash(self):
+        """When no env vars are set, IMAGE_TAG_PREFIX is SDK_SHORT_SHA + content hash."""
         mod = _reload_version()
-        assert mod.IMAGE_TAG_PREFIX == mod.SDK_SHORT_SHA
+        assert mod.IMAGE_TAG_PREFIX.startswith(mod.SDK_SHORT_SHA + "-")
+        # The suffix is the 7-char Dockerfile content hash
+        content_hash = mod.IMAGE_TAG_PREFIX[len(mod.SDK_SHORT_SHA) + 1 :]
+        assert len(content_hash) == 7
+        assert content_hash.isalnum()
 
     def test_image_tag_prefix_env_override(self):
         """IMAGE_TAG_PREFIX env var overrides the default."""
