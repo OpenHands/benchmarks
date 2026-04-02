@@ -187,7 +187,6 @@ def main(argv: list[str]) -> int:
         dry_run=args.dry_run,
         force_build=args.force_build,
         max_retries=args.max_retries,
-        base_image_to_custom_tag_fn=extract_custom_tag,
     )
 
 

@@ -62,6 +62,60 @@ def test_source_targets_use_phased_assembly(monkeypatch):
     ]
 
 
+def test_commit0_main_forwards_expected_build_args(monkeypatch):
+    forwarded = {}
+
+    monkeypatch.setattr(
+        commit0_build_images,
+        "collect_base_images",
+        lambda **_: ["docker.io/example/base:v0"],
+    )
+    monkeypatch.setattr(
+        commit0_build_images,
+        "default_build_output_dir",
+        lambda dataset, split: f"/tmp/{dataset}/{split}",
+    )
+
+    def fake_build_commit0_images(**kwargs):
+        forwarded.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        commit0_build_images, "build_commit0_images", fake_build_commit0_images
+    )
+
+    exit_code = commit0_build_images.main(
+        [
+            "--dataset",
+            "dataset",
+            "--split",
+            "test",
+            "--repo-split",
+            "tinydb",
+            "--image",
+            "ghcr.io/example/agent-server",
+            "--max-workers",
+            "2",
+            "--n-limit",
+            "1",
+        ]
+    )
+
+    assert exit_code == 0
+    assert forwarded == {
+        "base_images": ["docker.io/example/base:v0"],
+        "target": "source-minimal",
+        "build_dir": "/tmp/dataset/test",
+        "image": "ghcr.io/example/agent-server",
+        "push": False,
+        "max_workers": 2,
+        "build_batch_size": None,
+        "dry_run": False,
+        "force_build": False,
+        "max_retries": 3,
+    }
+
+
 @pytest.mark.parametrize(
     "input_cmd, expected",
     [
