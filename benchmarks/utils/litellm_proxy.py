@@ -19,7 +19,6 @@ Thread-safety:
 
 import os
 import threading
-from typing import Tuple
 
 import httpx
 
