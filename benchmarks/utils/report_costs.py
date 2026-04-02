@@ -44,18 +44,39 @@ def extract_accumulated_cost(jsonl_data: List[Optional[Dict]]) -> float:
         return 0.0
 
     total_cost = 0.0
-
-    # Sum accumulated costs from each line
     for entry in jsonl_data:
-        # Skip None entries that can occur from null JSON values
         if entry is None:
             continue
         metrics = entry.get("metrics") or {}
-        accumulated_cost = metrics.get("accumulated_cost", 0.0)
+        accumulated_cost = metrics.get("accumulated_cost")
         if accumulated_cost is not None:
             total_cost += float(accumulated_cost)
 
     return total_cost
+
+
+def extract_proxy_cost(jsonl_data: List[Optional[Dict]]) -> float:
+    """Sum proxy-tracked costs from each line in JSONL data."""
+    if not jsonl_data:
+        return 0.0
+
+    total_cost = 0.0
+    for entry in jsonl_data:
+        if entry is None:
+            continue
+        test_result = entry.get("test_result") or {}
+        proxy_cost = test_result.get("proxy_cost")
+        if proxy_cost is not None:
+            total_cost += float(proxy_cost)
+
+    return total_cost
+
+
+def choose_total(
+    main_value: Optional[float], critic_total: float, has_critic_files: bool
+) -> float:
+    """Use critic totals when present; otherwise fall back to main output."""
+    return critic_total if has_critic_files else (main_value or 0.0)
 
 
 def format_duration(seconds: float) -> str:
@@ -174,9 +195,11 @@ def calculate_costs(directory_path: str) -> None:
         "main_output": None,
         "critic_files": [],
         "summary": {},
+        "proxy_cost_summary": {},
     }
 
     main_cost: Optional[float] = None
+    main_proxy_cost: Optional[float] = None
     main_total_duration: Optional[float] = None
 
     # Process main output file
@@ -186,12 +209,15 @@ def calculate_costs(directory_path: str) -> None:
 
         jsonl_data = read_jsonl_file(output_file)
         cost = extract_accumulated_cost(jsonl_data)
+        proxy_cost = extract_proxy_cost(jsonl_data)
         time_stats = calculate_time_statistics(jsonl_data)
         main_cost = cost
+        main_proxy_cost = proxy_cost
         main_total_duration = time_stats.get("total_duration", 0.0)
 
         print(f"    Lines: {len(jsonl_data)}")
         print(f"    Cost: ${cost:.6f}")
+        print(f"    Proxy Cost: ${proxy_cost:.6f}")
         print("    Time Stats:")
         print(
             f"      Average Duration: {format_duration(time_stats['average_duration'])}"
@@ -210,6 +236,7 @@ def calculate_costs(directory_path: str) -> None:
 
     # Process critic files individually
     critic_total_cost = 0.0
+    critic_total_proxy_cost = 0.0
     critic_total_duration = 0.0
     if critic_files:
         print("\nCritic Attempt Files:")
@@ -219,12 +246,15 @@ def calculate_costs(directory_path: str) -> None:
 
             jsonl_data = read_jsonl_file(critic_file)
             cost = extract_accumulated_cost(jsonl_data)
+            proxy_cost = extract_proxy_cost(jsonl_data)
             time_stats = calculate_time_statistics(jsonl_data)
             critic_total_cost += cost
+            critic_total_proxy_cost += proxy_cost
             critic_total_duration += time_stats.get("total_duration", 0.0)
 
             print(f"    Lines: {len(jsonl_data)}")
             print(f"    Cost: ${cost:.6f}")
+            print(f"    Proxy Cost: ${proxy_cost:.6f}")
             print("    Time Stats:")
             print(
                 f"      Average Duration: {format_duration(time_stats['average_duration'])}"
@@ -244,6 +274,7 @@ def calculate_costs(directory_path: str) -> None:
             )
 
         print(f"\n  Total Critic Files Cost: ${critic_total_cost:.6f}")
+        print(f"  Total Critic Files Proxy Cost: ${critic_total_proxy_cost:.6f}")
 
     # Summary
     print("\n" + "=" * 80)
@@ -252,7 +283,7 @@ def calculate_costs(directory_path: str) -> None:
     # Total cost represents actual spend:
     # - If critic files exist, they contain all attempts; use their sum.
     # - Otherwise, fall back to the main output cost.
-    total_cost = critic_total_cost if critic_files else (main_cost or 0.0)
+    total_cost = choose_total(main_cost, critic_total_cost, bool(critic_files))
 
     # Total duration represents total time across all instances:
     # - If critic files exist, use their sum.
@@ -260,21 +291,31 @@ def calculate_costs(directory_path: str) -> None:
     total_duration = (
         critic_total_duration if critic_files else (main_total_duration or 0.0)
     )
+    total_proxy_cost = choose_total(
+        main_proxy_cost, critic_total_proxy_cost, bool(critic_files)
+    )
 
     if main_cost is not None:
         print(f"  Main Output Cost (best results): ${main_cost:.6f}")
     if critic_files:
         print(f"  Sum Critic Files (all attempts): ${critic_total_cost:.6f}")
     print(f"  Total Cost (no double-count): ${total_cost:.6f}")
+    print(f"  Total Proxy Cost (no double-count): ${total_proxy_cost:.6f}")
 
     summary = {"total_cost": total_cost, "total_duration": total_duration}
-
     if main_cost is not None:
         summary["only_main_output_cost"] = main_cost
     if critic_files:
         summary["sum_critic_files"] = critic_total_cost
 
+    proxy_cost_summary = {"total_proxy_cost": total_proxy_cost}
+    if main_proxy_cost is not None:
+        proxy_cost_summary["only_main_output_proxy_cost"] = main_proxy_cost
+    if critic_files:
+        proxy_cost_summary["sum_critic_files_proxy_cost"] = critic_total_proxy_cost
+
     report_data["summary"] = summary
+    report_data["proxy_cost_summary"] = proxy_cost_summary
 
     # Save JSON report
     report_file = directory / "cost_report.jsonl"
