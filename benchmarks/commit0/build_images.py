@@ -14,6 +14,10 @@ import sys
 from commit0.harness.constants import SPLIT
 
 from benchmarks.commit0.config import BUILD_DEFAULTS, INFER_DEFAULTS
+from benchmarks.swebench.build_base_images import (
+    assemble_all_agent_images,
+    build_builder_image,
+)
 from benchmarks.utils.build_utils import (
     build_all_images,
     default_build_output_dir,
@@ -24,6 +28,7 @@ from openhands.sdk import get_logger
 
 logger = get_logger(__name__)
 DEFAULT_DOCKER_IMAGE_PREFIX = "docker.io/wentingzhao/"
+SOURCE_TARGETS = {"source", "source-minimal"}
 
 
 def get_base_docker_image(
@@ -86,6 +91,60 @@ def collect_base_images(
     return [get_base_docker_image(repo, docker_image_prefix) for repo in repos]
 
 
+def build_commit0_images(
+    *,
+    base_images: list[str],
+    target: str,
+    build_dir: str,
+    image: str,
+    push: bool,
+    max_workers: int,
+    build_batch_size: int | None,
+    dry_run: bool,
+    force_build: bool,
+    max_retries: int,
+) -> int:
+    if target in SOURCE_TARGETS:
+        if dry_run:
+            print("\n".join(base_images))
+            return 0
+
+        logger.info(
+            "Using phased source-image assembly for commit0 target %s", target
+        )
+        builder_result = build_builder_image(push=push, platform="linux/amd64")
+        if builder_result.error or not builder_result.tags:
+            logger.error("Failed to build shared SDK builder image: %s", builder_result)
+            return 1
+
+        return assemble_all_agent_images(
+            base_images=base_images,
+            builder_tag=builder_result.tags[0],
+            build_dir=build_dir,
+            target_image=image,
+            target=target,
+            push=push,
+            max_workers=max_workers,
+            max_retries=max_retries,
+            force_build=force_build,
+            custom_tag_fn=extract_custom_tag,
+        )
+
+    return build_all_images(
+        base_images=base_images,
+        target=target,
+        build_dir=build_dir,
+        image=image,
+        push=push,
+        max_workers=max_workers,
+        build_batch_size=build_batch_size,
+        dry_run=dry_run,
+        force_build=force_build,
+        max_retries=max_retries,
+        base_image_to_custom_tag_fn=extract_custom_tag,
+    )
+
+
 def main(argv: list[str]) -> int:
     parser = get_build_parser()
     parser.add_argument(
@@ -117,7 +176,7 @@ def main(argv: list[str]) -> int:
     )
 
     build_dir = default_build_output_dir(args.dataset, args.split)
-    return build_all_images(
+    return build_commit0_images(
         base_images=base_images,
         target=args.target,
         build_dir=build_dir,
