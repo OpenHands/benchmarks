@@ -259,6 +259,7 @@ class TestBuildEvalLLM:
         assert built is not llm
         assert isinstance(built.api_key, SecretStr)
         assert built.api_key.get_secret_value() == "sk-virtual"
+        assert isinstance(llm.api_key, SecretStr)
         assert llm.api_key.get_secret_value() == "sk-shared"
         set_current_virtual_key(None)
 

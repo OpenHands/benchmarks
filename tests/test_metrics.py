@@ -577,6 +577,51 @@ def test_benchmark_metrics_collection(
     )
 
 
+def test_openagentsafety_error_path_uses_conversation_metrics(
+    mock_llm_with_metrics,
+    mock_workspace,
+):
+    """OpenAgentSafety should preserve conversation metrics on error."""
+    from benchmarks.openagentsafety.run_infer import OpenAgentSafetyEvaluation
+
+    instance = _get_test_instance_for_benchmark("openagentsafety")
+    metadata = _create_metadata_for_benchmark("openagentsafety", mock_llm_with_metrics)
+    evaluation = OpenAgentSafetyEvaluation(metadata=metadata)
+
+    expected_metrics = Metrics(
+        model_name="test-model",
+        accumulated_cost=2.5,
+        accumulated_token_usage=TokenUsage(
+            model="test-model",
+            prompt_tokens=120,
+            completion_tokens=60,
+        ),
+    )
+    mock_conversation = _setup_mocks_for_benchmark("openagentsafety", expected_metrics)
+
+    with (
+        patch(
+            "benchmarks.openagentsafety.run_infer.Conversation",
+            return_value=mock_conversation,
+        ),
+        patch("benchmarks.openagentsafety.run_infer.Agent"),
+        patch("benchmarks.openagentsafety.run_infer.get_default_tools"),
+        patch(
+            "benchmarks.openagentsafety.run_infer.generate_instruction",
+            return_value="Test instruction",
+        ),
+        patch(
+            "benchmarks.openagentsafety.run_infer.run_conversation_with_fake_user_response",
+            side_effect=RuntimeError("conversation failed"),
+        ),
+    ):
+        result = evaluation.evaluate_instance(instance, mock_workspace)
+
+    assert result.error == "conversation failed"
+    assert result.test_result == {"error": "conversation failed"}
+    assert result.metrics is expected_metrics
+
+
 def test_metrics_with_zero_cost(mock_workspace):
     """Test that metrics are collected even when cost is zero.
 

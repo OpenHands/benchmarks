@@ -33,8 +33,8 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
-from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.litellm_proxy import build_eval_llm
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
