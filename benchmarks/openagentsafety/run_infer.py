@@ -28,6 +28,8 @@ from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger
+from openhands.sdk.context import AgentContext
+from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -455,7 +457,15 @@ class OpenAgentSafetyEvaluation(Evaluation):
             tools.append(Tool(name=DelegateTool.name))
 
         # Create agent
-        agent = Agent(llm=self.metadata.llm, tools=tools)
+        # Load public skills (respects EXTENSIONS_REF env var)
+
+        skills = load_public_skills()
+
+        agent_context = AgentContext(skills=skills) if skills else None
+
+        
+
+        agent = Agent(llm=self.metadata.llm, tools=tools, agent_context=agent_context)
 
         # Collect events
         received_events = []

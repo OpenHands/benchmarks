@@ -40,6 +40,8 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
+from openhands.sdk.context import AgentContext
+from openhands.sdk.context.skills.skill import load_public_skills
     Agent,
     Conversation,
     ImageContent,
@@ -257,10 +259,21 @@ class SWEBenchEvaluation(Evaluation):
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
+            # Load public skills (respects EXTENSIONS_REF env var)
+
+            skills = load_public_skills()
+
+            agent_context = AgentContext(skills=skills) if skills else None
+
+            
+
             agent = Agent(
+
                 llm=self.metadata.llm,
+
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
+                agent_context=agent_context,
                 condenser=condenser,
                 # TODO: we can enable security analyzer later
                 # security_analyzer=LLMSecurityAnalyzer(),

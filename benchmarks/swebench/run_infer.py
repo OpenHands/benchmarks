@@ -44,7 +44,9 @@ from benchmarks.utils.models import (
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context import AgentContext
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
+from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -271,11 +273,17 @@ class SWEBenchEvaluation(Evaluation):
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
+            
+            # Load public skills (respects EXTENSIONS_REF env var)
+            skills = load_public_skills()
+            agent_context = AgentContext(skills=skills) if skills else None
+            
             agent = Agent(
                 llm=self.metadata.llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
+                agent_context=agent_context,
                 # TODO: we can enable security analyzer later
                 # security_analyzer=LLMSecurityAnalyzer(),
             )

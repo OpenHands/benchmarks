@@ -29,6 +29,8 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import LLM, Agent, Conversation, get_logger
+from openhands.sdk.context import AgentContext
+from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace
@@ -307,10 +309,21 @@ class SWEfficiencyEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         """
         tools = get_default_tools(enable_browser=False)
+        # Load public skills (respects EXTENSIONS_REF env var)
+
+        skills = load_public_skills()
+
+        agent_context = AgentContext(skills=skills) if skills else None
+
+        
+
         agent = Agent(
+
             llm=self.metadata.llm,
+
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+        agent_context=agent_context,
         )
 
         assert isinstance(workspace, RemoteWorkspace)
