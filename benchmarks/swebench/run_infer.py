@@ -41,7 +41,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
@@ -164,9 +164,7 @@ class SWEBenchEvaluation(Evaluation):
         suffix = (
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
         )
-        base_agent_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-        )
+        base_agent_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
         wrap_needed = should_wrap_instance_id(instance.id)
         agent_server_image = base_agent_image
 
@@ -202,9 +200,7 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
@@ -212,7 +208,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {get_phased_image_tag_prefix()}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
                 os.getenv(

@@ -539,8 +539,8 @@ def _assemble_with_logging(
     import time
 
     base_tag = base_image_tag(custom_tag, content_hash=content_hash)
-    # Match the tag format from the SDK's BuildOptions.all_tags
-    final_tag = f"{target_image}:{sdk_short_sha}-{custom_tag}-{target}"
+    # Include content_hash so Dockerfile changes invalidate cached assemblies.
+    final_tag = f"{target_image}:{sdk_short_sha}-{content_hash}-{custom_tag}-{target}"
 
     if not force_build and remote_image_exists(final_tag):
         logger.info("Agent image %s already exists. Skipping.", final_tag)
