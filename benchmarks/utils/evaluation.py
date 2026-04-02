@@ -888,6 +888,22 @@ class Evaluation(ABC, BaseModel):
             # values are available in the output JSON.
             if virtual_key is not None:
                 proxy_cost = get_key_spend(virtual_key)
+
+                # LiteLLM proxy commits spend asynchronously. For fast
+                # conversations, retry with backoff when spend is not yet
+                # available.
+                if proxy_cost is None or proxy_cost == 0.0:
+                    logger.info(
+                        "[worker] proxy spend not yet available for %s, retrying...",
+                        instance.id,
+                    )
+                    for delay in (1, 2, 4):
+                        time.sleep(delay)
+                        retry_cost = get_key_spend(virtual_key)
+                        if retry_cost is not None and retry_cost > 0:
+                            proxy_cost = retry_cost
+                            break
+
                 if proxy_cost is not None:
                     out.test_result["proxy_cost"] = proxy_cost
                     logger.info(
