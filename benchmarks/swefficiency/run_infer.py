@@ -22,6 +22,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.litellm_proxy import apply_virtual_key
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -308,7 +309,7 @@ class SWEfficiencyEvaluation(Evaluation):
         """
         tools = get_default_tools(enable_browser=False)
         agent = Agent(
-            llm=self.metadata.llm,
+            llm=apply_virtual_key(self.metadata.llm),
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
         )

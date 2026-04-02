@@ -25,6 +25,7 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
+from benchmarks.utils.litellm_proxy import apply_virtual_key
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger
@@ -455,7 +456,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             tools.append(Tool(name=DelegateTool.name))
 
         # Create agent
-        agent = Agent(llm=self.metadata.llm, tools=tools)
+        agent = Agent(llm=apply_virtual_key(self.metadata.llm), tools=tools)
 
         # Collect events
         received_events = []

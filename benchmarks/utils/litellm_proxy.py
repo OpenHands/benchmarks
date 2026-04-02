@@ -155,3 +155,22 @@ def set_current_virtual_key(key: str | None) -> None:
 def get_current_virtual_key() -> str | None:
     """Return the virtual key for the current worker thread, or None."""
     return getattr(_thread_local, "virtual_key", None)
+
+
+def apply_virtual_key(llm):  # type: ignore[no-untyped-def]
+    """Return an LLM config copy with the per-instance virtual key as api_key.
+
+    If no virtual key is active for this thread, returns the original config
+    unchanged.  This is thread-safe: ``model_copy`` creates a new instance
+    and ``get_current_virtual_key`` reads from ``threading.local``.
+
+    Use this when creating a default (non-ACP) ``Agent`` so that all LLM
+    calls go through the proxy with the per-instance virtual key, enabling
+    accurate per-instance cost tracking.
+    """
+    virtual_key = get_current_virtual_key()
+    if virtual_key is None:
+        return llm
+    from pydantic import SecretStr
+
+    return llm.model_copy(update={"api_key": SecretStr(virtual_key)})

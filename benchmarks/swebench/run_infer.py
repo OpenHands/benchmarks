@@ -20,6 +20,7 @@ from benchmarks.utils.acp import (
     setup_acp_workspace,
     workspace_keepalive,
 )
+from benchmarks.utils.litellm_proxy import apply_virtual_key
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -268,12 +269,10 @@ class SWEBenchEvaluation(Evaluation):
                     keep_first=self.metadata.condenser_keep_first,
                 )
             agent = Agent(
-                llm=self.metadata.llm,
+                llm=apply_virtual_key(self.metadata.llm),
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
-                # TODO: we can enable security analyzer later
-                # security_analyzer=LLMSecurityAnalyzer(),
             )
 
         assert isinstance(workspace, RemoteWorkspace)

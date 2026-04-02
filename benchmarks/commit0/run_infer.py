@@ -33,6 +33,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.litellm_proxy import apply_virtual_key
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -393,7 +394,7 @@ class Commit0Evaluation(Evaluation):
                     keep_first=self.metadata.condenser_keep_first,
                 )
             agent = Agent(
-                llm=self.metadata.llm,
+                llm=apply_virtual_key(self.metadata.llm),
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
