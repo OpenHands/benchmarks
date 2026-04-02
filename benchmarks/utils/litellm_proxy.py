@@ -104,10 +104,10 @@ def get_key_spend(key: str) -> float | None:
     base_url, api_key = config
 
     try:
-        resp = httpx.post(
+        resp = httpx.get(
             f"{base_url}/key/info",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"keys": [key]},
+            params={"key": key},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
