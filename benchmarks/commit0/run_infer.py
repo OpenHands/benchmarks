@@ -12,7 +12,7 @@ from benchmarks.commit0.build_images import (
     extract_custom_tag,
     get_base_docker_image,
 )
-from benchmarks.commit0.config import INFER_DEFAULTS
+from benchmarks.commit0.config import BUILD_TARGET, INFER_DEFAULTS
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
     build_acp_agent,
@@ -262,7 +262,7 @@ class Commit0Evaluation(Evaluation):
 
         repo_name = instance.data["repo"].split("/")[1]
         base_docker_image = get_base_docker_image(repo_name)
-        build_target = "source-minimal"
+        build_target = BUILD_TARGET
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":

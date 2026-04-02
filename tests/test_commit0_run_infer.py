@@ -2,7 +2,12 @@
 
 import pytest
 
+from benchmarks.commit0.config import BUILD_TARGET
 from benchmarks.commit0.run_infer import get_pythonpath_prefix, normalize_pytest_cmd
+
+
+def test_commit0_prefers_portable_binary_target():
+    assert BUILD_TARGET == "binary-minimal"
 
 
 @pytest.mark.parametrize(

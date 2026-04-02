@@ -25,7 +25,12 @@ INFER_DEFAULTS = {
     **CONDENSER_DEFAULTS,
 }
 
+# Commit0 does not need source-mode images. Prefer the more portable
+# PyInstaller-based runtime to avoid source-runtime portability issues.
+BUILD_TARGET = "binary-minimal"
+
 # Build defaults (used by build_images.py)
 BUILD_DEFAULTS = {
     "max_workers": 16,
+    "target": BUILD_TARGET,
 }
