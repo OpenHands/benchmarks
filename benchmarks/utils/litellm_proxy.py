@@ -35,7 +35,7 @@ _TIMEOUT = 30.0
 _thread_local = threading.local()
 
 
-def _get_config() -> Tuple[str, str] | None:
+def _get_config() -> tuple[str, str] | None:
     """Return (base_url, master_key) or None if not configured."""
     base_url = os.getenv("LLM_BASE_URL", "").rstrip("/")
     master_key = os.getenv("LLM_API_MASTER_KEY", "")
