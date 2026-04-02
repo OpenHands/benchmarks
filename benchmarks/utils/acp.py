@@ -131,12 +131,29 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
 
     Provider credentials are passed via ``acp_env`` so they reach the ACP
     subprocess without being included in the workspace ``forward_env``.
+
+    If a per-instance LiteLLM virtual key is active (set via
+    ``litellm_proxy.set_current_virtual_key``), it overrides the API key
+    so the proxy can track spend for this instance.  Thread-safe via
+    ``threading.local``.
     """
+    from benchmarks.utils.litellm_proxy import get_current_virtual_key
+
+    acp_env = _get_acp_env(agent_type)
+
+    virtual_key = get_current_virtual_key()
+    if virtual_key is not None:
+        # Override the API key with the per-instance virtual key so the
+        # proxy tracks spend independently for this instance.
+        for var in _ACP_ENV_VARS.get(agent_type, []):
+            if var.endswith("API_KEY"):
+                acp_env[var] = virtual_key
+
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
         acp_model=extract_acp_model_hint(llm_model),
         acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
-        acp_env=_get_acp_env(agent_type),
+        acp_env=acp_env,
     )
 
 
