@@ -893,11 +893,13 @@ class Evaluation(ABC, BaseModel):
                 # background task.  For fast conversations (especially
                 # single-turn ACP with no tool use) the spend may not be
                 # committed when we query immediately after completion.
-                # A completed evaluate_instance() guarantees LLM calls
-                # were made, so proxy_cost=0.0 is always a race; retry.
-                if proxy_cost == 0.0:
+                # A completed evaluate_instance() guarantees proxy-backed
+                # LLM calls were made. If the immediate spend lookup returns
+                # 0.0 or None, retry with backoff to absorb commit lag and
+                # transient proxy read failures.
+                if proxy_cost is None or proxy_cost == 0.0:
                     logger.info(
-                        "[worker] proxy spend not yet committed for %s, retrying...",
+                        "[worker] proxy spend not yet available for %s, retrying...",
                         instance.id,
                     )
                     for delay in (1, 2, 4):
