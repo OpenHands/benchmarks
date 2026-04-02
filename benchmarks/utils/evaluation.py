@@ -888,6 +888,31 @@ class Evaluation(ABC, BaseModel):
             # values are available in the output JSON.
             if virtual_key is not None:
                 proxy_cost = get_key_spend(virtual_key)
+
+                # LiteLLM proxy updates key spend asynchronously via a
+                # background task.  For fast single-turn ACP conversations
+                # (e.g. one LLM call, no tool use) the spend may not yet
+                # be committed when we query immediately after the
+                # conversation ends.  Retry with backoff when the proxy
+                # reports zero but the SDK tracked real cost.
+                acc_cost = (
+                    out.metrics.accumulated_cost
+                    if out.metrics is not None
+                    else 0.0
+                )
+                if proxy_cost == 0.0 and acc_cost > 0:
+                    logger.info(
+                        "[worker] proxy spend not yet committed for %s "
+                        "(accumulated_cost=$%.4f), retrying...",
+                        instance.id,
+                        acc_cost,
+                    )
+                    for delay in (1, 2, 4):
+                        time.sleep(delay)
+                        proxy_cost = get_key_spend(virtual_key)
+                        if proxy_cost is not None and proxy_cost > 0:
+                            break
+
                 if proxy_cost is not None:
                     out.test_result["proxy_cost"] = proxy_cost
                     logger.info(
