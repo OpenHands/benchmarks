@@ -138,7 +138,7 @@ class TestGetKeySpend:
         monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(200, {"info": {"spend": 0.014112}})
-        with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
+        with patch("benchmarks.utils.litellm_proxy.httpx.get", return_value=mock_resp):
             spend = get_key_spend("sk-virtual-123")
         assert spend == 0.014112
 
@@ -147,7 +147,7 @@ class TestGetKeySpend:
         monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         mock_resp = _response(500, {"error": "internal"})
-        with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
+        with patch("benchmarks.utils.litellm_proxy.httpx.get", return_value=mock_resp):
             assert get_key_spend("sk-v") is None
 
     def test_returns_none_on_connection_error(self, monkeypatch):
@@ -155,7 +155,7 @@ class TestGetKeySpend:
         monkeypatch.setenv("LLM_API_MASTER_KEY", "sk-admin")
 
         with patch(
-            "benchmarks.utils.litellm_proxy.httpx.post",
+            "benchmarks.utils.litellm_proxy.httpx.get",
             side_effect=httpx.ConnectError("refused"),
         ):
             assert get_key_spend("sk-v") is None
