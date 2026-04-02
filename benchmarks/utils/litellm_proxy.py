@@ -13,7 +13,7 @@ When either is unset, all functions are no-ops.
 Thread-safety:
     The virtual key for the current instance is stored in a ``threading.local``
     so that concurrent worker threads (asyncio.to_thread) each track their own
-    key without global state mutation.  ``build_acp_agent`` in ``acp.py`` reads
+    key without global state mutation. ``build_acp_agent`` in ``acp.py`` reads
     this thread-local to inject the key via ``acp_env``.
 """
 
@@ -21,8 +21,9 @@ import os
 import threading
 
 import httpx
+from pydantic import SecretStr
 
-from openhands.sdk import get_logger
+from openhands.sdk import LLM, get_logger
 
 
 logger = get_logger(__name__)
@@ -155,3 +156,25 @@ def set_current_virtual_key(key: str | None) -> None:
 def get_current_virtual_key() -> str | None:
     """Return the virtual key for the current worker thread, or None."""
     return getattr(_thread_local, "virtual_key", None)
+
+
+def build_eval_llm(llm: LLM, *, usage_id: str | None = None) -> LLM:
+    """Return an LLM configured for the current evaluation instance.
+
+    The default (non-ACP) OpenHands agent talks to LiteLLM in-process, so it
+    must use the thread-local per-instance virtual key to record exact proxy
+    spend for that instance. When there is no active virtual key and the
+    usage_id is unchanged, the original LLM object is returned.
+    """
+    updates: dict[str, object] = {}
+    if usage_id is not None:
+        updates["usage_id"] = usage_id
+
+    virtual_key = get_current_virtual_key()
+    if virtual_key is not None:
+        updates["api_key"] = SecretStr(virtual_key)
+
+    if not updates:
+        return llm
+
+    return llm.model_copy(deep=True, update=updates)

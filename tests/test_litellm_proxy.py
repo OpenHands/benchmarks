@@ -5,15 +5,18 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from benchmarks.utils.litellm_proxy import (
     _get_config,
+    build_eval_llm,
     create_virtual_key,
     delete_key,
     get_current_virtual_key,
     get_key_spend,
     set_current_virtual_key,
 )
+from openhands.sdk import LLM
 
 
 _DUMMY_REQUEST = httpx.Request("GET", "https://proxy.example.com")
@@ -22,9 +25,6 @@ _DUMMY_REQUEST = httpx.Request("GET", "https://proxy.example.com")
 def _response(status_code: int, json: dict) -> httpx.Response:
     """Create an httpx.Response that supports raise_for_status()."""
     return httpx.Response(status_code, json=json, request=_DUMMY_REQUEST)
-
-
-# ---- _get_config --------------------------------------------------------------
 
 
 class TestGetConfig:
@@ -54,9 +54,6 @@ class TestGetConfig:
         result = _get_config()
         assert result is not None
         assert result[0] == "https://proxy.example.com"
-
-
-# ---- create_virtual_key -------------------------------------------------------
 
 
 class TestCreateVirtualKey:
@@ -124,9 +121,6 @@ class TestCreateVirtualKey:
                 create_virtual_key("inst-1")
 
 
-# ---- get_key_spend -------------------------------------------------------------
-
-
 class TestGetKeySpend:
     def test_returns_none_when_not_configured(self, monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
@@ -161,14 +155,10 @@ class TestGetKeySpend:
             assert get_key_spend("sk-v") is None
 
 
-# ---- delete_key ----------------------------------------------------------------
-
-
 class TestDeleteKey:
     def test_noop_when_not_configured(self, monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
         monkeypatch.delenv("LLM_API_MASTER_KEY", raising=False)
-        # Should not raise
         delete_key("sk-v")
 
     def test_success(self, monkeypatch):
@@ -190,7 +180,6 @@ class TestDeleteKey:
 
         mock_resp = _response(403, {"error": "forbidden"})
         with patch("benchmarks.utils.litellm_proxy.httpx.post", return_value=mock_resp):
-            # Should not raise
             delete_key("sk-v")
 
     def test_swallows_connection_error(self, monkeypatch):
@@ -204,12 +193,8 @@ class TestDeleteKey:
             delete_key("sk-v")
 
 
-# ---- Thread-local virtual key --------------------------------------------------
-
-
 class TestThreadLocalVirtualKey:
     def test_default_is_none(self):
-        # Clear any leftover from other tests
         set_current_virtual_key(None)
         assert get_current_virtual_key() is None
 
@@ -224,13 +209,12 @@ class TestThreadLocalVirtualKey:
         assert get_current_virtual_key() is None
 
     def test_thread_isolation(self):
-        """Different threads see different virtual keys."""
         results = {}
         barrier = threading.Barrier(2)
 
         def worker(name, key):
             set_current_virtual_key(key)
-            barrier.wait()  # Ensure both threads have set their key
+            barrier.wait()
             results[name] = get_current_virtual_key()
             set_current_virtual_key(None)
 
@@ -245,7 +229,6 @@ class TestThreadLocalVirtualKey:
         assert results["t2"] == "key-B"
 
     def test_main_thread_not_affected_by_worker(self):
-        """Setting a key in a worker thread doesn't leak to the main thread."""
         set_current_virtual_key(None)
 
         def worker():
@@ -256,3 +239,34 @@ class TestThreadLocalVirtualKey:
         t.join()
 
         assert get_current_virtual_key() is None
+
+
+class TestBuildEvalLLM:
+    def test_returns_original_llm_without_active_key(self):
+        set_current_virtual_key(None)
+        llm = LLM(model="test-model", usage_id="agent")
+
+        built = build_eval_llm(llm)
+
+        assert built is llm
+
+    def test_copies_llm_with_virtual_key(self):
+        set_current_virtual_key("sk-virtual")
+        llm = LLM(model="test-model", api_key=SecretStr("sk-shared"), usage_id="agent")
+
+        built = build_eval_llm(llm)
+
+        assert built is not llm
+        assert isinstance(built.api_key, SecretStr)
+        assert built.api_key.get_secret_value() == "sk-virtual"
+        assert llm.api_key.get_secret_value() == "sk-shared"
+        set_current_virtual_key(None)
+
+    def test_copies_llm_when_usage_id_changes(self):
+        set_current_virtual_key(None)
+        llm = LLM(model="test-model", usage_id="agent")
+
+        built = build_eval_llm(llm, usage_id="condenser")
+
+        assert built is not llm
+        assert built.usage_id == "condenser"

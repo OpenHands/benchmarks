@@ -27,6 +27,7 @@ from benchmarks.utils.evaluation_utils import (
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -285,16 +286,17 @@ class MultiSWEBenchEvaluation(Evaluation):
             tools.append(Tool(name=DelegateTool.name))
 
         # Create condenser if enabled
+        agent_llm = build_eval_llm(self.metadata.llm)
         condenser = None
         if self.metadata.enable_condenser:
             condenser = LLMSummarizingCondenser(
-                llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
                 max_size=self.metadata.condenser_max_size,
                 keep_first=self.metadata.condenser_keep_first,
             )
 
         agent = Agent(
-            llm=self.metadata.llm,
+            llm=agent_llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
             condenser=condenser,
