@@ -20,6 +20,16 @@ logger = get_logger(__name__)
 # so we use 60 min (3600s) as the default to avoid premature timeouts.
 ACP_PROMPT_TIMEOUT: float = 3600.0
 
+# Per-agent-type timeout overrides.  Gemini CLI agents (both Flash and Pro)
+# routinely make 60-110+ tool calls on complex benchmark instances and need
+# well over 60 min to converge.  Datadog traces from eval-23925785249 showed
+# instances accumulating 114 tool calls at the 3600s cutoff — still actively
+# working, not hung.  Bumping to 7200s avoids pointless retries that can
+# never succeed within the old limit.
+_ACP_PROMPT_TIMEOUT_OVERRIDES: dict[str, float] = {
+    "acp-gemini": 7200.0,
+}
+
 # Mapping of ACP agent types to the env vars they require.
 # Both the API key and base URL are needed to route through LiteLLM proxy.
 _ACP_ENV_VARS: dict[str, list[str]] = {
@@ -149,10 +159,14 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
             if var.endswith("API_KEY"):
                 acp_env[var] = virtual_key
 
+    prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(
+        agent_type, ACP_PROMPT_TIMEOUT
+    )
+
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
         acp_model=extract_acp_model_hint(llm_model),
-        acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
+        acp_prompt_timeout=prompt_timeout,
         acp_env=acp_env,
     )
 
