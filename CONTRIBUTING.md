@@ -65,6 +65,20 @@ Register entrypoints in `pyproject.toml` under `[project.scripts]`:
 
 Use kebab-case for CLI names (e.g., `swebench-infer`).
 
+## LLM Configuration
+
+LLM configs are stored in `.llm_config/` as JSON files matching the [LLM class schema](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands/sdk/llm/llm.py#L93):
+
+```json
+{
+  "model": "litellm_proxy/anthropic/claude-sonnet-4-20250514",
+  "base_url": "https://llm-proxy.eval.all-hands.dev",
+  "api_key": "YOUR_API_KEY"
+}
+```
+
+Validate with: `uv run validate-cfg .llm_config/your-config.json`
+
 ## Naming Conventions
 
 - **Benchmark names**: lowercase only, with no dashes or underscores (e.g., `swebench`, `multiswebench`, `swebenchmultimodal`)
@@ -78,7 +92,19 @@ Use kebab-case for CLI names (e.g., `swebench-infer`).
 
 - **Fail fast on unrecoverable errors**: Raise exceptions rather than logging warnings when the error prevents evaluation.
 - **Be lenient with recoverable errors**: A recoverable error (e.g., a single instance failing) should be logged but not crash the entire evaluation run.
-- **Example**: Missing an optional field in one instance → log warning and skip. Missing a required field → raise an error.
+- **Example pattern**:
+
+```python
+for instance in instances:
+    try:
+        result = evaluate_instance(instance)
+        results.append(result)
+    except RecoverableError as e:
+        logger.warning(f"Instance {instance.id} failed: {e}")
+        continue  # Skip this instance, continue with others
+    except UnrecoverableError:
+        raise  # Crash the run
+```
 
 ## Testing
 
@@ -93,7 +119,7 @@ tests/
 
 ## Pull Request Guidelines
 
-- **Minimal changes**: A benchmark PR should not modify `utils/` unless absolutely necessary.
+- **Minimal changes**: Modify `utils/` only if your change benefits multiple existing benchmarks. For single-benchmark utilities, keep them in the benchmark's own directory.
 - **Describe all changes**: List every file changed and why.
 - **Test locally**: Run `uv run pytest` before submitting.
 - **Update documentation**: Update the benchmark's README.md if adding new features.
