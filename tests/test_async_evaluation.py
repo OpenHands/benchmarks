@@ -346,19 +346,19 @@ def test_evaluation_installs_explicit_thread_executor(tmp_path, monkeypatch):
     assert captured["thread_name_prefix"] == "evaluation-worker"
 
 
-def test_evaluation_logs_effective_executor_capacity(tmp_path, monkeypatch, caplog):
+def test_evaluation_logs_effective_executor_capacity(tmp_path, monkeypatch):
     """Startup logs should expose configured vs effective thread capacity."""
     from typing import List
-    from unittest.mock import Mock, patch
+    from unittest.mock import AsyncMock, Mock, patch
 
-    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.evaluation import Evaluation, logger
     from benchmarks.utils.models import EvalInstance, EvalMetadata
     from openhands.sdk import LLM
     from openhands.sdk.critic import PassCritic
 
     class TestEvaluation(Evaluation):
         def prepare_instances(self) -> List[EvalInstance]:
-            return []
+            return [EvalInstance(id="inst-1", data={})]
 
         def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
             raise AssertionError("prepare_workspace should not be called")
@@ -388,26 +388,31 @@ def test_evaluation_logs_effective_executor_capacity(tmp_path, monkeypatch, capl
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=30)
 
-    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr:
+    with (
+        patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,
+        patch.object(logger, "info") as mock_info,
+    ):
         svc = Mock()
         svc.create_evaluation.return_value = None
         mock_lmnr.get.return_value = svc
+        evaluator._run_attempt_async = AsyncMock(return_value=[])
+        evaluator.run()
 
-        with caplog.at_level("INFO", logger="benchmarks.utils.evaluation"):
-            evaluator.run()
-
-    assert (
-        "[executor] configured_workers=30 executor_cap=40 effective_max_workers=30 "
-        "default_max_workers=8 os_cpu_count=4 cpu.max=400000 100000" in caplog.text
+    assert any(
+        call.args
+        and call.args[0]
+        == "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s"
+        and call.args[1:] == (30, 40, 30, 8, 4, "400000 100000")
+        for call in mock_info.call_args_list
     )
 
 
-def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch, caplog):
+def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch):
     """Evaluation should cap asyncio.to_thread() workers to a configured maximum."""
     from typing import List
     from unittest.mock import Mock, patch
 
-    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.evaluation import Evaluation, logger
     from benchmarks.utils.models import EvalInstance, EvalMetadata
     from openhands.sdk import LLM
     from openhands.sdk.critic import PassCritic
@@ -455,19 +460,23 @@ def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch, caplog):
         max_asyncio_thread_workers=40,
     )
 
-    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr:
+    with (
+        patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,
+        patch.object(logger, "warning") as mock_warning,
+    ):
         svc = Mock()
         svc.create_evaluation.return_value = None
         mock_lmnr.get.return_value = svc
-
-        with caplog.at_level("WARNING", logger="benchmarks.utils.evaluation"):
-            results = evaluator.run()
+        results = evaluator.run()
 
     assert results == []
     assert captured["max_workers"] == 40
-    assert (
-        "[executor] capping configured_workers=1000 to executor_cap=40"
-        in caplog.text
+    assert any(
+        call.args
+        and call.args[0]
+        == "[executor] capping configured_workers=%d to executor_cap=%d"
+        and call.args[1:] == (1000, 40)
+        for call in mock_warning.call_args_list
     )
 
 
