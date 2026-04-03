@@ -27,6 +27,7 @@ from tqdm import tqdm
 
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
+from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
 from benchmarks.utils.litellm_proxy import (
@@ -35,7 +36,6 @@ from benchmarks.utils.litellm_proxy import (
     get_key_spend,
     set_current_virtual_key,
 )
-from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,

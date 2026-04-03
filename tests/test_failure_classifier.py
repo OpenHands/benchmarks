@@ -54,7 +54,9 @@ class TestClassifyFailure:
     # -- Unknown failures default to RESOURCE ----------------------------------
 
     def test_unknown_failure_defaults_to_resource(self) -> None:
-        assert classify_failure(Exception("some novel error")) == FailureCategory.RESOURCE
+        assert (
+            classify_failure(Exception("some novel error")) == FailureCategory.RESOURCE
+        )
 
     # -- Chained exceptions ----------------------------------------------------
 

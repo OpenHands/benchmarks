@@ -42,30 +42,59 @@ class FailureCategory(enum.Enum):
 
 _PATTERNS: list[tuple[re.Pattern[str], FailureCategory]] = [
     # ── Non-resource: ACP / model / protocol errors ────────────────────
-    (re.compile(r"ACPPromptError: terminated", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-    (re.compile(r"ACPPromptError: Internal Server Error", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-    (re.compile(r"ACPPromptError: Model stream ended", re.IGNORECASE), FailureCategory.NON_RESOURCE),
+    (
+        re.compile(r"ACPPromptError: terminated", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
+    (
+        re.compile(r"ACPPromptError: Internal Server Error", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
+    (
+        re.compile(r"ACPPromptError: Model stream ended", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
     (re.compile(r"ACPPromptError:", re.IGNORECASE), FailureCategory.NON_RESOURCE),
     (re.compile(r"ACP prompt timed out", re.IGNORECASE), FailureCategory.NON_RESOURCE),
     (re.compile(r"ACP error: terminated", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-    (re.compile(r"ACP error: Internal Server Error", re.IGNORECASE), FailureCategory.NON_RESOURCE),
+    (
+        re.compile(r"ACP error: Internal Server Error", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
     (re.compile(r"ACP error:", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-
     # ── Non-resource: HTTP / transport errors from the model layer ─────
-    (re.compile(r"503 Service Unavailable", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-    (re.compile(r"Server disconnected without sending a response", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-    (re.compile(r"Remote conversation ended with error", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-
+    (
+        re.compile(r"503 Service Unavailable", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
+    (
+        re.compile(r"Server disconnected without sending a response", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
+    (
+        re.compile(r"Remote conversation ended with error", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
     # ── Non-resource: malformed model output ───────────────────────────
-    (re.compile(r"malformed function call", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-    (re.compile(r"temp and top_p cannot both be specified", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-    (re.compile(r"does not support parameters", re.IGNORECASE), FailureCategory.NON_RESOURCE),
-
+    (
+        re.compile(r"malformed function call", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
+    (
+        re.compile(r"temp and top_p cannot both be specified", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
+    (
+        re.compile(r"does not support parameters", re.IGNORECASE),
+        FailureCategory.NON_RESOURCE,
+    ),
     # ── Resource: image / registry problems (may resolve with rebuild) ─
-    (re.compile(r"does not exist in container registry", re.IGNORECASE), FailureCategory.RESOURCE),
+    (
+        re.compile(r"does not exist in container registry", re.IGNORECASE),
+        FailureCategory.RESOURCE,
+    ),
     (re.compile(r"ImagePullBackOff", re.IGNORECASE), FailureCategory.RESOURCE),
     (re.compile(r"ErrImagePull", re.IGNORECASE), FailureCategory.RESOURCE),
-
     # ── Resource: runtime startup / readiness ──────────────────────────
     (re.compile(r"Runtime not yet ready", re.IGNORECASE), FailureCategory.RESOURCE),
     (re.compile(r"OOMKill", re.IGNORECASE), FailureCategory.RESOURCE),
