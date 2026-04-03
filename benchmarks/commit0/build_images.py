@@ -8,6 +8,7 @@ Example:
     --image ghcr.io/openhands/eval-agent-server --push --max-workers 16
 """
 
+import hashlib
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -68,7 +69,21 @@ def get_agent_server_image_tag(
     """Build the final agent-server image tag used by commit0 run_infer."""
     custom_tag = extract_custom_tag(base_image)
     suffix = f"-{target}" if target != "binary" else ""
-    return f"{image}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+    prefix = get_agent_server_image_tag_prefix(target)
+    return f"{image}:{prefix}-{custom_tag}{suffix}"
+
+
+def agent_layer_content_hash() -> str:
+    """Return a short hash for the commit0 wrapper Dockerfile contents."""
+    content = AGENT_LAYER_DOCKERFILE.read_text()
+    return hashlib.sha256(content.encode()).hexdigest()[:7]
+
+
+def get_agent_server_image_tag_prefix(target: str) -> str:
+    """Return the tag prefix used for commit0 agent images."""
+    if target in SOURCE_TARGETS:
+        return f"{IMAGE_TAG_PREFIX}-{agent_layer_content_hash()}"
+    return IMAGE_TAG_PREFIX
 
 
 def _load_selected_instances(selected_instances_file: str) -> list[str]:

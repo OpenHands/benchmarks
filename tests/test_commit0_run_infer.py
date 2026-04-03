@@ -24,7 +24,17 @@ def test_commit0_agent_server_image_tag_matches_run_infer():
 
     assert (
         tag
-        == f"ghcr.io/example/agent-server:{IMAGE_TAG_PREFIX}-commit0-tinydb-source-minimal"
+        == "ghcr.io/example/agent-server:"
+        f"{commit0_build_images.get_agent_server_image_tag_prefix('source-minimal')}"
+        "-commit0-tinydb-source-minimal"
+    )
+
+
+def test_source_targets_include_agent_layer_hash_in_tag_prefix():
+    prefix = commit0_build_images.get_agent_server_image_tag_prefix("source-minimal")
+
+    assert prefix == (
+        f"{IMAGE_TAG_PREFIX}-{commit0_build_images.agent_layer_content_hash()}"
     )
 
 
