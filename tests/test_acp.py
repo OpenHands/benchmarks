@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from benchmarks.utils.acp import (
-    ACP_PROMPT_TIMEOUT,
     _ACP_PROMPT_TIMEOUT_OVERRIDES,
+    ACP_PROMPT_TIMEOUT,
     _get_acp_env,
     build_acp_agent,
     get_acp_command,

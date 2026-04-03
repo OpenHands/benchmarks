@@ -159,9 +159,7 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
             if var.endswith("API_KEY"):
                 acp_env[var] = virtual_key
 
-    prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(
-        agent_type, ACP_PROMPT_TIMEOUT
-    )
+    prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(agent_type, ACP_PROMPT_TIMEOUT)
 
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
