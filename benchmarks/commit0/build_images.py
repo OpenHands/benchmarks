@@ -10,19 +10,30 @@ Example:
 
 import os
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+from threading import Lock
 
 from commit0.harness.constants import SPLIT
+from tqdm.auto import tqdm
 
 from benchmarks.commit0.config import BUILD_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swebench.build_base_images import (
-    assemble_all_agent_images,
+    AGENT_LAYER_DOCKERFILE,
+    _get_sdk_submodule_info,
     build_builder_image,
 )
 from benchmarks.utils.build_utils import (
+    BuildOutput,
+    _update_pbar,
     build_all_images,
+    capture_output,
     default_build_output_dir,
     get_build_parser,
+    run_docker_build_layer,
 )
+from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import get_logger
 
 
@@ -47,6 +58,17 @@ def extract_custom_tag(base_image: str) -> str:
     repo_tag = base_image.rsplit("/", 1)[-1]
     repo_name = repo_tag.split(":", 1)[0].lower()
     return f"commit0-{repo_name}"
+
+
+def get_agent_server_image_tag(
+    base_image: str,
+    target: str,
+    image: str,
+) -> str:
+    """Build the final agent-server image tag used by commit0 run_infer."""
+    custom_tag = extract_custom_tag(base_image)
+    suffix = f"-{target}" if target != "binary" else ""
+    return f"{image}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
 
 
 def _load_selected_instances(selected_instances_file: str) -> list[str]:
@@ -91,6 +113,196 @@ def collect_base_images(
     return [get_base_docker_image(repo, docker_image_prefix) for repo in repos]
 
 
+def _assemble_commit0_image(
+    *,
+    base_image: str,
+    builder_tag: str,
+    final_tag: str,
+    git_sha: str,
+    push: bool,
+) -> BuildOutput:
+    result = run_docker_build_layer(
+        dockerfile=AGENT_LAYER_DOCKERFILE,
+        context=AGENT_LAYER_DOCKERFILE.parent,
+        tags=[final_tag],
+        build_args={
+            "BASE_IMAGE": base_image,
+            "BUILDER_IMAGE": builder_tag,
+            "OPENHANDS_BUILD_GIT_SHA": git_sha,
+        },
+        push=push,
+        platform="linux/amd64",
+        load=not push,
+    )
+    result.base_image = base_image
+    return result
+
+
+def _assemble_commit0_with_logging(
+    *,
+    log_dir: Path,
+    base_image: str,
+    builder_tag: str,
+    final_tag: str,
+    git_sha: str,
+    push: bool,
+    max_retries: int,
+    force_build: bool,
+) -> BuildOutput:
+    import time
+
+    if not force_build and remote_image_exists(final_tag):
+        logger.info("Agent image %s already exists. Skipping.", final_tag)
+        return BuildOutput(
+            base_image=base_image,
+            tags=[final_tag],
+            error=None,
+            status="skipped_remote_exists",
+            skip_reason="remote_image_exists",
+        )
+
+    assert max_retries >= 1
+    for attempt in range(max_retries):
+        with capture_output(base_image, log_dir) as log_path:
+            if attempt > 0:
+                logger.info(
+                    "Retrying commit0 assembly for %s (attempt %d/%d)",
+                    base_image,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(2 + attempt * 2)
+            try:
+                result = _assemble_commit0_image(
+                    base_image=base_image,
+                    builder_tag=builder_tag,
+                    final_tag=final_tag,
+                    git_sha=git_sha,
+                    push=push,
+                )
+            except Exception as e:
+                result = BuildOutput(
+                    base_image=base_image,
+                    tags=[],
+                    error=repr(e),
+                )
+            result.log_path = str(log_path)
+            if result.error:
+                logger.error(
+                    "Commit0 assembly error for %s: %s", base_image, result.error
+                )
+                if attempt == max_retries - 1:
+                    return result
+                continue
+            return result
+
+    raise RuntimeError("Unreachable")
+
+
+def assemble_commit0_agent_images(
+    *,
+    base_images: list[str],
+    builder_tag: str,
+    build_dir: Path,
+    target_image: str,
+    target: str,
+    push: bool,
+    max_workers: int,
+    max_retries: int,
+    force_build: bool,
+) -> int:
+    """Assemble commit0 source images directly from the real upstream base images."""
+    _, git_sha, _ = _get_sdk_submodule_info()
+    build_log_dir = build_dir / "assembly-logs"
+    manifest_file = build_dir / "manifest.jsonl"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+
+    built = 0
+    skipped = 0
+    failures = 0
+    mu = Lock()
+
+    with (
+        manifest_file.open("w") as writer,
+        tqdm(
+            total=len(base_images), desc="Assembling commit0 agent images", leave=True
+        ) as pbar,
+    ):
+        _update_pbar(pbar, built, skipped, failures, 0, None, "Queueing")
+
+        with ProcessPoolExecutor(max_workers=max_workers) as ex:
+            futures = {}
+            in_progress: set[str] = set()
+            for base_image in base_images:
+                in_progress.add(base_image)
+                final_tag = get_agent_server_image_tag(base_image, target, target_image)
+                fut = ex.submit(
+                    _assemble_commit0_with_logging,
+                    log_dir=build_log_dir,
+                    base_image=base_image,
+                    builder_tag=builder_tag,
+                    final_tag=final_tag,
+                    git_sha=git_sha,
+                    push=push,
+                    max_retries=max_retries,
+                    force_build=force_build,
+                )
+                futures[fut] = base_image
+
+            _update_pbar(
+                pbar,
+                built,
+                skipped,
+                failures,
+                len(in_progress),
+                next(iter(in_progress), None),
+                "Assembling",
+            )
+
+            for fut in as_completed(futures):
+                base_image = futures[fut]
+                try:
+                    result: BuildOutput = fut.result()
+                except Exception as e:
+                    logger.error("Commit0 assembly failed for %s: %r", base_image, e)
+                    result = BuildOutput(base_image=base_image, tags=[], error=repr(e))
+
+                writer.write(result.model_dump_json() + "\n")
+                writer.flush()
+
+                with mu:
+                    if result.error or not result.tags:
+                        failures += 1
+                        status = "❌ Failed"
+                    elif result.status == "skipped_remote_exists":
+                        skipped += 1
+                        status = "⏭ Skipped"
+                    else:
+                        built += 1
+                        status = "✅ Done"
+
+                in_progress.discard(base_image)
+                pbar.update(1)
+                _update_pbar(
+                    pbar,
+                    built,
+                    skipped,
+                    failures,
+                    len(in_progress),
+                    next(iter(in_progress), None),
+                    status,
+                )
+
+    logger.info(
+        "Commit0 image assembly done. Built=%d Skipped=%d Failed=%d Manifest=%s",
+        built,
+        skipped,
+        failures,
+        str(manifest_file),
+    )
+    return 1 if failures else 0
+
+
 def build_commit0_images(
     *,
     base_images: list[str],
@@ -109,15 +321,13 @@ def build_commit0_images(
             print("\n".join(base_images))
             return 0
 
-        logger.info(
-            "Using phased source-image assembly for commit0 target %s", target
-        )
+        logger.info("Using phased source-image assembly for commit0 target %s", target)
         builder_result = build_builder_image(push=push, platform="linux/amd64")
         if builder_result.error or not builder_result.tags:
             logger.error("Failed to build shared SDK builder image: %s", builder_result)
             return 1
 
-        return assemble_all_agent_images(
+        return assemble_commit0_agent_images(
             base_images=base_images,
             builder_tag=builder_result.tags[0],
             build_dir=build_dir,
@@ -127,7 +337,6 @@ def build_commit0_images(
             max_workers=max_workers,
             max_retries=max_retries,
             force_build=force_build,
-            custom_tag_fn=extract_custom_tag,
         )
 
     return build_all_images(

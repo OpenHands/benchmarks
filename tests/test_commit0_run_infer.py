@@ -5,13 +5,27 @@ from unittest.mock import sentinel
 
 import pytest
 
-from benchmarks.commit0.config import BUILD_TARGET
 from benchmarks.commit0 import build_images as commit0_build_images
+from benchmarks.commit0.config import BUILD_TARGET
 from benchmarks.commit0.run_infer import get_pythonpath_prefix, normalize_pytest_cmd
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 
 
 def test_commit0_defaults_to_source_minimal_target():
     assert BUILD_TARGET == "source-minimal"
+
+
+def test_commit0_agent_server_image_tag_matches_run_infer():
+    tag = commit0_build_images.get_agent_server_image_tag(
+        "docker.io/wentingzhao/tinydb:v0",
+        "source-minimal",
+        "ghcr.io/example/agent-server",
+    )
+
+    assert (
+        tag
+        == f"ghcr.io/example/agent-server:{IMAGE_TAG_PREFIX}-commit0-tinydb-source-minimal"
+    )
 
 
 def test_source_targets_use_phased_assembly(monkeypatch):
@@ -28,7 +42,7 @@ def test_source_targets_use_phased_assembly(monkeypatch):
 
     monkeypatch.setattr(commit0_build_images, "build_builder_image", fake_builder_image)
     monkeypatch.setattr(
-        commit0_build_images, "assemble_all_agent_images", fake_assemble
+        commit0_build_images, "assemble_commit0_agent_images", fake_assemble
     )
 
     exit_code = commit0_build_images.build_commit0_images(
@@ -57,7 +71,6 @@ def test_source_targets_use_phased_assembly(monkeypatch):
             "max_workers": 4,
             "max_retries": 3,
             "force_build": True,
-            "custom_tag_fn": commit0_build_images.extract_custom_tag,
         }
     ]
 
