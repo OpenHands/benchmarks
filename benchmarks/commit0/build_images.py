@@ -21,7 +21,6 @@ from tqdm.auto import tqdm
 
 from benchmarks.commit0.config import BUILD_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swebench.build_base_images import (
-    AGENT_LAYER_DOCKERFILE,
     _get_sdk_submodule_info,
     build_builder_image,
 )
@@ -43,6 +42,10 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 DEFAULT_DOCKER_IMAGE_PREFIX = "docker.io/wentingzhao/"
 SOURCE_TARGETS = {"source", "source-minimal"}
+
+COMMIT0_AGENT_LAYER_DOCKERFILE = (
+    Path(__file__).resolve().parent.parent / "utils" / "Dockerfile.agent-layer-commit0"
+)
 
 
 def get_base_docker_image(
@@ -77,7 +80,7 @@ def get_agent_server_image_tag(
 
 def agent_layer_content_hash() -> str:
     """Return a short hash for the commit0 wrapper Dockerfile contents."""
-    content = AGENT_LAYER_DOCKERFILE.read_text()
+    content = COMMIT0_AGENT_LAYER_DOCKERFILE.read_text()
     return hashlib.sha256(content.encode()).hexdigest()[:7]
 
 
@@ -139,8 +142,8 @@ def _assemble_commit0_image(
     push: bool,
 ) -> BuildOutput:
     result = run_docker_build_layer(
-        dockerfile=AGENT_LAYER_DOCKERFILE,
-        context=AGENT_LAYER_DOCKERFILE.parent,
+        dockerfile=COMMIT0_AGENT_LAYER_DOCKERFILE,
+        context=COMMIT0_AGENT_LAYER_DOCKERFILE.parent,
         tags=[final_tag],
         build_args={
             "BASE_IMAGE": base_image,

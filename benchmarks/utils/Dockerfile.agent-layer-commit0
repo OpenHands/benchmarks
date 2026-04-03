@@ -1,0 +1,75 @@
+# Assembly Dockerfile for commit0 agent-server images.
+#
+# Commit0 base images are raw upstream benchmark images (e.g. Ubuntu 22.04)
+# that lack the runtime packages, user setup, and Python 3.13 that the SDK's
+# base-image-minimal target normally provides.  This Dockerfile layers those
+# onto the real upstream commit0 base before copying the agent-server payload.
+#
+# Usage:
+#   docker build \
+#     --file Dockerfile.agent-layer-commit0 \
+#     --build-arg BASE_IMAGE=docker.io/wentingzhao/tinydb:v0 \
+#     --build-arg BUILDER_IMAGE=ghcr.io/openhands/eval-builder:sdk-sha \
+#     --build-arg OPENHANDS_BUILD_GIT_SHA=abc1234... \
+#     --tag ghcr.io/openhands/eval-agent-server:final-tag .
+
+ARG BUILDER_IMAGE
+ARG BASE_IMAGE
+
+FROM ${BUILDER_IMAGE} AS builder
+FROM ${BASE_IMAGE}
+
+ARG USERNAME=openhands
+ARG UID=10001
+ARG GID=10001
+ARG OPENHANDS_BUILD_GIT_SHA=unknown
+ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}
+ENV UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python
+
+# Match the SDK minimal images by providing uv in the final container.
+COPY --from=ghcr.io/astral-sh/uv /uv /uvx /bin/
+
+# Commit0 images are built from the raw upstream benchmark bases, so they are
+# missing the core runtime packages that the SDK's base-image-minimal target
+# normally installs (tmux, git, build tools, etc.).
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        bash ca-certificates curl wget sudo apt-utils git jq tmux build-essential \
+        coreutils util-linux procps findutils grep sed \
+        apt-transport-https gnupg lsb-release; \
+    (getent group ${GID} || groupadd -g ${GID} ${USERNAME}); \
+    (id -u ${USERNAME} >/dev/null 2>&1 || useradd -m -u ${UID} -g ${GID} -s /bin/bash ${USERNAME}); \
+    usermod -aG sudo ${USERNAME}; \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers; \
+    mkdir -p /home/${USERNAME}/.cache /workspace/project; \
+    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME} /workspace; \
+    rm -rf /var/lib/apt/lists/*
+
+ENV HOME=/home/${USERNAME}
+ENV PIP_CACHE_DIR=/home/${USERNAME}/.cache/pip
+ENV UV_CACHE_DIR=/home/${USERNAME}/.cache/uv
+ENV PATH=/home/${USERNAME}/.local/bin:/bin:${PATH}
+
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+ENV OH_ENABLE_VNC=false
+ENV LOG_JSON=true
+
+# Copy the Python 3.13 runtime from the builder so the venv's symlinks resolve.
+# Since SDK v1.15.0 the builder venv uses --python-preference only-system,
+# meaning .venv/bin/python symlinks to /usr/local/bin/python3.13. The eval-base
+# image doesn't have Python 3.13, so we bring the interpreter and stdlib along.
+COPY --from=builder /usr/local/bin/python3.13 /usr/local/bin/python3.13
+COPY --from=builder /usr/local/lib/python3.13 /usr/local/lib/python3.13
+COPY --from=builder /usr/local/lib/libpython3.13.so* /usr/local/lib/
+# The venv's python symlinks to /usr/local/bin/python3 (not python3.13),
+# so we need the python3 symlink to exist as well. Use COPY instead of
+# RUN ln because the base image may not be running as root.
+COPY --from=builder /usr/local/bin/python3 /usr/local/bin/python3
+ENV LD_LIBRARY_PATH=/usr/local/lib
+
+COPY --chown=${USERNAME}:${USERNAME} --from=builder /agent-server /agent-server
+WORKDIR /
+USER ${USERNAME}
+ENTRYPOINT ["/agent-server/.venv/bin/python", "-m", "openhands.agent_server"]

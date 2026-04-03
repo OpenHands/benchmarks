@@ -187,12 +187,12 @@ class TestBuildBaseWithLoggingRetry:
 
 
 class TestAssembleAgentImage:
-    def test_agent_layer_dockerfile_provides_uv_and_tmp_home(self):
+    def test_commit0_agent_layer_dockerfile_provides_uv_and_tmp_home(self):
         dockerfile = (
             Path(__file__).resolve().parent.parent
             / "benchmarks"
             / "utils"
-            / "Dockerfile.agent-layer"
+            / "Dockerfile.agent-layer-commit0"
         ).read_text()
 
         assert "COPY --from=ghcr.io/astral-sh/uv /uv /uvx /bin/" in dockerfile
