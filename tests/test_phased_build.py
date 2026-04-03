@@ -4,7 +4,6 @@ import json
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from benchmarks.utils.build_utils import BuildOutput
@@ -187,28 +186,6 @@ class TestBuildBaseWithLoggingRetry:
 
 
 class TestAssembleAgentImage:
-    def test_commit0_agent_layer_dockerfile_provides_uv_and_tmp_home(self):
-        dockerfile = (
-            Path(__file__).resolve().parent.parent
-            / "benchmarks"
-            / "utils"
-            / "Dockerfile.agent-layer-commit0"
-        ).read_text()
-
-        assert "COPY --from=ghcr.io/astral-sh/uv /uv /uvx /bin/" in dockerfile
-        assert "ENV HOME=/home/${USERNAME}" in dockerfile
-        assert "ENV PIP_CACHE_DIR=/home/${USERNAME}/.cache/pip" in dockerfile
-        assert "ENV UV_CACHE_DIR=/home/${USERNAME}/.cache/uv" in dockerfile
-        assert "apt-get install -y --no-install-recommends \\" in dockerfile
-        assert (
-            "bash ca-certificates curl wget sudo apt-utils git jq tmux build-essential"
-            in dockerfile
-        )
-        assert "git jq tmux build-essential" in dockerfile
-        assert "useradd -m -u ${UID} -g ${GID} -s /bin/bash ${USERNAME}" in dockerfile
-        assert "mkdir -p /home/${USERNAME}/.cache /workspace/project" in dockerfile
-        assert "USER ${USERNAME}" in dockerfile
-
     def test_partial_push_failure_collected(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
 

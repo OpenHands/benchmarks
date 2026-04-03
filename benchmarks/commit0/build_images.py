@@ -191,7 +191,8 @@ def _assemble_commit0_with_logging(
                     attempt + 1,
                     max_retries,
                 )
-                time.sleep(2 + attempt * 2)
+                retry_delay = float(os.getenv("BUILD_RETRY_DELAY_SEC", "2"))
+                time.sleep(retry_delay * (1 + attempt))
             try:
                 result = _assemble_commit0_image(
                     base_image=base_image,

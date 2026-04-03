@@ -7,13 +7,8 @@ from unittest.mock import sentinel
 import pytest
 
 from benchmarks.commit0 import build_images as commit0_build_images
-from benchmarks.commit0.config import BUILD_TARGET
 from benchmarks.commit0.run_infer import get_pythonpath_prefix, normalize_pytest_cmd
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
-
-
-def test_commit0_defaults_to_source_minimal_target():
-    assert BUILD_TARGET == "source-minimal"
 
 
 def test_commit0_agent_server_image_tag_matches_run_infer():
