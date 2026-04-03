@@ -15,6 +15,7 @@ import os
 import threading
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +54,22 @@ logger = get_logger(__name__)
 
 # Interval in seconds between checking for per-instance timeouts
 TIMEOUT_CHECK_INTERVAL_SECONDS = 60
+
+
+def _default_thread_pool_workers(cpu_count: int | None) -> int:
+    """Return Python's implicit ThreadPoolExecutor size for the given CPU count."""
+    return min(32, (cpu_count or 1) + 4)
+
+
+def _read_cgroup_cpu_max() -> str | None:
+    """Return the cgroup v2 cpu.max value when available."""
+    cpu_max_path = Path("/sys/fs/cgroup/cpu.max")
+    try:
+        if cpu_max_path.exists():
+            return cpu_max_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return None
 
 
 def _to_serializable(obj: Any) -> Any:
@@ -109,6 +126,15 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    max_asyncio_thread_workers: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Upper bound for the asyncio default thread pool used by "
+            "asyncio.to_thread(). This prevents accidental misconfiguration "
+            "from creating an unbounded number of threads."
+        ),
+    )
     current_attempt: int = Field(
         default=1, description="Current attempt number (1-indexed)"
     )
@@ -358,6 +384,34 @@ class Evaluation(ABC, BaseModel):
         from benchmarks.utils.worker_context import initialize as init_worker_ctx
 
         init_worker_ctx()
+
+        loop = asyncio.get_running_loop()
+        cpu_count = os.cpu_count()
+        default_executor_workers = _default_thread_pool_workers(cpu_count)
+        effective_executor_workers = min(
+            self.num_workers, self.max_asyncio_thread_workers
+        )
+        if effective_executor_workers < self.num_workers:
+            logger.warning(
+                "[executor] capping configured_workers=%d to executor_cap=%d",
+                self.num_workers,
+                self.max_asyncio_thread_workers,
+            )
+        loop.set_default_executor(
+            ThreadPoolExecutor(
+                max_workers=effective_executor_workers,
+                thread_name_prefix="evaluation-worker",
+            )
+        )
+        logger.info(
+            "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s",
+            self.num_workers,
+            self.max_asyncio_thread_workers,
+            effective_executor_workers,
+            default_executor_workers,
+            cpu_count,
+            _read_cgroup_cpu_max() or "unknown",
+        )
 
         all_instances = self.prepare_instances()
 

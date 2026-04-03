@@ -5,6 +5,7 @@ with semaphore-based concurrency and asyncio.to_thread() for sync operations.
 """
 
 import asyncio
+import concurrent.futures
 import time
 
 import pytest
@@ -279,6 +280,204 @@ def test_evaluation_run_end_to_end(tmp_path):
     assert attempt_file.exists()
     lines = attempt_file.read_text().strip().split("\n")
     assert len(lines) == 4
+
+
+def test_evaluation_installs_explicit_thread_executor(tmp_path, monkeypatch):
+    """Evaluation should size asyncio.to_thread() from num_workers."""
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    captured: dict[str, object] = {}
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            raise AssertionError("prepare_workspace should not be called")
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("evaluate_instance should not be called")
+
+    real_executor = concurrent.futures.ThreadPoolExecutor
+
+    def recording_executor(*args, **kwargs):
+        captured["max_workers"] = kwargs["max_workers"]
+        captured["thread_name_prefix"] = kwargs.get("thread_name_prefix")
+        executor = real_executor(*args, **kwargs)
+        captured["executor"] = executor
+        return executor
+
+    monkeypatch.setattr(
+        "benchmarks.utils.evaluation.ThreadPoolExecutor",
+        recording_executor,
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=7)
+
+    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr:
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        mock_lmnr.get.return_value = svc
+
+        results = evaluator.run()
+
+    assert results == []
+    assert captured["max_workers"] == 7
+    assert captured["thread_name_prefix"] == "evaluation-worker"
+
+
+def test_evaluation_logs_effective_executor_capacity(tmp_path, monkeypatch):
+    """Startup logs should expose configured vs effective thread capacity."""
+    from typing import List
+    from unittest.mock import AsyncMock, Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation, logger
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return [EvalInstance(id="inst-1", data={})]
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            raise AssertionError("prepare_workspace should not be called")
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("evaluate_instance should not be called")
+
+    monkeypatch.setattr("benchmarks.utils.evaluation.os.cpu_count", lambda: 4)
+    monkeypatch.setattr(
+        "benchmarks.utils.evaluation._read_cgroup_cpu_max",
+        lambda: "400000 100000",
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=30)
+
+    with (
+        patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,
+        patch.object(logger, "info") as mock_info,
+    ):
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        mock_lmnr.get.return_value = svc
+        evaluator._run_attempt_async = AsyncMock(return_value=[])
+        evaluator.run()
+
+    assert any(
+        call.args
+        and call.args[0]
+        == "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s"
+        and call.args[1:] == (30, 20, 20, 8, 4, "400000 100000")
+        for call in mock_info.call_args_list
+    )
+
+
+def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch):
+    """Evaluation should cap asyncio.to_thread() workers to a configured maximum."""
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation, logger
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    captured: dict[str, object] = {}
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            raise AssertionError("prepare_workspace should not be called")
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("evaluate_instance should not be called")
+
+    real_executor = concurrent.futures.ThreadPoolExecutor
+
+    def recording_executor(*args, **kwargs):
+        captured["max_workers"] = kwargs["max_workers"]
+        return real_executor(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "benchmarks.utils.evaluation.ThreadPoolExecutor",
+        recording_executor,
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(
+        metadata=metadata,
+        num_workers=1000,
+        max_asyncio_thread_workers=20,
+    )
+
+    with (
+        patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,
+        patch.object(logger, "warning") as mock_warning,
+    ):
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        mock_lmnr.get.return_value = svc
+        results = evaluator.run()
+
+    assert results == []
+    assert captured["max_workers"] == 20
+    assert any(
+        call.args
+        and call.args[0]
+        == "[executor] capping configured_workers=%d to executor_cap=%d"
+        and call.args[1:] == (1000, 20)
+        for call in mock_warning.call_args_list
+    )
 
 
 def test_evaluation_timeout_cancels_instance(tmp_path):
