@@ -126,6 +126,15 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    max_asyncio_thread_workers: int = Field(
+        default=40,
+        ge=1,
+        description=(
+            "Upper bound for the asyncio default thread pool used by "
+            "asyncio.to_thread(). This prevents accidental misconfiguration "
+            "from creating an unbounded number of threads."
+        ),
+    )
     current_attempt: int = Field(
         default=1, description="Current attempt number (1-indexed)"
     )
@@ -379,16 +388,26 @@ class Evaluation(ABC, BaseModel):
         loop = asyncio.get_running_loop()
         cpu_count = os.cpu_count()
         default_executor_workers = _default_thread_pool_workers(cpu_count)
+        effective_executor_workers = min(
+            self.num_workers, self.max_asyncio_thread_workers
+        )
+        if effective_executor_workers < self.num_workers:
+            logger.warning(
+                "[executor] capping configured_workers=%d to executor_cap=%d",
+                self.num_workers,
+                self.max_asyncio_thread_workers,
+            )
         loop.set_default_executor(
             ThreadPoolExecutor(
-                max_workers=self.num_workers,
+                max_workers=effective_executor_workers,
                 thread_name_prefix="evaluation-worker",
             )
         )
         logger.info(
-            "[executor] configured_workers=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s",
+            "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s",
             self.num_workers,
-            self.num_workers,
+            self.max_asyncio_thread_workers,
+            effective_executor_workers,
             default_executor_workers,
             cpu_count,
             _read_cgroup_cpu_max() or "unknown",

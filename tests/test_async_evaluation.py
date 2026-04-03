@@ -397,8 +397,77 @@ def test_evaluation_logs_effective_executor_capacity(tmp_path, monkeypatch, capl
             evaluator.run()
 
     assert (
-        "[executor] configured_workers=30 effective_max_workers=30 "
+        "[executor] configured_workers=30 executor_cap=40 effective_max_workers=30 "
         "default_max_workers=8 os_cpu_count=4 cpu.max=400000 100000" in caplog.text
+    )
+
+
+def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch, caplog):
+    """Evaluation should cap asyncio.to_thread() workers to a configured maximum."""
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    captured: dict[str, object] = {}
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            raise AssertionError("prepare_workspace should not be called")
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("evaluate_instance should not be called")
+
+    real_executor = concurrent.futures.ThreadPoolExecutor
+
+    def recording_executor(*args, **kwargs):
+        captured["max_workers"] = kwargs["max_workers"]
+        return real_executor(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "benchmarks.utils.evaluation.ThreadPoolExecutor",
+        recording_executor,
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(
+        metadata=metadata,
+        num_workers=1000,
+        max_asyncio_thread_workers=40,
+    )
+
+    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr:
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        mock_lmnr.get.return_value = svc
+
+        with caplog.at_level("WARNING", logger="benchmarks.utils.evaluation"):
+            results = evaluator.run()
+
+    assert results == []
+    assert captured["max_workers"] == 40
+    assert (
+        "[executor] capping configured_workers=1000 to executor_cap=40"
+        in caplog.text
     )
 
 
