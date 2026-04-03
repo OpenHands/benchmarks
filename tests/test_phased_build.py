@@ -199,6 +199,8 @@ class TestAssembleAgentImage:
         assert "ENV HOME=/tmp" in dockerfile
         assert "ENV PIP_CACHE_DIR=/tmp/.cache/pip" in dockerfile
         assert "ENV UV_CACHE_DIR=/tmp/.cache/uv" in dockerfile
+        assert "apt-get install -y --no-install-recommends \\" in dockerfile
+        assert "git jq tmux build-essential" in dockerfile
 
     def test_partial_push_failure_collected(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
