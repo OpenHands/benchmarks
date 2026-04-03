@@ -129,6 +129,7 @@ class TestBuildBaseImage:
 
         result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
         assert result.tags == []
+        assert result.error is not None
         assert "timed out" in result.error
 
 
@@ -337,6 +338,7 @@ class TestAssembleAgentImage:
             )
 
         assert result.tags == []
+        assert result.error is not None
         assert "timed out" in result.error
 
 
@@ -500,6 +502,7 @@ class TestBuildBuilderImage:
         result = build_builder_image()
 
         assert result.tags == []
+        assert result.error is not None
         assert "timed out" in result.error
 
 

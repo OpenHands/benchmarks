@@ -243,6 +243,7 @@ def build_base_image(
     proc, timeout_error = _run_docker_command(cmd)
     if timeout_error:
         return BuildOutput(base_image=base_image, tags=[], error=timeout_error)
+    assert proc is not None
 
     if proc.returncode != 0:
         error = (
@@ -466,6 +467,7 @@ def build_builder_image(
         proc, timeout_error = _run_docker_command(cmd)
         if timeout_error:
             return BuildOutput(base_image=build_id, tags=[], error=timeout_error)
+        assert proc is not None
 
         if proc.returncode != 0:
             error = (
@@ -544,6 +546,7 @@ def assemble_agent_image(
             timeout_error[:200],
         )
         return BuildOutput(base_image=base_tag, tags=[], error=timeout_error)
+    assert proc is not None
 
     if proc.returncode != 0:
         error = (
@@ -573,6 +576,7 @@ def assemble_agent_image(
             if timeout_error:
                 failed_pushes.append((t, timeout_error[:200]))
                 continue
+            assert push_proc is not None
 
             if push_proc.returncode != 0:
                 error = (
