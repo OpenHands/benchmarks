@@ -1,5 +1,6 @@
 """Tests for commit0 run_infer test command helpers."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import sentinel
 
@@ -22,9 +23,8 @@ def test_commit0_agent_server_image_tag_matches_run_infer():
         "ghcr.io/example/agent-server",
     )
 
-    assert (
-        tag
-        == "ghcr.io/example/agent-server:"
+    assert tag == (
+        "ghcr.io/example/agent-server:"
         f"{commit0_build_images.get_agent_server_image_tag_prefix('source-minimal')}"
         "-commit0-tinydb-source-minimal"
     )
@@ -96,7 +96,7 @@ def test_commit0_main_forwards_expected_build_args(monkeypatch):
     monkeypatch.setattr(
         commit0_build_images,
         "default_build_output_dir",
-        lambda dataset, split: f"/tmp/{dataset}/{split}",
+        lambda dataset, split: Path(f"/tmp/{dataset}/{split}"),
     )
 
     def fake_build_commit0_images(**kwargs):
@@ -128,7 +128,7 @@ def test_commit0_main_forwards_expected_build_args(monkeypatch):
     assert forwarded == {
         "base_images": ["docker.io/example/base:v0"],
         "target": "source-minimal",
-        "build_dir": "/tmp/dataset/test",
+        "build_dir": Path("/tmp/dataset/test"),
         "image": "ghcr.io/example/agent-server",
         "push": False,
         "max_workers": 2,

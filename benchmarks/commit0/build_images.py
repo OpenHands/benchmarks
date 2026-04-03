@@ -14,6 +14,7 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from threading import Lock
+from typing import cast
 
 from commit0.harness.constants import SPLIT
 from tqdm.auto import tqdm
@@ -24,6 +25,7 @@ from benchmarks.swebench.build_base_images import (
     _get_sdk_submodule_info,
     build_builder_image,
 )
+from benchmarks.swebench.constants import TargetType
 from benchmarks.utils.build_utils import (
     BuildOutput,
     _update_pbar,
@@ -321,8 +323,8 @@ def assemble_commit0_agent_images(
 def build_commit0_images(
     *,
     base_images: list[str],
-    target: str,
-    build_dir: str,
+    target: TargetType,
+    build_dir: Path,
     image: str,
     push: bool,
     max_workers: int,
@@ -390,6 +392,7 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
+    target = cast(TargetType, args.target)
     docker_image_prefix = args.docker_image_prefix or None
 
     base_images = collect_base_images(
@@ -402,7 +405,7 @@ def main(argv: list[str]) -> int:
     build_dir = default_build_output_dir(args.dataset, args.split)
     return build_commit0_images(
         base_images=base_images,
-        target=args.target,
+        target=target,
         build_dir=build_dir,
         image=args.image,
         push=args.push,

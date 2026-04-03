@@ -200,7 +200,10 @@ class TestAssembleAgentImage:
         assert "ENV PIP_CACHE_DIR=/home/${USERNAME}/.cache/pip" in dockerfile
         assert "ENV UV_CACHE_DIR=/home/${USERNAME}/.cache/uv" in dockerfile
         assert "apt-get install -y --no-install-recommends \\" in dockerfile
-        assert "bash ca-certificates curl wget sudo apt-utils git jq tmux build-essential" in dockerfile
+        assert (
+            "bash ca-certificates curl wget sudo apt-utils git jq tmux build-essential"
+            in dockerfile
+        )
         assert "git jq tmux build-essential" in dockerfile
         assert "useradd -m -u ${UID} -g ${GID} -s /bin/bash ${USERNAME}" in dockerfile
         assert "mkdir -p /home/${USERNAME}/.cache /workspace/project" in dockerfile
