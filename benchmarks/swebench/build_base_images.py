@@ -111,9 +111,9 @@ def _format_timeout_error(
 ) -> str:
     output = ""
     if exc.stderr:
-        output = str(exc.stderr).strip()
+        output = exc.stderr.strip()
     elif exc.stdout:
-        output = str(exc.stdout).strip()
+        output = exc.stdout.strip()
 
     message = f"Command timed out after {timeout_seconds}s: {' '.join(cmd)}"
     if output:
@@ -126,6 +126,12 @@ def _run_docker_command(
     *,
     timeout_seconds: int = DOCKER_COMMAND_TIMEOUT_SECONDS,
 ) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
+    """Run a Docker command with timeout handling.
+
+    Returns:
+        ``(proc, None)`` when the command completes before the timeout.
+        ``(None, error_message)`` when the command times out.
+    """
     try:
         proc = subprocess.run(
             cmd,
@@ -165,6 +171,13 @@ def _yield_completed_futures(
     in_progress: set[str],
     phase_name: str,
 ):
+    """Yield completed futures while emitting periodic heartbeat logs.
+
+    Args:
+        futures: Mapping of submitted futures to their build identifier.
+        in_progress: Caller-maintained set of identifiers still pending.
+        phase_name: Label to include in heartbeat log messages.
+    """
     pending = set(futures)
     while pending:
         done, pending = wait(
