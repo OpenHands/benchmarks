@@ -13,7 +13,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from threading import Lock
 
@@ -41,6 +41,14 @@ logger = get_logger(__name__)
 EVAL_BASE_IMAGE = os.getenv("OPENHANDS_EVAL_BASE_IMAGE", "ghcr.io/openhands/eval-base")
 EVAL_BUILDER_IMAGE = os.getenv(
     "OPENHANDS_EVAL_BUILDER_IMAGE", "ghcr.io/openhands/eval-builder"
+)
+DOCKER_COMMAND_TIMEOUT_SECONDS = max(
+    1,
+    int(os.getenv("OPENHANDS_DOCKER_COMMAND_TIMEOUT_SECONDS", "2000")),
+)
+PHASED_BUILD_HEARTBEAT_SECONDS = max(
+    1,
+    int(os.getenv("OPENHANDS_PHASED_BUILD_HEARTBEAT_SECONDS", "60")),
 )
 AGENT_LAYER_DOCKERFILE = (
     Path(__file__).parent.parent / "utils" / "Dockerfile.agent-layer"
@@ -98,6 +106,97 @@ def base_image_tag(
     return f"{image}:{content_hash}-{custom_tag}"
 
 
+def _format_timeout_error(
+    cmd: list[str], exc: subprocess.TimeoutExpired, timeout_seconds: int
+) -> str:
+    output = ""
+    if exc.stderr:
+        output = exc.stderr.strip()
+    elif exc.stdout:
+        output = exc.stdout.strip()
+
+    message = f"Command timed out after {timeout_seconds}s: {' '.join(cmd)}"
+    if output:
+        message += f" | Last output: {output[-500:]}"
+    return message
+
+
+def _run_docker_command(
+    cmd: list[str],
+    *,
+    timeout_seconds: int = DOCKER_COMMAND_TIMEOUT_SECONDS,
+) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
+    """Run a Docker command with timeout handling.
+
+    Returns:
+        ``(proc, None)`` when the command completes before the timeout.
+        ``(None, error_message)`` when the command times out.
+    """
+    try:
+        proc = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        if exc.stdout:
+            print(exc.stdout, end="")
+        if exc.stderr:
+            print(exc.stderr, end="", file=sys.stderr)
+        error = _format_timeout_error(cmd, exc, timeout_seconds)
+        logger.error(error)
+        return None, error
+
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+    return proc, None
+
+
+def _pending_summary(in_progress: set[str], limit: int = 3) -> str:
+    pending = sorted(in_progress)
+    if not pending:
+        return "none"
+    sample = ", ".join(pending[:limit])
+    if len(pending) > limit:
+        sample += f", ... (+{len(pending) - limit} more)"
+    return sample
+
+
+def _yield_completed_futures(
+    futures: dict,
+    in_progress: set[str],
+    phase_name: str,
+):
+    """Yield completed futures while emitting periodic heartbeat logs.
+
+    Args:
+        futures: Mapping of submitted futures to their build identifier.
+        in_progress: Caller-maintained set of identifiers still pending.
+        phase_name: Label to include in heartbeat log messages.
+    """
+    pending = set(futures)
+    while pending:
+        done, pending = wait(
+            pending,
+            timeout=PHASED_BUILD_HEARTBEAT_SECONDS,
+            return_when=FIRST_COMPLETED,
+        )
+        if not done:
+            logger.info(
+                "%s still running: pending=%d sample=%s",
+                phase_name,
+                len(in_progress),
+                _pending_summary(in_progress),
+            )
+            continue
+        for fut in done:
+            yield fut
+
+
 def build_base_image(
     base_image: str,
     custom_tag: str,
@@ -141,12 +240,10 @@ def build_base_image(
     cmd.append(str(dockerfile.parent))
 
     logger.info("Building base image: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
+    proc, timeout_error = _run_docker_command(cmd)
+    if timeout_error:
+        return BuildOutput(base_image=base_image, tags=[], error=timeout_error)
+    assert proc is not None
 
     if proc.returncode != 0:
         error = (
@@ -270,7 +367,7 @@ def build_all_base_images(
                 "Building",
             )
 
-            for fut in as_completed(futures):
+            for fut in _yield_completed_futures(futures, in_progress, "Base builds"):
                 base = futures[fut]
                 try:
                     result: BuildOutput = fut.result()
@@ -367,12 +464,10 @@ def build_builder_image(
         cmd.append(str(ctx))
 
         logger.info("Building builder: %s", " ".join(cmd))
-        proc = subprocess.run(cmd, text=True, capture_output=True)
-
-        if proc.stdout:
-            print(proc.stdout, end="")
-        if proc.stderr:
-            print(proc.stderr, end="", file=sys.stderr)
+        proc, timeout_error = _run_docker_command(cmd)
+        if timeout_error:
+            return BuildOutput(base_image=build_id, tags=[], error=timeout_error)
+        assert proc is not None
 
         if proc.returncode != 0:
             error = (
@@ -441,13 +536,17 @@ def assemble_agent_image(
 
     logger.info("[assembly] Building: %s", " ".join(build_cmd))
     build_started = time.monotonic()
-    proc = subprocess.run(build_cmd, text=True, capture_output=True)
+    proc, timeout_error = _run_docker_command(build_cmd)
     build_seconds = round(time.monotonic() - build_started, 3)
-
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
+    if timeout_error:
+        logger.info(
+            "[assembly] FAILED %s: build_seconds=%.1f error=%s",
+            tag_label,
+            build_seconds,
+            timeout_error[:200],
+        )
+        return BuildOutput(base_image=base_tag, tags=[], error=timeout_error)
+    assert proc is not None
 
     if proc.returncode != 0:
         error = (
@@ -472,13 +571,12 @@ def assemble_agent_image(
             push_cmd = ["docker", "push", t]
             logger.info("[assembly] Pushing: %s", t)
             push_started = time.monotonic()
-            push_proc = subprocess.run(push_cmd, text=True, capture_output=True)
+            push_proc, timeout_error = _run_docker_command(push_cmd)
             push_seconds += time.monotonic() - push_started
-
-            if push_proc.stdout:
-                print(push_proc.stdout, end="")
-            if push_proc.stderr:
-                print(push_proc.stderr, end="", file=sys.stderr)
+            if timeout_error:
+                failed_pushes.append((t, timeout_error[:200]))
+                continue
+            assert push_proc is not None
 
             if push_proc.returncode != 0:
                 error = (
@@ -672,7 +770,9 @@ def assemble_all_agent_images(
                 "Assembling",
             )
 
-            for fut in as_completed(futures):
+            for fut in _yield_completed_futures(
+                futures, in_progress, "Agent image assembly"
+            ):
                 base = futures[fut]
                 try:
                     result: BuildOutput = fut.result()
@@ -760,7 +860,7 @@ def get_base_build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=3,
+        default=2,
         help="Retries per image build",
     )
     return parser

@@ -32,6 +32,16 @@ def _fail_proc(stderr="build error", code=1):
     )
 
 
+def _timeout_exc(stdout="", stderr=""):
+    """Fake subprocess.TimeoutExpired with optional partial output."""
+    return subprocess.TimeoutExpired(
+        cmd=["docker"],
+        timeout=1,
+        output=stdout,
+        stderr=stderr,
+    )
+
+
 # Production code uses ProcessPoolExecutor for true parallelism across builds.
 # Tests substitute ThreadPoolExecutor to avoid pickling issues with mocks.
 def _thread_pool(**kw):
@@ -101,6 +111,26 @@ class TestBuildBaseImage:
         result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
         assert result.error is not None
         assert result.tags == []
+
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run",
+        side_effect=_timeout_exc(stderr="stalled build"),
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists",
+        return_value=False,
+    )
+    def test_timeout_returns_error(self, _exists, _dockerfile, _run):
+        from benchmarks.swebench.build_base_images import build_base_image
+
+        result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
+        assert result.tags == []
+        assert result.error is not None
+        assert "timed out" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +314,33 @@ class TestAssembleAgentImage:
         assert result.error is not None
         assert "not found" in result.error
 
+    def test_build_timeout_returns_error(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.subprocess.run",
+                side_effect=_timeout_exc(stderr="build stalled"),
+            ),
+        ):
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=True,
+            )
+
+        assert result.tags == []
+        assert result.error is not None
+        assert "timed out" in result.error
+
 
 # ---------------------------------------------------------------------------
 # build_all_base_images: manifest writing and failure counting
@@ -417,6 +474,36 @@ class TestBuildBuilderImage:
         assert result.base_image == EVAL_BUILDER_IMAGE
         assert result.error is None
         assert len(result.tags) == 1
+
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=False
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
+        return_value=("sdk", "abc1234567", "v1"),
+    )
+    @patch("benchmarks.swebench.build_base_images._get_repo_root")
+    @patch("openhands.agent_server.docker.build._make_build_context")
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run",
+        side_effect=_timeout_exc(stderr="builder stalled"),
+    )
+    def test_timeout_returns_error(
+        self, _run, mock_make_context, mock_repo_root, _sdk, _exists, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import build_builder_image
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        (ctx / "Dockerfile").write_text("FROM scratch\n")
+        mock_make_context.return_value = ctx
+        mock_repo_root.return_value = tmp_path
+
+        result = build_builder_image()
+
+        assert result.tags == []
+        assert result.error is not None
+        assert "timed out" in result.error
 
 
 # ---------------------------------------------------------------------------

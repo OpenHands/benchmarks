@@ -162,7 +162,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=3,
+        default=2,
         help="Retries per image build",
     )
     parser.add_argument(
