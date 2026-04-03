@@ -27,7 +27,7 @@ on:
       max-retries:
         description: 'Retries per image build'
         required: false
-        default: '5'
+        default: '2'
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
