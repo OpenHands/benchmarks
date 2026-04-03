@@ -106,4 +106,9 @@ When converting between OpenHands format and benchmark-specific formats:
 - The Harbor dataset name used in CI is `terminal-bench@2.0`.
 - For CI smoke tests, pass `--n-limit <count>` to `terminalbench-infer` so Harbor only runs the requested subset.
 
+# SWE-Bench Multimodal Notes
+- The default `swebenchmultimodal-infer` selection now comes from `benchmarks/swebenchmultimodal/resolved_instances.txt`.
+- `resolved_instances.txt` is generated from `ambiguity_annotations.json` and contains all instances annotated with the `SOLVEABLE` keyword.
+- `benchmarks/swebenchmultimodal/build_images.py` does not inherit that default automatically; pass `--select benchmarks/swebenchmultimodal/resolved_instances.txt` when you need matching image builds.
+
 </BENCHMARK_SPECIFIC>
