@@ -35,6 +35,7 @@ from benchmarks.utils.litellm_proxy import (
     get_key_spend,
     set_current_virtual_key,
 )
+from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -770,7 +771,7 @@ class Evaluation(ABC, BaseModel):
                 # max_retries is the number of *additional* attempts after the
                 # first, so total attempts = max_retries + 1 (retry_count 0..N).
                 while retry_count <= max_retries:
-                    out = self._execute_single_attempt(
+                    out, failure_category = self._execute_single_attempt(
                         instance=instance,
                         eval_span_ctx=eval_span_ctx,
                         critic_attempt=critic_attempt,
@@ -785,9 +786,12 @@ class Evaluation(ABC, BaseModel):
                     if out is not None:
                         return instance, out
 
-                    # _execute_single_attempt returns None on non-final failure
+                    # _execute_single_attempt returns (None, category) on
+                    # non-final failure.  Only escalate resource_factor for
+                    # failures that are plausibly resource-related.
                     retry_count += 1
-                    runtime_failure_count += 1
+                    if failure_category == FailureCategory.RESOURCE:
+                        runtime_failure_count += 1
 
                 # Unreachable: _execute_single_attempt always returns EvalOutput
                 # on the final retry, but pyright can't prove the loop exits early.
@@ -806,18 +810,19 @@ class Evaluation(ABC, BaseModel):
         max_retries: int,
         runtime_failure_count: int,
         runtime_runs: list[RemoteRuntimeAllocation],
-    ) -> EvalOutput | None:
+    ) -> tuple[EvalOutput | None, FailureCategory | None]:
         """Execute one attempt with proper span and workspace lifecycle.
 
-        Returns:
-            EvalOutput: on success, or on the *final* retry failure
-                (retry_count == max_retries) so the caller can report it.
-            None: on a non-final failure, signalling the caller should retry::
+        Returns a ``(output, failure_category)`` tuple:
 
-                out = self._execute_single_attempt(...)
-                if out is not None:
-                    return instance, out   # done (success or final failure)
-                # else: bump counters and loop
+            ``(EvalOutput, None)``
+                On success, or on the *final* retry failure so the caller can
+                report it.
+
+            ``(None, FailureCategory)``
+                On a non-final failure, signalling the caller should retry.
+                The category tells the caller whether to escalate
+                ``resource_factor``.
         """
         workspace = None
         exec_span = None
@@ -913,7 +918,7 @@ class Evaluation(ABC, BaseModel):
                     )
 
             logger.info("[worker] done id=%s", instance.id)
-            return out
+            return out, None
         except Exception as e:
             if exec_span is not None:
                 exec_span.record_exception(e)
@@ -934,30 +939,38 @@ class Evaluation(ABC, BaseModel):
                     str(e),
                 )
 
-            # TODO(#277): add an exception classifier to decide when to bump resources
+            # Classify the failure to decide whether resource escalation
+            # is warranted.  See evaluation/issues/408.
+            failure_category = classify_failure(e)
+            escalate = failure_category == FailureCategory.RESOURCE
+
             logger.warning(
-                f"[worker] Instance {instance.id}: runtime_failure_count="
-                f"{runtime_failure_count + 1}"
+                "[worker] Instance %s: failure_category=%s, escalate_resources=%s, "
+                "runtime_failure_count=%d",
+                instance.id,
+                failure_category.value,
+                escalate,
+                runtime_failure_count + (1 if escalate else 0),
             )
 
             if retry_count < max_retries:
                 logger.warning(
                     f"[worker] Instance {instance.id} failed "
-                    f"(attempt {retry_count + 1}/{max_retries}): "
+                    f"(attempt {retry_count + 1}/{max_retries + 1}): "
                     f"{str(e)}"
                 )
             else:
                 logger.error(
                     f"[worker] Instance {instance.id} failed after "
-                    f"{max_retries} retries. Last error: {str(e)}",
+                    f"{max_retries + 1} attempts. Last error: {str(e)}",
                     exc_info=True,
                 )
                 # Create error output for final failure
                 error_output = self._create_error_output(instance, e, max_retries)
                 if runtime_runs:
                     error_output.runtime_runs = runtime_runs
-                return error_output
-            return None
+                return error_output, None
+            return None, failure_category
         finally:
             # Clean up the per-instance virtual key and thread-local.
             if virtual_key is not None:
