@@ -402,7 +402,7 @@ def test_evaluation_logs_effective_executor_capacity(tmp_path, monkeypatch):
         call.args
         and call.args[0]
         == "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s"
-        and call.args[1:] == (30, 40, 30, 8, 4, "400000 100000")
+        and call.args[1:] == (30, 20, 20, 8, 4, "400000 100000")
         for call in mock_info.call_args_list
     )
 
@@ -457,7 +457,7 @@ def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch):
     evaluator = TestEvaluation(
         metadata=metadata,
         num_workers=1000,
-        max_asyncio_thread_workers=40,
+        max_asyncio_thread_workers=20,
     )
 
     with (
@@ -470,12 +470,12 @@ def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch):
         results = evaluator.run()
 
     assert results == []
-    assert captured["max_workers"] == 40
+    assert captured["max_workers"] == 20
     assert any(
         call.args
         and call.args[0]
         == "[executor] capping configured_workers=%d to executor_cap=%d"
-        and call.args[1:] == (1000, 40)
+        and call.args[1:] == (1000, 20)
         for call in mock_warning.call_args_list
     )
 

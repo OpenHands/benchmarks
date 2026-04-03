@@ -127,7 +127,7 @@ class Evaluation(ABC, BaseModel):
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
     max_asyncio_thread_workers: int = Field(
-        default=40,
+        default=20,
         ge=1,
         description=(
             "Upper bound for the asyncio default thread pool used by "
