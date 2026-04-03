@@ -18,7 +18,7 @@ benchmarks/<benchmark_name>/
 ```
 
 **One benchmark per folder.** For similar benchmarks (e.g., SWE-bench and SWE-bench MultiModal), it's preferable to duplicate code than to merge them.
-**benchmark_name should be lower case slug** No dashes, nor underscores, so SWE-bench MultiModal becomes swebenchmultimodal.
+**benchmark_name should be lowercase only.** Do not use dashes or underscores, so SWE-bench MultiModal becomes `swebenchmultimodal`.
 
 ## Required Files for New Benchmarks
 
@@ -67,8 +67,8 @@ Use kebab-case for CLI names (e.g., `swebench-infer`).
 
 ## Naming Conventions
 
-- **Benchmark names**: lowercase, hyphenated (e.g., `swebench`, `swtbench`)
-- **Python modules**: lowercase with underscores (e.g., `benchmarks.swebench`)
+- **Benchmark names**: lowercase only, with no dashes or underscores (e.g., `swebench`, `multiswebench`, `swebenchmultimodal`)
+- **Benchmark Python package names**: follow the benchmark name and stay lowercase only (e.g., `benchmarks.swebench`, `benchmarks.multiswebench`)
 - **Classes**: PascalCase (e.g., `SWEbenchEvaluation`)
 - **Functions/methods**: snake_case (e.g., `prepare_instances`)
 - **CLI arguments**: kebab-case (e.g., `--n-limit`)
