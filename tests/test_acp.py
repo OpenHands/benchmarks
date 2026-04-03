@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from benchmarks.utils.acp import (
+    _ACP_PROMPT_TIMEOUT_OVERRIDES,
+    ACP_PROMPT_TIMEOUT,
     _get_acp_env,
     build_acp_agent,
     get_acp_command,
@@ -201,6 +203,25 @@ def test_build_acp_agent_passes_acp_env():
 def test_build_acp_agent_missing_key_raises():
     with pytest.raises(ValueError, match="ANTHROPIC_API_KEY not found"):
         build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
+
+
+@patch.dict(
+    os.environ, {"GEMINI_API_KEY": "gk-test", "GEMINI_BASE_URL": "https://proxy"}
+)
+def test_build_acp_agent_gemini_uses_extended_timeout():
+    """acp-gemini should use the longer prompt timeout from _ACP_PROMPT_TIMEOUT_OVERRIDES."""
+    agent = build_acp_agent("acp-gemini", "litellm_proxy/gemini-3-flash-preview")
+    assert agent.acp_prompt_timeout == _ACP_PROMPT_TIMEOUT_OVERRIDES["acp-gemini"]
+    assert agent.acp_prompt_timeout > ACP_PROMPT_TIMEOUT
+
+
+@patch.dict(
+    os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"}
+)
+def test_build_acp_agent_claude_uses_default_timeout():
+    """acp-claude should use the default prompt timeout."""
+    agent = build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
+    assert agent.acp_prompt_timeout == ACP_PROMPT_TIMEOUT
 
 
 # ---- setup_acp_workspace ----------------------------------------------------
