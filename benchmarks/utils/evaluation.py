@@ -573,9 +573,7 @@ class Evaluation(ABC, BaseModel):
             """Process one instance with semaphore-based concurrency control."""
             async with semaphore:
                 task = asyncio.current_task()
-                pending_info = (
-                    pending_instances.get(task) if task is not None else None
-                )
+                pending_info = pending_instances.get(task) if task is not None else None
 
                 def _thread_wrapper() -> Tuple[EvalInstance, EvalOutput]:
                     # Record start time when the thread actually begins
