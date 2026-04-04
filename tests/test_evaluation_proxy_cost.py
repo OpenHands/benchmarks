@@ -73,7 +73,7 @@ def test_proxy_cost_retries_after_initial_zero_spend(tmp_path):
 
     assert result_output.test_result["proxy_cost"] == 0.125
     assert mock_get_key_spend.call_count == 2
-    mock_sleep.assert_called_once_with(1)
+    mock_sleep.assert_called_once_with(2)
 
 
 def test_proxy_cost_retries_after_initial_none_spend(tmp_path):
@@ -93,7 +93,7 @@ def test_proxy_cost_retries_after_initial_none_spend(tmp_path):
 
     assert result_output.test_result["proxy_cost"] == 0.25
     assert mock_get_key_spend.call_count == 3
-    assert mock_sleep.call_args_list == [call(1), call(2)]
+    assert mock_sleep.call_args_list == [call(2), call(4)]
 
 
 def test_proxy_cost_retry_uses_full_backoff_when_spend_never_appears(tmp_path):
@@ -105,12 +105,12 @@ def test_proxy_cost_retry_uses_full_backoff_when_spend_never_appears(tmp_path):
         patch("benchmarks.utils.evaluation.delete_key"),
         patch(
             "benchmarks.utils.evaluation.get_key_spend",
-            side_effect=[0.0, 0.0, 0.0, 0.0],
+            side_effect=[0.0, 0.0, 0.0, 0.0, 0.0],
         ) as mock_get_key_spend,
         patch("benchmarks.utils.evaluation.time.sleep") as mock_sleep,
     ):
         _, result_output = evaluator._process_one_sync(instance, critic_attempt=1)
 
     assert result_output.test_result["proxy_cost"] == 0.0
-    assert mock_get_key_spend.call_count == 4
-    assert mock_sleep.call_args_list == [call(1), call(2), call(4)]
+    assert mock_get_key_spend.call_count == 5
+    assert mock_sleep.call_args_list == [call(2), call(4), call(8), call(16)]

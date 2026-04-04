@@ -13,7 +13,22 @@ def test_extract_proxy_cost_sums_entries():
         None,
     ]
 
-    assert extract_proxy_cost(jsonl_data) == 3.75
+    total, zero_count = extract_proxy_cost(jsonl_data)
+    assert total == 3.75
+    assert zero_count == 0
+
+
+def test_extract_proxy_cost_counts_zero_cost_instances():
+    jsonl_data = [
+        {"test_result": {"proxy_cost": 1.25}},
+        {"test_result": {"proxy_cost": 0.0}},
+        {"test_result": {"proxy_cost": 0.0}},
+        {"test_result": {}},
+    ]
+
+    total, zero_count = extract_proxy_cost(jsonl_data)
+    assert total == 1.25
+    assert zero_count == 2
 
 
 def test_calculate_costs_writes_top_level_proxy_cost_summary(tmp_path):
@@ -60,5 +75,6 @@ def test_calculate_costs_writes_top_level_proxy_cost_summary(tmp_path):
 
     assert "proxy_cost_summary" in report
     assert report["proxy_cost_summary"]["total_proxy_cost"] == 6.0
+    assert report["proxy_cost_summary"]["zero_proxy_cost_instances"] == 0
     assert report["proxy_cost_summary"]["only_main_output_proxy_cost"] == 6.0
     assert report["proxy_cost_summary"]["sum_critic_files_proxy_cost"] == 6.0
