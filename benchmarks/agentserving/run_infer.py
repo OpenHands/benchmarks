@@ -14,6 +14,7 @@ from typing import Sequence, cast
 from urllib.parse import urlparse, urlunparse
 
 import httpx
+from pydantic import SecretStr
 
 from benchmarks.agentserving.config import (
     DEFAULT_AGENT_TIMEOUT_SECONDS,
@@ -133,6 +134,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the pre-run /health probe",
     )
     parser.add_argument(
+        "--healthcheck-timeout-seconds",
+        type=int,
+        default=10 * 60,
+        help="Maximum time to wait for the /health endpoint to respond",
+    )
+    parser.add_argument(
+        "--skip-warmup",
+        action="store_true",
+        help="Skip the pre-run completion warmup probe",
+    )
+    parser.add_argument(
+        "--warmup-timeout-seconds",
+        type=int,
+        default=20 * 60,
+        help="Maximum time to wait for a warmup completion to succeed",
+    )
+    parser.add_argument(
         "--enable-condenser",
         action="store_true",
         help="Enable the default LLM summarizing condenser",
@@ -192,6 +210,93 @@ def infer_health_url(base_url: str | None) -> str | None:
     )
 
 
+def infer_chat_completions_url(base_url: str | None) -> str | None:
+    if not base_url:
+        return None
+    parsed = urlparse(base_url)
+    path = parsed.path.rstrip("/")
+    if not path.endswith("/v1"):
+        path = f"{path}/v1" if path else "/v1"
+    completions_path = f"{path}/chat/completions"
+    return urlunparse(
+        parsed._replace(path=completions_path, params="", query="", fragment="")
+    )
+
+
+def infer_served_model_name(model: str) -> str:
+    provider_prefixes = (
+        "openai/",
+        "openrouter/",
+        "litellm_proxy/",
+        "anthropic/",
+        "azure/",
+    )
+    for prefix in provider_prefixes:
+        if model.startswith(prefix):
+            return model.removeprefix(prefix)
+    return model
+
+
+def serialize_api_key(api_key: str | SecretStr | None) -> str | None:
+    if api_key is None:
+        return None
+    if isinstance(api_key, SecretStr):
+        return api_key.get_secret_value()
+    return api_key
+
+
+def warmup_completion_endpoint(llm: LLM, *, timeout_seconds: int) -> None:
+    completion_url = infer_chat_completions_url(llm.base_url)
+    if completion_url is None:
+        return
+
+    headers: dict[str, str] = {}
+    api_key = serialize_api_key(llm.api_key)
+    if api_key is not None:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    payload = {
+        "model": infer_served_model_name(llm.model),
+        "messages": [{"role": "user", "content": "Reply with OK."}],
+        "max_tokens": 8,
+        "temperature": 0,
+    }
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = httpx.post(
+                completion_url,
+                json=payload,
+                headers=headers,
+                timeout=120.0,
+            )
+            response.raise_for_status()
+            logger.info(
+                "Warmup completion succeeded for %s on attempt %d",
+                completion_url,
+                attempt,
+            )
+            return
+        except httpx.HTTPStatusError:
+            raise
+        except httpx.HTTPError as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    "Warmup completion did not succeed within "
+                    f"{timeout_seconds}s for {completion_url}"
+                ) from exc
+            logger.info(
+                "Warmup completion not ready for %s on attempt %d: %s",
+                completion_url,
+                attempt,
+                exc,
+            )
+            time.sleep(min(15.0, remaining))
+
+
 def scrape_metrics(metrics_url: str | None) -> PrometheusSnapshot | None:
     if metrics_url is None:
         return None
@@ -204,11 +309,33 @@ def scrape_metrics(metrics_url: str | None) -> PrometheusSnapshot | None:
     return parse_prometheus_snapshot(response.text)
 
 
-def wait_for_health(health_url: str | None) -> None:
+def wait_for_health(health_url: str | None, *, timeout_seconds: int) -> None:
     if health_url is None:
         return
-    response = httpx.get(health_url, timeout=30.0)
-    response.raise_for_status()
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = httpx.get(health_url, timeout=30.0)
+            response.raise_for_status()
+            logger.info(
+                "Health check succeeded for %s on attempt %d", health_url, attempt
+            )
+            return
+        except httpx.HTTPError as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Health check did not succeed within {timeout_seconds}s for {health_url}"
+                ) from exc
+            logger.info(
+                "Health check not ready for %s on attempt %d: %s",
+                health_url,
+                attempt,
+                exc,
+            )
+            time.sleep(min(15.0, remaining))
 
 
 def build_task_prompt(task_prompt: str, workspace_dir: str) -> str:
@@ -600,8 +727,16 @@ def main() -> None:
         )
     )
     eval_output_dir.mkdir(parents=True, exist_ok=True)
-    if not args.skip_healthcheck:
-        wait_for_health(infer_health_url(llm.base_url))
+    if not args.skip_healthcheck and args.skip_warmup:
+        wait_for_health(
+            infer_health_url(llm.base_url),
+            timeout_seconds=args.healthcheck_timeout_seconds,
+        )
+    if not args.skip_warmup:
+        warmup_completion_endpoint(
+            llm,
+            timeout_seconds=args.warmup_timeout_seconds,
+        )
 
     logger.info("Starting agentserving benchmark")
     logger.info("Output directory: %s", eval_output_dir)
