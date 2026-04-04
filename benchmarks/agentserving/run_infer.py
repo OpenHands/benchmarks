@@ -525,7 +525,11 @@ def build_experiment_summary(
         failure_count > 0 and failure_count / len(results) >= collapse_failure_rate
     )
 
-    if server_metrics is not None:
+    if server_metrics is not None and (
+        server_metrics.prompt_tokens > 0
+        or server_metrics.generation_tokens > 0
+        or server_metrics.request_success > 0
+    ):
         prompt_token_throughput = server_metrics.prompt_token_throughput
         completion_token_throughput = server_metrics.generation_token_throughput
         total_token_throughput = server_metrics.total_token_throughput
