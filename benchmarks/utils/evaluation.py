@@ -107,7 +107,7 @@ class PendingInstance:
     instance: EvalInstance
     datapoint_id: UUID | None = None
     task: asyncio.Task | None = field(default=None, repr=False)
-    start_time: float | None = None  # Set when task acquires semaphore
+    start_time: float | None = None  # Set when worker thread begins executing
 
 
 OnResult = Callable[[EvalInstance, EvalOutput], None]
@@ -572,19 +572,28 @@ class Evaluation(ABC, BaseModel):
         ) -> Tuple[EvalInstance, EvalOutput]:
             """Process one instance with semaphore-based concurrency control."""
             async with semaphore:
-                # Record start time when task acquires semaphore (not when queued)
                 task = asyncio.current_task()
-                if task is not None and task in pending_instances:
-                    pending_instances[task].start_time = time.monotonic()
-                # Run the sync processing function in a thread
-                return await asyncio.to_thread(
-                    self._process_one_sync,
-                    inst,
-                    attempt,
-                    lmnr_session_id=self._laminar_session_id,
-                    lmnr_trace_metadata=self._laminar_trace_meta,
-                    lmnr_datapoint_id=datapoint_id,
+                pending_info = (
+                    pending_instances.get(task) if task is not None else None
                 )
+
+                def _thread_wrapper() -> Tuple[EvalInstance, EvalOutput]:
+                    # Record start time when the thread actually begins
+                    # executing, not when the semaphore was acquired. This
+                    # avoids counting thread-pool queue time against the
+                    # per-instance timeout.
+                    if pending_info is not None:
+                        pending_info.start_time = time.monotonic()
+                    return self._process_one_sync(
+                        inst,
+                        attempt,
+                        lmnr_session_id=self._laminar_session_id,
+                        lmnr_trace_metadata=self._laminar_trace_meta,
+                        lmnr_datapoint_id=datapoint_id,
+                    )
+
+                # Run the sync processing function in a thread
+                return await asyncio.to_thread(_thread_wrapper)
 
         # Create all tasks
         tasks: list[asyncio.Task] = []
