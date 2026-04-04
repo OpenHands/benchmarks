@@ -5,6 +5,7 @@ import asyncio
 import json
 import shutil
 import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -220,15 +221,60 @@ def extract_finish_message(events: Sequence[Event]) -> tuple[bool, str | None]:
     return False, None
 
 
+def run_conversation_with_timeout(
+    conversation: LocalConversation,
+    *,
+    timeout_seconds: float,
+    pause_grace_seconds: float = 60.0,
+) -> None:
+    run_error: list[BaseException | None] = [None]
+    finished = threading.Event()
+
+    def _run() -> None:
+        try:
+            conversation.run()
+        except BaseException as exc:  # pragma: no cover - re-raised below
+            run_error[0] = exc
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    if not finished.wait(timeout_seconds):
+        conversation.pause()
+        if not finished.wait(pause_grace_seconds):
+            raise TimeoutError(
+                "Conversation exceeded the allotted runtime and did not pause within "
+                f"{pause_grace_seconds:.0f}s"
+            )
+        raise TimeoutError(
+            f"Conversation exceeded the allotted runtime of {timeout_seconds:.1f}s"
+        )
+
+    worker.join(timeout=0.1)
+    if run_error[0] is not None:
+        raise run_error[0]
+
+
 def run_conversation_with_benchmark_fake_user_response(
     conversation: LocalConversation,
     *,
     timeout_seconds: int,
     max_fake_responses: int,
 ) -> None:
+    deadline = time.monotonic() + timeout_seconds
     fake_response_count = 0
     while True:
-        conversation.run(timeout=timeout_seconds)
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            raise TimeoutError(
+                f"Conversation exceeded the allotted runtime of {timeout_seconds}s"
+            )
+
+        run_conversation_with_timeout(
+            conversation,
+            timeout_seconds=remaining_seconds,
+        )
         status = conversation.state.execution_status
         if status != ConversationExecutionStatus.FINISHED:
             break

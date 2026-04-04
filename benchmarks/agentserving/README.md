@@ -20,11 +20,15 @@ The benchmark is designed for **serving experiments** rather than accuracy leade
 
 ```json
 {
-  "model": "nemotron-3-super",
+  "model": "openai/nemotron-3-super",
   "base_url": "https://your-server.example.com/v1",
   "api_key": "EMPTY"
 }
 ```
+
+For vLLM and other OpenAI-compatible servers, use the served model name with an
+`openai/` prefix so LiteLLM routes the request through its OpenAI-compatible
+provider.
 
 2. Run a sweep over parallelism levels:
 
@@ -89,7 +93,8 @@ export AGENTSERVING_APP_NAME=agentserving-minimax-m25-8xh100-128k
 
 ### Benchmark the deployed server
 
-Create an LLM config that points at the deployed Modal URL, then run the sweep:
+Create an LLM config that points at the deployed Modal URL and uses the served
+model name with an `openai/` prefix, then run the sweep:
 
 ```bash
 uv run agentserving-infer .llm_config/modal-nemotron.json \
