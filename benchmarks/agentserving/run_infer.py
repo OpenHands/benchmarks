@@ -195,8 +195,12 @@ def infer_health_url(base_url: str | None) -> str | None:
 def scrape_metrics(metrics_url: str | None) -> PrometheusSnapshot | None:
     if metrics_url is None:
         return None
-    response = httpx.get(metrics_url, timeout=30.0)
-    response.raise_for_status()
+    try:
+        response = httpx.get(metrics_url, timeout=30.0)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Failed to scrape metrics from %s: %s", metrics_url, exc)
+        return None
     return parse_prometheus_snapshot(response.text)
 
 
