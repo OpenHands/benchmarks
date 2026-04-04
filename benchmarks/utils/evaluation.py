@@ -949,19 +949,27 @@ class Evaluation(ABC, BaseModel):
                 proxy_cost = get_key_spend(virtual_key)
 
                 # LiteLLM proxy commits spend asynchronously. For fast
-                # conversations, retry with backoff when spend is not yet
-                # available.
+                # conversations the /key/info query can return 0 for up to
+                # ~15-20 s after the last LLM call.  Retry with exponential
+                # backoff (2+4+8+16 = 30 s max) to cover the tail latency.
                 if proxy_cost is None or proxy_cost == 0.0:
                     logger.info(
                         "[worker] proxy spend not yet available for %s, retrying...",
                         instance.id,
                     )
-                    for delay in (1, 2, 4):
+                    for delay in (2, 4, 8, 16):
                         time.sleep(delay)
                         retry_cost = get_key_spend(virtual_key)
                         if retry_cost is not None and retry_cost > 0:
                             proxy_cost = retry_cost
                             break
+
+                if proxy_cost is not None and proxy_cost == 0.0:
+                    logger.warning(
+                        "[worker] proxy cost still $0 for %s after retries — "
+                        "spend may not have been committed by the proxy",
+                        instance.id,
+                    )
 
                 if proxy_cost is not None:
                     out.test_result["proxy_cost"] = proxy_cost
