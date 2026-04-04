@@ -12,6 +12,7 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 | [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
 | [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
+| [Agent Serving](benchmarks/agentserving/) | Local-runtime agent concurrency profiling against an LLM serving stack | 🧪 Experimental |
 
 See the individual benchmark directories for detailed usage instructions.
 
@@ -116,6 +117,7 @@ After setting up the environment and configuring your LLM, see the individual be
 - **[SWE-Bench](benchmarks/swebench/)**: Software engineering tasks from GitHub issues
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
+- **[Agent Serving](benchmarks/agentserving/)**: Local-runtime concurrency profiling for agent-serving stacks
 
 ## Rich Logging
 

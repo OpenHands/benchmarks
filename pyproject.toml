@@ -70,6 +70,7 @@ swebenchmultilingual-eval = "benchmarks.swebenchmultilingual.eval_infer:main"
 swefficiency-infer = "benchmarks.swefficiency.run_infer:main"
 terminalbench-infer = "benchmarks.terminalbench.run_infer:main"
 terminalbench-eval = "benchmarks.terminalbench.eval_infer:main"
+agentserving-infer = "benchmarks.agentserving.run_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
