@@ -323,9 +323,7 @@ def calculate_costs(directory_path: str) -> None:
     print(f"  Total Cost (no double-count): ${total_cost:.6f}")
     print(f"  Total Proxy Cost (no double-count): ${total_proxy_cost:.6f}")
     if total_zero_proxy_count > 0:
-        print(
-            f"  ⚠️  Instances with proxy_cost=$0: {total_zero_proxy_count}"
-        )
+        print(f"  ⚠️  Instances with proxy_cost=$0: {total_zero_proxy_count}")
 
     summary = {"total_cost": total_cost, "total_duration": total_duration}
     if main_cost is not None:
