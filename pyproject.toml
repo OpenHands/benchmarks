@@ -81,6 +81,8 @@ hybridgym-issuelocalize-infer = "benchmarks.hybridgym_issuelocalize.run_infer:ma
 hybridgym-issuelocalize-eval = "benchmarks.hybridgym_issuelocalize.eval_infer:main"
 swesmith-infer = "benchmarks.swesmith.run_infer:main"
 swesmith-eval = "benchmarks.swesmith.eval_infer:main"
+skillsbench-infer = "benchmarks.skillsbench.run_infer:main"
+skillsbench-eval = "benchmarks.skillsbench.eval_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
