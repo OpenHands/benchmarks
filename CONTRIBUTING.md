@@ -63,7 +63,7 @@ Register entrypoints in `pyproject.toml` under `[project.scripts]`:
 <benchmark>-eval = "benchmarks.<benchmark>.eval_infer:main"
 ```
 
-Use kebab-case for CLI names (e.g., `swebench-infer`).
+Use the pattern `<benchmark>-<command>` (e.g., `swebench-infer`, `multiswebench-infer`).
 
 ## LLM Configuration
 
