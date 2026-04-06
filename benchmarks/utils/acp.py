@@ -175,22 +175,42 @@ def add_acp_agent_metadata(
 ) -> None:
     """Add ACP agent metadata to an eval result payload.
 
-    The ACPAgent stores agent_name/version in ``state.agent_state`` during init,
-    which emits a ``ConversationStateUpdateEvent(key="agent_state", ...)``.
-    This event is always delivered before the run completes, unlike the
-    ``full_state`` snapshot which races with ``_wait_for_run_completion``.
+    Requires SDK support: ``ACPAgent.init_state()`` must store metadata in
+    ``state.agent_state`` so it appears in events and state dumps.
+
+    We check three sources (first match wins):
+    1. ``agent_state`` events — emitted when ``state.agent_state`` is set
+    2. ``full_state`` events — periodic snapshots that include ``agent_state``
+    3. ``conversation.state.model_dump()`` — cached remote state
     """
     name = ""
     version = ""
+    # 1. Scan events for agent_state or full_state with metadata
     for ev in conversation.state.events:
         ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
-        if ev_dict.get("key") == "agent_state":
+        key = ev_dict.get("key")
+        if key == "agent_state":
             val = ev_dict.get("value", {})
             if isinstance(val, dict):
                 name = val.get("acp_agent_name", "")
                 version = val.get("acp_agent_version", "")
                 if name:
                     break
+        elif key == "full_state":
+            val = ev_dict.get("value", {})
+            agent_state = val.get("agent_state", {}) if isinstance(val, dict) else {}
+            name = agent_state.get("acp_agent_name", "")
+            version = agent_state.get("acp_agent_version", "")
+            if name:
+                break
+    # 2. Fall back to cached remote state (updated from events + REST refresh)
+    if not name:
+        state_dump = conversation.state.model_dump()
+        if isinstance(state_dump, dict):
+            agent_state = state_dump.get("agent_state", {})
+            if isinstance(agent_state, dict):
+                name = agent_state.get("acp_agent_name", "")
+                version = agent_state.get("acp_agent_version", "")
     test_result["acp_agent_name"] = name
     test_result["acp_agent_version"] = version
 
