@@ -48,7 +48,7 @@ from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
-from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -193,6 +193,28 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+            )
+        elif self.metadata.workspace_type == "apptainer":
+            if not remote_image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
+                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
+                )
+
+            logger.info(
+                f"Using apptainer workspace with pre-built image {agent_server_image} "
+                f"(tag prefix: {get_phased_image_tag_prefix()})"
+            )
+            if wrap_needed:
+                logger.info(
+                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                )
+
+            workspace = ApptainerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+                forward_env=forward_env or [],
+                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
