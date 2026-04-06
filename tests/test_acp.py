@@ -275,10 +275,13 @@ def _make_conversation(events):
 def test_add_acp_agent_metadata_from_agent_state_event():
     """Metadata is extracted from an agent_state event."""
     events = [
-        {"key": "agent_state", "value": {
-            "acp_agent_name": "gemini-cli",
-            "acp_agent_version": "0.36.0",
-        }},
+        {
+            "key": "agent_state",
+            "value": {
+                "acp_agent_name": "gemini-cli",
+                "acp_agent_version": "0.36.0",
+            },
+        },
     ]
     result: dict = {}
     add_acp_agent_metadata(result, _make_conversation(events))
@@ -290,10 +293,13 @@ def test_add_acp_agent_metadata_no_full_state_needed():
     """Metadata is found even when no full_state event exists."""
     events = [
         {"key": "execution_status", "value": "running"},
-        {"key": "agent_state", "value": {
-            "acp_agent_name": "gemini-cli",
-            "acp_agent_version": "0.36.0",
-        }},
+        {
+            "key": "agent_state",
+            "value": {
+                "acp_agent_name": "gemini-cli",
+                "acp_agent_version": "0.36.0",
+            },
+        },
         {"key": "execution_status", "value": "finished"},
     ]
     result: dict = {}
