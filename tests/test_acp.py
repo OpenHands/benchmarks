@@ -265,52 +265,15 @@ def test_setup_acp_workspace_claude_uploads_settings():
 # ---- add_acp_agent_metadata -------------------------------------------------
 
 
-def _make_conversation(events, state_dump=None):
-    """Create a mock conversation with the given events list and optional state dump."""
+def _make_conversation(state_dump):
+    """Create a mock conversation with the given state dump."""
     conversation = MagicMock()
-    conversation.state.events = events
-    conversation.state.model_dump.return_value = state_dump or {}
+    conversation.state.model_dump.return_value = state_dump
     return conversation
 
 
-def test_add_acp_agent_metadata_from_agent_state_event():
-    """Metadata is extracted from an agent_state event."""
-    events = [
-        {
-            "key": "agent_state",
-            "value": {
-                "acp_agent_name": "gemini-cli",
-                "acp_agent_version": "0.36.0",
-            },
-        },
-    ]
-    result: dict = {}
-    add_acp_agent_metadata(result, _make_conversation(events))
-    assert result["acp_agent_name"] == "gemini-cli"
-    assert result["acp_agent_version"] == "0.36.0"
-
-
-def test_add_acp_agent_metadata_from_full_state_event():
-    """Metadata is extracted from a full_state event."""
-    events = [
-        {
-            "key": "full_state",
-            "value": {
-                "agent_state": {
-                    "acp_agent_name": "codex-acp",
-                    "acp_agent_version": "1.2.0",
-                },
-            },
-        },
-    ]
-    result: dict = {}
-    add_acp_agent_metadata(result, _make_conversation(events))
-    assert result["acp_agent_name"] == "codex-acp"
-    assert result["acp_agent_version"] == "1.2.0"
-
-
-def test_add_acp_agent_metadata_from_state_dump_fallback():
-    """Metadata falls back to conversation.state.model_dump()."""
+def test_add_acp_agent_metadata_extracts_from_state():
+    """Metadata is extracted from conversation state dump."""
     state_dump = {
         "agent_state": {
             "acp_agent_name": "gemini-cli",
@@ -318,25 +281,23 @@ def test_add_acp_agent_metadata_from_state_dump_fallback():
         },
     }
     result: dict = {}
-    add_acp_agent_metadata(result, _make_conversation([], state_dump=state_dump))
+    add_acp_agent_metadata(result, _make_conversation(state_dump))
     assert result["acp_agent_name"] == "gemini-cli"
     assert result["acp_agent_version"] == "0.36.0"
 
 
-def test_add_acp_agent_metadata_no_events():
-    """Empty events and empty state dump produces empty strings."""
+def test_add_acp_agent_metadata_empty_state():
+    """Empty state dump produces empty strings."""
     result: dict = {}
-    add_acp_agent_metadata(result, _make_conversation([]))
+    add_acp_agent_metadata(result, _make_conversation({}))
     assert result["acp_agent_name"] == ""
     assert result["acp_agent_version"] == ""
 
 
-def test_add_acp_agent_metadata_ignores_empty_agent_state():
-    """An agent_state event without acp_agent_name is skipped."""
-    events = [
-        {"key": "agent_state", "value": {"other_key": "other_value"}},
-    ]
+def test_add_acp_agent_metadata_missing_keys():
+    """agent_state without acp_agent_name returns empty strings."""
+    state_dump = {"agent_state": {"other_key": "value"}}
     result: dict = {}
-    add_acp_agent_metadata(result, _make_conversation(events))
+    add_acp_agent_metadata(result, _make_conversation(state_dump))
     assert result["acp_agent_name"] == ""
     assert result["acp_agent_version"] == ""

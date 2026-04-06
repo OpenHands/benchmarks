@@ -175,44 +175,17 @@ def add_acp_agent_metadata(
 ) -> None:
     """Add ACP agent metadata to an eval result payload.
 
-    Requires SDK support: ``ACPAgent.init_state()`` must store metadata in
-    ``state.agent_state`` so it appears in events and state dumps.
+    Reads ``agent_state`` from the conversation state dump.  For remote
+    conversations ``RemoteState.model_dump()`` returns the cached state
+    that is refreshed from the server when the run completes, so the data
+    is always up-to-date by the time this function is called.
 
-    We check three sources (first match wins):
-    1. ``agent_state`` events — emitted when ``state.agent_state`` is set
-    2. ``full_state`` events — periodic snapshots that include ``agent_state``
-    3. ``conversation.state.model_dump()`` — cached remote state
+    Requires SDK support: ``ACPAgent.init_state()`` must store metadata in
+    ``state.agent_state``.
     """
-    name = ""
-    version = ""
-    # 1. Scan events for agent_state or full_state with metadata
-    for ev in conversation.state.events:
-        ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
-        key = ev_dict.get("key")
-        if key == "agent_state":
-            val = ev_dict.get("value", {})
-            if isinstance(val, dict):
-                name = val.get("acp_agent_name", "")
-                version = val.get("acp_agent_version", "")
-                if name:
-                    break
-        elif key == "full_state":
-            val = ev_dict.get("value", {})
-            agent_state = val.get("agent_state", {}) if isinstance(val, dict) else {}
-            name = agent_state.get("acp_agent_name", "")
-            version = agent_state.get("acp_agent_version", "")
-            if name:
-                break
-    # 2. Fall back to cached remote state (updated from events + REST refresh)
-    if not name:
-        state_dump = conversation.state.model_dump()
-        if isinstance(state_dump, dict):
-            agent_state = state_dump.get("agent_state", {})
-            if isinstance(agent_state, dict):
-                name = agent_state.get("acp_agent_name", "")
-                version = agent_state.get("acp_agent_version", "")
-    test_result["acp_agent_name"] = name
-    test_result["acp_agent_version"] = version
+    agent_state = conversation.state.model_dump().get("agent_state", {})
+    test_result["acp_agent_name"] = agent_state.get("acp_agent_name", "")
+    test_result["acp_agent_version"] = agent_state.get("acp_agent_version", "")
 
 
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:
