@@ -9,6 +9,7 @@ from benchmarks.utils.acp import (
     _ACP_PROMPT_TIMEOUT_OVERRIDES,
     ACP_PROMPT_TIMEOUT,
     _get_acp_env,
+    add_acp_agent_metadata,
     build_acp_agent,
     get_acp_command,
     get_acp_forward_env,
@@ -259,3 +260,44 @@ def test_setup_acp_workspace_claude_uploads_settings():
     assert "mkdir -p ~/.claude" in cmd
     assert "base64 -d" in cmd
     assert "settings.json" in cmd
+
+
+# ---- add_acp_agent_metadata -------------------------------------------------
+
+
+def _make_conversation(state_dump):
+    """Create a mock conversation with the given state dump."""
+    conversation = MagicMock()
+    conversation.state.model_dump.return_value = state_dump
+    return conversation
+
+
+def test_add_acp_agent_metadata_extracts_from_state():
+    """Metadata is extracted from conversation state dump."""
+    state_dump = {
+        "agent_state": {
+            "acp_agent_name": "gemini-cli",
+            "acp_agent_version": "0.36.0",
+        },
+    }
+    result: dict = {}
+    add_acp_agent_metadata(result, _make_conversation(state_dump))
+    assert result["acp_agent_name"] == "gemini-cli"
+    assert result["acp_agent_version"] == "0.36.0"
+
+
+def test_add_acp_agent_metadata_empty_state():
+    """Empty state dump produces empty strings."""
+    result: dict = {}
+    add_acp_agent_metadata(result, _make_conversation({}))
+    assert result["acp_agent_name"] == ""
+    assert result["acp_agent_version"] == ""
+
+
+def test_add_acp_agent_metadata_missing_keys():
+    """agent_state without acp_agent_name returns empty strings."""
+    state_dump = {"agent_state": {"other_key": "value"}}
+    result: dict = {}
+    add_acp_agent_metadata(result, _make_conversation(state_dump))
+    assert result["acp_agent_name"] == ""
+    assert result["acp_agent_version"] == ""
