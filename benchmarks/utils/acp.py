@@ -182,7 +182,7 @@ def add_acp_agent_metadata(
     """
     name = ""
     version = ""
-    for ev in reversed(list(conversation.state.events)):
+    for ev in conversation.state.events:
         ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
         if ev_dict.get("key") == "agent_state":
             val = ev_dict.get("value", {})

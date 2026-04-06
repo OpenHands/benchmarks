@@ -9,6 +9,7 @@ from benchmarks.utils.acp import (
     _ACP_PROMPT_TIMEOUT_OVERRIDES,
     ACP_PROMPT_TIMEOUT,
     _get_acp_env,
+    add_acp_agent_metadata,
     build_acp_agent,
     get_acp_command,
     get_acp_forward_env,
@@ -259,3 +260,62 @@ def test_setup_acp_workspace_claude_uploads_settings():
     assert "mkdir -p ~/.claude" in cmd
     assert "base64 -d" in cmd
     assert "settings.json" in cmd
+
+
+# ---- add_acp_agent_metadata -------------------------------------------------
+
+
+def _make_conversation(events):
+    """Create a mock conversation with the given events list."""
+    conversation = MagicMock()
+    conversation.state.events = events
+    return conversation
+
+
+def test_add_acp_agent_metadata_from_agent_state_event():
+    """Metadata is extracted from an agent_state event."""
+    events = [
+        {"key": "agent_state", "value": {
+            "acp_agent_name": "gemini-cli",
+            "acp_agent_version": "0.36.0",
+        }},
+    ]
+    result: dict = {}
+    add_acp_agent_metadata(result, _make_conversation(events))
+    assert result["acp_agent_name"] == "gemini-cli"
+    assert result["acp_agent_version"] == "0.36.0"
+
+
+def test_add_acp_agent_metadata_no_full_state_needed():
+    """Metadata is found even when no full_state event exists."""
+    events = [
+        {"key": "execution_status", "value": "running"},
+        {"key": "agent_state", "value": {
+            "acp_agent_name": "gemini-cli",
+            "acp_agent_version": "0.36.0",
+        }},
+        {"key": "execution_status", "value": "finished"},
+    ]
+    result: dict = {}
+    add_acp_agent_metadata(result, _make_conversation(events))
+    assert result["acp_agent_name"] == "gemini-cli"
+    assert result["acp_agent_version"] == "0.36.0"
+
+
+def test_add_acp_agent_metadata_no_events():
+    """Empty events list produces empty strings."""
+    result: dict = {}
+    add_acp_agent_metadata(result, _make_conversation([]))
+    assert result["acp_agent_name"] == ""
+    assert result["acp_agent_version"] == ""
+
+
+def test_add_acp_agent_metadata_ignores_empty_agent_state():
+    """An agent_state event without acp_agent_name is skipped."""
+    events = [
+        {"key": "agent_state", "value": {"other_key": "other_value"}},
+    ]
+    result: dict = {}
+    add_acp_agent_metadata(result, _make_conversation(events))
+    assert result["acp_agent_name"] == ""
+    assert result["acp_agent_version"] == ""
