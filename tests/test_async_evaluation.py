@@ -611,18 +611,11 @@ def test_metadata_json_records_openhands_sdk_version(tmp_path):
     assert on_disk["acp_agent_version"] is None
 
 
-def test_maybe_stamp_acp_metadata_backwrites_from_first_instance(tmp_path):
-    """For ACP runs, _maybe_stamp_acp_metadata() must back-write the name and
-    version captured per-instance by add_acp_agent_metadata() into metadata.json.
-
-    The ACP binary lives in the per-instance runtime pod, not in the
-    orchestration process, so the authoritative values come from the ACP
-    protocol handshake surfaced via EvalOutput.test_result. push-to-index
-    reads metadata.json, so without this back-write it would fall back to
-    demanding agent_version on the command line for ACP runs.
-    """
+def test_stamp_acp_metadata_from_outputs(tmp_path, caplog):
+    """End-of-run pass back-writes ACP fields and warns when none surfaced."""
     import json
-    from typing import List
+    import logging
+    from typing import List, Literal
     from unittest.mock import Mock
 
     from benchmarks.utils.evaluation import Evaluation
@@ -631,111 +624,6 @@ def test_maybe_stamp_acp_metadata_backwrites_from_first_instance(tmp_path):
         EvalMetadata,
         EvalOutput,
     )
-    from openhands.sdk import LLM
-    from openhands.sdk.critic import PassCritic
-
-    class TestEvaluation(Evaluation):
-        def prepare_instances(self) -> List[EvalInstance]:
-            return []
-
-        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
-            return Mock()
-
-        def evaluate_instance(self, instance, workspace):
-            raise AssertionError("not used")
-
-    metadata = EvalMetadata(
-        llm=LLM(model="test-model"),
-        dataset="test",
-        dataset_split="test",
-        max_iterations=1,
-        eval_output_dir=str(tmp_path),
-        details={},
-        eval_limit=0,
-        n_critic_runs=1,
-        max_retries=0,
-        critic=PassCritic(),
-        agent_type="acp-claude",
-    )
-    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-
-    # At startup the ACP fields must be None — model_post_init does not
-    # shell out to the ACP binary anymore, because that binary isn't
-    # installed in the orchestration pod.
-    assert evaluator.metadata.acp_agent_name is None
-    assert evaluator.metadata.acp_agent_version is None
-    on_disk = json.loads((tmp_path / "metadata.json").read_text())
-    assert on_disk["acp_agent_name"] is None
-    assert on_disk["acp_agent_version"] is None
-
-    # First instance completes with ACP metadata populated (the values come
-    # from the ACP protocol handshake via add_acp_agent_metadata()).
-    out = EvalOutput(
-        instance_id="instance-1",
-        test_result={
-            "acp_agent_name": "@agentclientprotocol/claude-agent-acp",
-            "acp_agent_version": "0.25.0",
-        },
-        instruction=None,
-        history=[],
-        instance={},
-    )
-    evaluator._maybe_stamp_acp_metadata(out)
-
-    # In-memory and on-disk metadata now reflect the handshake values.
-    assert evaluator.metadata.acp_agent_name == "@agentclientprotocol/claude-agent-acp"
-    assert evaluator.metadata.acp_agent_version == "0.25.0"
-    on_disk = json.loads((tmp_path / "metadata.json").read_text())
-    assert on_disk["acp_agent_name"] == "@agentclientprotocol/claude-agent-acp"
-    assert on_disk["acp_agent_version"] == "0.25.0"
-
-    # First-write-wins: a later instance with different values is ignored
-    # (every instance in a run uses the same ACP binary).
-    out2 = EvalOutput(
-        instance_id="instance-2",
-        test_result={
-            "acp_agent_name": "different",
-            "acp_agent_version": "9.9.9",
-        },
-        instruction=None,
-        history=[],
-        instance={},
-    )
-    evaluator._maybe_stamp_acp_metadata(out2)
-    assert evaluator.metadata.acp_agent_name == "@agentclientprotocol/claude-agent-acp"
-    assert evaluator.metadata.acp_agent_version == "0.25.0"
-
-    # Non-ACP runs are a no-op even if test_result is populated (belt and
-    # braces — shouldn't happen, but would be wrong to write if it did).
-    metadata_default = EvalMetadata(
-        llm=LLM(model="test-model"),
-        dataset="test",
-        dataset_split="test",
-        max_iterations=1,
-        eval_output_dir=str(tmp_path / "default"),
-        details={},
-        eval_limit=0,
-        n_critic_runs=1,
-        max_retries=0,
-        critic=PassCritic(),
-    )
-    default_eval = TestEvaluation(metadata=metadata_default, num_workers=1)
-    default_eval._maybe_stamp_acp_metadata(out)
-    assert default_eval.metadata.acp_agent_name is None
-    assert default_eval.metadata.acp_agent_version is None
-    on_disk_default = json.loads((tmp_path / "default" / "metadata.json").read_text())
-    assert on_disk_default["acp_agent_name"] is None
-    assert on_disk_default["acp_agent_version"] is None
-
-
-def test_warn_if_acp_unstamped(tmp_path, caplog):
-    """End-of-run warning fires only when an ACP run finishes unstamped."""
-    import logging
-    from typing import List, Literal
-    from unittest.mock import Mock
-
-    from benchmarks.utils.evaluation import Evaluation
-    from benchmarks.utils.models import EvalInstance, EvalMetadata
     from openhands.sdk import LLM
     from openhands.sdk.critic import PassCritic
 
@@ -768,28 +656,78 @@ def test_warn_if_acp_unstamped(tmp_path, caplog):
         )
         return TestEvaluation(metadata=meta, num_workers=1)
 
-    msg = "ACP run completed without acp_agent_version"
+    def make_out(instance_id: str, **test_result: str) -> EvalOutput:
+        return EvalOutput(
+            instance_id=instance_id,
+            test_result=dict(test_result),
+            instruction=None,
+            history=[],
+            instance={},
+        )
 
-    # ACP run that never stamped → warning fires.
+    handshake_name = "@agentclientprotocol/claude-agent-acp"
+    handshake_version = "0.25.0"
+    warn_msg = "ACP run completed without acp_agent_version"
+
+    # ACP run, first instance carries handshake fields → stamped from that one.
+    acp = make_eval("acp-claude", "acp")
+    assert acp.metadata.acp_agent_name is None
+    assert acp.metadata.acp_agent_version is None
+    outputs = [
+        make_out(
+            "i1",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+        make_out("i2", acp_agent_name="different", acp_agent_version="9.9.9"),
+    ]
+    acp._stamp_acp_metadata_from_outputs(outputs)
+    assert acp.metadata.acp_agent_name == handshake_name
+    assert acp.metadata.acp_agent_version == handshake_version
+    on_disk = json.loads((tmp_path / "acp" / "metadata.json").read_text())
+    assert on_disk["acp_agent_name"] == handshake_name
+    assert on_disk["acp_agent_version"] == handshake_version
+
+    # ACP run where the first non-empty fields appear on a later instance.
+    acp_late = make_eval("acp-claude", "acp_late")
+    outputs = [
+        make_out("i1"),
+        make_out(
+            "i2",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+    ]
+    acp_late._stamp_acp_metadata_from_outputs(outputs)
+    assert acp_late.metadata.acp_agent_version == handshake_version
+
+    # ACP run, no instance surfaced handshake fields → warning, no stamp.
+    caplog.clear()
     acp_unstamped = make_eval("acp-claude", "acp_unstamped")
     with caplog.at_level(logging.WARNING):
-        acp_unstamped._warn_if_acp_unstamped()
-    assert any(msg in r.message for r in caplog.records)
+        acp_unstamped._stamp_acp_metadata_from_outputs([make_out("i1"), make_out("i2")])
+    assert acp_unstamped.metadata.acp_agent_version is None
+    assert any(warn_msg in r.message for r in caplog.records)
 
-    # ACP run that did stamp → no warning.
-    caplog.clear()
-    acp_stamped = make_eval("acp-claude", "acp_stamped")
-    acp_stamped.metadata.acp_agent_version = "0.25.0"
-    with caplog.at_level(logging.WARNING):
-        acp_stamped._warn_if_acp_unstamped()
-    assert not any(msg in r.message for r in caplog.records)
-
-    # Non-ACP run → no warning regardless of stamping.
+    # Non-ACP run → no-op even with populated test_result, no warning either.
     caplog.clear()
     default_eval = make_eval("default", "default")
     with caplog.at_level(logging.WARNING):
-        default_eval._warn_if_acp_unstamped()
-    assert not any(msg in r.message for r in caplog.records)
+        default_eval._stamp_acp_metadata_from_outputs(
+            [
+                make_out(
+                    "i1",
+                    acp_agent_name=handshake_name,
+                    acp_agent_version=handshake_version,
+                )
+            ]
+        )
+    assert default_eval.metadata.acp_agent_name is None
+    assert default_eval.metadata.acp_agent_version is None
+    assert not any(warn_msg in r.message for r in caplog.records)
+    on_disk_default = json.loads((tmp_path / "default" / "metadata.json").read_text())
+    assert on_disk_default["acp_agent_name"] is None
+    assert on_disk_default["acp_agent_version"] is None
 
 
 if __name__ == "__main__":

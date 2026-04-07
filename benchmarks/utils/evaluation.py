@@ -23,7 +23,7 @@ from typing import Any, Callable, Coroutine, List, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from benchmarks.utils.acp import is_acp_agent
@@ -149,60 +149,42 @@ class Evaluation(ABC, BaseModel):
         ),
     )
 
-    _acp_stamp_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
-
     def model_post_init(self, __context) -> None:
         """Stamp openhands_sdk_version on self.metadata and persist metadata.json."""
         self.metadata.openhands_sdk_version = openhands_sdk_version
+        self._save_metadata()
 
+    def _save_metadata(self) -> None:
         os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
 
-    def _maybe_stamp_acp_metadata(self, out: EvalOutput) -> None:
-        """Back-write ACP name/version from a completed instance into metadata.json."""
+    def _stamp_acp_metadata_from_outputs(self, outputs: List[EvalOutput]) -> None:
+        """Back-write ACP handshake fields from any completed instance."""
         if not is_acp_agent(self.metadata.agent_type):
             return
-
-        with self._acp_stamp_lock:
-            if self.metadata.acp_agent_version:
-                return
-
+        for out in outputs:
             name = out.test_result.get("acp_agent_name")
             version = out.test_result.get("acp_agent_version")
-            if not name and not version:
+            if name or version:
+                if name:
+                    self.metadata.acp_agent_name = name
+                if version:
+                    self.metadata.acp_agent_version = version
+                self._save_metadata()
+                logger.info(
+                    "Stamped ACP metadata: name=%r version=%r",
+                    self.metadata.acp_agent_name,
+                    self.metadata.acp_agent_version,
+                )
                 return
-
-            if name:
-                self.metadata.acp_agent_name = name
-            if version:
-                self.metadata.acp_agent_version = version
-
-            metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
-            tmp_path = metadata_file + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                f.write(self.metadata.model_dump_json(indent=2))
-            os.replace(tmp_path, metadata_file)
-            logger.info(
-                "Stamped ACP metadata into %s: name=%r version=%r",
-                metadata_file,
-                self.metadata.acp_agent_name,
-                self.metadata.acp_agent_version,
-            )
-
-    def _warn_if_acp_unstamped(self) -> None:
-        """Log a warning if an ACP run finished without stamping handshake fields."""
-        if (
-            is_acp_agent(self.metadata.agent_type)
-            and not self.metadata.acp_agent_version
-        ):
-            logger.warning(
-                "ACP run completed without acp_agent_version in metadata.json: "
-                "no instance surfaced the protocol handshake fields. "
-                "push-to-index will see a missing agent_version."
-            )
+        logger.warning(
+            "ACP run completed without acp_agent_version in metadata.json: "
+            "no instance surfaced the protocol handshake fields. "
+            "push-to-index will see a missing agent_version."
+        )
 
     @property
     def output_path(self) -> str:
@@ -541,16 +523,6 @@ class Evaluation(ABC, BaseModel):
                             f"Failed to write to attempt file {attempt_file}: {e}"
                         )
 
-                # Back-write ACP name/version from this instance's test_result
-                # into metadata.json. No-op after the first successful stamp.
-                try:
-                    self._maybe_stamp_acp_metadata(out)
-                except Exception as stamp_err:
-                    logger.warning(
-                        "Failed to stamp ACP metadata from instance result: %s",
-                        stamp_err,
-                    )
-
                 # Call original callback if provided
                 if on_result:
                     try:
@@ -596,7 +568,7 @@ class Evaluation(ABC, BaseModel):
             f"{self.metadata.n_critic_runs} critic runs"
         )
 
-        self._warn_if_acp_unstamped()
+        self._stamp_acp_metadata_from_outputs(all_outputs)
 
         return all_outputs
 
