@@ -12,6 +12,7 @@ import asyncio
 import base64
 import json
 import os
+import subprocess
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -26,6 +27,7 @@ from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
+from benchmarks.utils.acp import get_acp_command, is_acp_agent
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
@@ -44,7 +46,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
-from openhands.sdk import get_logger
+from openhands.sdk import __version__ as openhands_sdk_version, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.workspace import APIRemoteWorkspace
@@ -69,6 +71,89 @@ def _read_cgroup_cpu_max() -> str | None:
             return cpu_max_path.read_text(encoding="utf-8").strip()
     except OSError:
         pass
+    return None
+
+
+# Timeout (seconds) for the ACP `--version` subprocess shell-out used to
+# stamp acp_agent_version into metadata.json at startup. Kept short because
+# the command is local and a slow response almost certainly means the binary
+# is broken or missing — in which case we prefer to log a warning and leave
+# the field empty rather than block startup.
+_VERSION_QUERY_TIMEOUT_SECONDS = 10.0
+
+
+def _query_cli_version(command: list[str], label: str) -> str | None:
+    """Run *command* via subprocess and return the parsed version string.
+
+    Used at startup to stamp the ACP agent version into metadata.json so the
+    downstream push-to-index workflow can read it straight off disk instead
+    of requiring the operator to type a workflow input or scrape it out of
+    output.jsonl. ACP agents are out-of-process npm binaries so we have no
+    choice but to shell out — the OpenHands SDK version, by contrast, is
+    available in-process via ``openhands.sdk.__version__``.
+
+    *command* must be the full argv (this helper does NOT auto-append
+    ``--version``) so callers can use whatever flag the target CLI exposes.
+
+    Returns ``None`` (and logs a warning) on any failure: missing binary,
+    non-zero exit, timeout, or empty stdout. Returning ``None`` is
+    intentional — we never want a missing version stamp to be load-bearing
+    enough to crash an evaluation that would otherwise succeed.
+
+    The returned string is the *last whitespace-separated token* of the
+    first non-empty stdout line, which handles both formats commonly seen
+    in the wild: ``"1.2.3"`` and ``"some-tool 1.2.3"``.
+    """
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_QUERY_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except FileNotFoundError:
+        logger.warning(
+            "Could not query %s version: command %r not found on PATH",
+            label,
+            command[0] if command else "<empty>",
+        )
+        return None
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "Could not query %s version: command %r timed out after %.0fs",
+            label,
+            command,
+            _VERSION_QUERY_TIMEOUT_SECONDS,
+        )
+        return None
+    except OSError as e:
+        logger.warning(
+            "Could not query %s version: OSError running %r: %s", label, command, e
+        )
+        return None
+
+    if result.returncode != 0:
+        logger.warning(
+            "Could not query %s version: command %r exited %d (stderr=%r)",
+            label,
+            command,
+            result.returncode,
+            (result.stderr or "").strip()[:200],
+        )
+        return None
+
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Take the last whitespace-separated token: handles both "1.2.3"
+        # and "claude-agent-acp 1.2.3" output formats.
+        return line.split()[-1]
+
+    logger.warning(
+        "Could not query %s version: command %r produced no stdout", label, command
+    )
     return None
 
 
@@ -149,11 +234,45 @@ class Evaluation(ABC, BaseModel):
     )
 
     def model_post_init(self, __context) -> None:
-        """Save metadata to output directory after initialization."""
-        # Ensure output directory exists
-        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
+        """Save metadata to output directory after initialization.
 
-        # Save metadata to JSON file
+        Stamps the OpenHands SDK version (and, for ACP runs, the ACP agent
+        package version) onto ``self.metadata`` so downstream consumers —
+        notably the push-to-index workflow in the evaluation repo — can read
+        them straight out of metadata.json instead of requiring the operator
+        to type a workflow input or scrape values out of output.jsonl.
+
+        The OpenHands SDK version is read in-process from
+        ``openhands.sdk.__version__`` (which is itself
+        ``importlib.metadata.version("openhands-sdk")``) since that is the
+        ground truth for the running interpreter. The ACP agent version, by
+        contrast, lives in a separate npm-installed binary and has to be
+        obtained via a subprocess ``--version`` shell-out. ACP failures are
+        non-fatal — the field is left as ``None`` and a warning is logged.
+        """
+        # Stamp the OpenHands SDK version unconditionally (even for ACP runs,
+        # so we still record which orchestrator was used).
+        if not self.metadata.openhands_sdk_version:
+            self.metadata.openhands_sdk_version = openhands_sdk_version
+
+        # For ACP runs, also stamp the ACP agent package name + version. The
+        # name is the CLI command (e.g. "claude-agent-acp") since that is the
+        # only stable identifier we have at startup; the package's npm name
+        # may be longer (e.g. "@zed-industries/claude-agent-acp") but isn't
+        # exposed by `--version`. push-to-index does not require the npm
+        # name, just a stable label, so this is fine.
+        if is_acp_agent(self.metadata.agent_type):
+            acp_command = get_acp_command(self.metadata.agent_type)
+            if not self.metadata.acp_agent_name:
+                self.metadata.acp_agent_name = acp_command[0]
+            if not self.metadata.acp_agent_version:
+                self.metadata.acp_agent_version = _query_cli_version(
+                    [*acp_command, "--version"],
+                    label=acp_command[0],
+                )
+
+        # Ensure output directory exists and persist metadata once.
+        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))

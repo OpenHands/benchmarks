@@ -113,6 +113,37 @@ class EvalMetadata(BaseModel):
             "'acp-gemini' for ACPAgent with Gemini CLI"
         ),
     )
+    openhands_sdk_version: str | None = Field(
+        default=None,
+        description=(
+            "Version of the openhands-sdk package executing this evaluation, "
+            "as reported by importlib.metadata.version('openhands-sdk'). Set "
+            "automatically by Evaluation.model_post_init(). Downstream tooling "
+            "(e.g. push-to-index) reads this to populate the index repo's "
+            "agent_version field for default-agent runs without needing the "
+            "operator to type it as a workflow input."
+        ),
+    )
+    acp_agent_name: str | None = Field(
+        default=None,
+        description=(
+            "ACP agent package name as reported by the ACP server's initialize "
+            "RPC (e.g. '@zed-industries/claude-agent-acp'). Only set for "
+            "agent_type values starting with 'acp-'. Backfilled by the runner "
+            "the first time an instance result carries the value, since the "
+            "version is only known after the ACP subprocess is initialized."
+        ),
+    )
+    acp_agent_version: str | None = Field(
+        default=None,
+        description=(
+            "ACP agent package version as reported by the ACP server's "
+            "initialize RPC (e.g. '0.23.1'). Only set for agent_type values "
+            "starting with 'acp-'. Backfilled by the runner alongside "
+            "acp_agent_name. For ACP runs this is the value downstream tooling "
+            "should use as the index repo's agent_version, NOT openhands_sdk_version."
+        ),
+    )
 
 
 EvalInstanceID = str

@@ -551,5 +551,218 @@ def test_evaluation_timeout_cancels_instance(tmp_path):
     assert "timeout" in slow_result.error.lower()
 
 
+def test_metadata_json_records_openhands_sdk_version(tmp_path):
+    """model_post_init() must stamp openhands_sdk_version onto metadata.json.
+
+    The downstream push-to-index workflow reads this field to populate the
+    index repo's agent_version for default-agent runs without requiring the
+    operator to type a workflow input. If this regresses, push-to-index will
+    silently fall back to demanding agent_version on the command line.
+    """
+    import json
+    from typing import List
+    from unittest.mock import Mock
+
+    from benchmarks.utils.evaluation import (
+        Evaluation,
+        openhands_sdk_version,
+    )
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    metadata = EvalMetadata(
+        llm=LLM(model="test-model"),
+        dataset="test",
+        dataset_split="test",
+        max_iterations=1,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    # In-memory state must be set from openhands.sdk.__version__ (the
+    # ground truth from importlib.metadata).
+    assert evaluator.metadata.openhands_sdk_version == openhands_sdk_version
+    assert evaluator.metadata.openhands_sdk_version  # non-empty
+
+    # On-disk metadata.json must contain it too — that's the contract the
+    # push-to-index workflow consumes.
+    metadata_file = tmp_path / "metadata.json"
+    assert metadata_file.exists()
+    on_disk = json.loads(metadata_file.read_text())
+    assert on_disk["openhands_sdk_version"] == openhands_sdk_version
+    # ACP fields should be absent (None) for a non-ACP run.
+    assert on_disk["acp_agent_name"] is None
+    assert on_disk["acp_agent_version"] is None
+
+
+def test_metadata_json_records_acp_agent_version_from_subprocess(tmp_path):
+    """For ACP runs, model_post_init() must shell out to <acp_command> --version.
+
+    The OpenHands SDK version is available in-process via __version__, but the
+    ACP agent is a separate npm binary so we shell out to it at startup. This
+    test mocks subprocess.run so it works on machines without the ACP CLI
+    installed, and verifies the result lands in metadata.json so push-to-index
+    can read it without scraping output.jsonl.
+    """
+    import json
+    import subprocess
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    metadata = EvalMetadata(
+        llm=LLM(model="test-model"),
+        dataset="test",
+        dataset_split="test",
+        max_iterations=1,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+        agent_type="acp-claude",
+    )
+
+    captured_calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        captured_calls.append(list(cmd))
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout="0.23.1\n",
+            stderr="",
+        )
+
+    with patch("benchmarks.utils.evaluation.subprocess.run", side_effect=fake_run):
+        evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    # The subprocess.run shell-out happened with the ACP command + --version.
+    assert captured_calls == [["claude-agent-acp", "--version"]]
+
+    # Both ACP fields must be set in-memory.
+    assert evaluator.metadata.acp_agent_name == "claude-agent-acp"
+    assert evaluator.metadata.acp_agent_version == "0.23.1"
+    # SDK version is also stamped (from __version__, no subprocess needed).
+    assert evaluator.metadata.openhands_sdk_version
+
+    # And persisted to disk.
+    on_disk = json.loads((tmp_path / "metadata.json").read_text())
+    assert on_disk["acp_agent_name"] == "claude-agent-acp"
+    assert on_disk["acp_agent_version"] == "0.23.1"
+    assert on_disk["openhands_sdk_version"]
+
+
+def test_query_cli_version_failures_are_non_fatal(tmp_path):
+    """If the ACP --version subprocess blows up, we log and leave the field None.
+
+    A missing/broken ACP binary on the runner must NOT abort startup of an
+    eval that would otherwise succeed — the version stamp is observability,
+    not a hard requirement. We test the three failure paths the helper
+    explicitly handles: FileNotFoundError, non-zero exit, and TimeoutExpired.
+    """
+    import json
+    import subprocess
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation, _query_cli_version
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    # Direct unit-test of the helper for each failure mode.
+    with patch(
+        "benchmarks.utils.evaluation.subprocess.run", side_effect=FileNotFoundError()
+    ):
+        assert _query_cli_version(["nope"], label="nope") is None
+
+    with patch(
+        "benchmarks.utils.evaluation.subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args=["x"], returncode=1, stdout="", stderr="boom"
+        ),
+    ):
+        assert _query_cli_version(["x"], label="x") is None
+
+    with patch(
+        "benchmarks.utils.evaluation.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd=["x"], timeout=10),
+    ):
+        assert _query_cli_version(["x"], label="x") is None
+
+    # Integration: an ACP run whose subprocess fails still produces a valid
+    # metadata.json with acp_agent_version=None and the SDK version stamped.
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    metadata = EvalMetadata(
+        llm=LLM(model="test-model"),
+        dataset="test",
+        dataset_split="test",
+        max_iterations=1,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+        agent_type="acp-claude",
+    )
+
+    with patch(
+        "benchmarks.utils.evaluation.subprocess.run", side_effect=FileNotFoundError()
+    ):
+        evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    # Name still stamped (from the command list, not subprocess), version None.
+    assert evaluator.metadata.acp_agent_name == "claude-agent-acp"
+    assert evaluator.metadata.acp_agent_version is None
+    assert evaluator.metadata.openhands_sdk_version
+
+    on_disk = json.loads((tmp_path / "metadata.json").read_text())
+    assert on_disk["acp_agent_name"] == "claude-agent-acp"
+    assert on_disk["acp_agent_version"] is None
+    assert on_disk["openhands_sdk_version"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
