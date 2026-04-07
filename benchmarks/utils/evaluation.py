@@ -251,25 +251,38 @@ class Evaluation(ABC, BaseModel):
         non-fatal — the field is left as ``None`` and a warning is logged.
         """
         # Stamp the OpenHands SDK version unconditionally (even for ACP runs,
-        # so we still record which orchestrator was used).
-        if not self.metadata.openhands_sdk_version:
+        # so we still record which orchestrator was used). We deliberately do
+        # NOT guard on a pre-existing value: __version__ is the ground truth
+        # for the running interpreter, and silently preserving a value the
+        # caller passed in would mask configuration bugs. The only safety net
+        # is the can't-happen empty-string check below — if
+        # importlib.metadata.version() ever returns "" we leave the field
+        # unset and log rather than writing the lie to disk.
+        if openhands_sdk_version:
             self.metadata.openhands_sdk_version = openhands_sdk_version
+        else:
+            logger.warning(
+                "openhands.sdk.__version__ is empty; leaving "
+                "metadata.openhands_sdk_version unset"
+            )
 
-        # For ACP runs, also stamp the ACP agent package name + version. The
-        # name is the CLI command (e.g. "claude-agent-acp") since that is the
-        # only stable identifier we have at startup; the package's npm name
-        # may be longer (e.g. "@zed-industries/claude-agent-acp") but isn't
-        # exposed by `--version`. push-to-index does not require the npm
-        # name, just a stable label, so this is fine.
+        # For ACP runs, also stamp the ACP agent CLI command name + version.
+        # acp_agent_name is the CLI command we exec (e.g. "claude-agent-acp")
+        # — see the field docstring on EvalMetadata for why this is the CLI
+        # name and not the npm package name. Both fields are stamped
+        # unconditionally for the same reason as openhands_sdk_version above:
+        # model_post_init runs once, the values are derived from authoritative
+        # sources, and a caller-supplied override would mask bugs rather than
+        # fix them. acp_agent_version may still be None on disk if the
+        # subprocess shell-out fails — that is intentionally non-fatal (see
+        # _query_cli_version).
         if is_acp_agent(self.metadata.agent_type):
             acp_command = get_acp_command(self.metadata.agent_type)
-            if not self.metadata.acp_agent_name:
-                self.metadata.acp_agent_name = acp_command[0]
-            if not self.metadata.acp_agent_version:
-                self.metadata.acp_agent_version = _query_cli_version(
-                    [*acp_command, "--version"],
-                    label=acp_command[0],
-                )
+            self.metadata.acp_agent_name = acp_command[0]
+            self.metadata.acp_agent_version = _query_cli_version(
+                [*acp_command, "--version"],
+                label=acp_command[0],
+            )
 
         # Ensure output directory exists and persist metadata once.
         os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
