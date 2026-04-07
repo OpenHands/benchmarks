@@ -26,6 +26,7 @@ from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
+from benchmarks.utils.acp import is_acp_agent
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
@@ -44,7 +45,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
-from openhands.sdk import get_logger
+from openhands.sdk import __version__ as openhands_sdk_version, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.workspace import APIRemoteWorkspace
@@ -149,15 +150,38 @@ class Evaluation(ABC, BaseModel):
     )
 
     def model_post_init(self, __context) -> None:
-        """Save metadata to output directory after initialization."""
-        # Ensure output directory exists
-        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
+        """Stamp openhands_sdk_version on self.metadata and persist metadata.json."""
+        self.metadata.openhands_sdk_version = openhands_sdk_version
+        self._save_metadata()
 
-        # Save metadata to JSON file
+    def _save_metadata(self) -> None:
+        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
+
+    def _stamp_acp_metadata_from_outputs(self, outputs: List[EvalOutput]) -> None:
+        """Back-write ACP handshake fields from any completed instance."""
+        if not is_acp_agent(self.metadata.agent_type):
+            return
+        for out in outputs:
+            name = out.test_result.get("acp_agent_name")
+            version = out.test_result.get("acp_agent_version")
+            if name and version:
+                self.metadata.acp_agent_name = name
+                self.metadata.acp_agent_version = version
+                self._save_metadata()
+                logger.info("Stamped ACP metadata: name=%r version=%r", name, version)
+                return
+        completed = sum(1 for out in outputs if out.test_result)
+        logger.warning(
+            "ACP run: %d/%d instances completed but none surfaced "
+            "acp_agent_name+acp_agent_version. push-to-index will see a "
+            "missing agent_version.",
+            completed,
+            len(outputs),
+        )
 
     @property
     def output_path(self) -> str:
@@ -540,6 +564,9 @@ class Evaluation(ABC, BaseModel):
             f"Evaluation complete: {total_instances} total instances, "
             f"{self.metadata.n_critic_runs} critic runs"
         )
+
+        self._stamp_acp_metadata_from_outputs(all_outputs)
+
         return all_outputs
 
     async def _run_attempt_async(

@@ -551,5 +551,199 @@ def test_evaluation_timeout_cancels_instance(tmp_path):
     assert "timeout" in slow_result.error.lower()
 
 
+def test_metadata_json_records_openhands_sdk_version(tmp_path):
+    """model_post_init() must stamp openhands_sdk_version onto metadata.json.
+
+    The downstream push-to-index workflow reads this field to populate the
+    index repo's agent_version for default-agent runs without requiring the
+    operator to type a workflow input. If this regresses, push-to-index will
+    silently fall back to demanding agent_version on the command line.
+    """
+    import json
+    from typing import List
+    from unittest.mock import Mock
+
+    from benchmarks.utils.evaluation import (
+        Evaluation,
+        openhands_sdk_version,
+    )
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    metadata = EvalMetadata(
+        llm=LLM(model="test-model"),
+        dataset="test",
+        dataset_split="test",
+        max_iterations=1,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    # In-memory state must be set from openhands.sdk.__version__ (the
+    # ground truth from importlib.metadata).
+    assert evaluator.metadata.openhands_sdk_version == openhands_sdk_version
+    assert evaluator.metadata.openhands_sdk_version  # non-empty
+
+    # On-disk metadata.json must contain it too — that's the contract the
+    # push-to-index workflow consumes.
+    metadata_file = tmp_path / "metadata.json"
+    assert metadata_file.exists()
+    on_disk = json.loads(metadata_file.read_text())
+    assert on_disk["openhands_sdk_version"] == openhands_sdk_version
+    # ACP fields should be absent (None) for a non-ACP run.
+    assert on_disk["acp_agent_name"] is None
+    assert on_disk["acp_agent_version"] is None
+
+
+def test_stamp_acp_metadata_from_outputs(tmp_path, caplog):
+    """End-of-run pass back-writes ACP fields and warns when none surfaced."""
+    import json
+    import logging
+    from typing import List, Literal
+    from unittest.mock import Mock
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import (
+        EvalInstance,
+        EvalMetadata,
+        EvalOutput,
+    )
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    def make_eval(
+        agent_type: Literal["default", "acp-claude", "acp-codex", "acp-gemini"],
+        subdir: str,
+    ) -> "TestEvaluation":
+        meta = EvalMetadata(
+            llm=LLM(model="test-model"),
+            dataset="test",
+            dataset_split="test",
+            max_iterations=1,
+            eval_output_dir=str(tmp_path / subdir),
+            details={},
+            eval_limit=0,
+            n_critic_runs=1,
+            max_retries=0,
+            critic=PassCritic(),
+            agent_type=agent_type,
+        )
+        return TestEvaluation(metadata=meta, num_workers=1)
+
+    def make_out(instance_id: str, **test_result: str) -> EvalOutput:
+        return EvalOutput(
+            instance_id=instance_id,
+            test_result=dict(test_result),
+            instruction=None,
+            history=[],
+            instance={},
+        )
+
+    handshake_name = "@agentclientprotocol/claude-agent-acp"
+    handshake_version = "0.25.0"
+    warn_msg = "none surfaced acp_agent_name+acp_agent_version"
+
+    # ACP run, first instance carries handshake fields → stamped from that one.
+    acp = make_eval("acp-claude", "acp")
+    assert acp.metadata.acp_agent_name is None
+    assert acp.metadata.acp_agent_version is None
+    outputs = [
+        make_out(
+            "i1",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+        make_out("i2", acp_agent_name="different", acp_agent_version="9.9.9"),
+    ]
+    acp._stamp_acp_metadata_from_outputs(outputs)
+    assert acp.metadata.acp_agent_name == handshake_name
+    assert acp.metadata.acp_agent_version == handshake_version
+    on_disk = json.loads((tmp_path / "acp" / "metadata.json").read_text())
+    assert on_disk["acp_agent_name"] == handshake_name
+    assert on_disk["acp_agent_version"] == handshake_version
+
+    # ACP run where the first non-empty fields appear on a later instance.
+    acp_late = make_eval("acp-claude", "acp_late")
+    outputs = [
+        make_out("i1"),
+        make_out(
+            "i2",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+    ]
+    acp_late._stamp_acp_metadata_from_outputs(outputs)
+    assert acp_late.metadata.acp_agent_version == handshake_version
+
+    # ACP run where the first instance has only one of the two fields → skip
+    # it and stamp from the next instance that has both.
+    acp_partial = make_eval("acp-claude", "acp_partial")
+    outputs = [
+        make_out("i1", acp_agent_name="partial-only-name"),
+        make_out(
+            "i2",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+    ]
+    acp_partial._stamp_acp_metadata_from_outputs(outputs)
+    assert acp_partial.metadata.acp_agent_name == handshake_name
+    assert acp_partial.metadata.acp_agent_version == handshake_version
+
+    # ACP run, no instance surfaced handshake fields → warning, no stamp.
+    caplog.clear()
+    acp_unstamped = make_eval("acp-claude", "acp_unstamped")
+    with caplog.at_level(logging.WARNING):
+        acp_unstamped._stamp_acp_metadata_from_outputs([make_out("i1"), make_out("i2")])
+    assert acp_unstamped.metadata.acp_agent_version is None
+    assert any(warn_msg in r.message for r in caplog.records)
+
+    # Non-ACP run → no-op even with populated test_result, no warning either.
+    caplog.clear()
+    default_eval = make_eval("default", "default")
+    with caplog.at_level(logging.WARNING):
+        default_eval._stamp_acp_metadata_from_outputs(
+            [
+                make_out(
+                    "i1",
+                    acp_agent_name=handshake_name,
+                    acp_agent_version=handshake_version,
+                )
+            ]
+        )
+    assert default_eval.metadata.acp_agent_name is None
+    assert default_eval.metadata.acp_agent_version is None
+    assert not any(warn_msg in r.message for r in caplog.records)
+    on_disk_default = json.loads((tmp_path / "default" / "metadata.json").read_text())
+    assert on_disk_default["acp_agent_name"] is None
+    assert on_disk_default["acp_agent_version"] is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
