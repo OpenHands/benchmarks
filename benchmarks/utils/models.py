@@ -131,8 +131,8 @@ class EvalMetadata(BaseModel):
             "acp'), reported by the ACP server during its initialize "
             "handshake. Only set for agent_type values starting with 'acp-'. "
             "Back-written to metadata.json by Evaluation."
-            "_maybe_stamp_acp_metadata() from the first completed instance's "
-            "test_result; the authoritative capture path is "
+            "_stamp_acp_metadata_from_outputs() from the first completed "
+            "instance's test_result; the authoritative capture path is "
             "benchmarks.utils.acp.add_acp_agent_metadata()."
         ),
     )
@@ -141,8 +141,8 @@ class EvalMetadata(BaseModel):
         description=(
             "ACP agent version (e.g. '0.25.0'), reported by the ACP server "
             "during its initialize handshake. Only set for agent_type values "
-            "starting with 'acp-'. Back-written to metadata.json by "
-            "Evaluation._maybe_stamp_acp_metadata() from the first completed "
+            "starting with 'acp-'. Back-written to metadata.json by Evaluation"
+            "._stamp_acp_metadata_from_outputs() from the first completed "
             "instance's test_result. For ACP runs this is the value "
             "downstream tooling (push-to-index) should use as the index "
             "repo's agent_version, NOT openhands_sdk_version."
