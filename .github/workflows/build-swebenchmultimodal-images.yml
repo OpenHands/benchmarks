@@ -27,7 +27,7 @@ on:
       max-retries:
         description: 'Retries per image build'
         required: false
-        default: '5'
+        default: '2'
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
@@ -49,19 +49,21 @@ on:
         required: false
         default: ''
         type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
 env:
   DATASET: princeton-nlp/SWE-bench_Multimodal
   SPLIT: dev
   MAX_WORKERS: '12'
-  MAX_RETRIES: '5'
+  MAX_RETRIES: '2'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
-  BUILD_BATCH_SIZE: '15'
-  BUILDKIT_PRUNE_KEEP_GB: '60'
-  BUILDKIT_PRUNE_THRESHOLD_PCT: '60'
 
 concurrency:
   group: build-swe-bench-multimodal-${{ github.ref }}
@@ -75,6 +77,8 @@ jobs:
        (github.event.label.name == 'build-swebenchmultimodal' ||
         github.event.label.name == 'build-swebenchmultimodal-50' ||
         github.event.label.name == 'build-swebenchmultimodal-200'))
+
+    timeout-minutes: 1440
 
     runs-on:
       labels: blacksmith-32vcpu-ubuntu-2204
@@ -135,29 +139,9 @@ jobs:
             echo "Building all images based on label: build-swebenchmultimodal"
           fi
 
-      - name: Build selected instances file
-        run: |
-          set -euo pipefail
-
-          if [ -z "${INSTANCE_IDS}" ]; then
-            echo "No instance IDs provided; skipping select file creation."
-            exit 0
-          fi
-
-          SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
-          echo "Creating selected instances file at ${SELECT_FILE}"
-
-          echo "${INSTANCE_IDS}" \
-            | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | sed '/^$/d' > "${SELECT_FILE}"
-
-          echo "SELECT_FILE=${SELECT_FILE}" >> "$GITHUB_ENV"
-          # Skip n-limit when explicit instance IDs are provided to avoid double filtering
-          echo "N_LIMIT=" >> "$GITHUB_ENV"
-
-          echo "Selected instance IDs:"
-          cat "${SELECT_FILE}"
+      - uses: ./.github/actions/build-select-file
+        with:
+          instance-ids: ${{ env.INSTANCE_IDS }}
 
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly
@@ -222,9 +206,10 @@ jobs:
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
           fi
 
-      - name: Build and push SWE-Bench Multimodal images
+      - name: Build and push SWE-Bench Multimodal images (three-phase pipeline)
         run: |
           set -euo pipefail
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           CMD="uv run benchmarks/swebenchmultimodal/build_images.py \
             --dataset '${DATASET}' \
@@ -241,13 +226,15 @@ jobs:
           if [ -n "${SELECT_FILE}" ]; then
             CMD="$CMD --select '${SELECT_FILE}'"
           fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
+          fi
 
           echo "Running: $CMD"
           eval "$CMD"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          BUILDKIT_RESET_ON_FAILURE: 1
 
       - name: Archive build logs
         if: always()
@@ -272,51 +259,9 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          # Find all manifest.jsonl files
-          MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
-          
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "No manifest.jsonl files found"
-            exit 0
-          fi
-          
-          # Generate summary from manifest files
-          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          # Count successes and failures
-          TOTAL=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-          SUCCESSES=$(cat $MANIFEST_FILES 2>/dev/null | python -c "
-          import sys
-          import json
-          count = 0
-          for line in sys.stdin:
-              data = json.loads(line.strip())
-              if data.get('error') is None and len(data.get('tags', [])) > 0:
-                  count += 1
-          print(count)
-          ")
-          FAILURES=$((TOTAL - SUCCESSES))
-          
-          echo "**Total Images:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Successful Builds:** ✅ $SUCCESSES" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Failed Builds:** ❌ $FAILURES" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          if [ "$FAILURES" -gt 0 ]; then
-            echo "### Failed Builds" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            cat $MANIFEST_FILES 2>/dev/null | python -c "
-            import sys
-            import json
-            for line in sys.stdin:
-                data = json.loads(line.strip())
-                if data.get('error') is not None or len(data.get('tags', [])) == 0:
-                    instance_id = data.get('instance_id', 'unknown')
-                    error = data.get('error', 'No tags generated')
-                    print(f'- **{instance_id}**: {error}')
-            " >> "$GITHUB_STEP_SUMMARY"
-          fi
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "SWE-Bench Multimodal Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on PR with build results
         if: github.event_name == 'pull_request_target'

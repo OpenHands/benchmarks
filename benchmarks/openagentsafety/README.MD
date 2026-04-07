@@ -99,6 +99,8 @@ uv run openagentsafety-infer .llm_config/gpt-4o-mini.json \
   --critic pass
 ```
 
+You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
+
 ### Command Line Arguments
 
 - `--dataset`: HuggingFace dataset identifier

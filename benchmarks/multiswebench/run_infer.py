@@ -26,6 +26,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -34,6 +35,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -282,15 +284,23 @@ class MultiSWEBenchEvaluation(Evaluation):
         )
         if self.metadata.enable_delegation:
             tools.append(Tool(name=DelegateTool.name))
+
+        # Create condenser if enabled
+        agent_llm = build_eval_llm(self.metadata.llm)
+        condenser = None
+        if self.metadata.enable_condenser:
+            condenser = LLMSummarizingCondenser(
+                llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
+                max_size=self.metadata.condenser_max_size,
+                keep_first=self.metadata.condenser_keep_first,
+            )
+
         agent = Agent(
-            llm=self.metadata.llm,
+            llm=agent_llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
-            # TODO: we can enable condenser and security analyzer later
-            # and have them configurable via EvalMetadata
-            # condenser=get_default_condenser(
-            #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
-            # ),
+            condenser=condenser,
+            # TODO: we can enable security analyzer later
             # security_analyzer=LLMSecurityAnalyzer(),
         )
 
@@ -412,9 +422,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Validate max_attempts
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    # Validate n_critic_runs
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
@@ -435,6 +445,12 @@ def main() -> None:
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
 
+    # Handle condenser configuration
+    # --disable-condenser takes precedence over --enable-condenser and defaults
+    enable_condenser = args.enable_condenser
+    if args.disable_condenser:
+        enable_condenser = False
+
     metadata = MultiSWEBenchEvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -446,12 +462,15 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
+        enable_condenser=enable_condenser,
+        condenser_max_size=args.condenser_max_size,
+        condenser_keep_first=args.condenser_keep_first,
     )
 
     # Run orchestrator with a simple JSONL writer

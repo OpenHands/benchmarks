@@ -181,12 +181,9 @@ def prune_buildkit_cache(
             logger.warning(proc.stderr.strip())
         return proc
 
-    # Prefer the newer --max-storage flag; fall back to --keep-storage if unsupported.
     storage_flag: list[str] = []
-    fallback_flag: list[str] = []
     if keep_storage_gb is not None and keep_storage_gb > 0:
-        storage_flag = ["--max-storage", f"{keep_storage_gb}g"]
-        fallback_flag = ["--keep-storage", f"{keep_storage_gb}g"]
+        storage_flag = ["--keep-storage", f"{keep_storage_gb}g"]
 
     filter_flags: list[str] = []
     if filters:
@@ -194,13 +191,6 @@ def prune_buildkit_cache(
             filter_flags += ["--filter", f]
 
     proc = _run(base_cmd + storage_flag + filter_flags)
-    if (
-        proc.returncode != 0
-        and fallback_flag
-        and "--max-storage" in " ".join(storage_flag)
-    ):
-        if "unknown flag: --max-storage" in proc.stderr:
-            proc = _run(base_cmd + fallback_flag + filter_flags)
 
     if proc.returncode != 0:
         raise RuntimeError(

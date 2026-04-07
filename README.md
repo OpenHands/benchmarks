@@ -141,7 +141,7 @@ File logging (`logs/instance_<id>.log`) is unaffected by this setting.
 This repo exposes a manual GitHub Actions workflow that dispatches the `run-eval.yml` workflow in the Software Agent SDK. It is useful when you want to launch evals from the benchmarks repo without switching to the SDK repo.
 
 Requirements:
-- The `ALLHANDS_BOT_GITHUB_PAT` secret must be available in this repository with permission to dispatch workflows in `OpenHands/software-agent-sdk`.
+- The `PAT_TOKEN` secret must be available in this repository with permission to dispatch workflows in `OpenHands/software-agent-sdk`.
 
 Run it with `gh`:
 

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import List
+from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -12,6 +12,14 @@ from benchmarks.swebench.build_images import (
     wrap_image,
 )
 from benchmarks.swebench.config import INFER_DEFAULTS
+from benchmarks.utils.acp import (
+    add_acp_agent_metadata,
+    build_acp_agent,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+    workspace_keepalive,
+)
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -26,6 +34,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -33,11 +42,13 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import Agent, Conversation, Tool, get_logger
+from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
-from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -145,6 +156,8 @@ class SWEBenchEvaluation(Evaluation):
                            Higher values allocate more CPU/memory resources.
                            Used by APIRemoteWorkspace for remote runtime allocation.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         official_docker_image = get_official_docker_image(instance.id)
         build_target = constants.DEFAULT_BUILD_TARGET
         custom_tag = extract_custom_tag(official_docker_image)
@@ -152,9 +165,7 @@ class SWEBenchEvaluation(Evaluation):
         suffix = (
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
         )
-        base_agent_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-        )
+        base_agent_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
         wrap_needed = should_wrap_instance_id(instance.id)
         agent_server_image = base_agent_image
 
@@ -183,6 +194,28 @@ class SWEBenchEvaluation(Evaluation):
                 working_dir="/workspace",
                 forward_env=forward_env or [],
             )
+        elif self.metadata.workspace_type == "apptainer":
+            if not remote_image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
+                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
+                )
+
+            logger.info(
+                f"Using apptainer workspace with pre-built image {agent_server_image} "
+                f"(tag prefix: {get_phased_image_tag_prefix()})"
+            )
+            if wrap_needed:
+                logger.info(
+                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                )
+
+            workspace = ApptainerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+                forward_env=forward_env or [],
+                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:
@@ -190,9 +223,7 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
@@ -200,7 +231,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {get_phased_image_tag_prefix()}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
                 os.getenv(
@@ -242,26 +273,36 @@ class SWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_tools_for_preset(
-            preset=self.metadata.tool_preset,
-            # Disable browser tools in CLI mode
-            enable_browser=False,
-        )
-        if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-            # TODO: we can enable condenser and security analyzer later
-            # and have them configurable via EvalMetadata
-            # condenser=get_default_condenser(
-            #     llm=self.metadata.llm.model_copy(update={"service_id": "condenser"})
-            # ),
-            # security_analyzer=LLMSecurityAnalyzer(),
-        )
+        if is_acp_agent(self.metadata.agent_type):
+            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
+        else:
+            agent_llm = build_eval_llm(self.metadata.llm)
+            tools = get_tools_for_preset(
+                preset=self.metadata.tool_preset,
+                # Disable browser tools in CLI mode
+                enable_browser=False,
+            )
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            condenser = None
+            if self.metadata.enable_condenser:
+                condenser = LLMSummarizingCondenser(
+                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
+                    max_size=self.metadata.condenser_max_size,
+                    keep_first=self.metadata.condenser_keep_first,
+                )
+            agent = Agent(
+                llm=agent_llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+                condenser=condenser,
+                # TODO: we can enable security analyzer later
+                # security_analyzer=LLMSecurityAnalyzer(),
+            )
 
         assert isinstance(workspace, RemoteWorkspace)
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
@@ -297,9 +338,10 @@ class SWEBenchEvaluation(Evaluation):
             metadata=self.metadata,
             workspace_path=workspace.working_dir,
         )
-        conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            conversation.send_message(instruction)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -331,13 +373,18 @@ class SWEBenchEvaluation(Evaluation):
             logger=logger,
         )
 
+        # Build test_result with git patch and optional ACP agent metadata
+        test_result: dict[str, Any] = {
+            "git_patch": git_patch,
+        }
+        if isinstance(agent, ACPAgent):
+            add_acp_agent_metadata(test_result, conversation)
+
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result={
-                "git_patch": git_patch,
-            },
+            test_result=test_result,
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
@@ -352,9 +399,9 @@ def main() -> None:
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
-    # Validate max_attempts
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    # Validate n_critic_runs
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
@@ -376,6 +423,12 @@ def main() -> None:
     logger.info(f"Using critic: {type(critic).__name__}")
     logger.info(f"Using tool preset: {args.tool_preset}")
 
+    # Handle condenser configuration
+    # --disable-condenser takes precedence over --enable-condenser and defaults
+    enable_condenser = args.enable_condenser
+    if args.disable_condenser:
+        enable_condenser = False
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -386,13 +439,17 @@ def main() -> None:
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
         tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
+        enable_condenser=enable_condenser,
+        condenser_max_size=args.condenser_max_size,
+        condenser_keep_first=args.condenser_keep_first,
     )
 
     # Run orchestrator with a simple JSONL writer

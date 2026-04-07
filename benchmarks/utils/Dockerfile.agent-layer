@@ -1,0 +1,39 @@
+# Thin assembly Dockerfile for agent-server images.
+#
+# References pre-built base and builder images that are already in GHCR,
+# so the only new layer is the COPY of /agent-server onto the base.
+#
+# Usage:
+#   docker build \
+#     --file Dockerfile.agent-layer \
+#     --build-arg BASE_IMAGE=ghcr.io/openhands/eval-base:instance-tag \
+#     --build-arg BUILDER_IMAGE=ghcr.io/openhands/eval-builder:sdk-sha \
+#     --build-arg OPENHANDS_BUILD_GIT_SHA=abc1234... \
+#     --tag ghcr.io/openhands/eval-agent-server:final-tag .
+
+ARG BUILDER_IMAGE
+ARG BASE_IMAGE
+
+FROM ${BUILDER_IMAGE} AS builder
+FROM ${BASE_IMAGE}
+
+ARG USERNAME=openhands
+ARG OPENHANDS_BUILD_GIT_SHA=unknown
+ENV OPENHANDS_BUILD_GIT_SHA=${OPENHANDS_BUILD_GIT_SHA}
+ENV UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python
+
+# Copy the Python 3.13 runtime from the builder so the venv's symlinks resolve.
+# Since SDK v1.15.0 the builder venv uses --python-preference only-system,
+# meaning .venv/bin/python symlinks to /usr/local/bin/python3.13. The eval-base
+# image doesn't have Python 3.13, so we bring the interpreter and stdlib along.
+COPY --from=builder /usr/local/bin/python3.13 /usr/local/bin/python3.13
+COPY --from=builder /usr/local/lib/python3.13 /usr/local/lib/python3.13
+COPY --from=builder /usr/local/lib/libpython3.13.so* /usr/local/lib/
+# The venv's python symlinks to /usr/local/bin/python3 (not python3.13),
+# so we need the python3 symlink to exist as well. Use COPY instead of
+# RUN ln because the base image may not be running as root.
+COPY --from=builder /usr/local/bin/python3 /usr/local/bin/python3
+ENV LD_LIBRARY_PATH=/usr/local/lib
+
+COPY --chown=${USERNAME}:${USERNAME} --from=builder /agent-server /agent-server
+ENTRYPOINT ["/agent-server/.venv/bin/python", "-m", "openhands.agent_server"]

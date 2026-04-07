@@ -1,10 +1,12 @@
 """Tests for workspace cleanup functionality in the evaluation module."""
 
 from typing import List
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from uuid import UUID
 
 import pytest
 
+from benchmarks.utils.laminar import LaminarEvalMetadata
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
@@ -36,7 +38,7 @@ def test_workspace_cleanup_called_on_success():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -59,8 +61,8 @@ def test_workspace_cleanup_called_on_success():
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+    result_instance, result_output = evaluator._process_one_sync(
+        test_instance, critic_attempt=1
     )
 
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -87,7 +89,7 @@ def test_workspace_cleanup_called_on_failure():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -110,8 +112,8 @@ def test_workspace_cleanup_called_on_failure():
             raise RuntimeError("Test evaluation failure")
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+    result_instance, result_output = evaluator._process_one_sync(
+        test_instance, critic_attempt=1
     )
 
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -147,7 +149,7 @@ def test_workspace_cleanup_handles_cleanup_exception():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=0,
         critic=PassCritic(),
     )
@@ -170,8 +172,8 @@ def test_workspace_cleanup_handles_cleanup_exception():
             return test_output
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+    result_instance, result_output = evaluator._process_one_sync(
+        test_instance, critic_attempt=1
     )
 
     mock_workspace.__exit__.assert_called_once_with(None, None, None)
@@ -203,7 +205,7 @@ def test_workspace_cleanup_with_retries():
         eval_output_dir="/tmp/test",
         details={},
         eval_limit=1,
-        max_attempts=1,
+        n_critic_runs=1,
         max_retries=2,
         critic=PassCritic(),
     )
@@ -240,8 +242,8 @@ def test_workspace_cleanup_with_retries():
             )
 
     evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-    result_instance, result_output = evaluator._process_one_mp(
-        test_instance, None, critic_attempt=1
+    result_instance, result_output = evaluator._process_one_sync(
+        test_instance, critic_attempt=1
     )
 
     assert len(workspaces_created) == 3
@@ -250,6 +252,221 @@ def test_workspace_cleanup_with_retries():
 
     assert result_instance.id == "test_instance"
     assert result_output.instance_id == "test_instance"
+    assert result_output.error is None
+
+
+def test_datapoint_trace_id_linked_in_worker():
+    """Test that update_datapoint_trace_id is called when a datapoint_id is provided."""
+    from benchmarks.utils.evaluation import Evaluation
+
+    mock_workspace = Mock()
+    mock_workspace.__exit__ = Mock()
+
+    test_instance = EvalInstance(id="test_instance", data={"test": "data"})
+    test_output = EvalOutput(
+        instance_id="test_instance",
+        test_result={"success": True},
+        instruction="test instruction",
+        error=None,
+        history=[],
+        instance={"test": "data"},
+    )
+
+    eval_id = UUID("12345678-1234-1234-1234-123456789abc")
+    datapoint_id = UUID("abcdef01-abcd-abcd-abcd-abcdef012345")
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir="/tmp/test",
+        details={},
+        eval_limit=1,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+    metadata.lmnr = LaminarEvalMetadata(eval_id=eval_id)
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return [test_instance]
+
+        def prepare_workspace(
+            self,
+            instance: EvalInstance,
+            resource_factor: int = 1,
+            forward_env: list[str] | None = None,
+        ):
+            mock_workspace.forward_env = forward_env or []
+            mock_workspace.resource_factor = resource_factor
+            return mock_workspace
+
+        def evaluate_instance(self, instance, workspace):
+            return test_output
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr_svc:
+        mock_service = Mock()
+        mock_lmnr_svc.get.return_value = mock_service
+
+        result_instance, result_output = evaluator._process_one_sync(
+            test_instance,
+            critic_attempt=1,
+            lmnr_datapoint_id=datapoint_id,
+        )
+
+    # Verify update_datapoint_trace_id was called with the correct eval_id and datapoint_id
+    mock_service.update_datapoint_trace_id.assert_called_once()
+    call_kwargs = mock_service.update_datapoint_trace_id.call_args
+    assert call_kwargs.kwargs["eval_id"] == eval_id
+    assert call_kwargs.kwargs["datapoint_id"] == datapoint_id
+    assert isinstance(call_kwargs.kwargs["trace_id"], UUID)
+    assert (
+        call_kwargs.kwargs["trace_id"].int != 0
+    )  # Verify it's not a zero/default UUID
+
+    assert result_instance.id == "test_instance"
+    assert result_output.error is None
+
+
+def test_datapoint_trace_id_not_linked_without_datapoint():
+    """Test that update_datapoint_trace_id is NOT called when no datapoint_id is provided."""
+    from benchmarks.utils.evaluation import Evaluation
+
+    mock_workspace = Mock()
+    mock_workspace.__exit__ = Mock()
+
+    test_instance = EvalInstance(id="test_instance", data={"test": "data"})
+    test_output = EvalOutput(
+        instance_id="test_instance",
+        test_result={"success": True},
+        instruction="test instruction",
+        error=None,
+        history=[],
+        instance={"test": "data"},
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir="/tmp/test",
+        details={},
+        eval_limit=1,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return [test_instance]
+
+        def prepare_workspace(
+            self,
+            instance: EvalInstance,
+            resource_factor: int = 1,
+            forward_env: list[str] | None = None,
+        ):
+            mock_workspace.forward_env = forward_env or []
+            mock_workspace.resource_factor = resource_factor
+            return mock_workspace
+
+        def evaluate_instance(self, instance, workspace):
+            return test_output
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr_svc:
+        mock_service = Mock()
+        mock_lmnr_svc.get.return_value = mock_service
+
+        result_instance, result_output = evaluator._process_one_sync(
+            test_instance,
+            critic_attempt=1,
+            # No lmnr_datapoint_id passed
+        )
+
+    mock_service.update_datapoint_trace_id.assert_not_called()
+    assert result_output.error is None
+
+
+def test_update_datapoint_trace_id_failure_does_not_break_eval():
+    """Test that a failure in update_datapoint_trace_id does not prevent evaluation."""
+    from benchmarks.utils.evaluation import Evaluation
+
+    mock_workspace = Mock()
+    mock_workspace.__exit__ = Mock()
+
+    test_instance = EvalInstance(id="test_instance", data={"test": "data"})
+    test_output = EvalOutput(
+        instance_id="test_instance",
+        test_result={"success": True},
+        instruction="test instruction",
+        error=None,
+        history=[],
+        instance={"test": "data"},
+    )
+
+    eval_id = UUID("12345678-1234-1234-1234-123456789abc")
+    datapoint_id = UUID("abcdef01-abcd-abcd-abcd-abcdef012345")
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir="/tmp/test",
+        details={},
+        eval_limit=1,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+    metadata.lmnr = LaminarEvalMetadata(eval_id=eval_id)
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return [test_instance]
+
+        def prepare_workspace(
+            self,
+            instance: EvalInstance,
+            resource_factor: int = 1,
+            forward_env: list[str] | None = None,
+        ):
+            mock_workspace.forward_env = forward_env or []
+            mock_workspace.resource_factor = resource_factor
+            return mock_workspace
+
+        def evaluate_instance(self, instance, workspace):
+            return test_output
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr_svc:
+        mock_service = Mock()
+        mock_service.update_datapoint_trace_id.side_effect = RuntimeError(
+            "Network error"
+        )
+        mock_lmnr_svc.get.return_value = mock_service
+
+        # Should not raise despite update_datapoint_trace_id failure
+        result_instance, result_output = evaluator._process_one_sync(
+            test_instance,
+            critic_attempt=1,
+            lmnr_datapoint_id=datapoint_id,
+        )
+
+    # The evaluation should still succeed
+    assert result_instance.id == "test_instance"
     assert result_output.error is None
 
 

@@ -25,6 +25,7 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger
@@ -455,7 +456,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             tools.append(Tool(name=DelegateTool.name))
 
         # Create agent
-        agent = Agent(llm=self.metadata.llm, tools=tools)
+        agent = Agent(llm=build_eval_llm(self.metadata.llm), tools=tools)
 
         # Collect events
         received_events = []
@@ -499,10 +500,6 @@ class OpenAgentSafetyEvaluation(Evaluation):
             logger.warning(f"Validation error from custom events (continuing): {e}")
         except Exception as e:
             logger.error(f"Error during conversation: {e}")
-            # Collect cost metrics even on error
-            metrics = None
-            if hasattr(self.metadata.llm, "metrics"):
-                metrics = self.metadata.llm.metrics
             return EvalOutput(
                 instance_id=instance.id,
                 attempt=self.current_attempt,
@@ -510,7 +507,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
                 instruction=instruction,
                 error=str(e),
                 history=[],
-                metrics=metrics,
+                metrics=conversation.conversation_stats.get_combined_metrics(),
             )
 
         # Build history safely
@@ -550,10 +547,6 @@ class OpenAgentSafetyEvaluation(Evaluation):
             logger=logger,
         )
 
-        # Collect cost metrics from LLM
-        metrics = None
-        if hasattr(self.metadata.llm, "metrics"):
-            metrics = self.metadata.llm.metrics
         return EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
@@ -563,7 +556,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             history=history,
             metadata=self.metadata,
             instance=instance.data,
-            metrics=metrics,
+            metrics=conversation.conversation_stats.get_combined_metrics(),
         )
 
 
@@ -646,8 +639,8 @@ def main() -> None:
     args = parser.parse_args()
 
     # Validate args
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     # Load LLM config
     llm = load_llm_config(args.llm_config_path)
@@ -681,7 +674,7 @@ def main() -> None:
             "platform": "linux/amd64",
         },
         eval_limit=args.n_limit,
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,

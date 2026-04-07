@@ -1,30 +1,43 @@
 """
 Evaluation orchestrator.
+
+This module provides async-based evaluation orchestration for benchmarks.
+The evaluation uses asyncio for concurrent instance processing, running
+synchronous SDK operations in thread executors. This eliminates the 30×
+memory multiplication from ProcessPoolExecutor while maintaining high
+concurrency for I/O-bound workloads (HTTP calls to LLM proxy + runtime API).
 """
 
+import asyncio
 import base64
 import json
-import multiprocessing
 import os
-import sys
+import threading
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
-from contextlib import contextmanager
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Coroutine, List, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
+from benchmarks.utils.acp import is_acp_agent
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
+from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
+from benchmarks.utils.litellm_proxy import (
+    create_virtual_key,
+    delete_key,
+    get_key_spend,
+    set_current_virtual_key,
+)
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -32,7 +45,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
-from openhands.sdk import get_logger
+from openhands.sdk import __version__ as openhands_sdk_version, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.workspace import APIRemoteWorkspace
@@ -44,23 +57,85 @@ logger = get_logger(__name__)
 TIMEOUT_CHECK_INTERVAL_SECONDS = 60
 
 
+def _default_thread_pool_workers(cpu_count: int | None) -> int:
+    """Return Python's implicit ThreadPoolExecutor size for the given CPU count."""
+    return min(32, (cpu_count or 1) + 4)
+
+
+def _read_cgroup_cpu_max() -> str | None:
+    """Return the cgroup v2 cpu.max value when available."""
+    cpu_max_path = Path("/sys/fs/cgroup/cpu.max")
+    try:
+        if cpu_max_path.exists():
+            return cpu_max_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return None
+
+
+def _to_serializable(obj: Any) -> Any:
+    """Recursively convert numpy scalars/arrays to JSON-serializable Python types.
+
+    Pandas ``row.to_dict()`` preserves numpy dtypes, which Pydantic's
+    ``model_dump_json`` cannot serialise.  This is used by
+    ``_create_error_output`` to sanitise ``instance.data`` before storing it
+    in an ``EvalOutput``.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return obj
+
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _to_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_to_serializable(v) for v in obj)
+    return obj
+
+
 @dataclass
 class PendingInstance:
     """Tracks state for a pending evaluation instance."""
 
     instance: EvalInstance
-    start_time: float
     datapoint_id: UUID | None = None
+    task: asyncio.Task | None = field(default=None, repr=False)
+    start_time: float | None = None  # Set when worker thread begins executing
 
 
 OnResult = Callable[[EvalInstance, EvalOutput], None]
 
 
 class Evaluation(ABC, BaseModel):
-    """Abstract orchestrator for instance processing (process-based)."""
+    """Abstract orchestrator for instance processing using asyncio.
+
+    Uses asyncio for concurrent instance processing with a semaphore to limit
+    the number of concurrent instances. Synchronous SDK operations (workspace,
+    conversation) are run in thread executors via asyncio.to_thread().
+
+    This design eliminates the memory multiplication from ProcessPoolExecutor
+    while maintaining high concurrency for I/O-bound workloads.
+    """
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    max_asyncio_thread_workers: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Upper bound for the asyncio default thread pool used by "
+            "asyncio.to_thread(). This prevents accidental misconfiguration "
+            "from creating an unbounded number of threads."
+        ),
+    )
     current_attempt: int = Field(
         default=1, description="Current attempt number (1-indexed)"
     )
@@ -68,23 +143,45 @@ class Evaluation(ABC, BaseModel):
         default=4 * 60 * 60,  # 4 hours
         description=(
             "Maximum time in seconds for a single instance to complete. "
-            "Note: When a timeout occurs, the instance is marked as failed and "
-            "removed from tracking, but the underlying worker process may continue "
-            "running until pool shutdown. This is a limitation of ProcessPoolExecutor - "
-            "Future.cancel() only prevents unstarted futures from starting."
+            "When a timeout occurs, the instance's asyncio task is cancelled. "
+            "The underlying thread running the SDK operation will complete, "
+            "but the result will be discarded and replaced with a timeout error."
         ),
     )
 
     def model_post_init(self, __context) -> None:
-        """Save metadata to output directory after initialization."""
-        # Ensure output directory exists
-        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
+        """Stamp openhands_sdk_version on self.metadata and persist metadata.json."""
+        self.metadata.openhands_sdk_version = openhands_sdk_version
+        self._save_metadata()
 
-        # Save metadata to JSON file
+    def _save_metadata(self) -> None:
+        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
+
+    def _stamp_acp_metadata_from_outputs(self, outputs: List[EvalOutput]) -> None:
+        """Back-write ACP handshake fields from any completed instance."""
+        if not is_acp_agent(self.metadata.agent_type):
+            return
+        for out in outputs:
+            name = out.test_result.get("acp_agent_name")
+            version = out.test_result.get("acp_agent_version")
+            if name and version:
+                self.metadata.acp_agent_name = name
+                self.metadata.acp_agent_version = version
+                self._save_metadata()
+                logger.info("Stamped ACP metadata: name=%r version=%r", name, version)
+                return
+        completed = sum(1 for out in outputs if out.test_result)
+        logger.warning(
+            "ACP run: %d/%d instances completed but none surfaced "
+            "acp_agent_name+acp_agent_version. push-to-index will see a "
+            "missing agent_version.",
+            completed,
+            len(outputs),
+        )
 
     @property
     def output_path(self) -> str:
@@ -144,7 +241,7 @@ class Evaluation(ABC, BaseModel):
                 f"Instance failed after {retry_count} retries. Last error: {str(error)}"
             )[:200],
             history=[],
-            instance=instance.data,
+            instance=_to_serializable(instance.data),
         )
 
     def _capture_conversation_archive(
@@ -185,18 +282,18 @@ class Evaluation(ABC, BaseModel):
                 # Decode and write the tar.gz file
                 conv_tar_path.write_bytes(base64.b64decode(tar_cmd.stdout))
                 logger.info(
-                    "[child] Saved conversation archive for %s to %s",
+                    "[worker] Saved conversation archive for %s to %s",
                     instance.id,
                     conv_tar_path,
                 )
             else:
                 logger.debug(
-                    "[child] No conversation archive for %s (directory not found or empty)",
+                    "[worker] No conversation archive for %s (directory not found or empty)",
                     instance.id,
                 )
         except Exception as e:
             logger.warning(
-                "[child] Failed to capture conversation trajectory for %s: %s",
+                "[worker] Failed to capture conversation trajectory for %s: %s",
                 instance.id,
                 e,
             )
@@ -210,13 +307,16 @@ class Evaluation(ABC, BaseModel):
         """
         Run evaluation with iterative mode support.
 
-        If max_attempts > 1, will retry failed instances multiple times.
-        If max_attempts == 1, will run once without retries.
+        If n_critic_runs > 1, will retry failed instances multiple times.
+        If n_critic_runs == 1, will run once without retries.
+
+        Uses asyncio for concurrent instance processing. Synchronous SDK
+        operations run in thread executors via asyncio.to_thread().
         """
-        logger.info("Starting evaluation (process pool)")
+        logger.info("Starting evaluation (asyncio)")
         logger.info("metadata=%s", self.metadata)
         logger.info("workers=%d", self.num_workers)
-        logger.info("max_attempts=%d", self.metadata.max_attempts)
+        logger.info("n_critic_runs=%d", self.metadata.n_critic_runs)
 
         # Use iterative mode for all cases
         return self._run_iterative_mode(on_result=on_result)
@@ -229,6 +329,9 @@ class Evaluation(ABC, BaseModel):
     ) -> List[EvalInstance]:
         """
         Determine which instances need processing for a specific attempt.
+
+        State is derived from the on-disk attempt files rather than kept
+        in memory so that a crashed process can resume where it left off.
 
         This method handles all resume scenarios naturally without special cases:
         - New instances: Not completed in attempt 1 yet → include them
@@ -255,7 +358,8 @@ class Evaluation(ABC, BaseModel):
                 inst for inst in all_instances if inst.id not in completed_in_attempt
             ]
         else:
-            # Attempt N: Process what failed in N-1 and isn't completed in N
+            # Attempt N: Retry what failed OR was missing in N-1,
+            # excluding anything already completed in this attempt.
             prev_file = os.path.join(
                 self.metadata.eval_output_dir,
                 f"output.critic_attempt_{attempt - 1}.jsonl",
@@ -264,18 +368,75 @@ class Evaluation(ABC, BaseModel):
                 return []
 
             failed_in_prev = get_failed_instances(prev_file, critic)
-            return [
-                inst
-                for inst in all_instances
-                if inst.id in failed_in_prev and inst.id not in completed_in_attempt
-            ]
+            # Collect everything completed across ALL prior attempts so that
+            # instances which passed in an earlier attempt (and therefore have
+            # no entry in later attempt files) are not mistaken for "missing".
+            all_prior_completed: set = set()
+            for a in range(1, attempt):
+                f = os.path.join(
+                    self.metadata.eval_output_dir,
+                    f"output.critic_attempt_{a}.jsonl",
+                )
+                if os.path.exists(f):
+                    all_prior_completed |= get_completed_instances(f)
+            # Instances with no entry in ANY prior attempt (never ran or
+            # crashed before producing output) should also be retried.
+            never_completed = {inst.id for inst in all_instances} - all_prior_completed
+            retry_ids = (failed_in_prev | never_completed) - completed_in_attempt
+            return [inst for inst in all_instances if inst.id in retry_ids]
 
     def _run_iterative_mode(
         self,
         *,
         on_result: Optional[OnResult] = None,
     ) -> List[EvalOutput]:
-        """Run evaluation with support for single or multiple attempts."""
+        """Run evaluation with support for single or multiple attempts.
+
+        Uses asyncio for concurrent instance processing. Synchronous SDK
+        operations run in thread executors via asyncio.to_thread().
+        """
+        return asyncio.run(self._run_iterative_mode_async(on_result=on_result))
+
+    async def _run_iterative_mode_async(
+        self,
+        *,
+        on_result: Optional[OnResult] = None,
+    ) -> List[EvalOutput]:
+        """Async implementation of iterative mode evaluation."""
+        # Install thread-routed logging/stdout and set up main-thread defaults
+        # before spawning any workers.
+        from benchmarks.utils.worker_context import initialize as init_worker_ctx
+
+        init_worker_ctx()
+
+        loop = asyncio.get_running_loop()
+        cpu_count = os.cpu_count()
+        default_executor_workers = _default_thread_pool_workers(cpu_count)
+        effective_executor_workers = min(
+            self.num_workers, self.max_asyncio_thread_workers
+        )
+        if effective_executor_workers < self.num_workers:
+            logger.warning(
+                "[executor] capping configured_workers=%d to executor_cap=%d",
+                self.num_workers,
+                self.max_asyncio_thread_workers,
+            )
+        loop.set_default_executor(
+            ThreadPoolExecutor(
+                max_workers=effective_executor_workers,
+                thread_name_prefix="evaluation-worker",
+            )
+        )
+        logger.info(
+            "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s",
+            self.num_workers,
+            self.max_asyncio_thread_workers,
+            effective_executor_workers,
+            default_executor_workers,
+            cpu_count,
+            _read_cgroup_cpu_max() or "unknown",
+        )
+
         all_instances = self.prepare_instances()
 
         # Initialize Laminar
@@ -318,9 +479,9 @@ class Evaluation(ABC, BaseModel):
         critic = self.metadata.critic
         all_outputs: List[EvalOutput] = []
 
-        for attempt in range(1, self.metadata.max_attempts + 1):
+        for attempt in range(1, self.metadata.n_critic_runs + 1):
             self.current_attempt = attempt
-            logger.info(f"Starting attempt {attempt}/{self.metadata.max_attempts}")
+            logger.info(f"Starting attempt {attempt}/{self.metadata.n_critic_runs}")
 
             instances_to_process = self._get_instances_for_attempt(
                 attempt, all_instances, critic
@@ -338,22 +499,26 @@ class Evaluation(ABC, BaseModel):
                 logger.info("Adjusting temperature from 0.0 to 0.1 for retry attempt")
                 self.metadata.llm.temperature = 0.1
 
-            # Create attempt-specific output callback
+            # Create attempt-specific output callback and file write lock
             attempt_outputs: List[EvalOutput] = []
+            file_lock = asyncio.Lock()
 
-            def attempt_on_result(instance: EvalInstance, out: EvalOutput) -> None:
-                # Write to attempt-specific file
+            async def attempt_on_result_async(
+                instance: EvalInstance, out: EvalOutput
+            ) -> None:
+                # Write to attempt-specific file (thread-safe with lock)
                 attempt_file = os.path.join(
                     self.metadata.eval_output_dir,
                     f"output.critic_attempt_{attempt}.jsonl",
                 )
-                try:
-                    with open(attempt_file, "a") as f:
-                        f.write(out.model_dump_json() + "\n")
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to write to attempt file {attempt_file}: {e}"
-                    )
+                async with file_lock:
+                    try:
+                        with open(attempt_file, "a") as f:
+                            f.write(out.model_dump_json() + "\n")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to write to attempt file {attempt_file}: {e}"
+                        )
 
                 # Call original callback if provided
                 if on_result:
@@ -369,135 +534,12 @@ class Evaluation(ABC, BaseModel):
 
                 attempt_outputs.append(out)
 
-            # Run evaluation for this attempt
-            # Use 'spawn' instead of 'fork' to avoid deadlocks when the parent
-            # process has threads (e.g., WebSocket clients, log streamers).
-            # With 'fork', child processes inherit copies of locks that may be
-            # held by threads, causing deadlocks when those locks are needed.
-            # See: https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
-            mp_context = multiprocessing.get_context("spawn")
-            pool = ProcessPoolExecutor(
-                max_workers=self.num_workers, mp_context=mp_context
+            # Run evaluation for this attempt using asyncio
+            attempt_outputs = await self._run_attempt_async(
+                instances_to_process,
+                attempt,
+                attempt_on_result_async,
             )
-            futures: list[Future] = []
-            # Consolidated tracking: maps future -> PendingInstance
-            pending_instances: dict[Future, PendingInstance] = {}
-            try:
-                for index, inst in enumerate(instances_to_process):
-                    datapoint_id, lmnr_span_ctx = (
-                        LaminarService.get().create_evaluation_datapoint(
-                            self.metadata.lmnr.eval_id,
-                            inst.id,
-                            self.metadata.model_dump(mode="json"),
-                            index,
-                            session_id=self._laminar_session_id,
-                            trace_metadata=self._laminar_trace_meta,
-                        )
-                    )
-
-                    fut = pool.submit(
-                        self._process_one_mp, inst, lmnr_span_ctx, attempt
-                    )
-                    futures.append(fut)
-                    pending_instances[fut] = PendingInstance(
-                        instance=inst,
-                        start_time=time.monotonic(),
-                        datapoint_id=datapoint_id,
-                    )
-
-                pending: set[Future] = set(futures)
-                progress = tqdm(
-                    total=len(futures), desc=f"Attempt {attempt}", leave=False
-                )
-
-                while pending:
-                    # Wait for any future to complete, with short timeout to check
-                    # for per-instance timeouts
-                    done, pending = wait(
-                        pending,
-                        timeout=TIMEOUT_CHECK_INTERVAL_SECONDS,
-                        return_when=FIRST_COMPLETED,
-                    )
-
-                    # Process completed futures
-                    for fut in done:
-                        progress.update(1)
-                        try:
-                            instance, out = fut.result()
-                            pending_info = pending_instances.get(fut)
-
-                            # Add Laminar metadata to EvalOutput
-                            if out.metadata is None:
-                                out.metadata = self.metadata.model_copy(deep=True)
-                            out.metadata.lmnr = LaminarEvalMetadata(
-                                eval_id=self.metadata.lmnr.eval_id,
-                                datapoint_id=(
-                                    pending_info.datapoint_id if pending_info else None
-                                ),
-                            )
-
-                            attempt_on_result(instance, out)
-                        except Exception as e:
-                            logger.error(
-                                f"Unexpected error from worker process: {str(e)[:50]}",
-                                exc_info=True,
-                                stack_info=True,
-                            )
-
-                    # Check for per-instance timeouts
-                    now = time.monotonic()
-                    timed_out_futures = [
-                        fut
-                        for fut in pending
-                        if now - pending_instances[fut].start_time
-                        > self.instance_timeout
-                    ]
-
-                    for fut in timed_out_futures:
-                        pending.discard(fut)
-                        progress.update(1)
-                        pending_info = pending_instances.get(fut)
-                        if pending_info:
-                            inst = pending_info.instance
-                            logger.error(
-                                f"Instance {inst.id} timed out after "
-                                f"{self.instance_timeout}s"
-                            )
-                            error_output = self._create_error_output(
-                                inst,
-                                TimeoutError(
-                                    f"Instance did not complete within "
-                                    f"{self.instance_timeout}s timeout"
-                                ),
-                                attempt,
-                            )
-                            if error_output.metadata is None:
-                                error_output.metadata = self.metadata.model_copy(
-                                    deep=True
-                                )
-                            # metadata is guaranteed non-None after the above assignment
-                            if self.metadata.lmnr is not None:
-                                error_output.metadata.lmnr = LaminarEvalMetadata(
-                                    eval_id=self.metadata.lmnr.eval_id,
-                                    datapoint_id=pending_info.datapoint_id,
-                                )
-                            attempt_on_result(inst, error_output)
-                        # Note: fut.cancel() only prevents unstarted futures from
-                        # starting. Running workers will continue until pool shutdown.
-                        fut.cancel()
-
-                progress.close()
-
-                # Normal completion - shutdown gracefully
-                pool.shutdown(wait=True)
-            except KeyboardInterrupt:
-                logger.warning("KeyboardInterrupt received, shutting down workers...")
-                self._cleanup_pool(pool, futures, wait=False)
-                logger.info("All workers terminated")
-                raise
-            except Exception:
-                self._cleanup_pool(pool, futures, wait=False)
-                raise
 
             # Restore original temperature
             if attempt > 1 and original_temperature == 0.0:
@@ -513,44 +555,192 @@ class Evaluation(ABC, BaseModel):
         logger.info("Aggregating results from all attempts")
         aggregate_results(
             output_dir=self.metadata.eval_output_dir,
-            max_attempts=self.metadata.max_attempts,
+            n_critic_runs=self.metadata.n_critic_runs,
             critic=self.metadata.critic,
             final_output_file="output.jsonl",
         )
 
         logger.info(
             f"Evaluation complete: {total_instances} total instances, "
-            f"{self.metadata.max_attempts} max attempts"
+            f"{self.metadata.n_critic_runs} critic runs"
         )
+
+        self._stamp_acp_metadata_from_outputs(all_outputs)
+
         return all_outputs
 
-    def _cleanup_pool(
+    async def _run_attempt_async(
         self,
-        pool: ProcessPoolExecutor,
-        futures: list,
-        wait: bool = False,
-    ) -> None:
-        """Clean up pool by canceling futures, terminating workers, and shutting down.
+        instances: List[EvalInstance],
+        attempt: int,
+        on_result: Callable[[EvalInstance, EvalOutput], Coroutine[Any, Any, None]],
+    ) -> List[EvalOutput]:
+        """Run a single attempt with async concurrency.
+
+        Uses asyncio.Semaphore to limit concurrent instances and
+        asyncio.to_thread() to run sync SDK operations.
 
         Args:
-            pool: The ProcessPoolExecutor to clean up
-            futures: List of futures to cancel
-            wait: Whether to wait for workers to finish (True) or terminate immediately (False)
+            instances: List of instances to process
+            attempt: Current attempt number
+            on_result: Async callback for each completed instance
+
+        Returns:
+            List of EvalOutput for completed instances
         """
-        # Cancel all pending futures
-        for fut in futures:
-            fut.cancel()
+        semaphore = asyncio.Semaphore(self.num_workers)
+        pending_instances: dict[asyncio.Task, PendingInstance] = {}
+        attempt_outputs: List[EvalOutput] = []
+        progress = tqdm(total=len(instances), desc=f"Attempt {attempt}", leave=False)
 
-        # Forcefully terminate all worker processes if not waiting
-        if not wait and hasattr(pool, "_processes") and pool._processes:
-            for process in pool._processes.values():
+        async def process_with_semaphore(
+            inst: EvalInstance,
+            datapoint_id: UUID | None,
+        ) -> Tuple[EvalInstance, EvalOutput]:
+            """Process one instance with semaphore-based concurrency control."""
+            async with semaphore:
+                task = asyncio.current_task()
+                pending_info = pending_instances.get(task) if task is not None else None
+
+                def _thread_wrapper() -> Tuple[EvalInstance, EvalOutput]:
+                    # Record start time when the thread actually begins
+                    # executing, not when the semaphore was acquired. This
+                    # avoids counting thread-pool queue time against the
+                    # per-instance timeout.
+                    if pending_info is not None:
+                        pending_info.start_time = time.monotonic()
+                    return self._process_one_sync(
+                        inst,
+                        attempt,
+                        lmnr_session_id=self._laminar_session_id,
+                        lmnr_trace_metadata=self._laminar_trace_meta,
+                        lmnr_datapoint_id=datapoint_id,
+                    )
+
+                # Run the sync processing function in a thread
+                return await asyncio.to_thread(_thread_wrapper)
+
+        # Create all tasks
+        tasks: list[asyncio.Task] = []
+        # lmnr is guaranteed to be set in _run_iterative_mode_async before this call
+        assert self.metadata.lmnr is not None
+        for index, inst in enumerate(instances):
+            # Two-phase datapoint linking:
+            # 1. Create datapoint immediately (for UI progress tracking)
+            # 2. Worker starts eval_span when work begins (accurate timeline)
+            # 3. Link them via update_datapoint_trace_id when worker starts
+            datapoint_id = LaminarService.get().create_evaluation_datapoint(
+                self.metadata.lmnr.eval_id,
+                inst.id,
+                self.metadata.model_dump(mode="json"),
+                index,
+            )
+
+            task = asyncio.create_task(process_with_semaphore(inst, datapoint_id))
+            tasks.append(task)
+            pending_instances[task] = PendingInstance(
+                instance=inst,
+                datapoint_id=datapoint_id,
+                task=task,
+            )
+
+        # Process tasks as they complete with timeout checking
+        pending: set[asyncio.Task] = set(tasks)
+
+        while pending:
+            # Wait for either a task to complete or timeout interval
+            done, pending = await asyncio.wait(
+                pending,
+                timeout=TIMEOUT_CHECK_INTERVAL_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Process completed tasks
+            for task in done:
+                progress.update(1)
+                pending_info = pending_instances.get(task)
                 try:
-                    process.terminate()
-                except Exception:
-                    pass
+                    instance, out = task.result()
 
-        # Shutdown the pool
-        pool.shutdown(wait=wait, cancel_futures=True)
+                    # Add Laminar metadata to EvalOutput
+                    if out.metadata is None:
+                        out.metadata = self.metadata.model_copy(deep=True)
+                    out.metadata.lmnr = LaminarEvalMetadata(
+                        eval_id=self.metadata.lmnr.eval_id,
+                        datapoint_id=(
+                            pending_info.datapoint_id if pending_info else None
+                        ),
+                    )
+
+                    await on_result(instance, out)
+                    attempt_outputs.append(out)
+                except asyncio.CancelledError:
+                    # Task was cancelled due to timeout, error already handled
+                    pass
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error from task: {str(e)[:50]}",
+                        exc_info=True,
+                        stack_info=True,
+                    )
+                    # Create error output so the instance is not silently lost
+                    if pending_info:
+                        error_output = self._create_error_output(
+                            pending_info.instance, e, attempt
+                        )
+                        if error_output.metadata is None:
+                            error_output.metadata = self.metadata.model_copy(deep=True)
+                        if self.metadata.lmnr is not None:
+                            error_output.metadata.lmnr = LaminarEvalMetadata(
+                                eval_id=self.metadata.lmnr.eval_id,
+                                datapoint_id=pending_info.datapoint_id,
+                            )
+                        await on_result(pending_info.instance, error_output)
+                        attempt_outputs.append(error_output)
+
+            # Check for per-instance timeouts (only active tasks have start_time set)
+            now = time.monotonic()
+            timed_out_tasks = []
+            for task in pending:
+                pending_info = pending_instances.get(task)
+                if (
+                    pending_info
+                    and pending_info.start_time
+                    and now - pending_info.start_time > self.instance_timeout
+                ):
+                    timed_out_tasks.append(task)
+
+            for task in timed_out_tasks:
+                pending.discard(task)
+                progress.update(1)
+                pending_info = pending_instances.get(task)
+                if pending_info:
+                    inst = pending_info.instance
+                    logger.error(
+                        f"Instance {inst.id} timed out after {self.instance_timeout}s"
+                    )
+                    error_output = self._create_error_output(
+                        inst,
+                        TimeoutError(
+                            f"Instance did not complete within "
+                            f"{self.instance_timeout}s timeout"
+                        ),
+                        attempt,
+                    )
+                    if error_output.metadata is None:
+                        error_output.metadata = self.metadata.model_copy(deep=True)
+                    if self.metadata.lmnr is not None:
+                        error_output.metadata.lmnr = LaminarEvalMetadata(
+                            eval_id=self.metadata.lmnr.eval_id,
+                            datapoint_id=pending_info.datapoint_id,
+                        )
+                    await on_result(inst, error_output)
+                    attempt_outputs.append(error_output)
+                # Cancel the task (the thread will continue but result is discarded)
+                task.cancel()
+
+        progress.close()
+        return attempt_outputs
 
     def _calculate_resource_factor(self, runtime_failure_count: int) -> int:
         """Calculate the resource factor based on runtime failure count.
@@ -570,223 +760,347 @@ class Evaluation(ABC, BaseModel):
         factor = self.metadata.base_resource_factor * (2**runtime_failure_count)
         return min(factor, self.metadata.max_resource_factor)
 
-    # --- Worker-side method (executed in child processes) ---------------------------
-    def _process_one_mp(
-        self, instance: EvalInstance, eval_span_ctx: str | None, critic_attempt: int
-    ) -> Tuple[EvalInstance, EvalOutput]:
-        """Execute one instance in a child process with retry logic.
+    def _cleanup_workspace(
+        self, workspace: RemoteWorkspace, instance: EvalInstance
+    ) -> None:
+        """Clean up workspace resources and capture conversation archive."""
+        try:
+            self._capture_conversation_archive(workspace, instance)
+        except Exception as archive_error:
+            logger.warning(
+                "[worker] Failed to capture conversation archive for %s: %s",
+                instance.id,
+                archive_error,
+            )
+        try:
+            workspace.__exit__(None, None, None)
+            logger.debug("[worker] cleaned up workspace for id=%s", instance.id)
+        except Exception as cleanup_error:
+            logger.warning(
+                f"[worker] Failed to cleanup workspace for {instance.id}: "
+                f"{str(cleanup_error)[:50]}"
+            )
 
-        - Creates workspace in the *child* process
-        - Handles retries within the worker process
+    # --- Worker method (executed in thread executor) ---------------------------
+    def _process_one_sync(
+        self,
+        instance: EvalInstance,
+        critic_attempt: int,
+        lmnr_session_id: str | None = None,
+        lmnr_trace_metadata: dict[str, Any] | None = None,
+        lmnr_datapoint_id: UUID | None = None,
+    ) -> Tuple[EvalInstance, EvalOutput]:
+        """Execute one instance synchronously in a thread with retry logic.
+
+        This method runs in a thread executor via asyncio.to_thread().
+        It performs all sync SDK operations (workspace creation, conversation).
+
+        - Creates workspace in the thread
+        - Handles retries within the thread
         - Tracks runtime failures and increases resource_factor exponentially
         - Ensures proper context-managed cleanup
-        - Returns (instance, output) so the parent can stream results
+        - Returns (instance, output) so the async caller can stream results
         """
-        # Set up instance-specific logging
+        # Set up instance-specific logging + stdout/stderr redirect
         log_dir = os.path.join(self.metadata.eval_output_dir, "logs")
-        reset_logger_for_multiprocessing(log_dir, instance.id)
 
-        # Get log file path for stdout/stderr redirection
-        log_file = os.path.join(log_dir, f"instance_{instance.id}.output.log")
+        from benchmarks.utils.worker_context import instance_context
 
-        # Redirect stdout/stderr to capture all output (SDK visualizations, etc.)
-        with redirect_stdout_stderr(log_file):
-            logger.info("[child] start id=%s", instance.id)
+        with instance_context(log_dir, instance.id):
+            logger.info("[worker] start id=%s", instance.id)
 
-            retry_count = 0
-            runtime_failure_count = 0
-            last_error = None
-            max_retries = self.metadata.max_retries
-            runtime_runs: list[RemoteRuntimeAllocation] = []
-
-            while retry_count <= max_retries:
-                workspace = None
-
-                # Start Laminar execution span and inject context into os.environ so workspace can pick it up
-                # Escape the serialized context to safely pass as a cli argument
-                lmnr_span = Laminar.start_active_span(
-                    "Execution",
-                    span_type="EXECUTOR",  # type: ignore
-                    parent_span_context=Laminar.deserialize_span_context(eval_span_ctx)
-                    if eval_span_ctx
-                    else None,
+            # Two-phase datapoint linking:
+            # 1. Parent creates datapoint immediately (for UI progress tracking)
+            # 2. Worker starts eval_span when work begins (accurate timeline)
+            # 3. Link them via update_datapoint_trace_id
+            #
+            # Unlike ProcessPoolExecutor, asyncio threads share the process
+            # so Laminar is already initialized. We just need to start a new
+            # span and link it to the datapoint.
+            eval_span = None
+            try:
+                eval_span = Laminar.start_active_span(
+                    "Evaluation",
+                    span_type="EVALUATION",  # type: ignore
+                    session_id=lmnr_session_id,
+                    metadata=lmnr_trace_metadata,
                 )
-                exec_span_ctx = json.dumps(Laminar.serialize_span_context(lmnr_span))
-                os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
+                eval_span_ctx = Laminar.get_laminar_span_context(eval_span)
 
-                try:
-                    # Calculate resource factor based on runtime failures
-                    resource_factor = self._calculate_resource_factor(
-                        runtime_failure_count
+                if lmnr_datapoint_id is not None and self.metadata.lmnr is not None:
+                    # OpenTelemetry trace_id is a 128-bit integer in span context
+                    trace_id = UUID(int=eval_span.get_span_context().trace_id)
+                    logger.info(
+                        "[worker] Linking datapoint %s to trace %s for instance %s",
+                        lmnr_datapoint_id,
+                        trace_id,
+                        instance.id,
                     )
-                    if runtime_failure_count > 0:
-                        logger.warning(
-                            f"[child] Instance {instance.id}: "
-                            f"attempt {retry_count + 1}/{max_retries + 1}, "
-                            f"runtime_failure_count={runtime_failure_count}, "
-                            f"resource_factor={resource_factor}"
+                    try:
+                        LaminarService.get().update_datapoint_trace_id(
+                            eval_id=self.metadata.lmnr.eval_id,
+                            datapoint_id=lmnr_datapoint_id,
+                            trace_id=trace_id,
                         )
-
-                    workspace = self.prepare_workspace(
-                        instance,
-                        resource_factor=resource_factor,
-                        forward_env=LMNR_ENV_VARS,
-                    )
-
-                    # Record runtime/pod mapping only for remote runtimes
-                    if isinstance(workspace, APIRemoteWorkspace):
-                        retry_number = retry_count + 1  # 1-indexed for readability
-                        runtime_run = RemoteRuntimeAllocation(
-                            runtime_id=getattr(workspace, "_runtime_id", None),
-                            session_id=getattr(workspace, "session_id", None),
-                            runtime_url=getattr(workspace, "_runtime_url", None),
-                            resource_factor=resource_factor,
-                            critic_attempt=critic_attempt,
-                            retry=retry_number,
-                            started_at=datetime.now(timezone.utc),
-                        )
-                        runtime_runs.append(runtime_run)
-                        logger.info(
-                            "[child] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
-                            instance.id,
-                            critic_attempt,
-                            retry_number,
-                            workspace.__class__.__name__,
-                            runtime_run.runtime_id,
-                            runtime_run.session_id,
-                            runtime_run.resource_factor,
-                        )
-                    out = self.evaluate_instance(instance, workspace)
-                    if runtime_runs:
-                        out.runtime_runs = runtime_runs
-                    logger.info("[child] done id=%s", instance.id)
-                    return instance, out
-                except Exception as e:
-                    last_error = e
-                    retry_count += 1
-                    lmnr_span.record_exception(e)
-
-                    # Log structured runtime allocation/init failures so we can trace instance -> runtime/pod
-                    runtime_id = (
-                        getattr(workspace, "_runtime_id", None) if workspace else None
-                    )
-                    session_id = (
-                        getattr(workspace, "session_id", None) if workspace else None
-                    )
-                    if isinstance(workspace, APIRemoteWorkspace) or (
-                        "Runtime not yet ready" in str(e)
-                    ):
-                        logger.warning(
-                            "[child] runtime init failure instance=%s attempt=%d retry=%d runtime_id=%s session_id=%s error=%s",
-                            instance.id,
-                            critic_attempt,
-                            retry_count,
-                            runtime_id,
-                            session_id,
-                            str(e),
-                        )
-
-                    # TODO(#277): add an exception classifier to decide when to bump resources
-                    runtime_failure_count += 1
-                    logger.warning(
-                        f"[child] Instance {instance.id}: runtime_failure_count="
-                        f"{runtime_failure_count}"
-                    )
-
-                    if retry_count <= max_retries:
-                        logger.warning(
-                            f"[child] Instance {instance.id} failed "
-                            f"(attempt {retry_count}/{max_retries}): "
-                            f"{str(e)}"
-                        )
-                    else:
+                    except Exception as exc:
                         logger.error(
-                            f"[child] Instance {instance.id} failed after "
-                            f"{max_retries} retries. Last error: {str(e)}",
+                            "[worker] Failed to link datapoint %s to trace for instance %s: %s",
+                            lmnr_datapoint_id,
+                            instance.id,
+                            exc,
                             exc_info=True,
                         )
-                        # Create error output for final failure
-                        error_output = self._create_error_output(
-                            instance, last_error, max_retries
-                        )
-                        if runtime_runs:
-                            error_output.runtime_runs = runtime_runs
-                        return instance, error_output
-                finally:
-                    # Ensure workspace cleanup happens regardless of success or failure
-                    if workspace is not None:
-                        try:
-                            self._capture_conversation_archive(workspace, instance)
-                        except Exception as archive_error:
-                            logger.warning(
-                                "[child] Failed to capture conversation archive for %s: %s",
-                                instance.id,
-                                archive_error,
-                            )
-                        try:
-                            workspace.__exit__(None, None, None)
-                            logger.debug(
-                                "[child] cleaned up workspace for id=%s", instance.id
-                            )
-                        except Exception as cleanup_error:
-                            logger.warning(
-                                f"[child] Failed to cleanup workspace for {instance.id}: "
-                                f"{str(cleanup_error)[:50]}"
-                            )
-                    lmnr_span.end()
 
-            # This should never be reached, but added for type safety
-            error_output = self._create_error_output(
-                instance, Exception("Unexpected error: no attempts made"), max_retries
+                retry_count = 0
+                runtime_failure_count = 0
+                max_retries = self.metadata.max_retries
+                runtime_runs: list[RemoteRuntimeAllocation] = []
+
+                # max_retries is the number of *additional* attempts after the
+                # first, so total attempts = max_retries + 1 (retry_count 0..N).
+                while retry_count <= max_retries:
+                    out, failure_category = self._execute_single_attempt(
+                        instance=instance,
+                        eval_span_ctx=eval_span_ctx,
+                        critic_attempt=critic_attempt,
+                        resource_factor=self._calculate_resource_factor(
+                            runtime_failure_count
+                        ),
+                        retry_count=retry_count,
+                        max_retries=max_retries,
+                        runtime_failure_count=runtime_failure_count,
+                        runtime_runs=runtime_runs,
+                    )
+                    if out is not None:
+                        return instance, out
+
+                    # _execute_single_attempt returns (None, category) on
+                    # non-final failure.  Only escalate resource_factor for
+                    # failures that are plausibly resource-related.
+                    retry_count += 1
+                    if failure_category == FailureCategory.RESOURCE:
+                        runtime_failure_count += 1
+
+                # Unreachable: _execute_single_attempt always returns EvalOutput
+                # on the final retry, but pyright can't prove the loop exits early.
+                raise AssertionError("unreachable")  # pragma: no cover
+            finally:
+                if eval_span is not None:
+                    _safe_end_span(eval_span, "eval_span")
+
+    def _execute_single_attempt(
+        self,
+        instance: EvalInstance,
+        eval_span_ctx: Any,
+        critic_attempt: int,
+        resource_factor: int,
+        retry_count: int,
+        max_retries: int,
+        runtime_failure_count: int,
+        runtime_runs: list[RemoteRuntimeAllocation],
+    ) -> tuple[EvalOutput | None, FailureCategory | None]:
+        """Execute one attempt with proper span and workspace lifecycle.
+
+        Returns a ``(output, failure_category)`` tuple:
+
+            ``(EvalOutput, None)``
+                On success, or on the *final* retry failure so the caller can
+                report it.
+
+            ``(None, FailureCategory)``
+                On a non-final failure, signalling the caller should retry.
+                The category tells the caller whether to escalate
+                ``resource_factor``.
+        """
+        workspace = None
+        exec_span = None
+        virtual_key: str | None = None
+        try:
+            # Serialize span context and inject via environment variable so
+            # workspace can pick it up. Use a lock to avoid races between
+            # threads that read/write the same env-var key.
+            exec_span = Laminar.start_active_span(
+                "Execution",
+                span_type="EXECUTOR",  # type: ignore
+                parent_span_context=eval_span_ctx,
             )
+            exec_span_ctx = json.dumps(Laminar.serialize_span_context(exec_span))
+            with _lmnr_env_lock:
+                os.environ["LMNR_SPAN_CONTEXT"] = exec_span_ctx or ""
+
+            if runtime_failure_count > 0:
+                logger.warning(
+                    f"[worker] Instance {instance.id}: "
+                    f"attempt {retry_count + 1}/{max_retries + 1}, "
+                    f"runtime_failure_count={runtime_failure_count}, "
+                    f"resource_factor={resource_factor}"
+                )
+
+            # Create a per-instance LiteLLM virtual key for exact cost tracking.
+            # The key is stored in thread-local so build_acp_agent() can inject
+            # it into the ACP subprocess env. No-op when LITELLM_MASTER_KEY unset.
+            run_id = os.getenv("UNIQUE_EVAL_NAME")
+            virtual_key = create_virtual_key(instance.id, run_id=run_id)
+            set_current_virtual_key(virtual_key)
+
+            workspace = self.prepare_workspace(
+                instance,
+                resource_factor=resource_factor,
+                forward_env=LMNR_ENV_VARS,
+            )
+
+            # Record runtime/pod mapping only for remote runtimes
+            if isinstance(workspace, APIRemoteWorkspace):
+                retry_number = retry_count + 1  # 1-indexed for readability
+                runtime_run = RemoteRuntimeAllocation(
+                    runtime_id=getattr(workspace, "_runtime_id", None),
+                    session_id=getattr(workspace, "session_id", None),
+                    runtime_url=getattr(workspace, "_runtime_url", None),
+                    resource_factor=resource_factor,
+                    critic_attempt=critic_attempt,
+                    retry=retry_number,
+                    started_at=datetime.now(timezone.utc),
+                )
+                runtime_runs.append(runtime_run)
+                logger.info(
+                    "[worker] runtime allocated instance=%s attempt=%d retry=%d workspace=%s runtime_id=%s session_id=%s resource_factor=%s",
+                    instance.id,
+                    critic_attempt,
+                    retry_number,
+                    workspace.__class__.__name__,
+                    runtime_run.runtime_id,
+                    runtime_run.session_id,
+                    runtime_run.resource_factor,
+                )
+            out = self.evaluate_instance(instance, workspace)
             if runtime_runs:
-                error_output.runtime_runs = runtime_runs
-            return instance, error_output
+                out.runtime_runs = runtime_runs
+
+            # Query exact cost from the LiteLLM proxy virtual key.
+            # Stored alongside the SDK's token-count estimate so both
+            # values are available in the output JSON.
+            if virtual_key is not None:
+                proxy_cost = get_key_spend(virtual_key)
+
+                # LiteLLM proxy commits spend asynchronously. For fast
+                # conversations the /key/info query can return 0 for up to
+                # ~15-20 s after the last LLM call.  Retry with exponential
+                # backoff (2+4+8+16 = 30 s max) to cover the tail latency.
+                if proxy_cost is None or proxy_cost == 0.0:
+                    logger.info(
+                        "[worker] proxy spend not yet available for %s, retrying...",
+                        instance.id,
+                    )
+                    for delay in (2, 4, 8, 16):
+                        time.sleep(delay)
+                        retry_cost = get_key_spend(virtual_key)
+                        if retry_cost is not None and retry_cost > 0:
+                            proxy_cost = retry_cost
+                            break
+
+                if proxy_cost is not None and proxy_cost == 0.0:
+                    logger.warning(
+                        "[worker] proxy cost still $0 for %s after retries — "
+                        "spend may not have been committed by the proxy",
+                        instance.id,
+                    )
+
+                if proxy_cost is not None:
+                    out.test_result["proxy_cost"] = proxy_cost
+                    logger.info(
+                        "[worker] proxy cost for %s: $%.6f",
+                        instance.id,
+                        proxy_cost,
+                    )
+
+            logger.info("[worker] done id=%s", instance.id)
+            return out, None
+        except Exception as e:
+            if exec_span is not None:
+                exec_span.record_exception(e)
+
+            # Log structured runtime allocation/init failures so we can trace instance -> runtime/pod
+            runtime_id = getattr(workspace, "_runtime_id", None) if workspace else None
+            session_id = getattr(workspace, "session_id", None) if workspace else None
+            if isinstance(workspace, APIRemoteWorkspace) or (
+                "Runtime not yet ready" in str(e)
+            ):
+                logger.warning(
+                    "[worker] runtime init failure instance=%s attempt=%d retry=%d runtime_id=%s session_id=%s error=%s",
+                    instance.id,
+                    critic_attempt,
+                    retry_count + 1,
+                    runtime_id,
+                    session_id,
+                    str(e),
+                )
+
+            # Classify the failure to decide whether resource escalation
+            # is warranted.  See evaluation/issues/408.
+            failure_category = classify_failure(e)
+            escalate = failure_category == FailureCategory.RESOURCE
+
+            logger.warning(
+                "[worker] Instance %s: failure_category=%s, escalate_resources=%s, "
+                "runtime_failure_count=%d",
+                instance.id,
+                failure_category.value,
+                escalate,
+                runtime_failure_count + (1 if escalate else 0),
+            )
+
+            if retry_count < max_retries:
+                logger.warning(
+                    f"[worker] Instance {instance.id} failed "
+                    f"(attempt {retry_count + 1}/{max_retries + 1}): "
+                    f"{str(e)}"
+                )
+            else:
+                logger.error(
+                    f"[worker] Instance {instance.id} failed after "
+                    f"{max_retries + 1} attempts. Last error: {str(e)}",
+                    exc_info=True,
+                )
+                # Create error output for final failure
+                error_output = self._create_error_output(instance, e, max_retries)
+                if runtime_runs:
+                    error_output.runtime_runs = runtime_runs
+                return error_output, None
+            return None, failure_category
+        finally:
+            # Clean up the per-instance virtual key and thread-local.
+            if virtual_key is not None:
+                delete_key(virtual_key)
+            set_current_virtual_key(None)
+            if workspace is not None:
+                self._cleanup_workspace(workspace, instance)
+            if exec_span is not None:
+                _safe_end_span(exec_span, "exec_span")
 
 
-# ---------- Multiprocessing logging helper ---------------------------------------
+# ---------- Thread-safety helpers ------------------------------------------------
 
 
-def reset_logger_for_multiprocessing(log_dir: str, instance_id: str) -> None:
-    """Reset the logger for multiprocessing with instance-specific logging.
+def _safe_end_span(span: Any, label: str) -> None:
+    """End a span, handling contextvars errors from cross-thread usage.
 
-    See benchmarks.utils.console_logging.setup_instance_logging for details.
+    OpenTelemetry spans use contextvars tokens that can only be detached
+    in the thread where they were attached. When a span created in the main
+    thread is ended in a worker thread, LookupError is raised.
     """
-    from benchmarks.utils.console_logging import setup_instance_logging
-
-    setup_instance_logging(log_dir, instance_id)
-
-
-@contextmanager
-def redirect_stdout_stderr(log_file_path: str):
-    """Context manager to redirect stdout/stderr to a log file.
-
-    This captures all print() statements, SDK visualizations, and any other
-    output that goes to stdout/stderr.
-
-    Args:
-        log_file_path: Path to the log file where output should be redirected
-    """
-    # Save original stdout/stderr
-    original_stdout = sys.stdout
-    original_stderr = sys.stderr
-    log_file = None
-
     try:
-        # Open log file in append mode with line buffering
-        log_file = open(log_file_path, "a", buffering=1, encoding="utf-8")
+        span.end()
+    except LookupError:
+        # Expected when span was created in main thread but ended in worker.
+        # The span data is still recorded; only the context detach fails.
+        pass
+    except Exception as e:
+        logger.warning(
+            "[worker] %s.end() unexpected error (%s): %s", label, type(e).__name__, e
+        )
 
-        # Redirect stdout and stderr
-        sys.stdout = log_file
-        sys.stderr = log_file
 
-        yield
-
-    finally:
-        # Restore original stdout/stderr
-        sys.stdout = original_stdout
-        sys.stderr = original_stderr
-
-        # Close the log file if it was opened
-        if log_file is not None and not log_file.closed:
-            log_file.close()
+# Lock to serialise writes to os.environ["LMNR_SPAN_CONTEXT"].
+# The env-var is read by prepare_workspace(); the lock ensures the value set by
+# one thread isn't overwritten by another before the workspace picks it up.
+_lmnr_env_lock = threading.Lock()

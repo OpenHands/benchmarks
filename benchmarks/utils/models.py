@@ -31,8 +31,10 @@ class EvalMetadata(BaseModel):
     eval_limit: int = Field(
         default=0, description="Number of instances to evaluate, 0 means all"
     )
-    max_attempts: int = Field(
-        default=1, ge=1, description="Maximum number of attempts for iterative mode"
+    n_critic_runs: int = Field(
+        default=1,
+        ge=1,
+        description="Number of critic evaluation runs for iterative mode",
     )
     critic: CriticBase = Field(
         description=(
@@ -52,9 +54,9 @@ class EvalMetadata(BaseModel):
         ge=0,
         description="Maximum number of retries for instances that throw exceptions",
     )
-    workspace_type: Literal["docker", "remote"] = Field(
+    workspace_type: Literal["docker", "remote", "apptainer"] = Field(
         default="docker",
-        description="Type of workspace to use, e.g., 'docker' or 'remote'",
+        description="Type of workspace to use, e.g., 'docker', 'remote', or 'apptainer'",
     )
     base_resource_factor: int = Field(
         default=1,
@@ -76,6 +78,20 @@ class EvalMetadata(BaseModel):
         default=False,
         description="Enable sub-agent delegation tools for the agent",
     )
+    enable_condenser: bool = Field(
+        default=True,
+        description="Enable the context condenser to manage conversation history",
+    )
+    condenser_max_size: int = Field(
+        default=240,
+        ge=1,
+        description="Maximum number of events before the condenser activates",
+    )
+    condenser_keep_first: int = Field(
+        default=2,
+        ge=0,
+        description="Number of initial events to always keep when condensing",
+    )
     lmnr: LaminarEvalMetadata | None = Field(
         default=None,
         description="Laminar evaluation metadata",
@@ -86,6 +102,50 @@ class EvalMetadata(BaseModel):
             "Tool preset for file editing. 'default' uses FileEditorTool, "
             "'gemini' uses read_file/write_file/edit/list_directory, "
             "'planning' uses planning-mode tools."
+        ),
+    )
+    agent_type: Literal["default", "acp-claude", "acp-codex", "acp-gemini"] = Field(
+        default="default",
+        description=(
+            "Agent type to use: 'default' for standard Agent, "
+            "'acp-claude' for ACPAgent with Claude Code, "
+            "'acp-codex' for ACPAgent with Codex, "
+            "'acp-gemini' for ACPAgent with Gemini CLI"
+        ),
+    )
+    openhands_sdk_version: str | None = Field(
+        default=None,
+        description=(
+            "Version of the openhands-sdk package executing this evaluation, "
+            "as reported by importlib.metadata.version('openhands-sdk'). Set "
+            "automatically by Evaluation.model_post_init(). Downstream tooling "
+            "(e.g. push-to-index) reads this to populate the index repo's "
+            "agent_version field for default-agent runs without needing the "
+            "operator to type it as a workflow input."
+        ),
+    )
+    acp_agent_name: str | None = Field(
+        default=None,
+        description=(
+            "ACP agent package name (e.g. '@agentclientprotocol/claude-agent-"
+            "acp'), reported by the ACP server during its initialize "
+            "handshake. Only set for agent_type values starting with 'acp-'. "
+            "Back-written to metadata.json by Evaluation."
+            "_stamp_acp_metadata_from_outputs() from the first completed "
+            "instance's test_result; the authoritative capture path is "
+            "benchmarks.utils.acp.add_acp_agent_metadata()."
+        ),
+    )
+    acp_agent_version: str | None = Field(
+        default=None,
+        description=(
+            "ACP agent version (e.g. '0.25.0'), reported by the ACP server "
+            "during its initialize handshake. Only set for agent_type values "
+            "starting with 'acp-'. Back-written to metadata.json by Evaluation"
+            "._stamp_acp_metadata_from_outputs() from the first completed "
+            "instance's test_result. For ACP runs this is the value "
+            "downstream tooling (push-to-index) should use as the index "
+            "repo's agent_version, NOT openhands_sdk_version."
         ),
     )
 

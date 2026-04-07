@@ -40,6 +40,8 @@ uv run python -m benchmarks.commit0.run_infer \
     --max-iterations 100
 ```
 
+You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
+
 **Key Arguments:**
 
 - `--repo-split`: Choose between `lite`, `all`, or a specific repository name

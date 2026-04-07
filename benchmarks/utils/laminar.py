@@ -103,51 +103,71 @@ class LaminarService:
         data: Any,
         metadata: dict[str, Any],
         index: int,
-        session_id: str | None = None,
-        trace_metadata: dict[str, Any] | None = None,
-    ) -> tuple[UUID | None, str | None]:
+    ) -> UUID | None:
         """
-        Create a Laminar datapoint.
-        Creates a new span for the evaluation and returns the span context.
-        Session ID and trace metadata are set on the span if provided.
+        Create a Laminar datapoint without trace linkage.
+
+        The datapoint is created immediately for UI visibility, but the trace_id
+        is set later (via update_datapoint_trace_id) when the child process
+        actually starts the evaluation span. This ensures accurate timeline
+        measurement that excludes queue wait time.
+
+        Note: session_id and trace_metadata are intentionally not set here;
+        they are applied when the child process creates the root eval span.
+
+        Returns the datapoint_id.
         """
 
         if eval_id is None:
-            return None, None
+            return None
 
         client = self._get_client()
         if client is None:
-            return None, None
+            return None
 
         try:
-            eval_span = Laminar.start_active_span(
-                "Evaluation",
-                span_type="EVALUATION",  # type: ignore
-            )
-            # Set session ID and metadata on the active span
-            if session_id:
-                Laminar.set_trace_session_id(session_id)
-            if trace_metadata:
-                Laminar.set_trace_metadata(trace_metadata)
-
-            lmnr_span_ctx = Laminar.serialize_span_context(eval_span)
-            eval_span.end()
-
             return client.evals.create_datapoint(
                 eval_id=eval_id,
                 data=data,
                 target=1,
                 metadata=metadata,
                 index=index,
-                trace_id=UUID(int=eval_span.get_span_context().trace_id),
-            ), lmnr_span_ctx
+            )
         except Exception as exc:
             logger.debug(
                 "Failed to create Laminar datapoint for eval %s: %s",
                 eval_id,
                 exc,
             )
-            return None, None
+            return None
+
+    def update_datapoint_trace_id(
+        self,
+        eval_id: UUID | None,
+        datapoint_id: UUID | None,
+        trace_id: UUID,
+    ) -> None:
+        """Link a datapoint to a trace after the span has been created."""
+
+        client = self._get_client()
+        if client is None or not eval_id or not datapoint_id:
+            return
+
+        try:
+            client.evals.update_datapoint(
+                eval_id=eval_id,
+                datapoint_id=datapoint_id,
+                scores={},
+                trace_id=trace_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Failed to link datapoint %s to trace %s for eval %s: %s",
+                datapoint_id,
+                trace_id,
+                eval_id,
+                exc,
+            )
 
     def _update_evaluation_datapoint(
         self,

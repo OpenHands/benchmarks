@@ -9,7 +9,7 @@ from unittest.mock import Mock
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
-from openhands.sdk.critic import PassCritic
+from openhands.sdk.critic import CriticResult, PassCritic
 from openhands.sdk.workspace import RemoteWorkspace
 
 
@@ -58,8 +58,8 @@ def test_iterative_resume_with_expanded_n_limit():
     Test that iterative evaluation correctly handles resume when n-limit is expanded.
 
     Scenario:
-    1. First run: Process 50 instances with max_attempts=3
-    2. Second run: Expand to 200 instances with max_attempts=3
+    1. First run: Process 50 instances with n_critic_runs=3
+    2. Second run: Expand to 200 instances with n_critic_runs=3
 
     Expected behavior:
     - The 150 new instances (51-200) should be processed starting from attempt 1
@@ -109,7 +109,7 @@ def test_iterative_resume_with_expanded_n_limit():
             eval_output_dir=tmpdir,
             details={},
             eval_limit=200,
-            max_attempts=3,
+            n_critic_runs=3,
             max_retries=0,
             critic=PassCritic(),
         )
@@ -191,7 +191,7 @@ def test_iterative_resume_with_same_n_limit():
             eval_output_dir=tmpdir,
             details={},
             eval_limit=50,
-            max_attempts=3,
+            n_critic_runs=3,
             max_retries=0,
             critic=PassCritic(),
         )
@@ -238,4 +238,208 @@ def test_iterative_resume_with_same_n_limit():
         assert len(processed_instances) == 0, (
             f"Expected no instances to be re-processed (all already complete in attempts 1-2), "
             f"but found: {processed_instances}"
+        )
+
+
+def test_retry_includes_missing_instances_from_prev_attempt():
+    """Test that instances missing from the previous attempt file are retried.
+
+    Scenario (from PR review):
+      all_instances = [A, B, C, D]
+      prev attempt file (attempt 1) has: A (failed), B (success)
+      current attempt file (attempt 2) has: A (success)
+
+    Expected:
+      - C, D should be retried (missing from prev attempt)
+      - A should NOT be retried (already completed in current attempt)
+      - B should NOT be retried (succeeded in prev attempt)
+    """
+
+    class PatchRequiredCritic(PassCritic):
+        """Fails instances without a git_patch, passes those with one."""
+
+        def evaluate(self, events, git_patch=None):
+            if git_patch:
+                return CriticResult(score=1.0, message="Has patch")
+            return CriticResult(score=0.0, message="No patch")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        all_instances = [
+            EvalInstance(id=inst_id, data={"test": inst_id})
+            for inst_id in ["A", "B", "C", "D"]
+        ]
+
+        critic = PatchRequiredCritic()
+        llm = LLM(model="test-model", temperature=0.0)
+
+        metadata = EvalMetadata(
+            llm=llm,
+            dataset="test",
+            dataset_split="test",
+            max_iterations=10,
+            eval_output_dir=tmpdir,
+            details={},
+            eval_limit=4,
+            n_critic_runs=3,
+            max_retries=0,
+            critic=critic,
+        )
+
+        evaluation = MockEvaluation(
+            metadata=metadata,
+            num_workers=1,
+            instances=all_instances,
+        )
+
+        # Write prev attempt file (attempt 1): A (failed), B (success)
+        # C and D are intentionally absent (simulating crash / no output)
+        prev_file = os.path.join(tmpdir, "output.critic_attempt_1.jsonl")
+        with open(prev_file, "w") as f:
+            # A: failed (no git_patch → critic returns score=0)
+            output_a = EvalOutput(
+                instance_id="A",
+                test_result={},
+                instruction="mock",
+                error=None,
+                history=[],
+                instance={"test": "A"},
+            )
+            f.write(output_a.model_dump_json() + "\n")
+            # B: success (has git_patch → critic returns score=1)
+            output_b = EvalOutput(
+                instance_id="B",
+                test_result={"git_patch": "valid patch"},
+                instruction="mock",
+                error=None,
+                history=[],
+                instance={"test": "B"},
+            )
+            f.write(output_b.model_dump_json() + "\n")
+
+        # Write current attempt file (attempt 2): A already completed
+        current_file = os.path.join(tmpdir, "output.critic_attempt_2.jsonl")
+        with open(current_file, "w") as f:
+            output_a_current = EvalOutput(
+                instance_id="A",
+                test_result={"git_patch": "fixed patch"},
+                instruction="mock",
+                error=None,
+                history=[],
+                instance={"test": "A"},
+            )
+            f.write(output_a_current.model_dump_json() + "\n")
+
+        # Call _get_instances_for_attempt for attempt 2
+        result = evaluation._get_instances_for_attempt(
+            attempt=2,
+            all_instances=all_instances,
+            critic=critic,
+        )
+
+        result_ids = {inst.id for inst in result}
+
+        # C and D should be retried (missing from prev attempt)
+        # A should NOT be retried (already completed in current attempt)
+        # B should NOT be retried (succeeded in prev, not in failed_in_prev or missing_in_prev)
+        assert result_ids == {"C", "D"}, (
+            f"Expected to retry C and D (missing from prev attempt), "
+            f"but got: {result_ids}"
+        )
+
+
+def test_passed_instances_not_retried_in_later_attempts():
+    """Test that instances which passed in an earlier attempt are not re-retried.
+
+    Regression test: when computing "missing" instances, the code must check
+    ALL prior attempt files, not just the immediately previous one. Otherwise
+    an instance that passed in attempt 1 (and therefore has no entry in attempt
+    2's file) would look "missing" and get incorrectly retried in attempt 3.
+
+    Scenario:
+      all_instances = [A, B, C, D]
+      attempt 1 file: A (pass), B (fail)         — C, D crashed
+      attempt 2 file: B (pass), C (pass), D (fail) — only retried B, C, D
+      current = attempt 3 (empty file)
+
+    Expected for attempt 3:
+      - D should be retried  (failed in attempt 2)
+      - A should NOT be retried (passed in attempt 1, absent from attempt 2 is fine)
+      - B, C should NOT be retried (passed in attempt 2)
+    """
+
+    class PatchRequiredCritic(PassCritic):
+        """Fails instances without a git_patch, passes those with one."""
+
+        def evaluate(self, events, git_patch=None):
+            if git_patch:
+                return CriticResult(score=1.0, message="Has patch")
+            return CriticResult(score=0.0, message="No patch")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        all_instances = [
+            EvalInstance(id=inst_id, data={"test": inst_id})
+            for inst_id in ["A", "B", "C", "D"]
+        ]
+
+        critic = PatchRequiredCritic()
+        llm = LLM(model="test-model", temperature=0.0)
+
+        metadata = EvalMetadata(
+            llm=llm,
+            dataset="test",
+            dataset_split="test",
+            max_iterations=10,
+            eval_output_dir=tmpdir,
+            details={},
+            eval_limit=4,
+            n_critic_runs=3,
+            max_retries=0,
+            critic=critic,
+        )
+
+        evaluation = MockEvaluation(
+            metadata=metadata,
+            num_workers=1,
+            instances=all_instances,
+        )
+
+        def _make_output(instance_id, has_patch):
+            return EvalOutput(
+                instance_id=instance_id,
+                test_result={"git_patch": "patch"} if has_patch else {},
+                instruction="mock",
+                error=None,
+                history=[],
+                instance={"test": instance_id},
+            )
+
+        # Attempt 1 file: A passes, B fails.  C, D missing (crashed).
+        attempt1_file = os.path.join(tmpdir, "output.critic_attempt_1.jsonl")
+        with open(attempt1_file, "w") as f:
+            f.write(_make_output("A", has_patch=True).model_dump_json() + "\n")
+            f.write(_make_output("B", has_patch=False).model_dump_json() + "\n")
+
+        # Attempt 2 file: B, C, D were retried. B passes, C passes, D fails.
+        # A is correctly absent (it already passed in attempt 1).
+        attempt2_file = os.path.join(tmpdir, "output.critic_attempt_2.jsonl")
+        with open(attempt2_file, "w") as f:
+            f.write(_make_output("B", has_patch=True).model_dump_json() + "\n")
+            f.write(_make_output("C", has_patch=True).model_dump_json() + "\n")
+            f.write(_make_output("D", has_patch=False).model_dump_json() + "\n")
+
+        # Attempt 3 file does not exist yet (no work done).
+
+        result = evaluation._get_instances_for_attempt(
+            attempt=3,
+            all_instances=all_instances,
+            critic=critic,
+        )
+
+        result_ids = {inst.id for inst in result}
+
+        # Only D should be retried (failed in attempt 2).
+        # A must NOT be retried — it passed in attempt 1 and is simply
+        # absent from the attempt 2 file because it was never re-run.
+        assert result_ids == {"D"}, (
+            f"Expected to retry only D (failed in attempt 2), but got: {result_ids}"
         )

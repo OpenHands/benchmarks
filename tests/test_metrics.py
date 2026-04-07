@@ -93,18 +93,23 @@ def mock_llm_with_metrics():
     return llm
 
 
+def _mock_execute_command(cmd, timeout=None):
+    """Return context-appropriate responses for workspace commands."""
+    result = MagicMock(exit_code=0, stderr="")
+    if "print(json.dumps(s))" in cmd:
+        # commit0 report summary extraction one-liner
+        result.stdout = '{"passed": 1, "total": 1, "collected": 1, "duration": 0.1}'
+    else:
+        result.stdout = "test output"
+    return result
+
+
 @pytest.fixture
 def mock_workspace():
     """Create a mock workspace."""
     workspace = MagicMock(spec=RemoteWorkspace)
     workspace.working_dir = "/workspace"
-    workspace.execute_command = MagicMock(
-        return_value=MagicMock(
-            exit_code=0,
-            stdout="test output",
-            stderr="",
-        )
-    )
+    workspace.execute_command = MagicMock(side_effect=_mock_execute_command)
     return workspace
 
 
@@ -253,6 +258,24 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "environment_setup_commit": "abc123",
             },
         )
+    elif benchmark_name == "swebenchmultilingual":
+        return EvalInstance(
+            id="test__instance-1",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test__instance-1",
+                "base_commit": "abc123",
+                "problem_statement": "Test problem",
+                "hints_text": "",
+                "created_at": "2024-01-01",
+                "patch": "test patch",
+                "test_patch": "test test_patch",
+                "version": "1.0",
+                "FAIL_TO_PASS": '["test1"]',
+                "PASS_TO_PASS": '["test2"]',
+                "environment_setup_commit": "abc123",
+            },
+        )
     elif benchmark_name == "multiswebench":
         return EvalInstance(
             id="test-instance-1",
@@ -357,6 +380,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             eval_output_dir="/tmp/eval_output",
             dataset="princeton-nlp/SWE-bench_Multimodal",
             dataset_split="dev",
+            details={"test": True},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "swebenchmultilingual":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "swebenchmultilingual"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="SWE-bench/SWE-bench_Multilingual",
+            dataset_split="test",
             details={"test": True},
             prompt_path=prompt_path,
             critic=PassCritic(),
@@ -477,10 +518,10 @@ def test_benchmark_metrics_collection(
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
     # Mock common dependencies to avoid actual LLM calls
-    # swebench uses get_tools_for_preset instead of get_default_tools
+    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
     tools_mock_target = (
         f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name == "swebench"
+        if benchmark_name in ("swebench", "swebenchmultilingual")
         else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
     )
     with (
@@ -493,7 +534,7 @@ def test_benchmark_metrics_collection(
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
-        if benchmark_name == "swebench":
+        if benchmark_name in ("swebench", "swebenchmultilingual"):
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
@@ -536,6 +577,51 @@ def test_benchmark_metrics_collection(
     )
 
 
+def test_openagentsafety_error_path_uses_conversation_metrics(
+    mock_llm_with_metrics,
+    mock_workspace,
+):
+    """OpenAgentSafety should preserve conversation metrics on error."""
+    from benchmarks.openagentsafety.run_infer import OpenAgentSafetyEvaluation
+
+    instance = _get_test_instance_for_benchmark("openagentsafety")
+    metadata = _create_metadata_for_benchmark("openagentsafety", mock_llm_with_metrics)
+    evaluation = OpenAgentSafetyEvaluation(metadata=metadata)
+
+    expected_metrics = Metrics(
+        model_name="test-model",
+        accumulated_cost=2.5,
+        accumulated_token_usage=TokenUsage(
+            model="test-model",
+            prompt_tokens=120,
+            completion_tokens=60,
+        ),
+    )
+    mock_conversation = _setup_mocks_for_benchmark("openagentsafety", expected_metrics)
+
+    with (
+        patch(
+            "benchmarks.openagentsafety.run_infer.Conversation",
+            return_value=mock_conversation,
+        ),
+        patch("benchmarks.openagentsafety.run_infer.Agent"),
+        patch("benchmarks.openagentsafety.run_infer.get_default_tools"),
+        patch(
+            "benchmarks.openagentsafety.run_infer.generate_instruction",
+            return_value="Test instruction",
+        ),
+        patch(
+            "benchmarks.openagentsafety.run_infer.run_conversation_with_fake_user_response",
+            side_effect=RuntimeError("conversation failed"),
+        ),
+    ):
+        result = evaluation.evaluate_instance(instance, mock_workspace)
+
+    assert result.error == "conversation failed"
+    assert result.test_result == {"error": "conversation failed"}
+    assert result.metrics is expected_metrics
+
+
 def test_metrics_with_zero_cost(mock_workspace):
     """Test that metrics are collected even when cost is zero.
 
@@ -564,10 +650,10 @@ def test_metrics_with_zero_cost(mock_workspace):
     # Setup mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
-    # swebench uses get_tools_for_preset instead of get_default_tools
+    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
     tools_mock_target = (
         f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name == "swebench"
+        if benchmark_name in ("swebench", "swebenchmultilingual")
         else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
     )
     with (
@@ -579,7 +665,7 @@ def test_metrics_with_zero_cost(mock_workspace):
         patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
-        if benchmark_name == "swebench":
+        if benchmark_name in ("swebench", "swebenchmultilingual"):
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
