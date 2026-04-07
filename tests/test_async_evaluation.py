@@ -728,5 +728,69 @@ def test_maybe_stamp_acp_metadata_backwrites_from_first_instance(tmp_path):
     assert on_disk_default["acp_agent_version"] is None
 
 
+def test_warn_if_acp_unstamped(tmp_path, caplog):
+    """End-of-run warning fires only when an ACP run finishes unstamped."""
+    import logging
+    from typing import List, Literal
+    from unittest.mock import Mock
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    def make_eval(
+        agent_type: Literal["default", "acp-claude", "acp-codex", "acp-gemini"],
+        subdir: str,
+    ) -> "TestEvaluation":
+        meta = EvalMetadata(
+            llm=LLM(model="test-model"),
+            dataset="test",
+            dataset_split="test",
+            max_iterations=1,
+            eval_output_dir=str(tmp_path / subdir),
+            details={},
+            eval_limit=0,
+            n_critic_runs=1,
+            max_retries=0,
+            critic=PassCritic(),
+            agent_type=agent_type,
+        )
+        return TestEvaluation(metadata=meta, num_workers=1)
+
+    msg = "ACP run completed without acp_agent_version"
+
+    # ACP run that never stamped → warning fires.
+    acp_unstamped = make_eval("acp-claude", "acp_unstamped")
+    with caplog.at_level(logging.WARNING):
+        acp_unstamped._warn_if_acp_unstamped()
+    assert any(msg in r.message for r in caplog.records)
+
+    # ACP run that did stamp → no warning.
+    caplog.clear()
+    acp_stamped = make_eval("acp-claude", "acp_stamped")
+    acp_stamped.metadata.acp_agent_version = "0.25.0"
+    with caplog.at_level(logging.WARNING):
+        acp_stamped._warn_if_acp_unstamped()
+    assert not any(msg in r.message for r in caplog.records)
+
+    # Non-ACP run → no warning regardless of stamping.
+    caplog.clear()
+    default_eval = make_eval("default", "default")
+    with caplog.at_level(logging.WARNING):
+        default_eval._warn_if_acp_unstamped()
+    assert not any(msg in r.message for r in caplog.records)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

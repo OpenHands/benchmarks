@@ -23,7 +23,7 @@ from typing import Any, Callable, Coroutine, List, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from tqdm import tqdm
 
 from benchmarks.utils.acp import is_acp_agent
@@ -149,27 +149,12 @@ class Evaluation(ABC, BaseModel):
         ),
     )
 
+    _acp_stamp_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
+
     def model_post_init(self, __context) -> None:
-        """Save metadata to output directory after initialization.
-
-        Stamps the OpenHands SDK version onto ``self.metadata`` so downstream
-        consumers — notably the push-to-index workflow in the evaluation repo
-        — can read it straight out of metadata.json instead of requiring the
-        operator to type a workflow input.
-
-        The SDK version is read in-process from ``openhands.sdk.__version__``
-        (which is itself ``importlib.metadata.version("openhands-sdk")``).
-
-        For ACP runs, ``acp_agent_name`` and ``acp_agent_version`` are left
-        unset here and populated later by ``_maybe_stamp_acp_metadata`` from
-        the first completed instance's ``test_result``. The ACP agent binary
-        lives in the per-instance runtime pod, not in this orchestration
-        process, so the authoritative version comes from the ACP protocol
-        handshake captured by ``benchmarks.utils.acp.add_acp_agent_metadata``.
-        """
+        """Stamp openhands_sdk_version on self.metadata and persist metadata.json."""
         self.metadata.openhands_sdk_version = openhands_sdk_version
 
-        # Ensure output directory exists and persist metadata once.
         os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
@@ -177,48 +162,47 @@ class Evaluation(ABC, BaseModel):
         logger.info(f"Saved metadata to {metadata_file}")
 
     def _maybe_stamp_acp_metadata(self, out: EvalOutput) -> None:
-        """Back-write ACP agent name/version into metadata.json from a result.
-
-        ACP agents are out-of-process npm binaries that only exist inside the
-        per-instance runtime pod, not in this orchestration process.
-        ``benchmarks.utils.acp.add_acp_agent_metadata`` already captures the
-        real name/version from the ACP protocol handshake and writes them to
-        ``test_result`` on each instance's ``EvalOutput``. We copy the first
-        non-empty pair back onto ``self.metadata`` so ``metadata.json`` — the
-        file push-to-index actually reads — carries the same values.
-
-        First-write-wins: every instance in a run uses the same ACP binary,
-        so once the fields are populated we skip subsequent calls. The check
-        is also the reason this is safe to call unlocked from concurrent
-        instance callbacks — worst case, two racing writers produce the same
-        content, and the rename is atomic on POSIX.
-        """
+        """Back-write ACP name/version from a completed instance into metadata.json."""
         if not is_acp_agent(self.metadata.agent_type):
             return
-        if self.metadata.acp_agent_version:
-            return
 
-        name = out.test_result.get("acp_agent_name")
-        version = out.test_result.get("acp_agent_version")
-        if not name and not version:
-            return
+        with self._acp_stamp_lock:
+            if self.metadata.acp_agent_version:
+                return
 
-        if name:
-            self.metadata.acp_agent_name = name
-        if version:
-            self.metadata.acp_agent_version = version
+            name = out.test_result.get("acp_agent_name")
+            version = out.test_result.get("acp_agent_version")
+            if not name and not version:
+                return
 
-        metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
-        tmp_path = metadata_file + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(self.metadata.model_dump_json(indent=2))
-        os.replace(tmp_path, metadata_file)
-        logger.info(
-            "Stamped ACP metadata into %s: name=%r version=%r",
-            metadata_file,
-            self.metadata.acp_agent_name,
-            self.metadata.acp_agent_version,
-        )
+            if name:
+                self.metadata.acp_agent_name = name
+            if version:
+                self.metadata.acp_agent_version = version
+
+            metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
+            tmp_path = metadata_file + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(self.metadata.model_dump_json(indent=2))
+            os.replace(tmp_path, metadata_file)
+            logger.info(
+                "Stamped ACP metadata into %s: name=%r version=%r",
+                metadata_file,
+                self.metadata.acp_agent_name,
+                self.metadata.acp_agent_version,
+            )
+
+    def _warn_if_acp_unstamped(self) -> None:
+        """Log a warning if an ACP run finished without stamping handshake fields."""
+        if (
+            is_acp_agent(self.metadata.agent_type)
+            and not self.metadata.acp_agent_version
+        ):
+            logger.warning(
+                "ACP run completed without acp_agent_version in metadata.json: "
+                "no instance surfaced the protocol handshake fields. "
+                "push-to-index will see a missing agent_version."
+            )
 
     @property
     def output_path(self) -> str:
@@ -611,6 +595,9 @@ class Evaluation(ABC, BaseModel):
             f"Evaluation complete: {total_instances} total instances, "
             f"{self.metadata.n_critic_runs} critic runs"
         )
+
+        self._warn_if_acp_unstamped()
+
         return all_outputs
 
     async def _run_attempt_async(
