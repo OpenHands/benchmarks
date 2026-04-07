@@ -667,7 +667,7 @@ def test_stamp_acp_metadata_from_outputs(tmp_path, caplog):
 
     handshake_name = "@agentclientprotocol/claude-agent-acp"
     handshake_version = "0.25.0"
-    warn_msg = "ACP run completed without acp_agent_version"
+    warn_msg = "none surfaced acp_agent_name+acp_agent_version"
 
     # ACP run, first instance carries handshake fields → stamped from that one.
     acp = make_eval("acp-claude", "acp")
@@ -700,6 +700,21 @@ def test_stamp_acp_metadata_from_outputs(tmp_path, caplog):
     ]
     acp_late._stamp_acp_metadata_from_outputs(outputs)
     assert acp_late.metadata.acp_agent_version == handshake_version
+
+    # ACP run where the first instance has only one of the two fields → skip
+    # it and stamp from the next instance that has both.
+    acp_partial = make_eval("acp-claude", "acp_partial")
+    outputs = [
+        make_out("i1", acp_agent_name="partial-only-name"),
+        make_out(
+            "i2",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+    ]
+    acp_partial._stamp_acp_metadata_from_outputs(outputs)
+    assert acp_partial.metadata.acp_agent_name == handshake_name
+    assert acp_partial.metadata.acp_agent_version == handshake_version
 
     # ACP run, no instance surfaced handshake fields → warning, no stamp.
     caplog.clear()

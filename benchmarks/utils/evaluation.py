@@ -168,15 +168,19 @@ class Evaluation(ABC, BaseModel):
         for out in outputs:
             name = out.test_result.get("acp_agent_name")
             version = out.test_result.get("acp_agent_version")
-            if name or version:
+            if name and version:
                 self.metadata.acp_agent_name = name
                 self.metadata.acp_agent_version = version
                 self._save_metadata()
                 logger.info("Stamped ACP metadata: name=%r version=%r", name, version)
                 return
+        completed = sum(1 for out in outputs if out.test_result)
         logger.warning(
-            "ACP run completed without acp_agent_version in metadata.json. "
-            "push-to-index will see a missing agent_version."
+            "ACP run: %d/%d instances completed but none surfaced "
+            "acp_agent_name+acp_agent_version. push-to-index will see a "
+            "missing agent_version.",
+            completed,
+            len(outputs),
         )
 
     @property
