@@ -128,6 +128,9 @@ def _query_cli_version(command: list[str], label: str) -> str | None:
         )
         return None
     except OSError as e:
+        # Catch other execution failures beyond FileNotFoundError — e.g.
+        # PermissionError when the CLI is present but not executable, or
+        # ENOEXEC when the binary is corrupt.
         logger.warning(
             "Could not query %s version: OSError running %r: %s", label, command, e
         )
@@ -254,17 +257,12 @@ class Evaluation(ABC, BaseModel):
         # so we still record which orchestrator was used). We deliberately do
         # NOT guard on a pre-existing value: __version__ is the ground truth
         # for the running interpreter, and silently preserving a value the
-        # caller passed in would mask configuration bugs. The only safety net
-        # is the can't-happen empty-string check below — if
-        # importlib.metadata.version() ever returns "" we leave the field
-        # unset and log rather than writing the lie to disk.
-        if openhands_sdk_version:
-            self.metadata.openhands_sdk_version = openhands_sdk_version
-        else:
-            logger.warning(
-                "openhands.sdk.__version__ is empty; leaving "
-                "metadata.openhands_sdk_version unset"
-            )
+        # caller passed in would mask configuration bugs. We also don't guard
+        # against an empty __version__ — if importlib.metadata returns ""
+        # the Python environment is fundamentally broken and failing fast
+        # (via downstream consumers noticing a blank field) beats hiding the
+        # root cause behind a log warning.
+        self.metadata.openhands_sdk_version = openhands_sdk_version
 
         # For ACP runs, also stamp the ACP agent CLI command name + version.
         # acp_agent_name is the CLI command we exec (e.g. "claude-agent-acp")
