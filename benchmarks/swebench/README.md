@@ -184,6 +184,39 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
 | **Cost** | Local compute only | API usage costs |
 | **Use Case** | Development, testing | Production benchmarks, research |
 
+### Apptainer Workspace for HPC Clusters
+
+#### Step 1: Build and push images using a separate machine with Docker support
+
+```bash
+uv run python -m benchmarks.swebench.build_images \
+  --dataset princeton-nlp/SWE-bench_Verified \
+  --split test \
+  --image ghcr.io/openhands/eval-agent-server \
+  --target source-minimal \
+  --push
+```
+
+The wrapper layer (`docutils<0.21`, `roman`) is applied in-place for allowlisted repos during this build pipeline (currently `sphinx-doc`).
+
+#### Step 2: Run on HPC with Apptainer
+
+**Optionally**, you can override the default location where Apptainer cache is saved using the below environment variables:
+
+```bash
+export APPTAINER_CACHEDIR=<desired path to directory> # ensure that this directory exists
+export APPTAINER_TMPDIR=<desired path to directory> # ensure that this directory exists
+```
+
+```bash
+uv run swebench-infer path/to/llm_config.json \
+    --dataset princeton-nlp/SWE-bench_Verified \
+    --split test \
+    --workspace apptainer
+```
+
+In `apptainer` mode, SWE-Bench uses pre-built registry images as-is and does not run local Docker builds.
+
 ## Evaluation
 
 After running inference (with either workspace type), evaluate the generated patches using the official SWE-Bench evaluation:
