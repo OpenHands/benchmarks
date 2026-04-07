@@ -165,25 +165,28 @@ class Evaluation(ABC, BaseModel):
         """Back-write ACP handshake fields from any completed instance."""
         if not is_acp_agent(self.metadata.agent_type):
             return
-        for out in outputs:
-            name = out.test_result.get("acp_agent_name")
-            version = out.test_result.get("acp_agent_version")
-            if name or version:
-                if name:
-                    self.metadata.acp_agent_name = name
-                if version:
-                    self.metadata.acp_agent_version = version
-                self._save_metadata()
-                logger.info(
-                    "Stamped ACP metadata: name=%r version=%r",
-                    self.metadata.acp_agent_name,
-                    self.metadata.acp_agent_version,
-                )
-                return
-        logger.warning(
-            "ACP run completed without acp_agent_version in metadata.json: "
-            "no instance surfaced the protocol handshake fields. "
-            "push-to-index will see a missing agent_version."
+        acp = next(
+            (
+                o
+                for o in outputs
+                if o.test_result.get("acp_agent_name")
+                or o.test_result.get("acp_agent_version")
+            ),
+            None,
+        )
+        if acp is None:
+            logger.warning(
+                "ACP run completed without acp_agent_version in metadata.json. "
+                "push-to-index will see a missing agent_version."
+            )
+            return
+        self.metadata.acp_agent_name = acp.test_result.get("acp_agent_name")
+        self.metadata.acp_agent_version = acp.test_result.get("acp_agent_version")
+        self._save_metadata()
+        logger.info(
+            "Stamped ACP metadata: name=%r version=%r",
+            self.metadata.acp_agent_name,
+            self.metadata.acp_agent_version,
         )
 
     @property
