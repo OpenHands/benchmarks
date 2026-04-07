@@ -127,26 +127,25 @@ class EvalMetadata(BaseModel):
     acp_agent_name: str | None = Field(
         default=None,
         description=(
-            "ACP agent CLI command name (e.g. 'claude-agent-acp'), obtained "
-            "from get_acp_command()[0] at startup by Evaluation."
-            "model_post_init(). Only set for agent_type values starting with "
-            "'acp-'. NOTE: this is the CLI command we exec, not the npm "
-            "package name — the npm name (e.g. '@zed-industries/claude-agent-"
-            "acp') is not exposed by the binary's --version output, and "
-            "downstream tooling only needs a stable label."
+            "ACP agent package name (e.g. '@agentclientprotocol/claude-agent-"
+            "acp'), reported by the ACP server during its initialize "
+            "handshake. Only set for agent_type values starting with 'acp-'. "
+            "Back-written to metadata.json by Evaluation."
+            "_maybe_stamp_acp_metadata() from the first completed instance's "
+            "test_result; the authoritative capture path is "
+            "benchmarks.utils.acp.add_acp_agent_metadata()."
         ),
     )
     acp_agent_version: str | None = Field(
         default=None,
         description=(
-            "ACP agent version obtained by running '<acp_command> --version' "
-            "as a subprocess at startup in Evaluation.model_post_init() (e.g. "
-            "'0.23.1'). Only set for agent_type values starting with 'acp-'. "
-            "Failures (missing binary, non-zero exit, timeout) are non-fatal "
-            "and leave this field as None — see _query_cli_version() in "
-            "benchmarks/utils/evaluation.py. For ACP runs this is the value "
-            "downstream tooling should use as the index repo's agent_version, "
-            "NOT openhands_sdk_version."
+            "ACP agent version (e.g. '0.25.0'), reported by the ACP server "
+            "during its initialize handshake. Only set for agent_type values "
+            "starting with 'acp-'. Back-written to metadata.json by "
+            "Evaluation._maybe_stamp_acp_metadata() from the first completed "
+            "instance's test_result. For ACP runs this is the value "
+            "downstream tooling (push-to-index) should use as the index "
+            "repo's agent_version, NOT openhands_sdk_version."
         ),
     )
 

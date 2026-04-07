@@ -611,22 +611,26 @@ def test_metadata_json_records_openhands_sdk_version(tmp_path):
     assert on_disk["acp_agent_version"] is None
 
 
-def test_metadata_json_records_acp_agent_version_from_subprocess(tmp_path):
-    """For ACP runs, model_post_init() must shell out to <acp_command> --version.
+def test_maybe_stamp_acp_metadata_backwrites_from_first_instance(tmp_path):
+    """For ACP runs, _maybe_stamp_acp_metadata() must back-write the name and
+    version captured per-instance by add_acp_agent_metadata() into metadata.json.
 
-    The OpenHands SDK version is available in-process via __version__, but the
-    ACP agent is a separate npm binary so we shell out to it at startup. This
-    test mocks subprocess.run so it works on machines without the ACP CLI
-    installed, and verifies the result lands in metadata.json so push-to-index
-    can read it without scraping output.jsonl.
+    The ACP binary lives in the per-instance runtime pod, not in the
+    orchestration process, so the authoritative values come from the ACP
+    protocol handshake surfaced via EvalOutput.test_result. push-to-index
+    reads metadata.json, so without this back-write it would fall back to
+    demanding agent_version on the command line for ACP runs.
     """
     import json
-    import subprocess
     from typing import List
-    from unittest.mock import Mock, patch
+    from unittest.mock import Mock
 
     from benchmarks.utils.evaluation import Evaluation
-    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from benchmarks.utils.models import (
+        EvalInstance,
+        EvalMetadata,
+        EvalOutput,
+    )
     from openhands.sdk import LLM
     from openhands.sdk.critic import PassCritic
 
@@ -653,115 +657,75 @@ def test_metadata_json_records_acp_agent_version_from_subprocess(tmp_path):
         critic=PassCritic(),
         agent_type="acp-claude",
     )
+    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
 
-    captured_calls: list[list[str]] = []
-
-    def fake_run(cmd, **kwargs):  # noqa: ARG001
-        captured_calls.append(list(cmd))
-        return subprocess.CompletedProcess(
-            args=cmd,
-            returncode=0,
-            stdout="0.23.1\n",
-            stderr="",
-        )
-
-    with patch("benchmarks.utils.evaluation.subprocess.run", side_effect=fake_run):
-        evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-
-    # The subprocess.run shell-out happened with the ACP command + --version.
-    assert captured_calls == [["claude-agent-acp", "--version"]]
-
-    # Both ACP fields must be set in-memory.
-    assert evaluator.metadata.acp_agent_name == "claude-agent-acp"
-    assert evaluator.metadata.acp_agent_version == "0.23.1"
-    # SDK version is also stamped (from __version__, no subprocess needed).
-    assert evaluator.metadata.openhands_sdk_version
-
-    # And persisted to disk.
-    on_disk = json.loads((tmp_path / "metadata.json").read_text())
-    assert on_disk["acp_agent_name"] == "claude-agent-acp"
-    assert on_disk["acp_agent_version"] == "0.23.1"
-    assert on_disk["openhands_sdk_version"]
-
-
-def test_query_cli_version_failures_are_non_fatal(tmp_path):
-    """If the ACP --version subprocess blows up, we log and leave the field None.
-
-    A missing/broken ACP binary on the runner must NOT abort startup of an
-    eval that would otherwise succeed — the version stamp is observability,
-    not a hard requirement. We test the three failure paths the helper
-    explicitly handles: FileNotFoundError, non-zero exit, and TimeoutExpired.
-    """
-    import json
-    import subprocess
-    from typing import List
-    from unittest.mock import Mock, patch
-
-    from benchmarks.utils.evaluation import Evaluation, _query_cli_version
-    from benchmarks.utils.models import EvalInstance, EvalMetadata
-    from openhands.sdk import LLM
-    from openhands.sdk.critic import PassCritic
-
-    # Direct unit-test of the helper for each failure mode.
-    with patch(
-        "benchmarks.utils.evaluation.subprocess.run", side_effect=FileNotFoundError()
-    ):
-        assert _query_cli_version(["nope"], label="nope") is None
-
-    with patch(
-        "benchmarks.utils.evaluation.subprocess.run",
-        return_value=subprocess.CompletedProcess(
-            args=["x"], returncode=1, stdout="", stderr="boom"
-        ),
-    ):
-        assert _query_cli_version(["x"], label="x") is None
-
-    with patch(
-        "benchmarks.utils.evaluation.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["x"], timeout=10),
-    ):
-        assert _query_cli_version(["x"], label="x") is None
-
-    # Integration: an ACP run whose subprocess fails still produces a valid
-    # metadata.json with acp_agent_version=None and the SDK version stamped.
-    class TestEvaluation(Evaluation):
-        def prepare_instances(self) -> List[EvalInstance]:
-            return []
-
-        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
-            return Mock()
-
-        def evaluate_instance(self, instance, workspace):
-            raise AssertionError("not used")
-
-    metadata = EvalMetadata(
-        llm=LLM(model="test-model"),
-        dataset="test",
-        dataset_split="test",
-        max_iterations=1,
-        eval_output_dir=str(tmp_path),
-        details={},
-        eval_limit=0,
-        n_critic_runs=1,
-        max_retries=0,
-        critic=PassCritic(),
-        agent_type="acp-claude",
-    )
-
-    with patch(
-        "benchmarks.utils.evaluation.subprocess.run", side_effect=FileNotFoundError()
-    ):
-        evaluator = TestEvaluation(metadata=metadata, num_workers=1)
-
-    # Name still stamped (from the command list, not subprocess), version None.
-    assert evaluator.metadata.acp_agent_name == "claude-agent-acp"
+    # At startup the ACP fields must be None — model_post_init does not
+    # shell out to the ACP binary anymore, because that binary isn't
+    # installed in the orchestration pod.
+    assert evaluator.metadata.acp_agent_name is None
     assert evaluator.metadata.acp_agent_version is None
-    assert evaluator.metadata.openhands_sdk_version
-
     on_disk = json.loads((tmp_path / "metadata.json").read_text())
-    assert on_disk["acp_agent_name"] == "claude-agent-acp"
+    assert on_disk["acp_agent_name"] is None
     assert on_disk["acp_agent_version"] is None
-    assert on_disk["openhands_sdk_version"]
+
+    # First instance completes with ACP metadata populated (the values come
+    # from the ACP protocol handshake via add_acp_agent_metadata()).
+    out = EvalOutput(
+        instance_id="instance-1",
+        test_result={
+            "acp_agent_name": "@agentclientprotocol/claude-agent-acp",
+            "acp_agent_version": "0.25.0",
+        },
+        instruction=None,
+        history=[],
+        instance={},
+    )
+    evaluator._maybe_stamp_acp_metadata(out)
+
+    # In-memory and on-disk metadata now reflect the handshake values.
+    assert evaluator.metadata.acp_agent_name == "@agentclientprotocol/claude-agent-acp"
+    assert evaluator.metadata.acp_agent_version == "0.25.0"
+    on_disk = json.loads((tmp_path / "metadata.json").read_text())
+    assert on_disk["acp_agent_name"] == "@agentclientprotocol/claude-agent-acp"
+    assert on_disk["acp_agent_version"] == "0.25.0"
+
+    # First-write-wins: a later instance with different values is ignored
+    # (every instance in a run uses the same ACP binary).
+    out2 = EvalOutput(
+        instance_id="instance-2",
+        test_result={
+            "acp_agent_name": "different",
+            "acp_agent_version": "9.9.9",
+        },
+        instruction=None,
+        history=[],
+        instance={},
+    )
+    evaluator._maybe_stamp_acp_metadata(out2)
+    assert evaluator.metadata.acp_agent_name == "@agentclientprotocol/claude-agent-acp"
+    assert evaluator.metadata.acp_agent_version == "0.25.0"
+
+    # Non-ACP runs are a no-op even if test_result is populated (belt and
+    # braces — shouldn't happen, but would be wrong to write if it did).
+    metadata_default = EvalMetadata(
+        llm=LLM(model="test-model"),
+        dataset="test",
+        dataset_split="test",
+        max_iterations=1,
+        eval_output_dir=str(tmp_path / "default"),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+    default_eval = TestEvaluation(metadata=metadata_default, num_workers=1)
+    default_eval._maybe_stamp_acp_metadata(out)
+    assert default_eval.metadata.acp_agent_name is None
+    assert default_eval.metadata.acp_agent_version is None
+    on_disk_default = json.loads((tmp_path / "default" / "metadata.json").read_text())
+    assert on_disk_default["acp_agent_name"] is None
+    assert on_disk_default["acp_agent_version"] is None
 
 
 if __name__ == "__main__":

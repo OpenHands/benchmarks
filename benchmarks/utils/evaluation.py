@@ -12,7 +12,6 @@ import asyncio
 import base64
 import json
 import os
-import subprocess
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -27,7 +26,7 @@ from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from benchmarks.utils.acp import get_acp_command, is_acp_agent
+from benchmarks.utils.acp import is_acp_agent
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
@@ -71,92 +70,6 @@ def _read_cgroup_cpu_max() -> str | None:
             return cpu_max_path.read_text(encoding="utf-8").strip()
     except OSError:
         pass
-    return None
-
-
-# Timeout (seconds) for the ACP `--version` subprocess shell-out used to
-# stamp acp_agent_version into metadata.json at startup. Kept short because
-# the command is local and a slow response almost certainly means the binary
-# is broken or missing — in which case we prefer to log a warning and leave
-# the field empty rather than block startup.
-_VERSION_QUERY_TIMEOUT_SECONDS = 10.0
-
-
-def _query_cli_version(command: list[str], label: str) -> str | None:
-    """Run *command* via subprocess and return the parsed version string.
-
-    Used at startup to stamp the ACP agent version into metadata.json so the
-    downstream push-to-index workflow can read it straight off disk instead
-    of requiring the operator to type a workflow input or scrape it out of
-    output.jsonl. ACP agents are out-of-process npm binaries so we have no
-    choice but to shell out — the OpenHands SDK version, by contrast, is
-    available in-process via ``openhands.sdk.__version__``.
-
-    *command* must be the full argv (this helper does NOT auto-append
-    ``--version``) so callers can use whatever flag the target CLI exposes.
-
-    Returns ``None`` (and logs a warning) on any failure: missing binary,
-    non-zero exit, timeout, or empty stdout. Returning ``None`` is
-    intentional — we never want a missing version stamp to be load-bearing
-    enough to crash an evaluation that would otherwise succeed.
-
-    The returned string is the *last whitespace-separated token* of the
-    first non-empty stdout line, which handles both formats commonly seen
-    in the wild: ``"1.2.3"`` and ``"some-tool 1.2.3"``.
-    """
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=_VERSION_QUERY_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except FileNotFoundError:
-        logger.warning(
-            "Could not query %s version: command %r not found on PATH",
-            label,
-            command[0] if command else "<empty>",
-        )
-        return None
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "Could not query %s version: command %r timed out after %.0fs",
-            label,
-            command,
-            _VERSION_QUERY_TIMEOUT_SECONDS,
-        )
-        return None
-    except OSError as e:
-        # Catch other execution failures beyond FileNotFoundError — e.g.
-        # PermissionError when the CLI is present but not executable, or
-        # ENOEXEC when the binary is corrupt.
-        logger.warning(
-            "Could not query %s version: OSError running %r: %s", label, command, e
-        )
-        return None
-
-    if result.returncode != 0:
-        logger.warning(
-            "Could not query %s version: command %r exited %d (stderr=%r)",
-            label,
-            command,
-            result.returncode,
-            (result.stderr or "").strip()[:200],
-        )
-        return None
-
-    for line in (result.stdout or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # Take the last whitespace-separated token: handles both "1.2.3"
-        # and "claude-agent-acp 1.2.3" output formats.
-        return line.split()[-1]
-
-    logger.warning(
-        "Could not query %s version: command %r produced no stdout", label, command
-    )
     return None
 
 
@@ -239,48 +152,22 @@ class Evaluation(ABC, BaseModel):
     def model_post_init(self, __context) -> None:
         """Save metadata to output directory after initialization.
 
-        Stamps the OpenHands SDK version (and, for ACP runs, the ACP agent
-        package version) onto ``self.metadata`` so downstream consumers —
-        notably the push-to-index workflow in the evaluation repo — can read
-        them straight out of metadata.json instead of requiring the operator
-        to type a workflow input or scrape values out of output.jsonl.
+        Stamps the OpenHands SDK version onto ``self.metadata`` so downstream
+        consumers — notably the push-to-index workflow in the evaluation repo
+        — can read it straight out of metadata.json instead of requiring the
+        operator to type a workflow input.
 
-        The OpenHands SDK version is read in-process from
-        ``openhands.sdk.__version__`` (which is itself
-        ``importlib.metadata.version("openhands-sdk")``) since that is the
-        ground truth for the running interpreter. The ACP agent version, by
-        contrast, lives in a separate npm-installed binary and has to be
-        obtained via a subprocess ``--version`` shell-out. ACP failures are
-        non-fatal — the field is left as ``None`` and a warning is logged.
+        The SDK version is read in-process from ``openhands.sdk.__version__``
+        (which is itself ``importlib.metadata.version("openhands-sdk")``).
+
+        For ACP runs, ``acp_agent_name`` and ``acp_agent_version`` are left
+        unset here and populated later by ``_maybe_stamp_acp_metadata`` from
+        the first completed instance's ``test_result``. The ACP agent binary
+        lives in the per-instance runtime pod, not in this orchestration
+        process, so the authoritative version comes from the ACP protocol
+        handshake captured by ``benchmarks.utils.acp.add_acp_agent_metadata``.
         """
-        # Stamp the OpenHands SDK version unconditionally (even for ACP runs,
-        # so we still record which orchestrator was used). We deliberately do
-        # NOT guard on a pre-existing value: __version__ is the ground truth
-        # for the running interpreter, and silently preserving a value the
-        # caller passed in would mask configuration bugs. We also don't guard
-        # against an empty __version__ — if importlib.metadata returns ""
-        # the Python environment is fundamentally broken and failing fast
-        # (via downstream consumers noticing a blank field) beats hiding the
-        # root cause behind a log warning.
         self.metadata.openhands_sdk_version = openhands_sdk_version
-
-        # For ACP runs, also stamp the ACP agent CLI command name + version.
-        # acp_agent_name is the CLI command we exec (e.g. "claude-agent-acp")
-        # — see the field docstring on EvalMetadata for why this is the CLI
-        # name and not the npm package name. Both fields are stamped
-        # unconditionally for the same reason as openhands_sdk_version above:
-        # model_post_init runs once, the values are derived from authoritative
-        # sources, and a caller-supplied override would mask bugs rather than
-        # fix them. acp_agent_version may still be None on disk if the
-        # subprocess shell-out fails — that is intentionally non-fatal (see
-        # _query_cli_version).
-        if is_acp_agent(self.metadata.agent_type):
-            acp_command = get_acp_command(self.metadata.agent_type)
-            self.metadata.acp_agent_name = acp_command[0]
-            self.metadata.acp_agent_version = _query_cli_version(
-                [*acp_command, "--version"],
-                label=acp_command[0],
-            )
 
         # Ensure output directory exists and persist metadata once.
         os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
@@ -288,6 +175,50 @@ class Evaluation(ABC, BaseModel):
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
+
+    def _maybe_stamp_acp_metadata(self, out: EvalOutput) -> None:
+        """Back-write ACP agent name/version into metadata.json from a result.
+
+        ACP agents are out-of-process npm binaries that only exist inside the
+        per-instance runtime pod, not in this orchestration process.
+        ``benchmarks.utils.acp.add_acp_agent_metadata`` already captures the
+        real name/version from the ACP protocol handshake and writes them to
+        ``test_result`` on each instance's ``EvalOutput``. We copy the first
+        non-empty pair back onto ``self.metadata`` so ``metadata.json`` — the
+        file push-to-index actually reads — carries the same values.
+
+        First-write-wins: every instance in a run uses the same ACP binary,
+        so once the fields are populated we skip subsequent calls. The check
+        is also the reason this is safe to call unlocked from concurrent
+        instance callbacks — worst case, two racing writers produce the same
+        content, and the rename is atomic on POSIX.
+        """
+        if not is_acp_agent(self.metadata.agent_type):
+            return
+        if self.metadata.acp_agent_version:
+            return
+
+        name = out.test_result.get("acp_agent_name")
+        version = out.test_result.get("acp_agent_version")
+        if not name and not version:
+            return
+
+        if name:
+            self.metadata.acp_agent_name = name
+        if version:
+            self.metadata.acp_agent_version = version
+
+        metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
+        tmp_path = metadata_file + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(self.metadata.model_dump_json(indent=2))
+        os.replace(tmp_path, metadata_file)
+        logger.info(
+            "Stamped ACP metadata into %s: name=%r version=%r",
+            metadata_file,
+            self.metadata.acp_agent_name,
+            self.metadata.acp_agent_version,
+        )
 
     @property
     def output_path(self) -> str:
@@ -625,6 +556,16 @@ class Evaluation(ABC, BaseModel):
                         logger.warning(
                             f"Failed to write to attempt file {attempt_file}: {e}"
                         )
+
+                # Back-write ACP name/version from this instance's test_result
+                # into metadata.json. No-op after the first successful stamp.
+                try:
+                    self._maybe_stamp_acp_metadata(out)
+                except Exception as stamp_err:
+                    logger.warning(
+                        "Failed to stamp ACP metadata from instance result: %s",
+                        stamp_err,
+                    )
 
                 # Call original callback if provided
                 if on_result:
