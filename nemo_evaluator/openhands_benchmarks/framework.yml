@@ -24,7 +24,7 @@ defaults:
     --num-workers {{config.params.parallelism}}
     --note {{config.type}}
     --output-dir {{config.output_dir}}
-    --max-attempts {{config.params.extra.max_attempts}}
+    --n-critic-runs {{config.params.extra.n_critic_runs}}
     --instance-max-retries {{config.params.extra.instance_max_retries}}
     {% if config.params.limit_samples is not none %}--n-limit {{config.params.limit_samples}}{% endif %}
     {% if config.params.extra.level is defined and config.params.extra.level is not none %}--level {{config.params.extra.level}}{% endif %}
@@ -44,7 +44,7 @@ defaults:
       extra:
         workspace: docker
         max_steps: 100
-        max_attempts: 3
+        n_critic_runs: 3
         instance_max_retries: 3
   target:
     api_endpoint:
@@ -116,7 +116,7 @@ evaluations:
             dataset: wentingzhao/commit0_combined
             split: test
             repo_split: lite
-            max_attempts: 1
+            n_critic_runs: 1
 
   # Multi-SWE-bench (multilingual)
   - name: multiswebench-java

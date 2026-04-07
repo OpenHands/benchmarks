@@ -97,8 +97,8 @@ def _build_infer_cmd(args: argparse.Namespace, llm_config_path: Path) -> list[st
         str(args.num_workers),
         "--output-dir",
         str(args.output_dir),
-        "--max-attempts",
-        str(args.max_attempts),
+        "--n-critic-runs",
+        str(args.n_critic_runs),
         "--max-retries",
         str(args.instance_max_retries),
         "--critic",
@@ -165,7 +165,7 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--note", type=str, default="")
     parser.add_argument("--output-dir", type=str, required=True)
-    parser.add_argument("--max-attempts", type=int, default=3)
+    parser.add_argument("--n-critic-runs", type=int, default=3)
     parser.add_argument("--instance-max-retries", type=int, default=3)
     parser.add_argument("--n-limit", type=int, default=None)
 
