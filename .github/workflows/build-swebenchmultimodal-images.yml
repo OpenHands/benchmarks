@@ -63,7 +63,9 @@ env:
   MAX_RETRIES: '2'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
-  SELECT_FILE: ''
+  # Default to curated 68-instance subset. Override with '' (empty string) to build all images,
+  # or provide explicit instance-ids to build specific images.
+  SELECT_FILE: ${{ github.workspace }}/benchmarks/swebenchmultimodal/resolved_instances.txt
 
 concurrency:
   group: build-swe-bench-multimodal-${{ github.ref }}
