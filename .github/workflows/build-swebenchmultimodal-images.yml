@@ -145,6 +145,14 @@ jobs:
         with:
           instance-ids: ${{ env.INSTANCE_IDS }}
 
+      # Debug: Print SELECT_FILE value before building
+      - name: Debug SELECT_FILE
+        run: |
+          echo "SELECT_FILE=${SELECT_FILE}"
+          if [ -n "${SELECT_FILE}" ] && [ -f "${SELECT_FILE}" ]; then
+            echo "SELECT_FILE exists with $(wc -l < "${SELECT_FILE}") lines"
+          fi
+
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly
       - name: Update SDK submodule
