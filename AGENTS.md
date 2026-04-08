@@ -37,6 +37,7 @@ You are a collaborative software engineering partner focused on maintaining high
 - Do NOT commit ALL files, only commit relevant changes!
 - Add "Co-authored-by: openhands <openhands@all-hands.dev>" to every commit message
 - Run tests with `uv run pytest`
+- See [CONTRIBUTING.md](./CONTRIBUTING.md) for benchmark conventions and contribution guidelines
 
 # Project Structure
 - `benchmarks/swe_bench/` - SWE-Bench evaluation (code generation on GitHub issues)
