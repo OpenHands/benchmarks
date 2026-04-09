@@ -1,0 +1,32 @@
+{% if is_multi %}
+I've uploaded a python code repository in the directory {{ workspace_dir_name }}.
+Your goal is to locate the following {{ num_targets }} targets (docstrings removed) and write docstrings for each:
+
+{{ target_list }}
+
+Follow these steps:
+1. EXPLORATION: Search the codebase (file paths not provided) to find where each target is defined.
+2. UNDERSTANDING: Read implementations to fully understand arguments, return values, and side effects.
+3. RECHECK: Verify that the function/class you located actually matches the given description. Compare the implementation behavior with the description to ensure you found the correct target.
+4. GENERATION: Insert a clear, concise Python docstring inside each definition using triple quotes. Cover purpose, parameters, return value(s), and important behaviors or exceptions.
+5. REVIEW: Double-check formatting and accuracy; avoid changing code outside the docstrings unless strictly necessary.
+{% else %}
+I've uploaded a python code repository in the directory {{ workspace_dir_name }}.
+Your goal is to locate the {{ module_type }} described below and write its docstring.
+
+<{{ module_type }}_description>
+{{ description }}
+</{{ module_type }}_description>
+
+Known details:
+- Target name: {{ target_name }}
+- The original docstring was removed; please restore/author it.
+
+Follow these steps:
+1. EXPLORATION: Search the codebase (no file path provided) to find where this {{ module_type }} is defined.
+2. UNDERSTANDING: Read the implementation to fully understand its arguments, return values, and side effects.
+3. RECHECK: Verify that the {{ module_type }} you located actually matches the given description. Compare the implementation behavior with the description to ensure you found the correct target.
+4. GENERATION: Insert a clear, concise Python docstring inside the definition using triple quotes. Cover purpose, parameters, return value(s), and important behaviors or exceptions.
+5. REVIEW: Double-check formatting and accuracy; avoid changing code outside the docstring unless strictly necessary.
+{% endif %}
+Be thorough in your exploration and reasoning. It's fine if your thinking process is lengthy - quality and completeness are more important than brevity.
