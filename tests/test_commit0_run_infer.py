@@ -37,8 +37,8 @@ def test_source_targets_use_phased_assembly(monkeypatch):
     builder_calls = []
     assemble_calls = []
 
-    def fake_builder_image(*, push, platform):
-        builder_calls.append((push, platform))
+    def fake_builder_image(*, push, platform, force_build):
+        builder_calls.append((push, platform, force_build))
         return SimpleNamespace(error=None, tags=["ghcr.io/example/builder:test"])
 
     def fake_assemble(**kwargs):
@@ -64,7 +64,7 @@ def test_source_targets_use_phased_assembly(monkeypatch):
     )
 
     assert exit_code == 0
-    assert builder_calls == [(True, "linux/amd64")]
+    assert builder_calls == [(True, "linux/amd64", True)]
     assert assemble_calls == [
         {
             "base_images": ["docker.io/example/base:v0"],
