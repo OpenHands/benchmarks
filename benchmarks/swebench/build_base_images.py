@@ -418,6 +418,7 @@ def build_builder_image(
     builder_image: str = EVAL_BUILDER_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    force_build: bool = False,
 ) -> BuildOutput:
     """Build and push the SDK builder image (Phase 0).
 
@@ -430,7 +431,7 @@ def build_builder_image(
     # For the builder, we use the builder_image repo name (not a Docker base image).
     build_id = builder_image
 
-    if remote_image_exists(tag):
+    if not force_build and remote_image_exists(tag):
         logger.info("Builder image %s already exists. Skipping.", tag)
         return BuildOutput(base_image=build_id, tags=[tag], error=None)
 
