@@ -17,6 +17,7 @@ from benchmarks.openagentsafety.build_images import (
     check_image_exists,
     get_image_name,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -455,8 +456,14 @@ class OpenAgentSafetyEvaluation(Evaluation):
         if self.metadata.enable_delegation:
             tools.append(Tool(name=DelegateTool.name))
 
-        # Create agent
-        agent = Agent(llm=build_eval_llm(self.metadata.llm), tools=tools)
+        # Load public skills (respects EXTENSIONS_REF env var)
+        agent_context = create_agent_context()
+
+        agent = Agent(
+            llm=build_eval_llm(self.metadata.llm),
+            tools=tools,
+            agent_context=agent_context,
+        )
 
         # Collect events
         received_events = []

@@ -60,3 +60,47 @@ class TestConvertToSwebenchFormat:
             result = json.loads(f.readline())
 
         assert result["model_name_or_path"] == MODEL_NAME_OR_PATH
+
+    def test_removes_binary_diffs(self):
+        """Test that binary diffs are removed during conversion."""
+        patch_with_binary = """diff --git a/text.py b/text.py
+index 1234567..89abcdef 100644
+--- a/text.py
++++ b/text.py
+@@ -1,3 +1,4 @@
+ line 1
++added line
+ line 2
+
+diff --git a/image.png b/image.png
+index 1234567..89abcdef 100644
+--- b/image.png
++++ b/image.png
+Binary files differ
+"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        ) as infile:
+            entry = {
+                "instance_id": "django__django-12345",
+                "test_result": {"git_patch": patch_with_binary},
+            }
+            infile.write(json.dumps(entry) + "\n")
+            input_path = infile.name
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".swebench.jsonl", delete=False
+        ) as outfile:
+            output_path = outfile.name
+
+        convert_to_swebench_format(input_path, output_path)
+
+        with open(output_path, "r") as f:
+            result = json.loads(f.readline())
+
+        # Verify text diff is preserved
+        assert "added line" in result["model_patch"]
+        assert "text.py" in result["model_patch"]
+        # Verify binary diff is removed
+        assert "Binary files differ" not in result["model_patch"]
+        assert "image.png" not in result["model_patch"]

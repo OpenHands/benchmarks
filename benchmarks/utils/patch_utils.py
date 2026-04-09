@@ -77,6 +77,8 @@ def remove_binary_diffs(patch_text):
     Returns:
         str: The cleaned patch text with binary diffs removed
     """
+    if not patch_text:
+        return patch_text
     lines = patch_text.splitlines()
     cleaned_lines = []
     block = []
