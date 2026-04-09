@@ -466,7 +466,8 @@ class Commit0Evaluation(Evaluation):
         env_prefix = get_pythonpath_prefix(src_dir)
         full_test_cmd = f"cd {repo_path} && {env_prefix}{test_cmd} --json-report --json-report-file=report.json --continue-on-collection-errors {test_dir} > test_output.txt 2>&1"
         logger.info(f"Running test command: {full_test_cmd}")
-        test_result = workspace.execute_command(full_test_cmd, timeout=600)
+        test_cmd_timeout = int(os.getenv("COMMIT0_TEST_CMD_TIMEOUT", "1800"))
+        test_result = workspace.execute_command(full_test_cmd, timeout=test_cmd_timeout)
         logger.info(f"Test command exit code: {test_result.exit_code}")
         if test_result.exit_code != 0:
             logger.warning(f"Test command failed with stderr: {test_result.stderr}")
