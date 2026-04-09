@@ -27,7 +27,7 @@ on:
       max-retries:
         description: 'Retries per image build'
         required: false
-        default: '5'
+        default: '2'
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
@@ -65,7 +65,7 @@ env:
   DATASET: princeton-nlp/SWE-bench_Multimodal
   SPLIT: dev
   MAX_WORKERS: '12'
-  MAX_RETRIES: '5'
+  MAX_RETRIES: '2'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''

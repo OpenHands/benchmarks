@@ -29,13 +29,14 @@ from benchmarks.utils.image_utils import (
     create_docker_workspace,
     remote_image_exists,
 )
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
 from openhands.sdk.context import AgentContext
 from openhands.sdk.context.skills.skill import load_public_skills
@@ -187,9 +188,7 @@ class SWTBenchEvaluation(Evaluation):
         suffix = f"-{build_target}" if build_target != "binary" else ""
 
         if self.metadata.workspace_type == "docker":
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             workspace = create_docker_workspace(
                 agent_server_image=agent_server_image,
                 base_image=official_docker_image,
@@ -203,9 +202,7 @@ class SWTBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
@@ -213,7 +210,7 @@ class SWTBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {get_phased_image_tag_prefix()}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -255,6 +252,7 @@ class SWTBenchEvaluation(Evaluation):
         if is_acp_agent(self.metadata.agent_type):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
+            agent_llm = build_eval_llm(self.metadata.llm)
             tools = get_default_tools(
                 # Disable browser tools in CLI mode
                 enable_browser=False,
@@ -264,7 +262,7 @@ class SWTBenchEvaluation(Evaluation):
             condenser = None
             if self.metadata.enable_condenser:
                 condenser = LLMSummarizingCondenser(
-                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
@@ -277,9 +275,7 @@ class SWTBenchEvaluation(Evaluation):
             
 
             agent = Agent(
-
-                llm=self.metadata.llm,
-
+                llm=agent_llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 agent_context=agent_context,

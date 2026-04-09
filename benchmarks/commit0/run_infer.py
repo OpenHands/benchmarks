@@ -9,10 +9,11 @@ from datasets import load_dataset
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.commit0.build_images import (
-    extract_custom_tag,
+    get_agent_server_image_tag,
+    get_agent_server_image_tag_prefix,
     get_base_docker_image,
 )
-from benchmarks.commit0.config import INFER_DEFAULTS
+from benchmarks.commit0.config import BUILD_TARGET, INFER_DEFAULTS
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
     build_acp_agent,
@@ -33,13 +34,13 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.context import AgentContext
 from openhands.sdk.context.skills.skill import load_public_skills
@@ -263,14 +264,14 @@ class Commit0Evaluation(Evaluation):
 
         repo_name = instance.data["repo"].split("/")[1]
         base_docker_image = get_base_docker_image(repo_name)
-        build_target = "source-minimal"
+        build_target = BUILD_TARGET
         logger.info(f"Using base docker image: {base_docker_image}")
 
         if self.metadata.workspace_type == "docker":
-            custom_tag = extract_custom_tag(base_docker_image)
-            suffix = f"-{build_target}" if build_target != "binary" else ""
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+            agent_server_image = get_agent_server_image_tag(
+                base_docker_image,
+                build_target,
+                EVAL_AGENT_SERVER_IMAGE,
             )
             workspace = create_docker_workspace(
                 agent_server_image=agent_server_image,
@@ -285,10 +286,10 @@ class Commit0Evaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            custom_tag = extract_custom_tag(base_docker_image)
-            suffix = f"-{build_target}" if build_target != "binary" else ""
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
+            agent_server_image = get_agent_server_image_tag(
+                base_docker_image,
+                build_target,
+                EVAL_AGENT_SERVER_IMAGE,
             )
 
             if not remote_image_exists(agent_server_image):
@@ -299,7 +300,8 @@ class Commit0Evaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {get_agent_server_image_tag_prefix(build_target)}, "
+                f"resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -384,13 +386,14 @@ class Commit0Evaluation(Evaluation):
         if is_acp_agent(self.metadata.agent_type):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
+            agent_llm = build_eval_llm(self.metadata.llm)
             tools = get_default_tools(enable_browser=False)
             if self.metadata.enable_delegation:
                 tools.append(Tool(name=DelegateTool.name))
             condenser = None
             if self.metadata.enable_condenser:
                 condenser = LLMSummarizingCondenser(
-                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
@@ -403,9 +406,7 @@ class Commit0Evaluation(Evaluation):
             
 
             agent = Agent(
-
-                llm=self.metadata.llm,
-
+                llm=agent_llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 agent_context=agent_context,

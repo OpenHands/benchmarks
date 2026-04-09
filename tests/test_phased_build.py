@@ -1,12 +1,16 @@
 """Tests for the phased benchmark image build (build_base_images + build_images)."""
 
 import json
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from benchmarks.utils.build_utils import BuildOutput
+
+
+# 7-char lowercase hex hash prefix expected in base image tags.
+_HASH_RE = re.compile(r":([0-9a-f]{7})-")
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +32,16 @@ def _fail_proc(stderr="build error", code=1):
     )
 
 
+def _timeout_exc(stdout="", stderr=""):
+    """Fake subprocess.TimeoutExpired with optional partial output."""
+    return subprocess.TimeoutExpired(
+        cmd=["docker"],
+        timeout=1,
+        output=stdout,
+        stderr=stderr,
+    )
+
+
 # Production code uses ProcessPoolExecutor for true parallelism across builds.
 # Tests substitute ThreadPoolExecutor to avoid pickling issues with mocks.
 def _thread_pool(**kw):
@@ -41,12 +55,18 @@ def _thread_pool(**kw):
 
 class TestBuildBaseImage:
     @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
     )
-    def test_skips_when_remote_exists(self, _):
+    def test_skips_when_remote_exists(self, _exists, _dockerfile):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", push=False)
+        result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=False, content_hash="abc1234"
+        )
         assert result.error is None
         assert len(result.tags) == 1
         assert "custom-tag" in result.tags[0]
@@ -56,7 +76,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=Path("/fake/Dockerfile"),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -65,7 +85,9 @@ class TestBuildBaseImage:
     def test_success(self, _exists, _dockerfile, mock_run):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", push=True)
+        result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=True, content_hash="abc1234"
+        )
         assert result.error is None
         assert len(result.tags) == 1
         cmd = mock_run.call_args[0][0]
@@ -77,7 +99,7 @@ class TestBuildBaseImage:
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
-        return_value=Path("/fake/Dockerfile"),
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists",
@@ -86,9 +108,29 @@ class TestBuildBaseImage:
     def test_failure_returns_error(self, _exists, _dockerfile, _run):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag")
+        result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
         assert result.error is not None
         assert result.tags == []
+
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run",
+        side_effect=_timeout_exc(stderr="stalled build"),
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists",
+        return_value=False,
+    )
+    def test_timeout_returns_error(self, _exists, _dockerfile, _run):
+        from benchmarks.swebench.build_base_images import build_base_image
+
+        result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
+        assert result.tags == []
+        assert result.error is not None
+        assert "timed out" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +158,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=3,
+            content_hash="abc1234",
         )
         assert result.error is None
         assert result.tags == ["tag:1"]
@@ -139,6 +182,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=2,
+            content_hash="abc1234",
         )
         assert result.error == "permanent error"
         assert mock_build.call_count == 2
@@ -160,6 +204,7 @@ class TestBuildBaseWithLoggingRetry:
             base_image="img",
             custom_tag="tag",
             max_retries=1,
+            content_hash="abc1234",
         )
         assert result.error is not None
         assert "docker crash" in result.error
@@ -269,6 +314,33 @@ class TestAssembleAgentImage:
         assert result.error is not None
         assert "not found" in result.error
 
+    def test_build_timeout_returns_error(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.subprocess.run",
+                side_effect=_timeout_exc(stderr="build stalled"),
+            ),
+        ):
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=True,
+            )
+
+        assert result.tags == []
+        assert result.error is not None
+        assert "timed out" in result.error
+
 
 # ---------------------------------------------------------------------------
 # build_all_base_images: manifest writing and failure counting
@@ -323,7 +395,11 @@ class TestBuildAllBaseImages:
 
         assert rc == 0
 
-    def test_dry_run_prints_without_building(self, tmp_path, capsys):
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    def test_dry_run_prints_without_building(self, _dockerfile, tmp_path, capsys):
         from benchmarks.swebench.build_base_images import build_all_base_images
 
         rc = build_all_base_images(
@@ -398,6 +474,36 @@ class TestBuildBuilderImage:
         assert result.base_image == EVAL_BUILDER_IMAGE
         assert result.error is None
         assert len(result.tags) == 1
+
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=False
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
+        return_value=("sdk", "abc1234567", "v1"),
+    )
+    @patch("benchmarks.swebench.build_base_images._get_repo_root")
+    @patch("openhands.agent_server.docker.build._make_build_context")
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run",
+        side_effect=_timeout_exc(stderr="builder stalled"),
+    )
+    def test_timeout_returns_error(
+        self, _run, mock_make_context, mock_repo_root, _sdk, _exists, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import build_builder_image
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        (ctx / "Dockerfile").write_text("FROM scratch\n")
+        mock_make_context.return_value = ctx
+        mock_repo_root.return_value = tmp_path
+
+        result = build_builder_image()
+
+        assert result.tags == []
+        assert result.error is not None
+        assert "timed out" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -482,11 +588,30 @@ class TestBaseImageTag:
     def test_default_registry(self):
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        tag = base_image_tag("my-custom-tag")
-        assert tag.endswith(":my-custom-tag")
+        tag = base_image_tag("my-custom-tag", content_hash="abc1234")
+        assert tag.endswith(":abc1234-my-custom-tag")
+        assert _HASH_RE.search(tag), f"tag missing 7-char hex prefix: {tag}"
 
     def test_custom_registry(self):
         from benchmarks.swebench.build_base_images import base_image_tag
 
-        tag = base_image_tag("abc", image="my-registry/my-repo")
-        assert tag == "my-registry/my-repo:abc"
+        tag = base_image_tag("abc", image="my-registry/my-repo", content_hash="abc1234")
+        assert tag == "my-registry/my-repo:abc1234-abc"
+
+    def test_hash_changes_with_dockerfile_content(self):
+        from benchmarks.swebench.build_base_images import base_image_tag
+
+        tag1 = base_image_tag("x", content_hash="aaaaaaa")
+        tag2 = base_image_tag("x", content_hash="bbbbbbb")
+        assert tag1 != tag2
+
+    def test_dockerfile_content_hash_format(self):
+        from benchmarks.swebench.build_base_images import dockerfile_content_hash
+
+        with patch(
+            "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+            return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+        ):
+            h = dockerfile_content_hash()
+
+        assert re.fullmatch(r"[0-9a-f]{7}", h), f"expected 7-char hex, got {h!r}"

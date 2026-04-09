@@ -20,6 +20,16 @@ logger = get_logger(__name__)
 # so we use 60 min (3600s) as the default to avoid premature timeouts.
 ACP_PROMPT_TIMEOUT: float = 3600.0
 
+# Per-agent-type timeout overrides.  Gemini CLI agents (both Flash and Pro)
+# routinely make 60-110+ tool calls on complex benchmark instances and need
+# well over 60 min to converge.  Datadog traces from eval-23925785249 showed
+# instances accumulating 114 tool calls at the 3600s cutoff — still actively
+# working, not hung.  Bumping to 7200s avoids pointless retries that can
+# never succeed within the old limit.
+_ACP_PROMPT_TIMEOUT_OVERRIDES: dict[str, float] = {
+    "acp-gemini": 7200.0,
+}
+
 # Mapping of ACP agent types to the env vars they require.
 # Both the API key and base URL are needed to route through LiteLLM proxy.
 _ACP_ENV_VARS: dict[str, list[str]] = {
@@ -131,12 +141,31 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
 
     Provider credentials are passed via ``acp_env`` so they reach the ACP
     subprocess without being included in the workspace ``forward_env``.
+
+    If a per-instance LiteLLM virtual key is active (set via
+    ``litellm_proxy.set_current_virtual_key``), it overrides the API key
+    so the proxy can track spend for this instance.  Thread-safe via
+    ``threading.local``.
     """
+    from benchmarks.utils.litellm_proxy import get_current_virtual_key
+
+    acp_env = _get_acp_env(agent_type)
+
+    virtual_key = get_current_virtual_key()
+    if virtual_key is not None:
+        # Override the API key with the per-instance virtual key so the
+        # proxy tracks spend independently for this instance.
+        for var in _ACP_ENV_VARS.get(agent_type, []):
+            if var.endswith("API_KEY"):
+                acp_env[var] = virtual_key
+
+    prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(agent_type, ACP_PROMPT_TIMEOUT)
+
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
         acp_model=extract_acp_model_hint(llm_model),
-        acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
-        acp_env=_get_acp_env(agent_type),
+        acp_prompt_timeout=prompt_timeout,
+        acp_env=acp_env,
     )
 
 
@@ -146,23 +175,17 @@ def add_acp_agent_metadata(
 ) -> None:
     """Add ACP agent metadata to an eval result payload.
 
-    The ACPAgent stores agent_name/version in ``state.agent_state`` during init.
-    This syncs back in the ``full_state`` ConversationStateUpdateEvent.  We scan
-    the conversation events (last to first) to extract it.
+    Reads ``agent_state`` from the conversation state dump.  For remote
+    conversations ``RemoteState.model_dump()`` returns the cached state
+    that is refreshed from the server when the run completes, so the data
+    is always up-to-date by the time this function is called.
+
+    Requires SDK support: ``ACPAgent.init_state()`` must store metadata in
+    ``state.agent_state``.
     """
-    name = ""
-    version = ""
-    for ev in reversed(list(conversation.state.events)):
-        ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
-        if ev_dict.get("key") == "full_state":
-            val = ev_dict.get("value", {})
-            agent_state = val.get("agent_state", {}) if isinstance(val, dict) else {}
-            name = agent_state.get("acp_agent_name", "")
-            version = agent_state.get("acp_agent_version", "")
-            if name:
-                break
-    test_result["acp_agent_name"] = name
-    test_result["acp_agent_version"] = version
+    agent_state = conversation.state.model_dump().get("agent_state", {})
+    test_result["acp_agent_name"] = agent_state.get("acp_agent_name", "")
+    test_result["acp_agent_version"] = agent_state.get("acp_agent_version", "")
 
 
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:

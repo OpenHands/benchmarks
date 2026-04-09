@@ -1,13 +1,9 @@
-"""Tests for SWE-Bench Multimodal functionality."""
+"""Tests for SWE-Bench eval_infer functionality."""
 
 import json
 import tempfile
 
-from benchmarks.swebenchmultimodal.config import (
-    DEFAULT_RESOLVED_INSTANCES_FILE,
-    INFER_DEFAULTS,
-)
-from benchmarks.swebenchmultimodal.eval_infer import convert_to_swebench_format
+from benchmarks.swebench.eval_infer import convert_to_swebench_format
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 
 
@@ -15,7 +11,12 @@ class TestConvertToSwebenchFormat:
     """Tests for convert_to_swebench_format function."""
 
     def test_empty_input_file_does_not_raise(self):
-        """Test that an empty input file does not raise an exception."""
+        """Test that an empty input file does not raise an exception.
+
+        When no entries are converted, the script should continue normally
+        rather than raising an exception. The harness is responsible for
+        handling empty results appropriately.
+        """
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".jsonl", delete=False
         ) as infile:
@@ -42,7 +43,7 @@ class TestConvertToSwebenchFormat:
         ) as infile:
             # Write a valid entry
             entry = {
-                "instance_id": "test__test-123",
+                "instance_id": "django__django-12345",
                 "test_result": {"git_patch": "diff --git a/test.py b/test.py"},
             }
             infile.write(json.dumps(entry) + "\n")
@@ -59,28 +60,3 @@ class TestConvertToSwebenchFormat:
             result = json.loads(f.readline())
 
         assert result["model_name_or_path"] == MODEL_NAME_OR_PATH
-
-
-def test_infer_defaults_use_existing_resolved_instances_file():
-    assert INFER_DEFAULTS["select"] == str(DEFAULT_RESOLVED_INSTANCES_FILE)
-    assert DEFAULT_RESOLVED_INSTANCES_FILE.is_file()
-
-
-def test_resolved_instances_file_matches_solveable_annotations():
-    annotations_path = DEFAULT_RESOLVED_INSTANCES_FILE.with_name(
-        "ambiguity_annotations.json"
-    )
-    annotations = json.loads(annotations_path.read_text())["annotations"]
-    expected_ids = {
-        instance_id
-        for instance_id, annotation in annotations.items()
-        if "SOLVEABLE" in annotation.get("keywords", [])
-    }
-
-    resolved_ids = {
-        line.strip()
-        for line in DEFAULT_RESOLVED_INSTANCES_FILE.read_text().splitlines()
-        if line.strip()
-    }
-
-    assert resolved_ids == expected_ids

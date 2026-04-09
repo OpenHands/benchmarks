@@ -37,6 +37,7 @@ You are a collaborative software engineering partner focused on maintaining high
 - Do NOT commit ALL files, only commit relevant changes!
 - Add "Co-authored-by: openhands <openhands@all-hands.dev>" to every commit message
 - Run tests with `uv run pytest`
+- See [CONTRIBUTING.md](./CONTRIBUTING.md) for benchmark conventions and contribution guidelines
 
 # Project Structure
 - `benchmarks/swe_bench/` - SWE-Bench evaluation (code generation on GitHub issues)
@@ -105,5 +106,10 @@ When converting between OpenHands format and benchmark-specific formats:
 - Harbor's installable package is `harbor` (not `harbor-bench`).
 - The Harbor dataset name used in CI is `terminal-bench@2.0`.
 - For CI smoke tests, pass `--n-limit <count>` to `terminalbench-infer` so Harbor only runs the requested subset.
+
+# SWE-Bench Multimodal Notes
+- The default `swebenchmultimodal-infer` selection now comes from `benchmarks/swebenchmultimodal/resolved_instances.txt`.
+- `resolved_instances.txt` is generated from `ambiguity_annotations.json` and contains all instances annotated with the `SOLVEABLE` keyword.
+- `benchmarks/swebenchmultimodal/build_images.py` does not inherit that default automatically; pass `--select benchmarks/swebenchmultimodal/resolved_instances.txt` when you need matching image builds.
 
 </BENCHMARK_SPECIFIC>

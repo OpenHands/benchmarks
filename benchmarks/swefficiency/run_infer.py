@@ -22,6 +22,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -318,12 +319,10 @@ class SWEfficiencyEvaluation(Evaluation):
         
 
         agent = Agent(
-
-            llm=self.metadata.llm,
-
+            llm=build_eval_llm(self.metadata.llm),
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
-        agent_context=agent_context,
+            agent_context=agent_context,
         )
 
         assert isinstance(workspace, RemoteWorkspace)

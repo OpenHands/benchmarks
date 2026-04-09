@@ -34,6 +34,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -41,7 +42,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context import AgentContext
@@ -49,7 +50,7 @@ from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
-from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -166,9 +167,7 @@ class SWEBenchEvaluation(Evaluation):
         suffix = (
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
         )
-        base_agent_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-        )
+        base_agent_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
         wrap_needed = should_wrap_instance_id(instance.id)
         agent_server_image = base_agent_image
 
@@ -197,6 +196,28 @@ class SWEBenchEvaluation(Evaluation):
                 working_dir="/workspace",
                 forward_env=forward_env or [],
             )
+        elif self.metadata.workspace_type == "apptainer":
+            if not remote_image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
+                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
+                )
+
+            logger.info(
+                f"Using apptainer workspace with pre-built image {agent_server_image} "
+                f"(tag prefix: {get_phased_image_tag_prefix()})"
+            )
+            if wrap_needed:
+                logger.info(
+                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                )
+
+            workspace = ApptainerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+                forward_env=forward_env or [],
+                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:
@@ -204,9 +225,7 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
@@ -214,7 +233,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {get_phased_image_tag_prefix()}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
                 os.getenv(
@@ -259,6 +278,7 @@ class SWEBenchEvaluation(Evaluation):
         if is_acp_agent(self.metadata.agent_type):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
+            agent_llm = build_eval_llm(self.metadata.llm)
             tools = get_tools_for_preset(
                 preset=self.metadata.tool_preset,
                 # Disable browser tools in CLI mode
@@ -269,7 +289,7 @@ class SWEBenchEvaluation(Evaluation):
             condenser = None
             if self.metadata.enable_condenser:
                 condenser = LLMSummarizingCondenser(
-                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
@@ -279,7 +299,7 @@ class SWEBenchEvaluation(Evaluation):
             agent_context = AgentContext(skills=skills) if skills else None
             
             agent = Agent(
-                llm=self.metadata.llm,
+                llm=agent_llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
