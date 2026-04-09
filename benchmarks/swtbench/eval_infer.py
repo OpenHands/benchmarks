@@ -25,7 +25,7 @@ from benchmarks.swtbench.image_utils import (
 )
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.patch_utils import remove_binary_diffs, remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -203,6 +203,7 @@ def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
                     git_patch = ""
 
                 # postprocess git_patch
+                git_patch = remove_binary_diffs(git_patch)
                 setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
                 git_patch = remove_files_from_patch(git_patch, setup_files)
 
