@@ -35,14 +35,13 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
-from openhands.sdk.context import AgentContext
-from openhands.sdk.context.skills.skill import load_public_skills
     Agent,
     Conversation,
     Event,
@@ -340,12 +339,7 @@ class GAIAEvaluation(Evaluation):
                     keep_first=self.metadata.condenser_keep_first,
                 )
             # Load public skills (respects EXTENSIONS_REF env var)
-
-            skills = load_public_skills()
-
-            agent_context = AgentContext(skills=skills) if skills else None
-
-            
+            agent_context = create_agent_context()
 
             agent = Agent(
                 llm=agent_llm,

@@ -36,10 +36,9 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import Agent, Conversation, Tool, __version__, get_logger
-from openhands.sdk.context import AgentContext
-from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
@@ -267,12 +266,7 @@ class SWTBenchEvaluation(Evaluation):
                     keep_first=self.metadata.condenser_keep_first,
                 )
             # Load public skills (respects EXTENSIONS_REF env var)
-
-            skills = load_public_skills()
-
-            agent_context = AgentContext(skills=skills) if skills else None
-
-            
+            agent_context = create_agent_context()
 
             agent = Agent(
                 llm=agent_llm,

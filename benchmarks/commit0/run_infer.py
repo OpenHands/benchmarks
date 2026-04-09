@@ -36,14 +36,13 @@ from benchmarks.utils.evaluation_utils import (
 from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
     EvalOutput,
 )
 from openhands.sdk import Agent, Conversation, Tool, get_logger
-from openhands.sdk.context import AgentContext
-from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
@@ -398,12 +397,7 @@ class Commit0Evaluation(Evaluation):
                     keep_first=self.metadata.condenser_keep_first,
                 )
             # Load public skills (respects EXTENSIONS_REF env var)
-
-            skills = load_public_skills()
-
-            agent_context = AgentContext(skills=skills) if skills else None
-
-            
+            agent_context = create_agent_context()
 
             agent = Agent(
                 llm=agent_llm,

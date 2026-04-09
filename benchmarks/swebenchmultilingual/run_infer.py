@@ -34,10 +34,9 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
-from openhands.sdk.context import AgentContext
-from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -253,12 +252,7 @@ class SWEBenchEvaluation(Evaluation):
         if self.metadata.enable_delegation:
             tools.append(Tool(name=DelegateTool.name))
         # Load public skills (respects EXTENSIONS_REF env var)
-
-        skills = load_public_skills()
-
-        agent_context = AgentContext(skills=skills) if skills else None
-
-        
+        agent_context = create_agent_context()
 
         agent = Agent(
             llm=build_eval_llm(self.metadata.llm),

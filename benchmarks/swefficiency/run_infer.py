@@ -28,10 +28,9 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import LLM, Agent, Conversation, get_logger
-from openhands.sdk.context import AgentContext
-from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace
@@ -311,12 +310,7 @@ class SWEfficiencyEvaluation(Evaluation):
         """
         tools = get_default_tools(enable_browser=False)
         # Load public skills (respects EXTENSIONS_REF env var)
-
-        skills = load_public_skills()
-
-        agent_context = AgentContext(skills=skills) if skills else None
-
-        
+        agent_context = create_agent_context()
 
         agent = Agent(
             llm=build_eval_llm(self.metadata.llm),

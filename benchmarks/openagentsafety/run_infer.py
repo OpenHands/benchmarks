@@ -26,11 +26,10 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.litellm_proxy import build_eval_llm
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger
-from openhands.sdk.context import AgentContext
-from openhands.sdk.context.skills.skill import load_public_skills
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -457,10 +456,8 @@ class OpenAgentSafetyEvaluation(Evaluation):
         if self.metadata.enable_delegation:
             tools.append(Tool(name=DelegateTool.name))
 
-        # Create agent
         # Load public skills (respects EXTENSIONS_REF env var)
-        skills = load_public_skills()
-        agent_context = AgentContext(skills=skills) if skills else None
+        agent_context = create_agent_context()
 
         agent = Agent(
             llm=build_eval_llm(self.metadata.llm),
