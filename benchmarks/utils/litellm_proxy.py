@@ -163,18 +163,23 @@ def build_eval_llm(llm: LLM, *, usage_id: str | None = None) -> LLM:
 
     The default (non-ACP) OpenHands agent talks to LiteLLM in-process, so it
     must use the thread-local per-instance virtual key to record exact proxy
-    spend for that instance. When there is no active virtual key and the
-    usage_id is unchanged, the original LLM object is returned.
+    spend for that instance.
+
+    We also force ``extended_thinking_budget=0`` here: the SDK LLM class
+    defaults this to 200_000, which for Anthropic models triggers the
+    ``interleaved-thinking-2025-05-14`` beta header (see
+    ``openhands/sdk/llm/options/chat_options.py``). Interleaved thinking is
+    mutually exclusive with parallel tool calls on the Anthropic API — the
+    model can never emit more than one tool_use block per assistant message
+    while that beta is active. Disabling it here is required for
+    ``tool_concurrency_limit>1`` on the agent to have any observable effect.
     """
-    updates: dict[str, object] = {}
+    updates: dict[str, object] = {"extended_thinking_budget": 0}
     if usage_id is not None:
         updates["usage_id"] = usage_id
 
     virtual_key = get_current_virtual_key()
     if virtual_key is not None:
         updates["api_key"] = SecretStr(virtual_key)
-
-    if not updates:
-        return llm
 
     return llm.model_copy(deep=True, update=updates)

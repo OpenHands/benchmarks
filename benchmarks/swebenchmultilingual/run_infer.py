@@ -254,6 +254,7 @@ class SWEBenchEvaluation(Evaluation):
             llm=build_eval_llm(self.metadata.llm),
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            tool_concurrency_limit=4,
             # TODO: we can enable condenser and security analyzer later
             # and have them configurable via EvalMetadata
             # condenser=get_default_condenser(

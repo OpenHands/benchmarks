@@ -312,6 +312,7 @@ class SWEfficiencyEvaluation(Evaluation):
             llm=build_eval_llm(self.metadata.llm),
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            tool_concurrency_limit=4,
         )
 
         assert isinstance(workspace, RemoteWorkspace)

@@ -260,6 +260,7 @@ class SWEBenchEvaluation(Evaluation):
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
+                tool_concurrency_limit=4,
                 # TODO: we can enable security analyzer later
                 # security_analyzer=LLMSecurityAnalyzer(),
             )

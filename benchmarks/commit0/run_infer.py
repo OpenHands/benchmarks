@@ -400,6 +400,7 @@ class Commit0Evaluation(Evaluation):
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
+                tool_concurrency_limit=4,
             )
 
         assert isinstance(workspace, RemoteWorkspace)

@@ -342,6 +342,7 @@ class GAIAEvaluation(Evaluation):
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
+                tool_concurrency_limit=4,
                 mcp_config={
                     "mcpServers": {
                         "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},

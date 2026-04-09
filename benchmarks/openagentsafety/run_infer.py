@@ -456,7 +456,11 @@ class OpenAgentSafetyEvaluation(Evaluation):
             tools.append(Tool(name=DelegateTool.name))
 
         # Create agent
-        agent = Agent(llm=build_eval_llm(self.metadata.llm), tools=tools)
+        agent = Agent(
+            llm=build_eval_llm(self.metadata.llm),
+            tools=tools,
+            tool_concurrency_limit=4,
+        )
 
         # Collect events
         received_events = []
