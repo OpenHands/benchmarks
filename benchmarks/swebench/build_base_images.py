@@ -288,7 +288,7 @@ def _build_base_with_logging(
                     custom_tag,
                     image,
                     push,
-                    force_build,
+                    force_build=force_build,
                     content_hash=content_hash,
                 )
             except Exception as e:
