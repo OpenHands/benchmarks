@@ -10,6 +10,7 @@ from pydantic import Field
 from benchmarks.swefficiency import constants
 from benchmarks.swefficiency.config import DOCKER_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swefficiency.workspace import ResourceLimitedDockerWorkspace
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -308,11 +309,15 @@ class SWEfficiencyEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         """
         tools = get_default_tools(enable_browser=False)
+        # Load public skills (respects EXTENSIONS_REF env var)
+        agent_context = create_agent_context()
+
         agent = Agent(
             llm=build_eval_llm(self.metadata.llm),
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
             tool_concurrency_limit=4,
+            agent_context=agent_context,
         )
 
         assert isinstance(workspace, RemoteWorkspace)

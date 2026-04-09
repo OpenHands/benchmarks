@@ -38,6 +38,11 @@ on:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
+      extensions-ref:
+        description: 'Extensions repository branch/ref to use (for testing feature branches with skills/plugins). Leave blank to use main.'
+        required: false
+        default: 'main'
+        type: string
       build-eval-env:
         description: 'Also build prebaked SWT-bench eval env images (default: false)'
         required: false
@@ -184,6 +189,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
           AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Build prebaked eval env images

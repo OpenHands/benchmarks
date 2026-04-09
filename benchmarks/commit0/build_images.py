@@ -343,7 +343,11 @@ def build_commit0_images(
             return 0
 
         logger.info("Using phased source-image assembly for commit0 target %s", target)
-        builder_result = build_builder_image(push=push, platform="linux/amd64")
+        builder_result = build_builder_image(
+            push=push,
+            platform="linux/amd64",
+            force_build=force_build,
+        )
         if builder_result.error or not builder_result.tags:
             logger.error("Failed to build shared SDK builder image: %s", builder_result)
             return 1

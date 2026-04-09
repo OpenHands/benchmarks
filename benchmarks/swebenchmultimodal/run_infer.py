@@ -18,6 +18,7 @@ from benchmarks.utils.acp import (
     setup_acp_workspace,
     workspace_keepalive,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -255,10 +256,13 @@ class SWEBenchEvaluation(Evaluation):
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
+            # Load public skills (respects EXTENSIONS_REF env var)
+            agent_context = create_agent_context()
             agent = Agent(
                 llm=agent_llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
+                agent_context=agent_context,
                 condenser=condenser,
                 tool_concurrency_limit=4,
                 # TODO: we can enable security analyzer later
