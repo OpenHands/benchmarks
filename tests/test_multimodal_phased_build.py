@@ -265,6 +265,8 @@ class TestMultimodalPhasedOrchestration:
         )
 
         main(["--dataset", "ds", "--split", "dev", "--force-build"])
+        assert mock_builder.call_args.kwargs["force_build"] is True
+        assert _bases.call_args.kwargs["force_build"] is True
         assert mock_assemble.call_args.kwargs["force_build"] is True
 
 
