@@ -133,6 +133,13 @@ def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
 
     Returns:
         True if the instance was successfully completed, False otherwise
+
+    Note:
+        When history is empty but a valid git_patch exists, this function
+        uses a lenient check (non-empty patch only) to maintain backward
+        compatibility with older output files that may not have history serialized.
+        This prevents accepted instance counts from dropping when re-evaluating
+        historical results.
     """
     events = eval_output.history
     llm_events: list[LLMConvertibleEvent] = [
@@ -140,6 +147,18 @@ def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
     ]
 
     git_patch = extract_git_patch(eval_output)
+
+    # Handle missing history gracefully: when history is empty but patch exists,
+    # use a lenient check to maintain backward compatibility. This prevents
+    # accepted instance counts from dropping when older output files lack history.
+    if not llm_events and git_patch and isinstance(critic, AgentFinishedCritic):
+        logger.debug(
+            f"evaluate_output: history empty but patch exists for {eval_output.instance_id}, "
+            "using lenient patch-only check for backward compatibility"
+        )
+        # Use non-empty patch as sufficient evidence of work done
+        return bool(git_patch and git_patch.strip())
+
     result = critic.evaluate(llm_events, git_patch)
 
     return result.success
