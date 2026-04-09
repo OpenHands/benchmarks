@@ -12,6 +12,7 @@ from benchmarks.swebenchmultilingual.build_images import (
     wrap_image,
 )
 from benchmarks.swebenchmultilingual.config import INFER_DEFAULTS
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -34,7 +35,6 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
-from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
@@ -258,6 +258,7 @@ class SWEBenchEvaluation(Evaluation):
             llm=build_eval_llm(self.metadata.llm),
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            agent_context=agent_context,
             # TODO: we can enable condenser and security analyzer later
             # and have them configurable via EvalMetadata
             # condenser=get_default_condenser(

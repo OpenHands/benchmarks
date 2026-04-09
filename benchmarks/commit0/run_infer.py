@@ -22,6 +22,7 @@ from benchmarks.utils.acp import (
     setup_acp_workspace,
     workspace_keepalive,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -36,7 +37,6 @@ from benchmarks.utils.evaluation_utils import (
 from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
-from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,

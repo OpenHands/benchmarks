@@ -10,6 +10,7 @@ from pydantic import Field
 from benchmarks.swefficiency import constants
 from benchmarks.swefficiency.config import DOCKER_DEFAULTS, INFER_DEFAULTS
 from benchmarks.swefficiency.workspace import ResourceLimitedDockerWorkspace
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -28,7 +29,6 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import LLM, Agent, Conversation, get_logger
 from openhands.sdk.workspace import RemoteWorkspace

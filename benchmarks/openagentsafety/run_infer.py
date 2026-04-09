@@ -17,6 +17,7 @@ from benchmarks.openagentsafety.build_images import (
     check_image_exists,
     get_image_name,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import get_parser
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -26,7 +27,6 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.litellm_proxy import build_eval_llm
-from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger

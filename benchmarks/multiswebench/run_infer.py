@@ -12,6 +12,7 @@ from benchmarks.multiswebench.build_images import (
 )
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -33,7 +34,6 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
-from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
