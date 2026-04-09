@@ -72,6 +72,14 @@ terminalbench-infer = "benchmarks.terminalbench.run_infer:main"
 terminalbench-eval = "benchmarks.terminalbench.eval_infer:main"
 skillsbench-infer = "benchmarks.skillsbench.run_infer:main"
 skillsbench-eval = "benchmarks.skillsbench.eval_infer:main"
+hybridgym-funclocalize-infer = "benchmarks.hybridgym_funclocalize.run_infer:main"
+hybridgym-funclocalize-eval = "benchmarks.hybridgym_funclocalize.eval_infer:main"
+hybridgym-depsearch-infer = "benchmarks.hybridgym_depsearch.run_infer:main"
+hybridgym-depsearch-eval = "benchmarks.hybridgym_depsearch.eval_infer:main"
+hybridgym-funcgen-infer = "benchmarks.hybridgym_funcgen.run_infer:main"
+hybridgym-funcgen-eval = "benchmarks.hybridgym_funcgen.eval_infer:main"
+hybridgym-issuelocalize-infer = "benchmarks.hybridgym_issuelocalize.run_infer:main"
+hybridgym-issuelocalize-eval = "benchmarks.hybridgym_issuelocalize.eval_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

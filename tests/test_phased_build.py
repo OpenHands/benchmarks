@@ -476,6 +476,35 @@ class TestBuildBuilderImage:
         assert len(result.tags) == 1
 
     @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
+        return_value=("sdk", "abc1234567", "v1"),
+    )
+    @patch("benchmarks.swebench.build_base_images._get_repo_root")
+    @patch("openhands.agent_server.docker.build._make_build_context")
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run", return_value=_ok_proc()
+    )
+    def test_force_build_bypasses_remote_exists(
+        self, mock_run, mock_make_context, mock_repo_root, _sdk, _exists, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import build_builder_image
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        (ctx / "Dockerfile").write_text("FROM scratch\n")
+        mock_make_context.return_value = ctx
+        mock_repo_root.return_value = tmp_path
+
+        result = build_builder_image(force_build=True)
+
+        assert result.error is None
+        assert len(result.tags) == 1
+        mock_run.assert_called_once()
+
+    @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists", return_value=False
     )
     @patch(

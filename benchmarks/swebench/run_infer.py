@@ -20,6 +20,7 @@ from benchmarks.utils.acp import (
     setup_acp_workspace,
     workspace_keepalive,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -48,7 +49,7 @@ from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
-from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -194,6 +195,28 @@ class SWEBenchEvaluation(Evaluation):
                 working_dir="/workspace",
                 forward_env=forward_env or [],
             )
+        elif self.metadata.workspace_type == "apptainer":
+            if not remote_image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
+                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
+                )
+
+            logger.info(
+                f"Using apptainer workspace with pre-built image {agent_server_image} "
+                f"(tag prefix: {get_phased_image_tag_prefix()})"
+            )
+            if wrap_needed:
+                logger.info(
+                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                )
+
+            workspace = ApptainerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+                forward_env=forward_env or [],
+                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:
@@ -269,11 +292,15 @@ class SWEBenchEvaluation(Evaluation):
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
+            # Load public skills (respects EXTENSIONS_REF env var)
+            agent_context = create_agent_context()
+
             agent = Agent(
                 llm=agent_llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
+                agent_context=agent_context,
                 # TODO: we can enable security analyzer later
                 # security_analyzer=LLMSecurityAnalyzer(),
             )

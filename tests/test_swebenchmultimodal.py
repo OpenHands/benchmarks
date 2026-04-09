@@ -1,8 +1,12 @@
-"""Tests for SWE-Bench Multimodal eval_infer functionality."""
+"""Tests for SWE-Bench Multimodal functionality."""
 
 import json
 import tempfile
 
+from benchmarks.swebenchmultimodal.config import (
+    DEFAULT_RESOLVED_INSTANCES_FILE,
+    INFER_DEFAULTS,
+)
 from benchmarks.swebenchmultimodal.eval_infer import convert_to_swebench_format
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 
@@ -55,3 +59,28 @@ class TestConvertToSwebenchFormat:
             result = json.loads(f.readline())
 
         assert result["model_name_or_path"] == MODEL_NAME_OR_PATH
+
+
+def test_infer_defaults_use_existing_resolved_instances_file():
+    assert INFER_DEFAULTS["select"] == str(DEFAULT_RESOLVED_INSTANCES_FILE)
+    assert DEFAULT_RESOLVED_INSTANCES_FILE.is_file()
+
+
+def test_resolved_instances_file_matches_solveable_annotations():
+    annotations_path = DEFAULT_RESOLVED_INSTANCES_FILE.with_name(
+        "ambiguity_annotations.json"
+    )
+    annotations = json.loads(annotations_path.read_text())["annotations"]
+    expected_ids = {
+        instance_id
+        for instance_id, annotation in annotations.items()
+        if "SOLVEABLE" in annotation.get("keywords", [])
+    }
+
+    resolved_ids = {
+        line.strip()
+        for line in DEFAULT_RESOLVED_INSTANCES_FILE.read_text().splitlines()
+        if line.strip()
+    }
+
+    assert resolved_ids == expected_ids
