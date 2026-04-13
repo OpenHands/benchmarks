@@ -22,7 +22,7 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '8'
+        default: '12'
         type: string
       max-retries:
         description: 'Retries per image build'
@@ -69,7 +69,7 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '8'
+  MAX_WORKERS: '12'
   MAX_RETRIES: '2'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
@@ -279,25 +279,25 @@ jobs:
         run: |
           # Get SDK version from submodule
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
-
+          
           # Find all manifest.jsonl files
           MANIFEST_FILES=$(find builds -name "manifest.jsonl" -type f 2>/dev/null)
-
+          
           if [ -z "$MANIFEST_FILES" ]; then
             echo "No manifest.jsonl files found in builds directory"
             echo "Build may have completed but produced no images"
             exit 0
           fi
-
+          
           # Count total images built
           TOTAL_IMAGES=$(cat $MANIFEST_FILES 2>/dev/null | wc -l)
-
+          
           if [ "$TOTAL_IMAGES" -eq 0 ]; then
             echo "No images found in manifest files"
             echo "Skipping comment as there are no built images to report"
             exit 0
           fi
-
+          
           # Extract all tags and format them as a markdown list (one tag per image)
           TAGS=$(cat $MANIFEST_FILES | python -c "
           import sys
@@ -308,16 +308,16 @@ jobs:
                   # Only show the first tag per image to reduce clutter
                   print(f'- \`{data[\"tags\"][0]}\`')
           ")
-
+          
           # Determine how the workflow was triggered
-          if [ \"${{ github.event_name }}\" = \"workflow_dispatch\" ]; then
-            TRIGGER=\"Manual trigger (workflow_dispatch)\"
-          elif [ \"${{ github.event_name }}\" = \"pull_request\" ]; then
-            TRIGGER=\"Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})\"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TRIGGER="Manual trigger (workflow_dispatch)"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
           else
-            TRIGGER=\"${{ github.event_name }}\"
+            TRIGGER="${{ github.event_name }}"
           fi
-
+          
           # Create the comment body
           COMMENT_BODY=$(cat <<EOF
           ## Build Complete ✅
@@ -336,7 +336,7 @@ jobs:
           </details>
           EOF
           )
-
+          
           # Post comment to issue #81
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
