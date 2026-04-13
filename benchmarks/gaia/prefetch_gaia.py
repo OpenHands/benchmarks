@@ -61,6 +61,9 @@ def download_with_retries(workers: int, max_retries: int) -> str:
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     if not token:
         sys.exit("ERROR: GAIA is gated; set HF_TOKEN (an HF token with GAIA access).")
+    # Strip whitespace/newlines — tokens loaded from secret files often carry a
+    # trailing '\n' which makes snapshot_download fail with "Invalid header value".
+    token = token.strip()
 
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
