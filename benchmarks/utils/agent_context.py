@@ -1,7 +1,7 @@
 """Utilities for agent context and skills management."""
 
 from openhands.sdk.context import AgentContext
-from openhands.sdk.context.skills.skill import load_public_skills
+from openhands.sdk.skills.skill import load_public_skills
 
 
 def create_agent_context() -> AgentContext | None:
