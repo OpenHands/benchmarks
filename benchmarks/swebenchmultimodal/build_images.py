@@ -130,7 +130,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--select",
         type=str,
-        default=None,
+        default=BUILD_DEFAULTS.get("select"),
         help="Path to text file containing instance IDs to select",
     )
     parser.add_argument(
