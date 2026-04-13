@@ -209,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     build_dir = default_build_output_dir(args.dataset, args.split)
 
-    builder_result = build_builder_image(push=args.push)
+    builder_result = build_builder_image(push=args.push, force_build=args.force_build)
     if builder_result.error or not builder_result.tags:
         print(
             builder_result.error or "Builder image build produced no tags",
@@ -223,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         push=args.push,
         max_workers=args.max_workers,
         max_retries=args.max_retries,
+        force_build=args.force_build,
     )
     if rc != 0:
         return rc
