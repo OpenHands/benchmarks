@@ -389,6 +389,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
         instance: EvalInstance,
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
+        laminar_api_key: str | None = None,
     ) -> RemoteWorkspace:
         """Create a fresh Docker workspace for this instance.
 
@@ -415,6 +416,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
             platform="linux/amd64",
             extra_ports=True,
             forward_env=forward_env or [],
+                laminar_api_key=laminar_api_key,
         )
 
         # Setup host mapping for The Agent Company services

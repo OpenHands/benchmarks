@@ -13,8 +13,10 @@ from openhands.sdk import get_logger
 
 
 # Environment variables to forward to the workspace
+# Note: LMNR_PROJECT_API_KEY is no longer forwarded here.
+# Instead, it's passed as the `laminar_api_key` parameter to workspace instances.
+# This prevents the credential from appearing in environment dicts or logged payloads.
 LMNR_ENV_VARS = [
-    "LMNR_PROJECT_API_KEY",
     "LMNR_SPAN_CONTEXT",
 ]
 

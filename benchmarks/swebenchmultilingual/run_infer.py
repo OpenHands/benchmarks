@@ -137,6 +137,7 @@ class SWEBenchEvaluation(Evaluation):
         instance: EvalInstance,
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
+        laminar_api_key: str | None = None,
     ) -> RemoteWorkspace:
         """
         Use DockerWorkspace by default.
@@ -184,6 +185,7 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+                laminar_api_key=laminar_api_key,
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
@@ -218,6 +220,7 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
                 forward_env=forward_env or [],
+                laminar_api_key=laminar_api_key,
                 resource_factor=resource_factor,
                 init_timeout=startup_timeout,
                 startup_wait_timeout=startup_timeout,

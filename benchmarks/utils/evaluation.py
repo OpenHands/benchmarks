@@ -212,6 +212,7 @@ class Evaluation(ABC, BaseModel):
         instance: EvalInstance,
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
+        laminar_api_key: str | None = None,
     ) -> RemoteWorkspace:
         """Create and return a context-managed Workspace for the given instance.
 
@@ -219,6 +220,9 @@ class Evaluation(ABC, BaseModel):
             instance: The evaluation instance to prepare workspace for.
             resource_factor: Resource factor for runtime allocation (default: 1).
             forward_env: Environment variables to forward into the workspace.
+            laminar_api_key: Laminar API key for observability tracing.
+                When provided, injected as LMNR_PROJECT_API_KEY in the workspace.
+                Should NOT be included in forward_env to avoid logging leaks.
         """
         raise NotImplementedError
 
@@ -943,10 +947,15 @@ class Evaluation(ABC, BaseModel):
             virtual_key = create_virtual_key(instance.id, run_id=run_id)
             set_current_virtual_key(virtual_key)
 
+            # Extract Laminar API key from environment and pass separately to avoid
+            # exposing it in environment dicts or logged payloads
+            laminar_api_key = os.getenv("LMNR_PROJECT_API_KEY")
+
             workspace = self.prepare_workspace(
                 instance,
                 resource_factor=resource_factor,
                 forward_env=LMNR_ENV_VARS,
+                laminar_api_key=laminar_api_key,
             )
 
             # Record runtime/pod mapping only for remote runtimes

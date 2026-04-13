@@ -157,6 +157,7 @@ class GAIAEvaluation(Evaluation):
         instance: EvalInstance,
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
+        laminar_api_key: str | None = None,
     ) -> RemoteWorkspace:
         """Create workspace and copy necessary files.
 
@@ -216,6 +217,7 @@ class GAIAEvaluation(Evaluation):
                 startup_wait_timeout=startup_timeout,
                 target_type="binary",  # GAIA images use binary target
                 forward_env=forward_env or [],
+                laminar_api_key=laminar_api_key,
                 resource_factor=resource_factor,
             )
         else:
