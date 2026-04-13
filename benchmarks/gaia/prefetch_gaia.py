@@ -13,6 +13,7 @@ that the eval pod never needs to call hf_hub_download at runtime. This avoids:
 After a successful run, point HF_HOME / HF_DATASETS_CACHE at --dest in the
 eval pod and gaia-infer will load entirely from disk.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,19 +23,32 @@ import sys
 import time
 from pathlib import Path
 
+
 REPO_ID = "gaia-benchmark/GAIA"
 REPO_TYPE = "dataset"
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument(
         "--dest",
         default=os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface")),
         help="HF cache root to populate (default: $HF_HOME or ~/.cache/huggingface)",
     )
-    p.add_argument("--workers", type=int, default=4, help="Concurrent download workers (default: 4)")
-    p.add_argument("--max-retries", type=int, default=5, help="Retries on transient failures (default: 5)")
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Concurrent download workers (default: 4)",
+    )
+    p.add_argument(
+        "--max-retries",
+        type=int,
+        default=5,
+        help="Retries on transient failures (default: 5)",
+    )
     p.add_argument(
         "--verify",
         action="store_true",
@@ -56,7 +70,7 @@ def configure_env(dest: str) -> None:
 
 def download_with_retries(workers: int, max_retries: int) -> str:
     from huggingface_hub import snapshot_download
-    from huggingface_hub.utils import HfHubHTTPError
+    from huggingface_hub.errors import HfHubHTTPError
 
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     if not token:
@@ -68,7 +82,10 @@ def download_with_retries(workers: int, max_retries: int) -> str:
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
         backoff = min(60, 5 * 2 ** (attempt - 1))
-        print(f"[prefetch] attempt {attempt}/{max_retries} (workers={workers})", flush=True)
+        print(
+            f"[prefetch] attempt {attempt}/{max_retries} (workers={workers})",
+            flush=True,
+        )
         try:
             local_dir = snapshot_download(
                 repo_id=REPO_ID,
@@ -91,20 +108,26 @@ def download_with_retries(workers: int, max_retries: int) -> str:
                 print(f"[prefetch] sleeping {backoff}s before retry", flush=True)
                 time.sleep(backoff)
 
-    sys.exit(f"ERROR: snapshot_download failed after {max_retries} attempts: {last_err}")
+    sys.exit(
+        f"ERROR: snapshot_download failed after {max_retries} attempts: {last_err}"
+    )
 
 
 def verify(local_dir: str) -> None:
     """Sanity-check that every level can be loaded from the local cache."""
-    from datasets import load_dataset
+    from datasets import Dataset, load_dataset
 
     for level in ("2023_level1", "2023_level2", "2023_level3", "2023_all"):
         for split in ("validation", "test"):
             try:
                 ds = load_dataset(local_dir, level, split=split)
-                print(f"[verify] {level}/{split}: {len(ds)} rows OK", flush=True)
+                n = len(ds) if isinstance(ds, Dataset) else "?"
+                print(f"[verify] {level}/{split}: {n} rows OK", flush=True)
             except Exception as e:  # noqa: BLE001
-                print(f"[verify] {level}/{split}: FAILED — {type(e).__name__}: {e}", flush=True)
+                print(
+                    f"[verify] {level}/{split}: FAILED — {type(e).__name__}: {e}",
+                    flush=True,
+                )
 
 
 def main() -> int:
