@@ -613,6 +613,8 @@ def test_benchmark_metrics_collection(
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)
         elif benchmark_name == "swesmith":
+            mock_profile = MagicMock()
+            mock_profile.mirror_url = "https://github.com/swesmith/test__repo.abc12345"
             with (
                 patch(
                     "benchmarks.swesmith.run_infer.run_conversation_with_fake_user_response",
@@ -624,6 +626,10 @@ def test_benchmark_metrics_collection(
                 patch(
                     "benchmarks.swesmith.run_infer._find_ssh_key",
                     return_value=None,
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer.registry.get_from_inst",
+                    return_value=mock_profile,
                 ),
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)

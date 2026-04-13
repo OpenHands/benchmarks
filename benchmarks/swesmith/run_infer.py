@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import List
 
 from jinja2 import Environment, FileSystemLoader
+from swesmith.profiles import registry
 
+import benchmarks.swesmith.profiles  # noqa: F401 — registers custom profiles
 from benchmarks.swesmith import constants
 from benchmarks.swesmith.build_images import (
     extract_custom_tag,
@@ -329,12 +331,11 @@ class SWESmithEvaluation(Evaluation):
             )
             assert setup_ssh.exit_code == 0, f"SSH key setup failed: {setup_ssh.stderr}"
 
-        # Fetch bug branch from GitHub mirror and checkout
-        # Use SSH URL for private repos when an SSH key is available
-        if ssh_key:
-            mirror_url = f"git@github.com:{instance.data['repo']}.git"
-        else:
-            mirror_url = f"https://github.com/{instance.data['repo']}.git"
+        # Fetch bug branch from the swesmith mirror.
+        # Delegate to swesmith's registry so we get the correct mirror org/name
+        # and public/private-aware URL selection (GitHub API check under the hood).
+        profile = registry.get_from_inst(instance.data)
+        mirror_url = profile.mirror_url
         git_fetch = workspace.execute_command(
             f"cd {repo_path} ; git fetch {mirror_url} {instance.id}"
         )
