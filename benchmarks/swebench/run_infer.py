@@ -147,6 +147,8 @@ class SWEBenchEvaluation(Evaluation):
         instance: EvalInstance,
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
+        laminar_api_key: str | None = None,
+        laminar_span_context: str | None = None,
     ) -> RemoteWorkspace:
         """
         Use DockerWorkspace by default.
@@ -156,6 +158,8 @@ class SWEBenchEvaluation(Evaluation):
             resource_factor: Resource factor for runtime allocation (default: 1).
                            Higher values allocate more CPU/memory resources.
                            Used by APIRemoteWorkspace for remote runtime allocation.
+            laminar_api_key: Laminar API key for observability tracing.
+            laminar_span_context: Laminar span context for trace continuity.
         """
         forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
 
@@ -194,6 +198,8 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+                laminar_api_key=laminar_api_key,
+                laminar_span_context=laminar_span_context,
             )
         elif self.metadata.workspace_type == "apptainer":
             if not remote_image_exists(agent_server_image):
@@ -215,6 +221,8 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+                laminar_api_key=laminar_api_key,
+                laminar_span_context=laminar_span_context,
                 cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
             )
         elif self.metadata.workspace_type == "remote":
@@ -248,6 +256,8 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 target_type="source" if "source" in build_target else "binary",
                 forward_env=forward_env or [],
+                laminar_api_key=laminar_api_key,
+                laminar_span_context=laminar_span_context,
                 resource_factor=resource_factor,
                 init_timeout=startup_timeout,
                 startup_wait_timeout=startup_timeout,

@@ -7,7 +7,6 @@ import threading
 from contextlib import contextmanager
 from typing import Any, cast
 
-from benchmarks.utils.laminar import LMNR_ENV_VARS
 from openhands.sdk import get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.workspace import RemoteWorkspace
@@ -73,22 +72,18 @@ def get_acp_forward_env(
     For non-ACP agent types (e.g. ``"default"``), *forward_env* is returned
     unchanged.
 
-    For ACP agent types, LMNR_ENV_VARS are included in forward_env to enable
-    Laminar tracing within the workspace.  Provider credentials (API keys,
-    base URLs) are **not** forwarded here — they are passed via
-    ``ACPAgent.acp_env`` in :func:`build_acp_agent` to avoid leaking them
-    into logged workspace payloads.
+    For ACP agent types, *forward_env* is returned as-is. Laminar credentials
+    (API key and span context) are passed via workspace parameters instead of
+    environment variables to prevent them from leaking into logged payloads.
+    Provider credentials (API keys, base URLs) are **not** forwarded here —
+    they are passed via ``ACPAgent.acp_env`` in :func:`build_acp_agent` to
+    avoid leaking them into logged workspace payloads.
     """
     if agent_type not in _ACP_ENV_VARS:
         return forward_env
 
-    forward_env = list(forward_env or [])
-
-    # Include Laminar env vars for tracing in ACP agents
-    for lmnr_var in LMNR_ENV_VARS:
-        if lmnr_var not in forward_env:
-            forward_env.append(lmnr_var)
-
+    # Return forward_env as-is for ACP agents; Laminar variables are now
+    # passed via workspace parameters instead of environment forwarding
     return forward_env
 
 

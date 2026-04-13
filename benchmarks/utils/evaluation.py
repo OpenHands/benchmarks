@@ -31,7 +31,7 @@ from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
-from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
+from benchmarks.utils.laminar import LaminarEvalMetadata, LaminarService
 from benchmarks.utils.litellm_proxy import (
     create_virtual_key,
     delete_key,
@@ -213,6 +213,7 @@ class Evaluation(ABC, BaseModel):
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
         laminar_api_key: str | None = None,
+        laminar_span_context: str | None = None,
     ) -> RemoteWorkspace:
         """Create and return a context-managed Workspace for the given instance.
 
@@ -222,6 +223,9 @@ class Evaluation(ABC, BaseModel):
             forward_env: Environment variables to forward into the workspace.
             laminar_api_key: Laminar API key for observability tracing.
                 When provided, injected as LMNR_PROJECT_API_KEY in the workspace.
+                Should NOT be included in forward_env to avoid logging leaks.
+            laminar_span_context: Laminar span context for trace continuity.
+                When provided, injected as LMNR_SPAN_CONTEXT in the workspace.
                 Should NOT be included in forward_env to avoid logging leaks.
         """
         raise NotImplementedError
@@ -947,15 +951,17 @@ class Evaluation(ABC, BaseModel):
             virtual_key = create_virtual_key(instance.id, run_id=run_id)
             set_current_virtual_key(virtual_key)
 
-            # Extract Laminar API key from environment and pass separately to avoid
-            # exposing it in environment dicts or logged payloads
+            # Extract Laminar credentials from environment and pass separately to avoid
+            # exposing them in environment dicts or logged payloads
             laminar_api_key = os.getenv("LMNR_PROJECT_API_KEY")
+            laminar_span_context = os.getenv("LMNR_SPAN_CONTEXT")
 
             workspace = self.prepare_workspace(
                 instance,
                 resource_factor=resource_factor,
-                forward_env=LMNR_ENV_VARS,
+                forward_env=[],
                 laminar_api_key=laminar_api_key,
+                laminar_span_context=laminar_span_context,
             )
 
             # Record runtime/pod mapping only for remote runtimes

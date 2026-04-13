@@ -201,6 +201,7 @@ class SWEfficiencyEvaluation(Evaluation):
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
         laminar_api_key: str | None = None,
+        laminar_span_context: str | None = None,
     ) -> RemoteWorkspace:
         """
         Create workspace for the instance.
@@ -284,6 +285,7 @@ class SWEfficiencyEvaluation(Evaluation):
                 target_type="source",
                 forward_env=forward_env or [],
                 laminar_api_key=laminar_api_key,
+                laminar_span_context=laminar_span_context,
                 resource_factor=resource_factor,
                 init_timeout=600.0,
                 startup_wait_timeout=600.0,
