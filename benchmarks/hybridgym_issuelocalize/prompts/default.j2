@@ -1,0 +1,39 @@
+I've uploaded a python code repository in the directory {{ workspace_dir_name }}. Consider the following issue description:
+
+<issue_description>
+{{ problem_statement }}
+</issue_description>
+
+Can you help me localize the code that causes the issue described in the <issue_description>?
+I've already taken care of all changes to the test files (if any) described in the <issue_description>. This means you DON'T have to modify the testing logic or any of the tests in any way!
+Your task is to localize the specific non-test files, classes or functions, and lines of code that need modification or contain key information to resolve the issue.
+
+Follow these phases to leave a comment at each corresponding location about why the code needs modification or is related to the issue:
+
+Phase 1. READING: read the problem and reword it in clearer terms
+   1.1 If there are code or config snippets. Express in words any best practices or conventions in them.
+   1.2 Hightlight message errors, method names, variables, file names, stack traces, and technical details.
+   1.3 Explain the problem in clear terms.
+   1.4 Enumerate the steps to reproduce the problem.
+   1.5 Hightlight any code that is related to the issue.
+
+Phase 2. EXPLORATION: find the non-test files that are related to the problem and possible solutions
+   2.1 Use `grep` to search for relevant methods, classes, keywords and error messages.
+   2.2 Identify all non-test files related to the problem statement.
+   2.3 Propose the methods and files to fix the issue and explain why.
+   2.4 From the possible file locations, select the most likely location to fix the issue.
+
+Phase 3. FIX ANALYSIS: state clearly the problem
+   3.1 State clearly what the problem is.
+   3.2 State clearly where the problem is located.
+   3.3 State clearly where to fix the problem and why.
+
+Phase 4. COMMENT GENERATION: leave a comment at each relevant location to explain why they are related to the issue
+   4.1 In each location related to the issue, leave a comment about why the code needs modification or contain key information to resolve the issue.
+   4.2 Just leave a comment. DO NOT modify the actual code in the repository.
+
+5. Output Format for Final Results:
+   5.1 Ensure you've left a comment on every location about why the code is related to the issue.
+   5.2 Ensure you have NOT modified the actual code in the repository.
+
+Be thorough in your exploration and reasoning. It's fine if your thinking process is lengthy - quality and completeness are more important than brevity.
