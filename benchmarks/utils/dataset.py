@@ -77,6 +77,9 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
     # Default HF timeout is ~10s; bump it to reduce transient ReadTimeouts.
     os.environ.setdefault("HF_HUB_HTTP_TIMEOUT", "60")
     os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", os.environ["HF_HUB_HTTP_TIMEOUT"])
+    # Disable xet protocol to avoid deadlock from token_refresher RecursionError
+    # on Python 3.12 (huggingface_hub xet + unregistered Rust threads + logging recursion).
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
     attempts = 5
     backoff = 5.0

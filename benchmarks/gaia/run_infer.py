@@ -94,9 +94,13 @@ class GAIAEvaluation(Evaluation):
         logger.info(
             f"Loading GAIA dataset: {level}, split: {self.metadata.dataset_split}"
         )
+        # Disable xet protocol to avoid deadlock from token_refresher RecursionError
+        # on Python 3.12 (huggingface_hub xet + unregistered Rust threads + logging recursion).
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
         dataset = cast(DatasetDict, load_dataset("gaia-benchmark/GAIA", level))
 
         # Download dataset files
+        # HF_HUB_DISABLE_XET=1 was set above to avoid xet deadlock on Python 3.12.
         logger.info(f"Downloading GAIA dataset files to {DATASET_CACHE_DIR}")
         DATASET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         huggingface_hub.snapshot_download(
