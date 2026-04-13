@@ -85,8 +85,7 @@ jobs:
 
     timeout-minutes: 1440
 
-    runs-on:
-      labels: ubuntu-24.04-8core
+    runs-on: ubuntu-latest-8core
 
     # Allow pushing to GHCR and commenting on issues
     permissions:
