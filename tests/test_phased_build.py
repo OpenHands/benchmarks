@@ -558,6 +558,7 @@ class TestBuildBuilderImage:
         assert result.error is not None
         assert "timed out" in result.error
 
+
 # ---------------------------------------------------------------------------
 # Phase orchestration (build_images.main)
 # ---------------------------------------------------------------------------
