@@ -111,9 +111,10 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' &&
        github.event.label.name == 'build-swt-bench')
-    # TODO(#527): Temporarily increased to 24h to unblock large benchmark builds.
-    # Revert once image build times are optimized.
-    timeout-minutes: 1440
+    # 10h matches the old orchestrate_eval.py polling bound in the evaluation repo.
+    # See #527 for context on past timeout experiments; if large benchmark builds
+    # regress past 10h again, reopen that discussion rather than silently raising.
+    timeout-minutes: 600
 
     runs-on: ubuntu-latest-8core
 

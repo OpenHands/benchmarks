@@ -105,7 +105,7 @@ jobs:
         github.event.label.name == 'build-swebenchmultimodal-50' ||
         github.event.label.name == 'build-swebenchmultimodal-200'))
 
-    timeout-minutes: 1440
+    timeout-minutes: 600  # 10h — matches the old orchestrate_eval.py polling bound in the evaluation repo
 
     runs-on: ubuntu-latest-8core
 
