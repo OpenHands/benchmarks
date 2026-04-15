@@ -5,6 +5,33 @@ run-name: >-
   ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' && format('(SDK: {0})', inputs.sdk-commit) || '' }}
 
 on:
+  # Called from evaluation repo (eval-job.yml) to build images before K8s evaluation
+  workflow_call:
+    inputs:
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use'
+        required: true
+        type: string
+      n-limit:
+        description: 'Limit number of images to build'
+        required: false
+        type: string
+        default: ''
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        type: string
+        default: ''
+      agent-type:
+        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
+        required: false
+        type: string
+        default: 'default'
+      benchmarks-ref:
+        description: 'Benchmarks repo ref to checkout (for cross-repo calls)'
+        required: false
+        type: string
+        default: ''
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
@@ -76,7 +103,7 @@ env:
   SELECT_FILE: ''
 
 concurrency:
-  group: build-swe-bench-${{ github.ref }}
+  group: build-swe-bench-${{ inputs.sdk-commit || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -88,7 +115,7 @@ jobs:
         github.event.label.name == 'build-swebench-50' ||
         github.event.label.name == 'build-swebench-200'))
 
-    timeout-minutes: 1440
+    timeout-minutes: 600  # 10h — matches the old orchestrate_eval.py polling bound in the evaluation repo
 
     runs-on: ubuntu-latest-8core
 
@@ -102,23 +129,26 @@ jobs:
       - name: Determine checkout ref
         id: checkout-ref
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
+          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
+            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-ref: ${{ inputs.benchmarks-ref }}"
+          elif [ -n "${{ inputs.benchmarks-commit }}" ]; then
             echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
-            echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
+            echo "Using benchmarks-commit: ${{ inputs.benchmarks-commit }}"
           elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
             echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
             echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
-            # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
           fi
-      
+
       - uses: actions/checkout@v6
         with:
-          # When ref is empty, actions/checkout uses the commit that triggered the workflow
+          repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
+          token: ${{ secrets.PAT_TOKEN || github.token }}
 
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
@@ -155,7 +185,7 @@ jobs:
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly
       - name: Update SDK submodule
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        if: ${{ inputs.sdk-commit != '' }}
         run: |
           cd vendor/software-agent-sdk
           git fetch origin ${{ inputs.sdk-commit }}
