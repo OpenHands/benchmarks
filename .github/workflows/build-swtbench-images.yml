@@ -154,7 +154,7 @@ jobs:
           repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ secrets.ALLHANDS_BOT_GITHUB_PAT || github.token }}
 
       - uses: ./.github/actions/build-select-file
         with:
