@@ -12,6 +12,7 @@ import importlib
 import inspect
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -298,6 +299,42 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "problem_statement": "Test problem for swefficiency",
             },
         )
+    elif benchmark_name.startswith("hybridgym_"):
+        data: dict[str, Any] = {
+            "instance_id": "test-instance-1",
+            "repo": "test/repo",
+            "base_commit": "abc123",
+            "module_name": "test_func",
+            "module_type": "function",
+            "function_description": "A test function",
+            "module_line_start": 10,
+            "module_line_end": 20,
+            "docstring_line_start": -1,
+            "docstring_line_end": -1,
+            # depsearch fields
+            "target_function_name": "test_func",
+            "target_function_file": "test.py",
+            "target_function_line_start": 10,
+            # funcgen fields
+            "file_path": "test.py",
+            "func_name": "test_func",
+            "func_docstring_raw": "A test function",
+            # issuelocalize fields
+            "problem_statement": "Test issue",
+            "version": "1.0",
+        }
+        return EvalInstance(id="test-instance-1", data=data)
+    elif benchmark_name == "swesmith":
+        return EvalInstance(
+            id="test__instance.abc123.lm_modify__def456",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test__instance.abc123.lm_modify__def456",
+                "image_name": "test-image:latest",
+                "base_commit": "abc123",
+                "problem_statement": "Test problem for swesmith",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -441,6 +478,41 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             prompt_path=prompt_path,
             critic=PassCritic(),
         )
+    elif benchmark_name.startswith("hybridgym_"):
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / benchmark_name
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset=f"hybrid-gym/{benchmark_name}",
+            dataset_split="train",
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "swesmith":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "swesmith"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="SWE-bench/SWE-smith-py",
+            dataset_split="train",
+            details={},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
     else:
         # Generic metadata for unknown benchmarks
         return EvalMetadata(
@@ -538,6 +610,27 @@ def test_benchmark_metrics_collection(
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
+            ):
+                result = evaluation.evaluate_instance(instance, mock_workspace)
+        elif benchmark_name == "swesmith":
+            mock_profile = MagicMock()
+            mock_profile.mirror_url = "https://github.com/swesmith/test__repo.abc12345"
+            with (
+                patch(
+                    "benchmarks.swesmith.run_infer.run_conversation_with_fake_user_response",
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer.build_event_persistence_callback",
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer._find_ssh_key",
+                    return_value=None,
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer.registry.get_from_inst",
+                    return_value=mock_profile,
+                ),
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)
         else:

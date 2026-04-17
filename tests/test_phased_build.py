@@ -132,6 +132,30 @@ class TestBuildBaseImage:
         assert result.error is not None
         assert "timed out" in result.error
 
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run", return_value=_ok_proc()
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists",
+        return_value=True,
+    )
+    def test_force_build_bypasses_remote_exists(self, _exists, _dockerfile, mock_run):
+        from benchmarks.swebench.build_base_images import build_base_image
+
+        result = build_base_image(
+            "ubuntu:22.04",
+            "custom-tag",
+            force_build=True,
+            content_hash="abc1234",
+        )
+        assert result.error is None
+        assert len(result.tags) == 1
+        mock_run.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # _build_base_with_logging: retry logic
@@ -476,6 +500,35 @@ class TestBuildBuilderImage:
         assert len(result.tags) == 1
 
     @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
+        return_value=("sdk", "abc1234567", "v1"),
+    )
+    @patch("benchmarks.swebench.build_base_images._get_repo_root")
+    @patch("openhands.agent_server.docker.build._make_build_context")
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run", return_value=_ok_proc()
+    )
+    def test_force_build_bypasses_remote_exists(
+        self, mock_run, mock_make_context, mock_repo_root, _sdk, _exists, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import build_builder_image
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        (ctx / "Dockerfile").write_text("FROM scratch\n")
+        mock_make_context.return_value = ctx
+        mock_repo_root.return_value = tmp_path
+
+        result = build_builder_image(force_build=True)
+
+        assert result.error is None
+        assert len(result.tags) == 1
+        mock_run.assert_called_once()
+
+    @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists", return_value=False
     )
     @patch(
@@ -540,6 +593,36 @@ class TestPhasedOrchestration:
         mock_bases.assert_called_once()
         mock_assemble.assert_called_once()
         assert mock_assemble.call_args.kwargs["builder_tag"] == "builder:abc"
+
+    @patch(
+        "benchmarks.swebench.build_base_images.assemble_all_agent_images",
+        return_value=0,
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.build_all_base_images", return_value=0
+    )
+    @patch("benchmarks.swebench.build_base_images.build_builder_image")
+    @patch(
+        "benchmarks.swebench.build_images.collect_unique_base_images",
+        return_value=["img-a"],
+    )
+    def test_force_build_forwarded_to_all_phases(
+        self, _collect, mock_builder, mock_bases, mock_assemble
+    ):
+        from benchmarks.swebench.build_images import main
+
+        mock_builder.return_value = BuildOutput(
+            base_image="builder",
+            tags=["builder:abc"],
+            error=None,
+        )
+
+        rc = main(["--dataset", "test-ds", "--split", "test", "--force-build"])
+
+        assert rc == 0
+        assert mock_builder.call_args.kwargs["force_build"] is True
+        assert mock_bases.call_args.kwargs["force_build"] is True
+        assert mock_assemble.call_args.kwargs["force_build"] is True
 
     @patch("benchmarks.swebench.build_base_images.build_builder_image")
     @patch(
