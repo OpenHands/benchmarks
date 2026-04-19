@@ -140,6 +140,19 @@ jobs:
           submodules: recursive
           token: ${{ secrets.PAT_TOKEN || github.token }}
 
+      # Free disk space to prevent "no space left on device" errors during
+      # large image builds. See OpenHands/evaluation#495 for context.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
