@@ -171,6 +171,21 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
+      # Reclaim ~30 GB of runner disk by removing preinstalled toolchains we
+      # don't use. Needed since the Blacksmith -> ubuntu-latest-8core migration
+      # (PR #651); without this, full cold builds OOM on disk partway through
+      # assembly (issue OpenHands/evaluation#495). Pinned by SHA.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -189,6 +204,38 @@ jobs:
       - name: Install dependencies
         run: |
           make build
+
+      - name: "Preflight: prune cache and verify BuildKit disk"
+        run: |
+          set -euo pipefail
+          KEEP_GB=60
+          echo "Pruning BuildKit cache (target max-storage ${KEEP_GB} GiB, no filters)..."
+          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g; then
+            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
+          fi
+
+          df -h / || true
+          docker system df || true
+
+          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
+            LINE=$(tail -n1 /tmp/buildkit_df)
+            TOTAL=$(echo "$LINE" | awk '{print $2}')
+            USED=$(echo "$LINE" | awk '{print $3}')
+            FREE=$(echo "$LINE" | awk '{print $4}')
+            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
+              PCT=$(( 100 * USED / TOTAL ))
+              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
+              MIN=$((75 * 1024 * 1024 * 1024))
+              if [ "$FREE" -lt "$MIN" ]; then
+                echo "::error::Not enough free space on /var/lib/buildkit (${FREE} bytes free, need >= ${MIN})"
+                exit 1
+              fi
+            else
+              echo "Warning: unable to parse df output for /var/lib/buildkit"
+            fi
+          else
+            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
 
       - name: Build and push SWT-Bench images
         run: |

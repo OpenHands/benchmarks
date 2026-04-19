@@ -611,6 +611,23 @@ def assemble_agent_image(
         return BuildOutput(base_image=base_tag, tags=pushed_tags, error=error_summary)
 
     push_seconds = round(push_seconds, 3)
+
+    # After a successful push the image lives in the registry; drop the local
+    # copy so /var/lib/docker doesn't grow unbounded across hundreds of
+    # per-instance assemblies on a single runner (issue #495).
+    if push and pushed_tags:
+        rmi_cmd = ["docker", "rmi", "-f", *pushed_tags]
+        rmi_proc, rmi_timeout = _run_docker_command(rmi_cmd)
+        if rmi_timeout:
+            logger.warning("[assembly] rmi timed out for %s", tag_label)
+        elif rmi_proc is not None and rmi_proc.returncode != 0:
+            logger.warning(
+                "[assembly] rmi failed for %s (rc=%d): %s",
+                tag_label,
+                rmi_proc.returncode,
+                (rmi_proc.stderr or rmi_proc.stdout or "").strip()[:200],
+            )
+
     total_seconds = round(time.monotonic() - overall_started, 3)
 
     logger.info(
