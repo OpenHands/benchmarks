@@ -30,7 +30,9 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
+# DO_NOT_MERGE_FOR_TESTING_ONLY - simulating build image error
+# This branch intentionally fails to simulate build errors
+WRAPPER_DOCKERFILE = Path("nonexistent/Dockerfile.does-not-exist")
 
 
 def get_official_docker_image(
