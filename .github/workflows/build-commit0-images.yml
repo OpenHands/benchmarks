@@ -133,7 +133,7 @@ jobs:
           repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
