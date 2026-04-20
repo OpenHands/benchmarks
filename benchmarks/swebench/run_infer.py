@@ -399,6 +399,9 @@ class SWEBenchEvaluation(Evaluation):
 
 
 def main() -> None:
+    # DO_NOT_MERGE_FOR_TESTING_ONLY - simulating run_infer error
+    raise RuntimeError("DO_NOT_MERGE_FOR_TESTING_ONLY - simulated run_infer error for testing")
+
     parser = get_parser()
     add_prompt_path_argument(parser, __file__)
     parser.set_defaults(**INFER_DEFAULTS)
