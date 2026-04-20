@@ -190,6 +190,9 @@ def run_swebench_evaluation(
 
 def main() -> None:
     """Main entry point for the script."""
+    # DO_NOT_MERGE_FOR_TESTING_ONLY - simulating eval_infer error
+    raise RuntimeError("DO_NOT_MERGE_FOR_TESTING_ONLY - simulated eval_infer error for testing")
+
     parser = argparse.ArgumentParser(
         description="Convert OpenHands output to SWE-Bench format and run evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
