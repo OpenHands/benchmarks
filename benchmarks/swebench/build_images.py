@@ -194,6 +194,12 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # DO_NOT_MERGE_FOR_TESTING_ONLY - intentionally fail the build
+    # to simulate build errors for testing CI/CD error handling
+    import sys
+    print("DO_NOT_MERGE_FOR_TESTING_ONLY: Intentionally failing build_images.py", file=sys.stderr)
+    return 1
+
     from benchmarks.swebench.build_base_images import (
         assemble_all_agent_images,
         build_all_base_images,
