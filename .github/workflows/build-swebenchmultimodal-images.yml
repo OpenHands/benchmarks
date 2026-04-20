@@ -138,7 +138,7 @@ jobs:
           repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
