@@ -612,11 +612,21 @@ def assemble_agent_image(
 
     push_seconds = round(push_seconds, 3)
 
-    # After a successful push the image lives in the registry; drop the local
-    # copy so /var/lib/docker doesn't grow unbounded across hundreds of
-    # per-instance assemblies on a single runner (issue #495).
+    # Issue #495: release disk after a successful assembly. Three tiers:
+    #   1. `docker rmi` the just-pushed final tags AND the per-instance base
+    #      tag (it's 1:1 with this instance, never reused).
+    #   2. `docker image prune -f` turns those now-dangling layers back into
+    #      free space in the daemon's overlay2 store.
+    #   3. `docker builder prune --keep-storage 40g -f` caps BuildKit's
+    #      content-addressed ingest cache (`/var/lib/docker/buildkit/content/
+    #      ingest/...`). DOCKER_BUILDKIT=1 makes `docker build` route pulls
+    #      through this store, and it is *not* reached by rmi or image prune
+    #      — 500+ GB of SWE-bench base-image blobs accumulate here otherwise.
+    # All failures are warn-and-continue: a cleanup hiccup should not fail an
+    # otherwise-successful assembly.
     if push and pushed_tags:
-        rmi_cmd = ["docker", "rmi", "-f", *pushed_tags]
+        rmi_targets = list(dict.fromkeys([*pushed_tags, base_tag]))
+        rmi_cmd = ["docker", "rmi", "-f", *rmi_targets]
         rmi_proc, rmi_timeout = _run_docker_command(rmi_cmd)
         if rmi_timeout:
             logger.warning("[assembly] rmi timed out for %s", tag_label)
@@ -626,6 +636,37 @@ def assemble_agent_image(
                 tag_label,
                 rmi_proc.returncode,
                 (rmi_proc.stderr or rmi_proc.stdout or "").strip()[:200],
+            )
+
+        image_prune_proc, image_prune_timeout = _run_docker_command(
+            ["docker", "image", "prune", "-f"]
+        )
+        if image_prune_timeout:
+            logger.warning("[assembly] image prune timed out for %s", tag_label)
+        elif image_prune_proc is not None and image_prune_proc.returncode != 0:
+            logger.warning(
+                "[assembly] image prune failed for %s (rc=%d)",
+                tag_label,
+                image_prune_proc.returncode,
+            )
+
+        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "40"))
+        builder_prune_cmd = [
+            "docker",
+            "builder",
+            "prune",
+            "-f",
+            "--keep-storage",
+            f"{buildkit_cap_gb}g",
+        ]
+        bp_proc, bp_timeout = _run_docker_command(builder_prune_cmd)
+        if bp_timeout:
+            logger.warning("[assembly] buildkit prune timed out for %s", tag_label)
+        elif bp_proc is not None and bp_proc.returncode != 0:
+            logger.warning(
+                "[assembly] buildkit prune failed for %s (rc=%d)",
+                tag_label,
+                bp_proc.returncode,
             )
 
     total_seconds = round(time.monotonic() - overall_started, 3)
