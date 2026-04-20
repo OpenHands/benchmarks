@@ -324,6 +324,17 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
             "version": "1.0",
         }
         return EvalInstance(id="test-instance-1", data=data)
+    elif benchmark_name == "swesmith":
+        return EvalInstance(
+            id="test__instance.abc123.lm_modify__def456",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test__instance.abc123.lm_modify__def456",
+                "image_name": "test-image:latest",
+                "base_commit": "abc123",
+                "problem_statement": "Test problem for swesmith",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -484,6 +495,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             prompt_path=prompt_path,
             critic=PassCritic(),
         )
+    elif benchmark_name == "swesmith":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "swesmith"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="SWE-bench/SWE-smith-py",
+            dataset_split="train",
+            details={},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
     else:
         # Generic metadata for unknown benchmarks
         return EvalMetadata(
@@ -581,6 +610,27 @@ def test_benchmark_metrics_collection(
             with patch(
                 f"benchmarks.{benchmark_name}.run_infer.get_instruction",
                 return_value="Test instruction",
+            ):
+                result = evaluation.evaluate_instance(instance, mock_workspace)
+        elif benchmark_name == "swesmith":
+            mock_profile = MagicMock()
+            mock_profile.mirror_url = "https://github.com/swesmith/test__repo.abc12345"
+            with (
+                patch(
+                    "benchmarks.swesmith.run_infer.run_conversation_with_fake_user_response",
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer.build_event_persistence_callback",
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer._find_ssh_key",
+                    return_value=None,
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer.registry.get_from_inst",
+                    return_value=mock_profile,
+                ),
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)
         else:

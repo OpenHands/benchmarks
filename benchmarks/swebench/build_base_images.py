@@ -203,6 +203,7 @@ def build_base_image(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    force_build: bool = False,
     *,
     content_hash: str,
 ) -> BuildOutput:
@@ -211,7 +212,7 @@ def build_base_image(
     tag = base_image_tag(custom_tag, image, content_hash=content_hash)
 
     # Check registry first
-    if remote_image_exists(tag):
+    if not force_build and remote_image_exists(tag):
         logger.info("Base image %s already exists. Skipping.", tag)
         return BuildOutput(base_image=base_image, tags=[tag], error=None)
 
@@ -263,6 +264,7 @@ def _build_base_with_logging(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     max_retries: int = 3,
+    force_build: bool = False,
     *,
     content_hash: str,
 ) -> BuildOutput:
@@ -286,6 +288,7 @@ def _build_base_with_logging(
                     custom_tag,
                     image,
                     push,
+                    force_build=force_build,
                     content_hash=content_hash,
                 )
             except Exception as e:
@@ -314,6 +317,7 @@ def build_all_base_images(
     max_workers: int = 1,
     dry_run: bool = False,
     max_retries: int = 3,
+    force_build: bool = False,
 ) -> int:
     """Build all base images concurrently."""
     build_log_dir = build_dir / "base-logs"
@@ -353,6 +357,7 @@ def build_all_base_images(
                     image=image,
                     push=push,
                     max_retries=max_retries,
+                    force_build=force_build,
                     content_hash=content_hash,
                 )
                 futures[fut] = base

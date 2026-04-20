@@ -38,4 +38,5 @@ EVAL_DEFAULTS = {
 # Build defaults (used by build_images.py)
 BUILD_DEFAULTS = {
     "max_workers": 32,
+    "select": str(DEFAULT_RESOLVED_INSTANCES_FILE),
 }

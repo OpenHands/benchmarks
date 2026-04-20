@@ -5,6 +5,33 @@ run-name: >-
   ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' && format('(SDK: {0})', inputs.sdk-commit) || '' }}
 
 on:
+  # Called from evaluation repo (eval-job.yml) to build images before K8s evaluation
+  workflow_call:
+    inputs:
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use'
+        required: true
+        type: string
+      n-limit:
+        description: 'Limit number of images to build'
+        required: false
+        type: string
+        default: ''
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        type: string
+        default: ''
+      agent-type:
+        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
+        required: false
+        type: string
+        default: 'default'
+      benchmarks-ref:
+        description: 'Benchmarks repo ref to checkout (for cross-repo calls)'
+        required: false
+        type: string
+        default: ''
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
@@ -22,7 +49,7 @@ on:
       max-workers:
         description: 'Number of concurrent builds'
         required: false
-        default: '12'
+        default: '8'
         type: string
       max-retries:
         description: 'Retries per image build'
@@ -69,14 +96,14 @@ on:
 env:
   DATASET: princeton-nlp/SWE-bench_Verified
   SPLIT: test
-  MAX_WORKERS: '12'
+  MAX_WORKERS: '8'
   MAX_RETRIES: '2'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
 
 concurrency:
-  group: build-swe-bench-${{ github.ref }}
+  group: build-swe-bench-${{ inputs.sdk-commit || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -88,10 +115,9 @@ jobs:
         github.event.label.name == 'build-swebench-50' ||
         github.event.label.name == 'build-swebench-200'))
 
-    timeout-minutes: 1440
+    timeout-minutes: 600  # 10h — matches the old orchestrate_eval.py polling bound in the evaluation repo
 
-    runs-on:
-      labels: blacksmith-32vcpu-ubuntu-2204
+    runs-on: ubuntu-latest-8core
 
     # Allow pushing to GHCR and commenting on issues
     permissions:
@@ -103,23 +129,26 @@ jobs:
       - name: Determine checkout ref
         id: checkout-ref
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
+          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
+            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-ref: ${{ inputs.benchmarks-ref }}"
+          elif [ -n "${{ inputs.benchmarks-commit }}" ]; then
             echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
-            echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
+            echo "Using benchmarks-commit: ${{ inputs.benchmarks-commit }}"
           elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
             echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
             echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
-            # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
           fi
-      
+
       - uses: actions/checkout@v6
         with:
-          # When ref is empty, actions/checkout uses the commit that triggered the workflow
+          repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
+          token: ${{ github.token }}
 
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
@@ -156,7 +185,7 @@ jobs:
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly
       - name: Update SDK submodule
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        if: ${{ inputs.sdk-commit != '' }}
         run: |
           cd vendor/software-agent-sdk
           git fetch origin ${{ inputs.sdk-commit }}
@@ -167,8 +196,8 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
-      - name: Set up Docker Buildx with Blacksmith
-        uses: useblacksmith/setup-docker-builder@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
