@@ -83,7 +83,7 @@ on:
       max-retries:
         description: 'Retries per batch for eval env builds'
         required: false
-        default: '2'
+        default: '5'
         type: string
       eval-env-build-batch-size:
         description: 'Env images per batch for eval env builds'
