@@ -260,6 +260,10 @@ class IssueLocalizeEvaluation(Evaluation):
             from openhands.tools.preset.gemini import get_gemini_tools
 
             return get_gemini_tools(enable_browser=False)
+        elif preset == "gpt5":
+            from openhands.tools.preset.gpt5 import get_gpt5_tools
+
+            return get_gpt5_tools(enable_browser=False)
         elif preset == "planning":
             from openhands.tools.preset.planning import get_planning_tools
 
