@@ -61,11 +61,10 @@ Pre-build all required docker images:
 uv run benchmarks/swebenchmultimodal/build_images.py \
   --dataset princeton-nlp/SWE-bench_Multimodal \
   --split test \
-  --select benchmarks/swebenchmultimodal/resolved_instances.txt \
   --image ghcr.io/openhands/eval-agent-server
 ```
 
-`build_images.py` does not yet inherit the inference default subset automatically, so pass `--select benchmarks/swebenchmultimodal/resolved_instances.txt` when you want image builds to match the default inference run.
+By default, `build_images.py` filters to the curated instance list in `benchmarks/swebenchmultimodal/resolved_instances.txt` (the same subset used for inference). To build for the full dataset, pass `--select ''`.
 
 ## Configuration
 

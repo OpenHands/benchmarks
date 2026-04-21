@@ -5,7 +5,7 @@ description: >
 
 inputs:
   instance-ids:
-    description: Comma-separated instance IDs (empty = no filtering)
+    description: Comma-separated instance IDs (empty = use workflow default)
     required: false
     default: ''
 
@@ -18,7 +18,7 @@ runs:
         set -euo pipefail
 
         if [ -z "${{ inputs.instance-ids }}" ]; then
-          echo "No instance IDs provided; skipping select file creation."
+          echo "No explicit instance IDs provided; using workflow default SELECT_FILE."
           exit 0
         fi
 

@@ -90,7 +90,9 @@ env:
   MAX_RETRIES: '2'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
-  SELECT_FILE: ''
+  # Default to curated 68-instance subset. Override with '' (empty string) to build all images,
+  # or provide explicit instance-ids to build specific images.
+  SELECT_FILE: ${{ github.workspace }}/benchmarks/swebenchmultimodal/resolved_instances.txt
 
 concurrency:
   group: build-swe-bench-multimodal-${{ inputs.sdk-commit || github.ref }}
@@ -171,6 +173,14 @@ jobs:
       - uses: ./.github/actions/build-select-file
         with:
           instance-ids: ${{ env.INSTANCE_IDS }}
+
+      # Debug: Print SELECT_FILE value before building
+      - name: Debug SELECT_FILE
+        run: |
+          echo "SELECT_FILE=${SELECT_FILE}"
+          if [ -n "${SELECT_FILE}" ] && [ -f "${SELECT_FILE}" ]; then
+            echo "SELECT_FILE exists with $(wc -l < "${SELECT_FILE}") lines"
+          fi
 
       # Update SDK submodule to specific commit if provided
       # Must run BEFORE install dependencies so git submodule update works correctly
