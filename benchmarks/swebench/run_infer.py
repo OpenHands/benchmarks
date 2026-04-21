@@ -1,5 +1,6 @@
 import json
 import os
+from importlib import resources
 from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
@@ -84,6 +85,21 @@ def get_tools_for_preset(
         from openhands.tools.preset.default import get_default_tools
 
         return get_default_tools(enable_browser=enable_browser)
+
+
+def get_system_prompt_filename_for_preset(preset: ToolPresetType) -> str | None:
+    """Return the optional agent system prompt filename for a tool preset."""
+    if preset != "gpt5":
+        return None
+
+    prompt_filename = "system_prompt_gpt_5_4.j2"
+    prompt_template = resources.files("openhands.sdk.agent.prompts").joinpath(
+        prompt_filename
+    )
+    if not prompt_template.is_file():
+        return None
+
+    return prompt_filename
 
 
 def get_instruction(
@@ -298,16 +314,23 @@ class SWEBenchEvaluation(Evaluation):
                 )
             # Load public skills (respects EXTENSIONS_REF env var)
             agent_context = create_agent_context()
-
-            agent = Agent(
-                llm=agent_llm,
-                tools=tools,
-                system_prompt_kwargs={"cli_mode": True},
-                condenser=condenser,
-                agent_context=agent_context,
-                # TODO: we can enable security analyzer later
-                # security_analyzer=LLMSecurityAnalyzer(),
+            system_prompt_filename = get_system_prompt_filename_for_preset(
+                self.metadata.tool_preset
             )
+
+            agent_kwargs = {
+                "llm": agent_llm,
+                "tools": tools,
+                "system_prompt_kwargs": {"cli_mode": True},
+                "condenser": condenser,
+                "agent_context": agent_context,
+                # TODO: we can enable security analyzer later
+                # "security_analyzer": LLMSecurityAnalyzer(),
+            }
+            if system_prompt_filename is not None:
+                agent_kwargs["system_prompt_filename"] = system_prompt_filename
+
+            agent = Agent(**agent_kwargs)
 
         assert isinstance(workspace, RemoteWorkspace)
 
