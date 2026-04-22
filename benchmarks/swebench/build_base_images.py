@@ -650,12 +650,33 @@ def assemble_agent_image(
                 image_prune_proc.returncode,
             )
 
-        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "40"))
+        # Reported OOM sites in #495 validation runs include
+        # /var/lib/docker/tmp (tarsplit staging during image export) and
+        # /var/lib/docker/image/overlay2/layerdb/tmp (new-layer commits).
+        # `docker system prune -f` sweeps those along with dangling images,
+        # stopped containers, and unused networks. Safe alongside active
+        # builds: it won't touch tagged images or in-use layers.
+        sys_prune_proc, sys_prune_timeout = _run_docker_command(
+            ["docker", "system", "prune", "-f"]
+        )
+        if sys_prune_timeout:
+            logger.warning("[assembly] system prune timed out for %s", tag_label)
+        elif sys_prune_proc is not None and sys_prune_proc.returncode != 0:
+            logger.warning(
+                "[assembly] system prune failed for %s (rc=%d)",
+                tag_label,
+                sys_prune_proc.returncode,
+            )
+
+        # Previously defaulted to 40 GiB but that let the cache grow past
+        # what the runner could carry alongside 4 concurrent in-flight
+        # builds. Drop to 10 GiB; the shared builder image still fits.
+        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "10"))
         builder_prune_cmd = [
             "docker",
             "builder",
             "prune",
-            "-f",
+            "-af",
             "--keep-storage",
             f"{buildkit_cap_gb}g",
         ]
@@ -782,6 +803,19 @@ def assemble_all_agent_images(
     _, git_sha, _ = _get_sdk_submodule_info()
     sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
     content_hash = dockerfile_content_hash()
+
+    # Issue #495: the base-image phase pushes via `buildx --push`, which still
+    # routes every blob through BuildKit's content-addressed ingest cache. On
+    # SWT-bench with 433 fat SWE-bench base images, this leaves 100+ GB of
+    # cache before assembly even starts. Reset the cache fully here so the
+    # per-assembly `--keep-storage` cap actually bounds disk usage from this
+    # point forward.
+    if os.getenv("OPENHANDS_SKIP_PREASSEMBLY_PRUNE") != "1":
+        logger.info("Pre-assembly prune of BuildKit cache and dangling images")
+        _run_docker_command(
+            ["docker", "builder", "prune", "-af", "--keep-storage", "0"]
+        )
+        _run_docker_command(["docker", "image", "prune", "-f"])
 
     build_log_dir = build_dir / "assembly-logs"
     manifest_file = build_dir / "manifest.jsonl"
