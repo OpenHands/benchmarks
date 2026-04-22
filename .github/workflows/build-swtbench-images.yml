@@ -205,37 +205,27 @@ jobs:
         run: |
           make build
 
-      - name: "Preflight: prune cache and verify BuildKit disk"
+      # Runs right after setup-buildx creates the docker-container builder, so
+      # the buildx cache is empty — this step is just a sanity gate on
+      # root-fs free space. Earlier revisions also ran `docker buildx prune
+      # --max-storage` here (unsupported flag, always failed over to
+      # --keep-storage and reclaimed 0 B) and a `df /var/lib/buildkit` check
+      # (path doesn't exist on GH-hosted runners because BuildKit runs in the
+      # buildx container, so the check always printed "skipping"). Both were
+      # removed.
+      - name: "Preflight: verify runner disk"
         run: |
           set -euo pipefail
-          KEEP_GB=60
-          echo "Pruning BuildKit cache (target max-storage ${KEEP_GB} GiB, no filters)..."
-          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g; then
-            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
-          fi
-
           df -h / || true
           docker system df || true
-
-          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
-            LINE=$(tail -n1 /tmp/buildkit_df)
-            TOTAL=$(echo "$LINE" | awk '{print $2}')
-            USED=$(echo "$LINE" | awk '{print $3}')
-            FREE=$(echo "$LINE" | awk '{print $4}')
-            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
-              PCT=$(( 100 * USED / TOTAL ))
-              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
-              MIN=$((75 * 1024 * 1024 * 1024))
-              if [ "$FREE" -lt "$MIN" ]; then
-                echo "::error::Not enough free space on /var/lib/buildkit (${FREE} bytes free, need >= ${MIN})"
-                exit 1
-              fi
-            else
-              echo "Warning: unable to parse df output for /var/lib/buildkit"
-            fi
-          else
-            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          MIN_GB=150
+          FREE_BYTES=$(df -B1 --output=avail / | tail -n1 | tr -d ' ')
+          MIN_BYTES=$((MIN_GB * 1024 * 1024 * 1024))
+          if [ "${FREE_BYTES:-0}" -lt "$MIN_BYTES" ]; then
+            echo "::error::Root filesystem has less than ${MIN_GB} GiB free (${FREE_BYTES} B). Refusing to start a full cold build."
+            exit 1
           fi
+          echo "Root filesystem free: ${FREE_BYTES} B (min ${MIN_BYTES} B) — ok"
 
       - name: Build and push SWT-Bench images
         run: |

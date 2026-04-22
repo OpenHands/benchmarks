@@ -612,16 +612,21 @@ def assemble_agent_image(
 
     push_seconds = round(push_seconds, 3)
 
-    # Issue #495: release disk after a successful assembly. Three tiers:
+    # Issue #495: release disk after a successful assembly. Two load-bearing
+    # calls (earlier revisions tried an extra `docker image prune -f`; run-log
+    # counts showed it fired the Docker daemon's prune lock ~30% of the time
+    # racing the system prune on the same image, accomplishing nothing):
     #   1. `docker rmi` the just-pushed final tags AND the per-instance base
-    #      tag (it's 1:1 with this instance, never reused).
-    #   2. `docker image prune -f` turns those now-dangling layers back into
-    #      free space in the daemon's overlay2 store.
-    #   3. `docker builder prune --keep-storage 40g -f` caps BuildKit's
-    #      content-addressed ingest cache (`/var/lib/docker/buildkit/content/
-    #      ingest/...`). DOCKER_BUILDKIT=1 makes `docker build` route pulls
-    #      through this store, and it is *not* reached by rmi or image prune
-    #      — 500+ GB of SWE-bench base-image blobs accumulate here otherwise.
+    #      tag (it's 1:1 with this instance, never reused). Returns their
+    #      layers to the "dangling" set in overlay2.
+    #   2. `docker system prune -f` sweeps dangling images plus
+    #      /var/lib/docker/tmp (tarsplit staging) and
+    #      /var/lib/docker/image/overlay2/layerdb/tmp (new-layer commits),
+    #      both of which #495 validation runs OOM'd on.
+    #   3. `docker builder prune --keep-storage Xg` caps the default docker
+    #      daemon's BuildKit ingest at /var/lib/docker/buildkit/content/
+    #      ingest/ — the assembly phase's `docker build` with DOCKER_BUILDKIT=1
+    #      routes pulls through it and neither rmi nor system prune touches it.
     # All failures are warn-and-continue: a cleanup hiccup should not fail an
     # otherwise-successful assembly.
     if push and pushed_tags:
@@ -638,24 +643,6 @@ def assemble_agent_image(
                 (rmi_proc.stderr or rmi_proc.stdout or "").strip()[:200],
             )
 
-        image_prune_proc, image_prune_timeout = _run_docker_command(
-            ["docker", "image", "prune", "-f"]
-        )
-        if image_prune_timeout:
-            logger.warning("[assembly] image prune timed out for %s", tag_label)
-        elif image_prune_proc is not None and image_prune_proc.returncode != 0:
-            logger.warning(
-                "[assembly] image prune failed for %s (rc=%d)",
-                tag_label,
-                image_prune_proc.returncode,
-            )
-
-        # Reported OOM sites in #495 validation runs include
-        # /var/lib/docker/tmp (tarsplit staging during image export) and
-        # /var/lib/docker/image/overlay2/layerdb/tmp (new-layer commits).
-        # `docker system prune -f` sweeps those along with dangling images,
-        # stopped containers, and unused networks. Safe alongside active
-        # builds: it won't touch tagged images or in-use layers.
         sys_prune_proc, sys_prune_timeout = _run_docker_command(
             ["docker", "system", "prune", "-f"]
         )
@@ -668,10 +655,13 @@ def assemble_agent_image(
                 sys_prune_proc.returncode,
             )
 
-        # Previously defaulted to 40 GiB but that let the cache grow past
-        # what the runner could carry alongside 4 concurrent in-flight
-        # builds. Drop to 10 GiB; the shared builder image still fits.
-        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "10"))
+        # Default 30 GiB. Run 24777009977 (commit c18df3d, 10 GiB cap) passed
+        # 433/433 on ubuntu-latest-8core with ~260 GB starting headroom, so 10
+        # was over-provisioned on the safe side. Raising to 30 leaves more
+        # shared base+builder layers warm between assemblies (restoring the
+        # 70 s/image fast path the comment in assemble_agent_image relies on)
+        # while staying well under the runner budget for 4 concurrent builds.
+        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
         builder_prune_cmd = [
             "docker",
             "builder",
@@ -804,18 +794,20 @@ def assemble_all_agent_images(
     sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
     content_hash = dockerfile_content_hash()
 
-    # Issue #495: the base-image phase pushes via `buildx --push`, which still
-    # routes every blob through BuildKit's content-addressed ingest cache. On
-    # SWT-bench with 433 fat SWE-bench base images, this leaves 100+ GB of
-    # cache before assembly even starts. Reset the cache fully here so the
-    # per-assembly `--keep-storage` cap actually bounds disk usage from this
-    # point forward.
-    if os.getenv("OPENHANDS_SKIP_PREASSEMBLY_PRUNE") != "1":
-        logger.info("Pre-assembly prune of BuildKit cache and dangling images")
-        _run_docker_command(
-            ["docker", "builder", "prune", "-af", "--keep-storage", "0"]
-        )
-        _run_docker_command(["docker", "image", "prune", "-f"])
+    # Issue #495: the base-image phase runs `docker buildx build --push` against
+    # the docker-container driver set up by setup-buildx-action, so its cache
+    # lives inside that buildx container — isolated from both the host's
+    # /var/lib/docker/buildkit/ (which is what `docker builder prune` targets)
+    # AND the per-assembly `docker build` cache. Nothing else in this pipeline
+    # ever prunes the buildx-container cache; on SWT-bench's 433 fat SWE-bench
+    # base images it ends up parking tens of GB on disk for the remainder of
+    # the job. `docker buildx prune` targets the currently-selected buildx
+    # builder, i.e. exactly that container, so we release it before assembly
+    # begins. Earlier revisions called `docker builder prune --keep-storage 0`
+    # here instead — that targets the default daemon BuildKit (empty at this
+    # point because assembly has not started) and reclaimed 0 B every run.
+    logger.info("Pre-assembly prune of buildx-container builder cache")
+    _run_docker_command(["docker", "buildx", "prune", "-af"])
 
     build_log_dir = build_dir / "assembly-logs"
     manifest_file = build_dir / "manifest.jsonl"
