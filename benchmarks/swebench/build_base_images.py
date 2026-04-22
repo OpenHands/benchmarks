@@ -807,7 +807,15 @@ def assemble_all_agent_images(
     # here instead — that targets the default daemon BuildKit (empty at this
     # point because assembly has not started) and reclaimed 0 B every run.
     logger.info("Pre-assembly prune of buildx-container builder cache")
-    _run_docker_command(["docker", "buildx", "prune", "-af"])
+    bx_proc, bx_timeout = _run_docker_command(["docker", "buildx", "prune", "-af"])
+    if bx_timeout:
+        logger.warning("Pre-assembly buildx prune timed out")
+    elif bx_proc is not None and bx_proc.returncode != 0:
+        logger.warning(
+            "Pre-assembly buildx prune failed (rc=%d): %s",
+            bx_proc.returncode,
+            (bx_proc.stderr or bx_proc.stdout or "").strip()[:200],
+        )
 
     build_log_dir = build_dir / "assembly-logs"
     manifest_file = build_dir / "manifest.jsonl"
