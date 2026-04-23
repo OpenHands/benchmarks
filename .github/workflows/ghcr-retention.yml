@@ -36,11 +36,9 @@ jobs:
   clean:
     runs-on: ubuntu-latest
     timeout-minutes: 720  # 12h — first real run may delete tens of thousands of versions
-    permissions:
-      packages: write
     steps:
       - name: Delete old eval-agent-server versions
-        uses: snok/container-retention-policy@v3.0.0
+        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03  # v3.0.0
         with:
           account: OpenHands
           token: ${{ secrets.GHCR_CLEANUP_PAT }}
