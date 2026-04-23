@@ -322,6 +322,26 @@ class TestAssembleAgentImage:
 
         assert result.error is None
         assert result.tags == ["tag-1", "tag-2"]
+        commands = [call.args[0] for call in mock_run.call_args_list]
+        assert commands[-3:] == [
+            [
+                "docker",
+                "rmi",
+                "-f",
+                "tag-1",
+                "tag-2",
+                "ghcr.io/openhands/eval-base:abc",
+            ],
+            ["docker", "system", "prune", "-f"],
+            [
+                "docker",
+                "builder",
+                "prune",
+                "-af",
+                "--keep-storage",
+                "30g",
+            ],
+        ]
 
     def test_missing_dockerfile_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -443,6 +463,10 @@ class TestBuildAllBaseImages:
 
 
 class TestAssembleAllAgentImages:
+    @patch(
+        "benchmarks.swebench.build_base_images._run_docker_command",
+        return_value=(_ok_proc(), None),
+    )
     @patch("benchmarks.swebench.build_base_images._assemble_with_logging")
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
@@ -451,7 +475,9 @@ class TestAssembleAllAgentImages:
     @patch(
         "benchmarks.swebench.build_base_images.ProcessPoolExecutor", new=_thread_pool
     )
-    def test_manifest_written(self, mock_sdk, mock_assemble, tmp_path):
+    def test_manifest_written(
+        self, mock_sdk, mock_assemble, mock_docker_command, tmp_path
+    ):
         from benchmarks.swebench.build_base_images import assemble_all_agent_images
 
         ok = BuildOutput(base_image="img-a", tags=["final-tag"], error=None)
@@ -472,6 +498,9 @@ class TestAssembleAllAgentImages:
         ]
         assert len(records) == 1
         assert records[0]["tags"] == ["final-tag"]
+        mock_docker_command.assert_called_once_with(
+            ["docker", "buildx", "prune", "-af"]
+        )
 
 
 # ---------------------------------------------------------------------------

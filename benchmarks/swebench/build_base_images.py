@@ -611,6 +611,57 @@ def assemble_agent_image(
         return BuildOutput(base_image=base_tag, tags=pushed_tags, error=error_summary)
 
     push_seconds = round(push_seconds, 3)
+
+    # Release disk after successful pushes. Full cold SWE/SWT-bench builds on
+    # ubuntu-latest-8core otherwise keep every final image and BuildKit ingest
+    # blob in the local daemon until the runner runs out of disk.
+    if push and pushed_tags:
+        rmi_targets = list(dict.fromkeys([*pushed_tags, base_tag]))
+        rmi_proc, rmi_timeout = _run_docker_command(
+            ["docker", "rmi", "-f", *rmi_targets]
+        )
+        if rmi_timeout:
+            logger.warning("[assembly] rmi timed out for %s", tag_label)
+        elif rmi_proc is not None and rmi_proc.returncode != 0:
+            logger.warning(
+                "[assembly] rmi failed for %s (rc=%d): %s",
+                tag_label,
+                rmi_proc.returncode,
+                (rmi_proc.stderr or rmi_proc.stdout or "").strip()[:200],
+            )
+
+        sys_prune_proc, sys_prune_timeout = _run_docker_command(
+            ["docker", "system", "prune", "-f"]
+        )
+        if sys_prune_timeout:
+            logger.warning("[assembly] system prune timed out for %s", tag_label)
+        elif sys_prune_proc is not None and sys_prune_proc.returncode != 0:
+            logger.warning(
+                "[assembly] system prune failed for %s (rc=%d)",
+                tag_label,
+                sys_prune_proc.returncode,
+            )
+
+        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
+        bp_proc, bp_timeout = _run_docker_command(
+            [
+                "docker",
+                "builder",
+                "prune",
+                "-af",
+                "--keep-storage",
+                f"{buildkit_cap_gb}g",
+            ]
+        )
+        if bp_timeout:
+            logger.warning("[assembly] buildkit prune timed out for %s", tag_label)
+        elif bp_proc is not None and bp_proc.returncode != 0:
+            logger.warning(
+                "[assembly] buildkit prune failed for %s (rc=%d)",
+                tag_label,
+                bp_proc.returncode,
+            )
+
     total_seconds = round(time.monotonic() - overall_started, 3)
 
     logger.info(
@@ -724,6 +775,17 @@ def assemble_all_agent_images(
     _, git_sha, _ = _get_sdk_submodule_info()
     sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
     content_hash = dockerfile_content_hash()
+
+    logger.info("Pre-assembly prune of buildx-container builder cache")
+    bx_proc, bx_timeout = _run_docker_command(["docker", "buildx", "prune", "-af"])
+    if bx_timeout:
+        logger.warning("Pre-assembly buildx prune timed out")
+    elif bx_proc is not None and bx_proc.returncode != 0:
+        logger.warning(
+            "Pre-assembly buildx prune failed (rc=%d): %s",
+            bx_proc.returncode,
+            (bx_proc.stderr or bx_proc.stdout or "").strip()[:200],
+        )
 
     build_log_dir = build_dir / "assembly-logs"
     manifest_file = build_dir / "manifest.jsonl"
