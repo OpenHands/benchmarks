@@ -8,22 +8,135 @@ import pytest
 from benchmarks.skillsbench.config import INFER_DEFAULTS
 from benchmarks.skillsbench.run_infer import (
     convert_harbor_to_eval_output,
+    ensure_skillsbench_tasks,
+    resolve_skillsbench_dataset,
     run_harbor_evaluation,
 )
 from openhands.sdk import LLM
 
 
+class TestDatasetSync:
+    """Tests for syncing the local SkillsBench task snapshot."""
+
+    def test_ensure_skillsbench_tasks_reuses_matching_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that an up-to-date cached tasks directory is reused."""
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "task-a").mkdir()
+        metadata_path = tmp_path / "source.json"
+        metadata_path.write_text(json.dumps({"commit_hash": "abc123"}))
+
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer.get_skillsbench_main_commit",
+            lambda repo_url, branch: "abc123",
+        )
+
+        called = False
+
+        def fake_download(**kwargs) -> None:
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer.download_skillsbench_tasks",
+            fake_download,
+        )
+
+        resolved = ensure_skillsbench_tasks(
+            tasks_dir=tasks_dir,
+            metadata_path=metadata_path,
+        )
+
+        assert resolved == tasks_dir
+        assert called is False
+
+    def test_ensure_skillsbench_tasks_refreshes_stale_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that a stale cached commit triggers a redownload."""
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        metadata_path = tmp_path / "source.json"
+        metadata_path.write_text(json.dumps({"commit_hash": "old-commit"}))
+
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer.get_skillsbench_main_commit",
+            lambda repo_url, branch: "new-commit",
+        )
+
+        captured: dict[str, str] = {}
+
+        def fake_download(
+            *,
+            commit_hash: str,
+            tasks_dir: Path,
+            metadata_path: Path,
+            repo_url: str,
+            branch: str,
+        ) -> None:
+            captured["commit_hash"] = commit_hash
+            captured["tasks_dir"] = str(tasks_dir)
+            captured["metadata_path"] = str(metadata_path)
+            tasks_dir.mkdir(exist_ok=True)
+
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer.download_skillsbench_tasks",
+            fake_download,
+        )
+
+        ensure_skillsbench_tasks(
+            tasks_dir=tasks_dir,
+            metadata_path=metadata_path,
+        )
+
+        assert captured["commit_hash"] == "new-commit"
+        assert captured["tasks_dir"] == str(tasks_dir)
+        assert captured["metadata_path"] == str(metadata_path)
+
+    def test_ensure_skillsbench_tasks_uses_cache_if_remote_check_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that a usable cache is kept when the upstream HEAD check fails."""
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "task-a").mkdir()
+        metadata_path = tmp_path / "source.json"
+        metadata_path.write_text(json.dumps({"commit_hash": "cached-commit"}))
+
+        def fake_head(repo_url: str, branch: str) -> str:
+            raise RuntimeError("network unavailable")
+
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer.get_skillsbench_main_commit",
+            fake_head,
+        )
+
+        resolved = ensure_skillsbench_tasks(
+            tasks_dir=tasks_dir,
+            metadata_path=metadata_path,
+        )
+
+        assert resolved == tasks_dir
+
+    def test_resolve_skillsbench_dataset_preserves_remote_registry_ids(self) -> None:
+        """Test that explicit Harbor dataset ids are passed through unchanged."""
+        resolved_dataset, dataset_is_path = resolve_skillsbench_dataset(
+            "benchflow/skillsbench@1.0"
+        )
+
+        assert resolved_dataset == "benchflow/skillsbench@1.0"
+        assert dataset_is_path is False
+
+
 class TestRunHarborEvaluation:
     """Tests for building Harbor invocation arguments."""
-
-    def test_default_dataset_matches_harbor_registry(self) -> None:
-        """Test that the default dataset name matches Harbor's published registry."""
-        assert INFER_DEFAULTS["dataset"] == "benchflow/skillsbench"
 
     def test_run_harbor_evaluation_passes_filters_and_limits(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test Harbor command includes task filters and n-limit."""
+        """Test Harbor command normalizes local task ids and includes main flags."""
         captured: dict[str, list[str]] = {}
 
         def fake_run(cmd: list[str], capture_output: bool, text: bool, env: dict):
@@ -35,6 +148,14 @@ class TestRunHarborEvaluation:
             )()
 
         monkeypatch.setattr("benchmarks.skillsbench.run_infer.subprocess.run", fake_run)
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer._get_supported_task_filter_flag",
+            lambda harbor_exe: "--include-task-name",
+        )
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer._get_supported_agent_name",
+            lambda harbor_exe: "openhands",
+        )
 
         harbor_output_dir = run_harbor_evaluation(
             llm=LLM(
@@ -42,7 +163,8 @@ class TestRunHarborEvaluation:
                 api_key="test-key",
                 base_url="https://proxy.example.com",
             ),
-            dataset=INFER_DEFAULTS["dataset"],
+            dataset=str(tmp_path / "tasks"),
+            dataset_is_path=True,
             output_dir=str(tmp_path),
             num_workers=2,
             task_ids=["benchflow/task-a", "benchflow/task-b"],
@@ -56,20 +178,68 @@ class TestRunHarborEvaluation:
         assert cmd[:8] == [
             "harbor",
             "run",
-            "-d",
-            "benchflow/skillsbench",
+            "--path",
+            str(tmp_path / "tasks"),
             "-a",
-            "openhands-sdk",
+            "openhands",
             "-m",
             "litellm_proxy/test-model",
         ]
         assert "--jobs-dir" in cmd
         assert str(expected_output_dir.resolve()) in cmd
         assert cmd.count("--include-task-name") == 2
-        assert "benchflow/task-a" in cmd
-        assert "benchflow/task-b" in cmd
+        assert "task-a" in cmd
+        assert "task-b" in cmd
+        assert "benchflow/task-a" not in cmd
+        assert "--ae" not in cmd
         assert cmd[cmd.index("--n-concurrent") + 1] == "2"
         assert cmd[cmd.index("--n-tasks") + 1] == "3"
+
+    def test_run_harbor_evaluation_retries_with_legacy_task_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test Harbor falls back to --include-task-name when --task-name fails."""
+        captured_cmds: list[list[str]] = []
+
+        def fake_run(cmd: list[str], capture_output: bool, text: bool, env: dict):
+            captured_cmds.append(cmd)
+            if "--task-name" in cmd:
+                return type(
+                    "Completed",
+                    (),
+                    {
+                        "returncode": 2,
+                        "stdout": "",
+                        "stderr": "No such option: --task-name",
+                    },
+                )()
+            return type(
+                "Completed",
+                (),
+                {"returncode": 0, "stdout": "ok", "stderr": ""},
+            )()
+
+        monkeypatch.setattr("benchmarks.skillsbench.run_infer.subprocess.run", fake_run)
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer._get_supported_task_filter_flag",
+            lambda harbor_exe: "--task-name",
+        )
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer._get_supported_agent_name",
+            lambda harbor_exe: "openhands",
+        )
+
+        run_harbor_evaluation(
+            llm=LLM(model="test-model"),
+            dataset=str(tmp_path / "tasks"),
+            dataset_is_path=True,
+            output_dir=str(tmp_path),
+            task_ids=["benchflow/task-a"],
+        )
+
+        assert len(captured_cmds) == 2
+        assert "--task-name" in captured_cmds[0]
+        assert "--include-task-name" in captured_cmds[1]
 
     def test_llm_credentials_passed_via_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -87,6 +257,14 @@ class TestRunHarborEvaluation:
             )()
 
         monkeypatch.setattr("benchmarks.skillsbench.run_infer.subprocess.run", fake_run)
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer._get_supported_task_filter_flag",
+            lambda harbor_exe: "--include-task-name",
+        )
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer._get_supported_agent_name",
+            lambda harbor_exe: "openhands",
+        )
 
         run_harbor_evaluation(
             llm=LLM(
@@ -95,11 +273,13 @@ class TestRunHarborEvaluation:
                 base_url="https://my-proxy.example.com",
             ),
             dataset=INFER_DEFAULTS["dataset"],
+            dataset_is_path=False,
             output_dir=str(tmp_path),
         )
 
         assert captured["env"]["LLM_API_KEY"] == "my-secret-key"
         assert captured["env"]["LLM_BASE_URL"] == "https://my-proxy.example.com"
+        assert "--ae" not in captured["cmd"]
 
 
 class TestConvertHarborToEvalOutput:
@@ -151,6 +331,35 @@ class TestConvertHarborToEvalOutput:
         assert entries[0]["instance_id"] == "benchflow/weighted-gdp-calc"
         assert entries[0]["test_result"]["passed"] is True
         assert entries[0]["metrics"]["total_cost_usd"] == 0.05
+
+    def test_local_trial_names_are_normalized_to_canonical_instance_ids(
+        self, tmp_path: Path
+    ) -> None:
+        """Test local Harbor task names without namespace keep benchflow ids."""
+        trial_result = {
+            "task_name": "weighted-gdp-calc",
+            "trial_name": "weighted-gdp-calc__abc123",
+            "trial_uri": "file:///path/to/trial",
+            "agent_result": {
+                "n_input_tokens": 1000,
+                "n_output_tokens": 200,
+                "cost_usd": 0.05,
+            },
+            "verifier_result": {"rewards": {"reward": 1.0}},
+            "exception_info": None,
+        }
+
+        harbor_dir = self._create_harbor_structure(
+            tmp_path, [("weighted-gdp-calc__abc123", trial_result)]
+        )
+        output_file = tmp_path / "output.jsonl"
+
+        convert_harbor_to_eval_output(harbor_dir, output_file)
+
+        with open(output_file) as f:
+            entries = [json.loads(line) for line in f]
+
+        assert entries[0]["instance_id"] == "benchflow/weighted-gdp-calc"
 
     def test_failed_trial(self, tmp_path: Path) -> None:
         """Test parsing of a trial with reward 0."""

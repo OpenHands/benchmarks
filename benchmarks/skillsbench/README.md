@@ -21,11 +21,12 @@ SkillsBench comprises tasks across 11 domains, evaluating the efficacy of Skills
 ## Prerequisites
 
 1. **Install Harbor**: Harbor is the official harness for running SkillsBench.
+   This integration is currently validated against `harbor==0.1.33`.
 
    ```bash
-   pip install harbor
+   pip install harbor==0.1.33
    # or
-   uv pip install harbor
+   uv pip install harbor==0.1.33
    ```
 
 2. **Docker**: Harbor requires Docker to be installed and running.
@@ -34,12 +35,18 @@ SkillsBench comprises tasks across 11 domains, evaluating the efficacy of Skills
 
 ## Usage
 
+By default, `skillsbench-infer` keeps a local copy of `tasks/` from
+`https://github.com/benchflow-ai/skillsbench` on the `main` branch under
+`benchmarks/skillsbench/data/tasks`. It stores the synced upstream commit hash in
+`benchmarks/skillsbench/data/source.json` and refreshes the local snapshot when the
+upstream `main` commit changes. The only supported dataset sources are this synced
+SkillsBench snapshot and Harbor registry ids matching `benchflow/skillsbench@...`.
+
 ### Running Inference
 
 Run the SkillsBench evaluation using the OpenHands SDK agent:
 
 ```bash
-# Run full evaluation
 uv run skillsbench-infer .llm_config/claude.json
 
 # Run specific tasks
@@ -53,6 +60,9 @@ uv run skillsbench-infer .llm_config/claude.json --n-limit 5
 
 # Run with multiple workers
 uv run skillsbench-infer .llm_config/claude.json --num-workers 4
+
+# Run against a Harbor registry dataset instead of the synced GitHub tasks
+uv run skillsbench-infer .llm_config/claude.json --dataset benchflow/skillsbench@1.0
 ```
 
 ### LLM Configuration
