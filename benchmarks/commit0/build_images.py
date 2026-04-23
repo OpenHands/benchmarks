@@ -199,19 +199,6 @@ def _assemble_commit0_image(
             error=f"docker buildx build exited {proc.returncode} for {base_image}",
         )
 
-    # Release disk after a successful push. ubuntu-24.04 runners have ~14 GiB
-    # free; building and exporting 16 large images without pruning fills the
-    # BuildKit content store and kills the runner mid-export.
-    if push:
-        keep_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "8"))
-        for prune_cmd in [
-            ["docker", "rmi", "-f", final_tag],
-            ["docker", "system", "prune", "-f"],
-            ["docker", "builder", "prune", "-af", "--keep-storage", f"{keep_gb}g"],
-        ]:
-            subprocess.run(prune_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        _log_disk(f"post-prune {base_image}")
-
     return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
 
 
@@ -299,19 +286,19 @@ def assemble_commit0_agent_images(
     logger.info(
         "Starting commit0 assembly: %d images, max_workers=%d", len(base_images), max_workers
     )
-    # Prune BuildKit cache accumulated during the builder-image build phase
-    # before starting the per-image assembly loop.
-    subprocess.run(
-        ["docker", "buildx", "prune", "-af"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    _log_disk("post-pre-assembly-prune")
 
     built = 0
     skipped = 0
     failures = 0
     mu = Lock()
+
+    # Process in batches so we can prune BuildKit cache from the main process
+    # between batches without racing against active worker builds.
+    # ubuntu-24.04 runners have ~14 GiB free; without inter-batch pruning the
+    # BuildKit content store fills up and the runner is OOM/disk-killed.
+    batch_size = max_workers
+    batches = [base_images[i : i + batch_size] for i in range(0, len(base_images), batch_size)]
+    keep_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "8"))
 
     with (
         manifest_file.open("w") as writer,
@@ -321,63 +308,31 @@ def assemble_commit0_agent_images(
     ):
         _update_pbar(pbar, built, skipped, failures, 0, None, "Queueing")
 
-        with ProcessPoolExecutor(max_workers=max_workers) as ex:
-            futures = {}
-            in_progress: set[str] = set()
-            for base_image in base_images:
-                in_progress.add(base_image)
-                final_tag = get_agent_server_image_tag(base_image, target, target_image)
-                fut = ex.submit(
-                    _assemble_commit0_with_logging,
-                    log_dir=build_log_dir,
-                    base_image=base_image,
-                    builder_tag=builder_tag,
-                    final_tag=final_tag,
-                    git_sha=git_sha,
-                    push=push,
-                    max_retries=max_retries,
-                    force_build=force_build,
-                )
-                futures[fut] = base_image
-
-            _update_pbar(
-                pbar,
-                built,
-                skipped,
-                failures,
-                len(in_progress),
-                next(iter(in_progress), None),
-                "Assembling",
+        for batch_idx, batch in enumerate(batches, start=1):
+            logger.info(
+                "Batch %d/%d (%d images)", batch_idx, len(batches), len(batch)
             )
+            _log_disk(f"batch {batch_idx} start")
 
-            for fut in as_completed(futures):
-                base_image = futures[fut]
-                try:
-                    result: BuildOutput = fut.result()
-                except Exception as e:
-                    logger.error("Commit0 assembly failed for %s: %r", base_image, e)
-                    result = BuildOutput(base_image=base_image, tags=[], error=repr(e))
+            with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                futures = {}
+                in_progress: set[str] = set()
+                for base_image in batch:
+                    in_progress.add(base_image)
+                    final_tag = get_agent_server_image_tag(base_image, target, target_image)
+                    fut = ex.submit(
+                        _assemble_commit0_with_logging,
+                        log_dir=build_log_dir,
+                        base_image=base_image,
+                        builder_tag=builder_tag,
+                        final_tag=final_tag,
+                        git_sha=git_sha,
+                        push=push,
+                        max_retries=max_retries,
+                        force_build=force_build,
+                    )
+                    futures[fut] = base_image
 
-                writer.write(result.model_dump_json() + "\n")
-                writer.flush()
-
-                with mu:
-                    if result.error or not result.tags:
-                        failures += 1
-                        status = "❌ Failed"
-                        logger.error(
-                            "Assembly FAILED for %s: %s", base_image, result.error
-                        )
-                    elif result.status == "skipped_remote_exists":
-                        skipped += 1
-                        status = "⏭ Skipped"
-                    else:
-                        built += 1
-                        status = "✅ Done"
-                    _log_disk(f"after {base_image} ({status})")
-
-                in_progress.discard(base_image)
-                pbar.update(1)
                 _update_pbar(
                     pbar,
                     built,
@@ -385,8 +340,59 @@ def assemble_commit0_agent_images(
                     failures,
                     len(in_progress),
                     next(iter(in_progress), None),
-                    status,
+                    f"Batch {batch_idx}/{len(batches)}",
                 )
+
+                for fut in as_completed(futures):
+                    base_image = futures[fut]
+                    try:
+                        result: BuildOutput = fut.result()
+                    except Exception as e:
+                        logger.error("Commit0 assembly failed for %s: %r", base_image, e)
+                        result = BuildOutput(base_image=base_image, tags=[], error=repr(e))
+
+                    writer.write(result.model_dump_json() + "\n")
+                    writer.flush()
+
+                    with mu:
+                        if result.error or not result.tags:
+                            failures += 1
+                            status = "❌ Failed"
+                            logger.error(
+                                "Assembly FAILED for %s: %s", base_image, result.error
+                            )
+                        elif result.status == "skipped_remote_exists":
+                            skipped += 1
+                            status = "⏭ Skipped"
+                        else:
+                            built += 1
+                            status = "✅ Done"
+
+                    in_progress.discard(base_image)
+                    pbar.update(1)
+                    _update_pbar(
+                        pbar,
+                        built,
+                        skipped,
+                        failures,
+                        len(in_progress),
+                        next(iter(in_progress), None),
+                        status,
+                    )
+
+            # All workers in this batch are done — safe to prune from main process.
+            _log_disk(f"batch {batch_idx} end (pre-prune)")
+            subprocess.run(
+                ["docker", "system", "prune", "-f"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                ["docker", "builder", "prune", "-af", "--keep-storage", f"{keep_gb}g"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            _log_disk(f"batch {batch_idx} end (post-prune)")
 
     logger.info(
         "Commit0 image assembly done. Built=%d Skipped=%d Failed=%d Manifest=%s",
