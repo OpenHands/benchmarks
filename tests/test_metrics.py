@@ -73,6 +73,31 @@ def discover_benchmarks() -> list[tuple[str, type[Evaluation]]]:
 BENCHMARKS = discover_benchmarks()
 
 
+def _pick_zero_cost_benchmark() -> tuple[str, type[Evaluation]]:
+    """Pick a stable benchmark for the zero-cost smoke test.
+
+    Some benchmarks need extra dataset- or repo-specific fixtures that this
+    generic smoke test does not provide. Prefer a stable benchmark that already
+    works with the lightweight shared mocks.
+    """
+    preferred = [
+        "gaia",
+        "openagentsafety",
+        "commit0",
+        "swtbench",
+        "swebench",
+        "swebenchmultilingual",
+    ]
+    by_name = {name: cls for name, cls in BENCHMARKS}
+    for name in preferred:
+        if name in by_name:
+            return name, by_name[name]
+    for name, cls in BENCHMARKS:
+        if name != "swesmith":
+            return name, cls
+    return BENCHMARKS[0]
+
+
 @pytest.fixture
 def mock_llm_with_metrics():
     """Create a mock LLM with populated metrics."""
@@ -723,7 +748,7 @@ def test_metrics_with_zero_cost(mock_workspace):
     if not BENCHMARKS:
         pytest.skip("No benchmarks discovered")
 
-    benchmark_name, evaluation_class = BENCHMARKS[0]
+    benchmark_name, evaluation_class = _pick_zero_cost_benchmark()
 
     # Create LLM with default metrics (cost = 0)
     llm = LLM(model="test-model")
