@@ -37,6 +37,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720  # 12h — first real run may delete tens of thousands of versions
     steps:
+      - name: Show resolved inputs
+        run: |
+          {
+            echo "## GHCR retention parameters"
+            echo ""
+            echo "| Param | Value |"
+            echo "|---|---|"
+            echo "| event | \`${{ github.event_name }}\` |"
+            echo "| actor | \`${{ github.triggering_actor }}\` |"
+            echo "| dry-run | \`${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}\` |"
+            echo "| cut-off | \`${{ inputs.cut-off || '2months' }}\` |"
+            echo "| keep-n-most-recent | \`${{ inputs.keep-n-most-recent || '100' }}\` |"
+            echo "| image-tags filter | \`!v1.0.0*\` |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Delete old eval-agent-server versions
         uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03  # v3.0.0
         with:
