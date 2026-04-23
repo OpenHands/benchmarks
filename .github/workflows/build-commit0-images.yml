@@ -192,6 +192,7 @@ jobs:
           if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g 2>/dev/null; then
             docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
           fi
+          docker builder prune -af --keep-storage ${KEEP_GB}g || true
           docker system prune -f || true
           echo "=== Post-prune disk ==="
           df -h

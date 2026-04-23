@@ -171,9 +171,15 @@ def _assemble_commit0_image(
             error = push_proc.stderr.strip() or f"docker push failed (rc={push_proc.returncode})"
             return BuildOutput(base_image=base_image, tags=[], error=error)
 
-        # Free local daemon storage after a successful push.
+        # Free local daemon storage and limit embedded BuildKit cache after each push,
+        # matching what swebench's assemble_agent_image does (PR #690).
+        keep_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
         subprocess.run(["docker", "rmi", "-f", final_tag], capture_output=True)
         subprocess.run(["docker", "system", "prune", "-f"], capture_output=True)
+        subprocess.run(
+            ["docker", "builder", "prune", "-af", "--keep-storage", f"{keep_gb}g"],
+            capture_output=True,
+        )
 
     return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
 
