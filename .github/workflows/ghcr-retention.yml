@@ -71,7 +71,7 @@ jobs:
           while [ -n "$URL" ]; do
             RESP=$(curl -sf -D /tmp/h.txt -H "Authorization: Bearer $REG_TOKEN" "$URL") || { TAGS="unknown"; break; }
             TAGS=$((TAGS + $(echo "$RESP" | jq -r '.tags | length')))
-            NEXT=$(grep -i '^link:' /tmp/h.txt | sed -n 's/.*<\([^>]*\)>;.*rel="next".*/\1/p')
+            NEXT=$(sed -n -E 's/^[Ll]ink:.*<([^>]+)>;[^,]*rel="next".*/\1/p' /tmp/h.txt | head -1)
             URL=$([ -n "$NEXT" ] && echo "https://ghcr.io$NEXT" || echo "")
           done
 
@@ -123,7 +123,7 @@ jobs:
           while [ -n "$URL" ]; do
             RESP=$(curl -sf -D /tmp/h.txt -H "Authorization: Bearer $REG_TOKEN" "$URL") || { FINAL_TAGS="unknown"; break; }
             FINAL_TAGS=$((FINAL_TAGS + $(echo "$RESP" | jq -r '.tags | length')))
-            NEXT=$(grep -i '^link:' /tmp/h.txt | sed -n 's/.*<\([^>]*\)>;.*rel="next".*/\1/p')
+            NEXT=$(sed -n -E 's/^[Ll]ink:.*<([^>]+)>;[^,]*rel="next".*/\1/p' /tmp/h.txt | head -1)
             URL=$([ -n "$NEXT" ] && echo "https://ghcr.io$NEXT" || echo "")
           done
 
