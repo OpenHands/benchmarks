@@ -86,7 +86,7 @@ env:
   DATASET: wentingzhao/commit0_combined
   SPLIT: test
   REPO_SPLIT: lite
-  MAX_WORKERS: '4'
+  MAX_WORKERS: '8'
   N_LIMIT: ''
   INSTANCE_IDS: ''
   SELECT_FILE: ''
