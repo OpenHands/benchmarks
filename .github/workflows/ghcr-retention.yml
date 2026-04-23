@@ -20,9 +20,9 @@ on:
         type: boolean
         default: true
       cut-off:
-        description: "Age threshold (e.g. 2mo, 30d, 2w)"
+        description: "Age threshold using humantime syntax (e.g. 2months, 30days, 2weeks)"
         type: string
-        default: "2mo"
+        default: "2months"
       keep-n-most-recent:
         description: "Always keep this many most-recent versions regardless of cut-off"
         type: string
@@ -44,7 +44,7 @@ jobs:
           token: ${{ secrets.GHCR_CLEANUP_PAT }}
           image-names: eval-agent-server
           image-tags: "!v1.0.0*"  # preserve legacy v1.0.0* tags — audit before removing this guard
-          cut-off: ${{ inputs.cut-off || '2mo' }}
+          cut-off: ${{ inputs.cut-off || '2months' }}
           keep-n-most-recent: ${{ inputs.keep-n-most-recent || '100' }}
           tag-selection: both  # delete both tagged and untagged versions
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
