@@ -52,6 +52,44 @@ jobs:
             echo "| image-tags filter | \`!v1.0.0*\` |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Record baseline state
+        env:
+          PAT: ${{ secrets.GHCR_CLEANUP_PAT }}
+        run: |
+          set -euo pipefail
+
+          VERSIONS=$(curl -sf \
+            -H "Authorization: Bearer $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/orgs/OpenHands/packages/container/eval-agent-server \
+            | jq -r '.version_count // "unknown"') || VERSIONS="unknown"
+
+          REG_TOKEN=$(curl -sf 'https://ghcr.io/token?scope=repository:openhands/eval-agent-server:pull' | jq -r .token)
+          TAGS=0
+          URL='https://ghcr.io/v2/openhands/eval-agent-server/tags/list?n=2000'
+          while [ -n "$URL" ]; do
+            RESP=$(curl -sf -D /tmp/h.txt -H "Authorization: Bearer $REG_TOKEN" "$URL") || { TAGS="unknown"; break; }
+            TAGS=$((TAGS + $(echo "$RESP" | jq -r '.tags | length')))
+            NEXT=$(grep -i '^link:' /tmp/h.txt | sed -n 's/.*<\([^>]*\)>;.*rel="next".*/\1/p')
+            URL=$([ -n "$NEXT" ] && echo "https://ghcr.io$NEXT" || echo "")
+          done
+
+          TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          {
+            echo ""
+            echo "## Baseline (before cleanup)"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| timestamp | \`$TS\` |"
+            echo "| version_count (tagged + untagged) | \`$VERSIONS\` |"
+            echo "| tag_count (public registry) | \`$TAGS\` |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          echo "BASELINE_VERSIONS=$VERSIONS" >> "$GITHUB_ENV"
+          echo "BASELINE_TAGS=$TAGS" >> "$GITHUB_ENV"
+
       - name: Delete old eval-agent-server versions
         uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03  # v3.0.0
         with:
@@ -63,3 +101,50 @@ jobs:
           keep-n-most-recent: ${{ inputs.keep-n-most-recent || '100' }}
           tag-selection: both  # delete both tagged and untagged versions
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
+          rust-log: container_retention_policy=DEBUG  # more verbose per-page progress; live-viewable in the Actions UI
+
+      - name: Record delta
+        if: always()
+        env:
+          PAT: ${{ secrets.GHCR_CLEANUP_PAT }}
+        run: |
+          set -euo pipefail
+
+          FINAL_VERSIONS=$(curl -sf \
+            -H "Authorization: Bearer $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/orgs/OpenHands/packages/container/eval-agent-server \
+            | jq -r '.version_count // "unknown"') || FINAL_VERSIONS="unknown"
+
+          REG_TOKEN=$(curl -sf 'https://ghcr.io/token?scope=repository:openhands/eval-agent-server:pull' | jq -r .token)
+          FINAL_TAGS=0
+          URL='https://ghcr.io/v2/openhands/eval-agent-server/tags/list?n=2000'
+          while [ -n "$URL" ]; do
+            RESP=$(curl -sf -D /tmp/h.txt -H "Authorization: Bearer $REG_TOKEN" "$URL") || { FINAL_TAGS="unknown"; break; }
+            FINAL_TAGS=$((FINAL_TAGS + $(echo "$RESP" | jq -r '.tags | length')))
+            NEXT=$(grep -i '^link:' /tmp/h.txt | sed -n 's/.*<\([^>]*\)>;.*rel="next".*/\1/p')
+            URL=$([ -n "$NEXT" ] && echo "https://ghcr.io$NEXT" || echo "")
+          done
+
+          delta() {
+            if [[ "$1" =~ ^[0-9]+$ ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+              echo $(($1 - $2))
+            else
+              echo "?"
+            fi
+          }
+          VERSIONS_DELTA=$(delta "${BASELINE_VERSIONS:-unknown}" "$FINAL_VERSIONS")
+          TAGS_DELTA=$(delta "${BASELINE_TAGS:-unknown}" "$FINAL_TAGS")
+
+          TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          {
+            echo ""
+            echo "## Delta (after cleanup)"
+            echo ""
+            echo "| Metric | Before | After | Δ deleted |"
+            echo "|---|---|---|---|"
+            echo "| version_count | \`${BASELINE_VERSIONS:-?}\` | \`$FINAL_VERSIONS\` | \`$VERSIONS_DELTA\` |"
+            echo "| tag_count | \`${BASELINE_TAGS:-?}\` | \`$FINAL_TAGS\` | \`$TAGS_DELTA\` |"
+            echo "| completed at | \`$TS\` | | |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
