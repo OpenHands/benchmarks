@@ -1,10 +1,10 @@
 # SkillsBench Evaluation
 
-This module provides integration with [SkillsBench](https://www.skillsbench.ai/), a benchmark for evaluating AI agents on real-world skill-based tasks. The integration uses [benchflow](https://github.com/benchflow-ai/benchflow) as the evaluation harness with the `openhands` agent.
+This module provides integration with [SkillsBench](https://www.skillsbench.ai/), a benchmark for evaluating AI agents on real-world skill-based tasks. The integration uses [Harbor](https://harborframework.com) as the evaluation harness with the `openhands-sdk` agent.
 
 ## Overview
 
-SkillsBench comprises tasks across 11 domains, evaluating the efficacy of Skills augmentation in LLM-based agents. Domains include:
+SkillsBench comprises tasks across 11 domains, evaluating the efficacy of Skills augmentation in LLM-based agents.Domains contain
 
 - Software engineering
 - Office & white collar
@@ -20,25 +20,23 @@ SkillsBench comprises tasks across 11 domains, evaluating the efficacy of Skills
 
 ## Prerequisites
 
-1. **Install benchflow**: benchflow is the official harness for running SkillsBench.
+1. **Install Harbor**: Harbor is the official harness for running SkillsBench.
 
    ```bash
-   uv tool install benchflow==0.3.0
+   pip install harbor
    # or
-   pip install benchflow==0.3.0
-   # or
-   uv pip install benchflow==0.3.0
+   uv pip install harbor
    ```
 
-2. **Docker**: benchflow requires Docker to be installed and running.
+2. **Docker**: Harbor requires Docker to be installed and running.
 
-3. **LLM API Key**: Configure your LLM provider credentials. The benchflow `openhands` agent reads `LLM_API_KEY` and optional `LLM_BASE_URL` from the environment.
+3. **LLM API Key**: Configure your LLM provider credentials.
 
 ## Usage
 
 ### Running Inference
 
-Run the SkillsBench evaluation using the `openhands` agent:
+Run the SkillsBench evaluation using the OpenHands SDK agent:
 
 ```bash
 # Run full evaluation
@@ -64,7 +62,7 @@ Create an LLM configuration file (e.g., `.llm_config/claude.json`):
 ```json
 {
   "model": "anthropic/claude-sonnet-4-20250514",
-  "api_key": "YOUR_ANTHROPIC_API_KEY"
+  "api_key": "YOUR_API_KEY"
 }
 ```
 
@@ -101,6 +99,8 @@ Each line contains:
 {
   "instance_id": "benchflow/task-name",
   "test_result": {
+    "trial_name": "...",
+    "trial_uri": "...",
     "rewards": {"reward": 1.0},
     "passed": true
   },
@@ -134,21 +134,22 @@ Each line contains:
 
 ## Architecture
 
-The integration uses the benchflow CLI as the evaluation harness:
+The integration follows the Harbor agent adapter pattern:
 
-1. **Task download**: the integration clones the SkillsBench task repo locally when the task cache is empty
-2. **benchflow job**: Runs all tasks concurrently with `openhands`
-3. **Result conversion**: Trial `result.json` files are converted to the standard `output.jsonl` format
+1. **Harbor Harness**: Manages task containers and lifecycle
+2. **OpenHands SDK Agent**: Runs inside containers to solve tasks
+3. **ATIF Trajectories**: Results stored in Agent Trajectory Interchange Format
 
 ```text
 ┌──────────────────────────────────────────────────┐
-│               benchflow job                      │
+│                 Harbor Harness                   │
 │  ┌────────────────────────────────────────────┐  │
-│  │           Task Container (Docker)          │  │
+│  │           Task Container                   │  │
 │  │  ┌──────────────────────────────────────┐  │  │
-│  │  │       openhands                      │  │  │
+│  │  │       OpenHands SDK Agent            │  │  │
 │  │  │  - Terminal tool                     │  │  │
 │  │  │  - File editor tool                  │  │  │
+│  │  │  - Task tracker tool                 │  │  │
 │  │  └──────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────┘
@@ -157,5 +158,6 @@ The integration uses the benchflow CLI as the evaluation harness:
 ## References
 
 - [SkillsBench](https://www.skillsbench.ai/) - The benchmark
-- [benchflow](https://github.com/benchflow-ai/benchflow) - The evaluation harness
-- [benchflow CLI reference](https://github.com/benchflow-ai/benchflow/blob/main/docs/cli-reference.md) - CLI documentation
+- [Harbor](https://harborframework.com) - The evaluation harness
+- [OpenHands SDK](https://github.com/OpenHands/software-agent-sdk) - The agent SDK
+- [ATIF Specification](https://github.com/laude-institute/harbor/blob/main/docs/rfcs/0001-trajectory-format.md) - Trajectory format

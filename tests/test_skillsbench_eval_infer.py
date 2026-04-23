@@ -39,6 +39,23 @@ class TestProcessSkillsbenchResults:
         assert result["unresolved_instances"] == 0
         assert "benchflow/weighted-gdp-calc" in result["resolved_ids"]
 
+    def test_unresolved_instance(self, tmp_path: Path) -> None:
+        """Test processing an unresolved (passed=False) instance."""
+        input_file = tmp_path / "unresolved.jsonl"
+        output_file = tmp_path / "unresolved.report.json"
+
+        entry = {
+            "instance_id": "benchflow/task-1",
+            "test_result": {"passed": False, "rewards": {"reward": 0.0}},
+            "error": None,
+        }
+        input_file.write_text(json.dumps(entry) + "\n")
+
+        result = process_skillsbench_results(str(input_file), str(output_file))
+
+        assert result["resolved_instances"] == 0
+        assert result["unresolved_instances"] == 1
+
     def test_instance_with_error(self, tmp_path: Path) -> None:
         """Test processing an instance that errored."""
         input_file = tmp_path / "error.jsonl"
