@@ -10,6 +10,8 @@ Example:
 
 import hashlib
 import os
+import shutil
+import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -32,7 +34,6 @@ from benchmarks.utils.build_utils import (
     capture_output,
     default_build_output_dir,
     get_build_parser,
-    run_docker_build_layer,
 )
 from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
@@ -133,6 +134,19 @@ def collect_base_images(
     return [get_base_docker_image(repo, docker_image_prefix) for repo in repos]
 
 
+def _log_disk(label: str) -> None:
+    """Log free disk space to stderr so it appears in the GH Actions log."""
+    try:
+        usage = shutil.disk_usage("/")
+        free_gib = usage.free / (1024**3)
+        total_gib = usage.total / (1024**3)
+        used_pct = (usage.used / usage.total) * 100
+        msg = f"[disk] {label}: {free_gib:.1f} GiB free / {total_gib:.1f} GiB total ({used_pct:.1f}% used)\n"
+        os.write(2, msg.encode())  # write to original fd 2 (bypasses capture_output redirect)
+    except Exception:
+        pass
+
+
 def _assemble_commit0_image(
     *,
     base_image: str,
@@ -141,21 +155,50 @@ def _assemble_commit0_image(
     git_sha: str,
     push: bool,
 ) -> BuildOutput:
-    result = run_docker_build_layer(
-        dockerfile=COMMIT0_AGENT_LAYER_DOCKERFILE,
-        context=COMMIT0_AGENT_LAYER_DOCKERFILE.parent,
-        tags=[final_tag],
-        build_args={
-            "BASE_IMAGE": base_image,
-            "BUILDER_IMAGE": builder_tag,
-            "OPENHANDS_BUILD_GIT_SHA": git_sha,
-        },
-        push=push,
-        platform="linux/amd64",
-        load=not push,
-    )
-    result.base_image = base_image
-    return result
+    cmd = [
+        "docker",
+        "buildx",
+        "build",
+        "--file",
+        str(COMMIT0_AGENT_LAYER_DOCKERFILE),
+        "--build-arg",
+        f"BASE_IMAGE={base_image}",
+        "--build-arg",
+        f"BUILDER_IMAGE={builder_tag}",
+        "--build-arg",
+        f"OPENHANDS_BUILD_GIT_SHA={git_sha}",
+        "--tag",
+        final_tag,
+        "--platform",
+        "linux/amd64",
+    ]
+    if push:
+        cmd.append("--push")
+    else:
+        cmd.append("--load")
+    cmd.append(str(COMMIT0_AGENT_LAYER_DOCKERFILE.parent))
+
+    header = f"\n=== commit0 docker build: {base_image} → {final_tag} ===\n"
+    os.write(2, header.encode())
+    _log_disk(f"pre-build {base_image}")
+
+    # Run without capture_output so workers stream directly to the inherited OS
+    # file descriptors (fd 1/2 = GH Actions log). This makes output visible in
+    # the step log in real-time — critical for diagnosing mid-build failures
+    # where the runner is killed before any Python-level logging can flush.
+    proc = subprocess.run(cmd)
+
+    _log_disk(f"post-build {base_image}")
+    footer = f"=== done: {base_image} exit={proc.returncode} ===\n"
+    os.write(2, footer.encode())
+
+    if proc.returncode != 0:
+        return BuildOutput(
+            base_image=base_image,
+            tags=[],
+            error=f"docker buildx build exited {proc.returncode} for {base_image}",
+        )
+    return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
 
 
 def _assemble_commit0_with_logging(
@@ -238,6 +281,11 @@ def assemble_commit0_agent_images(
     manifest_file = build_dir / "manifest.jsonl"
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
 
+    _log_disk("pre-assembly")
+    logger.info(
+        "Starting commit0 assembly: %d images, max_workers=%d", len(base_images), max_workers
+    )
+
     built = 0
     skipped = 0
     failures = 0
@@ -295,12 +343,16 @@ def assemble_commit0_agent_images(
                     if result.error or not result.tags:
                         failures += 1
                         status = "❌ Failed"
+                        logger.error(
+                            "Assembly FAILED for %s: %s", base_image, result.error
+                        )
                     elif result.status == "skipped_remote_exists":
                         skipped += 1
                         status = "⏭ Skipped"
                     else:
                         built += 1
                         status = "✅ Done"
+                    _log_disk(f"after {base_image} ({status})")
 
                 in_progress.discard(base_image)
                 pbar.update(1)

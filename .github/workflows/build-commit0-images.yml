@@ -180,6 +180,15 @@ jobs:
         run: |
           make build
 
+      - name: Pre-flight disk and Docker status
+        run: |
+          echo "=== Disk usage ==="
+          df -h
+          echo "=== Memory ==="
+          free -h
+          echo "=== Docker system df ==="
+          docker system df || true
+
       - name: Build and push Commit0 images
         run: |
           set -euo pipefail
