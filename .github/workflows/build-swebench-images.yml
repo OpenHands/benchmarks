@@ -215,22 +215,35 @@ jobs:
         run: |
           make build
 
-      - name: "Preflight: verify runner disk"
+      - name: "Preflight: prune cache and verify BuildKit disk"
         run: |
           set -euo pipefail
-          df -h / || true
-          docker system df || true
-          # ubuntu-latest-8core has about 290 GiB total; after the free-disk
-          # step the SWT validation runs reported about 260 GiB free. Refuse
-          # to start a full cold build if the runner is far below that baseline.
-          MIN_GB=150
-          FREE_BYTES=$(df -B1 --output=avail / | tail -n1 | tr -d ' ')
-          MIN_BYTES=$((MIN_GB * 1024 * 1024 * 1024))
-          if [ "${FREE_BYTES:-0}" -lt "$MIN_BYTES" ]; then
-            echo "::error::Root filesystem has less than ${MIN_GB} GiB free (${FREE_BYTES} B). Refusing to start a full cold build."
-            exit 1
+          KEEP_GB=60
+          echo "Pruning BuildKit cache (target max-storage ${KEEP_GB} GiB, no filters)..."
+          # Prefer newer max-storage flag; fall back to keep-storage if not supported.
+          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g; then
+            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
           fi
-          echo "Root filesystem free: ${FREE_BYTES} B (min ${MIN_BYTES} B) - ok"
+
+          if df -B1 /var/lib/buildkit > /tmp/buildkit_df 2>/dev/null; then
+            LINE=$(tail -n1 /tmp/buildkit_df)
+            TOTAL=$(echo "$LINE" | awk '{print $2}')
+            USED=$(echo "$LINE" | awk '{print $3}')
+            FREE=$(echo "$LINE" | awk '{print $4}')
+            if [ -n "$TOTAL" ] && [ -n "$FREE" ]; then
+              PCT=$(( 100 * USED / TOTAL ))
+              echo "BuildKit disk: used ${USED} / ${TOTAL} bytes (${PCT}%); free ${FREE} bytes"
+              MIN=$((75 * 1024 * 1024 * 1024))
+              if [ "$FREE" -lt "$MIN" ]; then
+                echo "::error::Not enough free space on /var/lib/buildkit (${FREE} bytes free, need >= ${MIN})"
+                exit 1
+              fi
+            else
+              echo "Warning: unable to parse df output for /var/lib/buildkit"
+            fi
+          else
+            echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
 
       - name: Build and push SWE-Bench images
         run: |
