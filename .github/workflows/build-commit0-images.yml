@@ -86,7 +86,7 @@ env:
   DATASET: wentingzhao/commit0_combined
   SPLIT: test
   REPO_SPLIT: lite
-  MAX_WORKERS: '1'
+  MAX_WORKERS: '4'
   N_LIMIT: ''
   INSTANCE_IDS: ''
   SELECT_FILE: ''
@@ -103,7 +103,7 @@ jobs:
 
     timeout-minutes: 600  # 10h — matches the old orchestrate_eval.py polling bound in the evaluation repo
 
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest-8core
 
     permissions:
       contents: read
