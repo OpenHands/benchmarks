@@ -65,7 +65,7 @@ RUN set -eux; \
     PATH="$ACP_NODE_DIR/bin:$PATH"; \
     node --version; \
     npm install -g \
-      @zed-industries/claude-agent-acp@0.23.1 \
+      @agentclientprotocol/claude-agent-acp@0.30.0 \
       @zed-industries/codex-acp@0.11.1 \
       @google/gemini-cli@0.38.0; \
     for bin in claude-agent-acp codex-acp gemini; do \
