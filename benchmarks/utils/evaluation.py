@@ -12,6 +12,7 @@ import asyncio
 import base64
 import json
 import os
+import tarfile
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -45,8 +46,13 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
-from openhands.sdk import __version__ as openhands_sdk_version, get_logger
+from openhands.sdk import (
+    ConversationStats,
+    __version__ as openhands_sdk_version,
+    get_logger,
+)
 from openhands.sdk.critic import CriticBase
+from openhands.sdk.llm import Metrics
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.workspace import APIRemoteWorkspace
 
@@ -229,18 +235,109 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
+    def _load_metrics_from_conversation_archive(
+        self,
+        conversation_archive_path: Path | None,
+    ) -> Metrics | None:
+        """Recover aggregated metrics from a saved conversation archive."""
+        if conversation_archive_path is None or not conversation_archive_path.exists():
+            return None
+
+        try:
+            with tarfile.open(conversation_archive_path, mode="r:gz") as conv_tar:
+                base_state_file = next(
+                    (
+                        member
+                        for member in conv_tar.getmembers()
+                        if member.name.endswith("base_state.json")
+                    ),
+                    None,
+                )
+                if base_state_file is None:
+                    return None
+
+                base_state_obj = conv_tar.extractfile(base_state_file)
+                if base_state_obj is None:
+                    return None
+
+                base_state = json.loads(base_state_obj.read().decode("utf-8"))
+
+            stats = ConversationStats.model_validate((base_state.get("stats") or {}))
+            metrics = stats.get_combined_metrics()
+            usage = metrics.accumulated_token_usage
+            if metrics.accumulated_cost == 0 and (
+                usage is None
+                or (
+                    usage.prompt_tokens == 0
+                    and usage.completion_tokens == 0
+                    and usage.cache_read_tokens == 0
+                    and usage.cache_write_tokens == 0
+                    and usage.reasoning_tokens == 0
+                )
+            ):
+                return None
+            return metrics
+        except Exception as exc:
+            logger.warning(
+                "[worker] Failed to recover metrics from %s: %s",
+                conversation_archive_path,
+                exc,
+            )
+            return None
+
+    def _query_proxy_cost(
+        self,
+        instance_id: str,
+        virtual_key: str | None,
+    ) -> float | None:
+        """Query exact per-instance spend from the LiteLLM proxy."""
+        if virtual_key is None:
+            return None
+
+        proxy_cost = get_key_spend(virtual_key)
+        if proxy_cost is None or proxy_cost == 0.0:
+            logger.info(
+                "[worker] proxy spend not yet available for %s, retrying...",
+                instance_id,
+            )
+            for delay in (2, 4, 8, 16):
+                time.sleep(delay)
+                retry_cost = get_key_spend(virtual_key)
+                if retry_cost is not None and retry_cost > 0:
+                    proxy_cost = retry_cost
+                    break
+
+        if proxy_cost is not None and proxy_cost == 0.0:
+            logger.warning(
+                "[worker] proxy cost still $0 for %s after retries — "
+                "spend may not have been committed by the proxy",
+                instance_id,
+            )
+
+        return proxy_cost
+
     def _create_error_output(
-        self, instance: EvalInstance, error: Exception, retry_count: int
+        self,
+        instance: EvalInstance,
+        error: Exception,
+        retry_count: int,
+        metrics: Metrics | None = None,
+        proxy_cost: float | None = None,
     ) -> EvalOutput:
         """Create an EvalOutput object for a failed instance."""
+        test_result: dict[str, Any] = {}
+        if proxy_cost is not None:
+            test_result["proxy_cost"] = proxy_cost
+
         return EvalOutput(
             instance_id=instance.id,
-            test_result={},
+            test_result=test_result,
             instruction=None,
             error=(
                 f"Instance failed after {retry_count} retries. Last error: {str(error)}"
             )[:200],
             history=[],
+            metrics=metrics,
             instance=_to_serializable(instance.data),
         )
 
@@ -248,7 +345,7 @@ class Evaluation(ABC, BaseModel):
         self,
         workspace: RemoteWorkspace,
         instance: EvalInstance,
-    ) -> None:
+    ) -> Path | None:
         """Capture conversation trajectory from the remote runtime.
 
         Persists the /workspace/conversations directory from the remote runtime
@@ -286,17 +383,20 @@ class Evaluation(ABC, BaseModel):
                     instance.id,
                     conv_tar_path,
                 )
-            else:
-                logger.debug(
-                    "[worker] No conversation archive for %s (directory not found or empty)",
-                    instance.id,
-                )
+                return conv_tar_path
+
+            logger.debug(
+                "[worker] No conversation archive for %s (directory not found or empty)",
+                instance.id,
+            )
+            return None
         except Exception as e:
             logger.warning(
                 "[worker] Failed to capture conversation trajectory for %s: %s",
                 instance.id,
                 e,
             )
+            return None
 
     # --- Runner ---
     def run(
@@ -761,17 +861,22 @@ class Evaluation(ABC, BaseModel):
         return min(factor, self.metadata.max_resource_factor)
 
     def _cleanup_workspace(
-        self, workspace: RemoteWorkspace, instance: EvalInstance
+        self,
+        workspace: RemoteWorkspace,
+        instance: EvalInstance,
+        *,
+        capture_archive: bool = True,
     ) -> None:
-        """Clean up workspace resources and capture conversation archive."""
-        try:
-            self._capture_conversation_archive(workspace, instance)
-        except Exception as archive_error:
-            logger.warning(
-                "[worker] Failed to capture conversation archive for %s: %s",
-                instance.id,
-                archive_error,
-            )
+        """Clean up workspace resources and optionally capture conversation archive."""
+        if capture_archive:
+            try:
+                self._capture_conversation_archive(workspace, instance)
+            except Exception as archive_error:
+                logger.warning(
+                    "[worker] Failed to capture conversation archive for %s: %s",
+                    instance.id,
+                    archive_error,
+                )
         try:
             workspace.__exit__(None, None, None)
             logger.debug("[worker] cleaned up workspace for id=%s", instance.id)
@@ -915,6 +1020,7 @@ class Evaluation(ABC, BaseModel):
         workspace = None
         exec_span = None
         virtual_key: str | None = None
+        conversation_archive_path: Path | None = None
         try:
             # Serialize span context and inject via environment variable so
             # workspace can pick it up. Use a lock to avoid races between
@@ -979,39 +1085,14 @@ class Evaluation(ABC, BaseModel):
             # Query exact cost from the LiteLLM proxy virtual key.
             # Stored alongside the SDK's token-count estimate so both
             # values are available in the output JSON.
-            if virtual_key is not None:
-                proxy_cost = get_key_spend(virtual_key)
-
-                # LiteLLM proxy commits spend asynchronously. For fast
-                # conversations the /key/info query can return 0 for up to
-                # ~15-20 s after the last LLM call.  Retry with exponential
-                # backoff (2+4+8+16 = 30 s max) to cover the tail latency.
-                if proxy_cost is None or proxy_cost == 0.0:
-                    logger.info(
-                        "[worker] proxy spend not yet available for %s, retrying...",
-                        instance.id,
-                    )
-                    for delay in (2, 4, 8, 16):
-                        time.sleep(delay)
-                        retry_cost = get_key_spend(virtual_key)
-                        if retry_cost is not None and retry_cost > 0:
-                            proxy_cost = retry_cost
-                            break
-
-                if proxy_cost is not None and proxy_cost == 0.0:
-                    logger.warning(
-                        "[worker] proxy cost still $0 for %s after retries — "
-                        "spend may not have been committed by the proxy",
-                        instance.id,
-                    )
-
-                if proxy_cost is not None:
-                    out.test_result["proxy_cost"] = proxy_cost
-                    logger.info(
-                        "[worker] proxy cost for %s: $%.6f",
-                        instance.id,
-                        proxy_cost,
-                    )
+            proxy_cost = self._query_proxy_cost(instance.id, virtual_key)
+            if proxy_cost is not None:
+                out.test_result["proxy_cost"] = proxy_cost
+                logger.info(
+                    "[worker] proxy cost for %s: $%.6f",
+                    instance.id,
+                    proxy_cost,
+                )
 
             logger.info("[worker] done id=%s", instance.id)
             return out, None
@@ -1061,8 +1142,22 @@ class Evaluation(ABC, BaseModel):
                     f"{max_retries + 1} attempts. Last error: {str(e)}",
                     exc_info=True,
                 )
-                # Create error output for final failure
-                error_output = self._create_error_output(instance, e, max_retries)
+                if workspace is not None:
+                    conversation_archive_path = self._capture_conversation_archive(
+                        workspace,
+                        instance,
+                    )
+                recovered_metrics = self._load_metrics_from_conversation_archive(
+                    conversation_archive_path
+                )
+                proxy_cost = self._query_proxy_cost(instance.id, virtual_key)
+                error_output = self._create_error_output(
+                    instance,
+                    e,
+                    max_retries,
+                    metrics=recovered_metrics,
+                    proxy_cost=proxy_cost,
+                )
                 if runtime_runs:
                     error_output.runtime_runs = runtime_runs
                 return error_output, None
@@ -1073,7 +1168,11 @@ class Evaluation(ABC, BaseModel):
                 delete_key(virtual_key)
             set_current_virtual_key(None)
             if workspace is not None:
-                self._cleanup_workspace(workspace, instance)
+                self._cleanup_workspace(
+                    workspace,
+                    instance,
+                    capture_archive=conversation_archive_path is None,
+                )
             if exec_span is not None:
                 _safe_end_span(exec_span, "exec_span")
 
