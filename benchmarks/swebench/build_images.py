@@ -182,12 +182,6 @@ def get_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Rebuild final images even if matching remote tags already exist",
     )
-    parser.add_argument(
-        "--agent-type",
-        type=str,
-        default="default",
-        help="Agent type: default, acp-claude, acp-codex",
-    )
     return parser
 
 
