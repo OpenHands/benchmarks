@@ -171,21 +171,6 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
-      # Reclaim ~30 GB of runner disk by removing preinstalled toolchains we
-      # don't use. Needed since the Blacksmith -> ubuntu-latest-8core migration
-      # (PR #651); without this, full cold builds OOM on disk partway through
-      # assembly (issue OpenHands/evaluation#495). Pinned by SHA.
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: false
-          swap-storage: true
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -205,25 +190,11 @@ jobs:
         run: |
           make build
 
-      # Runs right after setup-buildx creates the docker-container builder, so
-      # the buildx cache is empty — this step is just a sanity gate on
-      # root-fs free space. Earlier revisions also ran `docker buildx prune
-      # --max-storage` here (unsupported flag, always failed over to
-      # --keep-storage and reclaimed 0 B) and a `df /var/lib/buildkit` check
-      # (path doesn't exist on GH-hosted runners because BuildKit runs in the
-      # buildx container, so the check always printed "skipping"). Both were
-      # removed.
       - name: "Preflight: verify runner disk"
         run: |
           set -euo pipefail
           df -h / || true
           docker system df || true
-          # ubuntu-latest-8core has 290 GiB total; after `jlumbroso/free-disk-space`
-          # the runner reliably reports ~260 GiB free (validated across runs
-          # 24642237265, 24670432554, 24777009977). 150 GiB picks the midpoint
-          # between that steady-state and the ~75 GiB a cold assembly phase has
-          # been observed to consume — if we're below 150 GiB here, the runner
-          # is in an unexpected state and the build will fail anyway.
           MIN_GB=150
           FREE_BYTES=$(df -B1 --output=avail / | tail -n1 | tr -d ' ')
           MIN_BYTES=$((MIN_GB * 1024 * 1024 * 1024))
