@@ -10,7 +10,6 @@ Example:
 
 import hashlib
 import os
-import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -33,6 +32,7 @@ from benchmarks.utils.build_utils import (
     capture_output,
     default_build_output_dir,
     get_build_parser,
+    run_docker_build_layer,
 )
 from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
@@ -141,47 +141,21 @@ def _assemble_commit0_image(
     git_sha: str,
     push: bool,
 ) -> BuildOutput:
-    # Build into the local Docker daemon (same pattern as swebench assemble_agent_image).
-    # This avoids BuildKit content-store accumulation that occurs with --push via buildx.
-    build_cmd = [
-        "docker", "build",
-        "--file", str(COMMIT0_AGENT_LAYER_DOCKERFILE),
-        "--build-arg", f"BASE_IMAGE={base_image}",
-        "--build-arg", f"BUILDER_IMAGE={builder_tag}",
-        "--build-arg", f"OPENHANDS_BUILD_GIT_SHA={git_sha}",
-        "--tag", final_tag,
-        str(COMMIT0_AGENT_LAYER_DOCKERFILE.parent),
-    ]
-    proc = subprocess.run(build_cmd, capture_output=True, text=True)
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    if proc.returncode != 0:
-        error = proc.stderr.strip() or proc.stdout.strip() or f"docker build failed (rc={proc.returncode})"
-        return BuildOutput(base_image=base_image, tags=[], error=error)
-
-    if push:
-        push_proc = subprocess.run(["docker", "push", final_tag], capture_output=True, text=True)
-        if push_proc.stdout:
-            print(push_proc.stdout, end="")
-        if push_proc.stderr:
-            print(push_proc.stderr, end="", file=sys.stderr)
-        if push_proc.returncode != 0:
-            error = push_proc.stderr.strip() or f"docker push failed (rc={push_proc.returncode})"
-            return BuildOutput(base_image=base_image, tags=[], error=error)
-
-        # Free local daemon storage and limit embedded BuildKit cache after each push,
-        # matching what swebench's assemble_agent_image does (PR #690).
-        keep_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
-        subprocess.run(["docker", "rmi", "-f", final_tag], capture_output=True)
-        subprocess.run(["docker", "system", "prune", "-f"], capture_output=True)
-        subprocess.run(
-            ["docker", "builder", "prune", "-af", "--keep-storage", f"{keep_gb}g"],
-            capture_output=True,
-        )
-
-    return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
+    result = run_docker_build_layer(
+        dockerfile=COMMIT0_AGENT_LAYER_DOCKERFILE,
+        context=COMMIT0_AGENT_LAYER_DOCKERFILE.parent,
+        tags=[final_tag],
+        build_args={
+            "BASE_IMAGE": base_image,
+            "BUILDER_IMAGE": builder_tag,
+            "OPENHANDS_BUILD_GIT_SHA": git_sha,
+        },
+        push=push,
+        platform="linux/amd64",
+        load=not push,
+    )
+    result.base_image = base_image
+    return result
 
 
 def _assemble_commit0_with_logging(
