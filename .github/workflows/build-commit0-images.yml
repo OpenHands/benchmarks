@@ -180,13 +180,21 @@ jobs:
         run: |
           make build
 
-      - name: Pre-flight disk and Docker status
+      - name: "Preflight: prune cache and verify disk"
         run: |
-          echo "=== Disk usage ==="
+          set -euo pipefail
+          echo "=== Pre-prune disk ==="
           df -h
-          echo "=== Memory ==="
           free -h
-          echo "=== Docker system df ==="
+          docker system df || true
+          KEEP_GB=30
+          echo "Pruning BuildKit cache to ${KEEP_GB} GiB..."
+          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g 2>/dev/null; then
+            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
+          fi
+          docker system prune -f || true
+          echo "=== Post-prune disk ==="
+          df -h
           docker system df || true
 
       - name: Build and push Commit0 images
