@@ -198,6 +198,20 @@ def _assemble_commit0_image(
             tags=[],
             error=f"docker buildx build exited {proc.returncode} for {base_image}",
         )
+
+    # Release disk after a successful push. ubuntu-24.04 runners have ~14 GiB
+    # free; building and exporting 16 large images without pruning fills the
+    # BuildKit content store and kills the runner mid-export.
+    if push:
+        keep_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "8"))
+        for prune_cmd in [
+            ["docker", "rmi", "-f", final_tag],
+            ["docker", "system", "prune", "-f"],
+            ["docker", "builder", "prune", "-af", "--keep-storage", f"{keep_gb}g"],
+        ]:
+            subprocess.run(prune_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _log_disk(f"post-prune {base_image}")
+
     return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
 
 
@@ -285,6 +299,14 @@ def assemble_commit0_agent_images(
     logger.info(
         "Starting commit0 assembly: %d images, max_workers=%d", len(base_images), max_workers
     )
+    # Prune BuildKit cache accumulated during the builder-image build phase
+    # before starting the per-image assembly loop.
+    subprocess.run(
+        ["docker", "buildx", "prune", "-af"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _log_disk("post-pre-assembly-prune")
 
     built = 0
     skipped = 0
