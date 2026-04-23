@@ -11,8 +11,11 @@ Usage:
 import argparse
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,13 +32,21 @@ logger = get_logger(__name__)
 # Output filename for results
 OUTPUT_FILENAME = "output.jsonl"
 
+SKILLSBENCH_REPO_URL = "https://github.com/benchflow-ai/skillsbench.git"
+SKILLSBENCH_REPO_BRANCH = "main"
+DATASET_CACHE_DIR = Path(__file__).parent / "data"
+TASKS_CACHE_DIR = DATASET_CACHE_DIR / "tasks"
+TASKS_METADATA_PATH = DATASET_CACHE_DIR / "source.json"
+REGISTRY_DATASET_PREFIX = "benchflow/skillsbench"
+INSTANCE_ID_PREFIX = "benchflow"
+
 
 def check_harbor_installed() -> bool:
     """Check if harbor CLI is installed and available."""
     harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
     try:
         result = subprocess.run(
-            [harbor_exe, "--version"],
+            [harbor_exe, "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -45,9 +56,252 @@ def check_harbor_installed() -> bool:
         return False
 
 
+def _run_command(cmd: list[str], error_message: str) -> str:
+    """Run a subprocess command and return stdout."""
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"{error_message}: {stderr}")
+    return result.stdout.strip()
+
+
+def _get_supported_task_filter_flag(harbor_exe: str) -> str:
+    """Detect whether Harbor expects --task-name or --include-task-name."""
+    try:
+        result = subprocess.run(
+            [harbor_exe, "run", "--help"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return "--include-task-name"
+
+    help_text = f"{result.stdout}\n{result.stderr}"
+    supported_flags = set(re.findall(r"(?<![\w-])--[a-z0-9-]+", help_text))
+    if "--include-task-name" in supported_flags:
+        return "--include-task-name"
+    if "--task-name" in supported_flags:
+        return "--task-name"
+    return "--include-task-name"
+
+
+def _get_supported_agent_name(harbor_exe: str) -> str:
+    """Detect whether Harbor exposes the OpenHands agent as openhands or openhands-sdk."""
+    try:
+        result = subprocess.run(
+            [harbor_exe, "run", "--help"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return HARBOR_DEFAULTS["agent_name"]
+
+    help_text = f"{result.stdout}\n{result.stderr}"
+    compact_help_text = re.sub(r"[^a-z0-9-]+", "", help_text.lower())
+    if "openhands-sdk" in compact_help_text:
+        return "openhands-sdk"
+    if "openhands" in compact_help_text:
+        return "openhands"
+    return HARBOR_DEFAULTS["agent_name"]
+
+
+def get_skillsbench_main_commit(
+    repo_url: str = SKILLSBENCH_REPO_URL,
+    branch: str = SKILLSBENCH_REPO_BRANCH,
+) -> str:
+    """Resolve the latest commit hash for the upstream SkillsBench branch."""
+    stdout = _run_command(
+        ["git", "ls-remote", repo_url, f"refs/heads/{branch}"],
+        "Failed to resolve SkillsBench upstream commit",
+    )
+    commit_hash, _, ref = stdout.partition("\t")
+    if not commit_hash or ref != f"refs/heads/{branch}":
+        raise RuntimeError(
+            f"Unexpected git ls-remote output for {repo_url} {branch}: {stdout}"
+        )
+    return commit_hash
+
+
+def _load_cached_commit(metadata_path: Path = TASKS_METADATA_PATH) -> str | None:
+    """Load the cached upstream commit hash for the local task snapshot."""
+    if not metadata_path.is_file():
+        return None
+
+    try:
+        with open(metadata_path, encoding="utf-8") as f:
+            metadata = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(
+            "Ignoring unreadable SkillsBench dataset metadata at %s: %s",
+            metadata_path,
+            e,
+        )
+        return None
+
+    commit_hash = metadata.get("commit_hash")
+    return commit_hash if isinstance(commit_hash, str) and commit_hash else None
+
+
+def download_skillsbench_tasks(
+    commit_hash: str,
+    tasks_dir: Path = TASKS_CACHE_DIR,
+    metadata_path: Path = TASKS_METADATA_PATH,
+    repo_url: str = SKILLSBENCH_REPO_URL,
+    branch: str = SKILLSBENCH_REPO_BRANCH,
+) -> None:
+    """Download only the SkillsBench tasks directory for a specific commit."""
+    data_dir = tasks_dir.parent
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        "Downloading SkillsBench tasks from %s@%s into %s",
+        repo_url,
+        commit_hash,
+        tasks_dir,
+    )
+
+    with tempfile.TemporaryDirectory(dir=data_dir) as temp_dir:
+        clone_dir = Path(temp_dir) / "skillsbench"
+        _run_command(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                branch,
+                "--filter=blob:none",
+                "--sparse",
+                repo_url,
+                str(clone_dir),
+            ],
+            "Failed to clone SkillsBench repository",
+        )
+        _run_command(
+            ["git", "-C", str(clone_dir), "sparse-checkout", "set", "tasks"],
+            "Failed to sparsely checkout SkillsBench tasks",
+        )
+        checked_out_commit = _run_command(
+            ["git", "-C", str(clone_dir), "rev-parse", "HEAD"],
+            "Failed to read cloned SkillsBench commit",
+        )
+        if checked_out_commit != commit_hash:
+            raise RuntimeError(
+                "Cloned SkillsBench commit does not match upstream HEAD: "
+                f"expected {commit_hash}, got {checked_out_commit}"
+            )
+
+        source_tasks_dir = clone_dir / "tasks"
+        if not source_tasks_dir.is_dir():
+            raise RuntimeError(
+                f"SkillsBench clone at {clone_dir} does not contain a tasks/ directory"
+            )
+
+        if tasks_dir.exists():
+            shutil.rmtree(tasks_dir)
+        shutil.copytree(source_tasks_dir, tasks_dir)
+
+    metadata = {
+        "repo_url": repo_url,
+        "branch": branch,
+        "commit_hash": commit_hash,
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+
+def ensure_skillsbench_tasks(
+    tasks_dir: Path = TASKS_CACHE_DIR,
+    metadata_path: Path = TASKS_METADATA_PATH,
+    repo_url: str = SKILLSBENCH_REPO_URL,
+    branch: str = SKILLSBENCH_REPO_BRANCH,
+) -> Path:
+    """Ensure a local SkillsBench task snapshot exists and matches upstream HEAD."""
+    cached_commit = _load_cached_commit(metadata_path)
+    has_cached_tasks = tasks_dir.is_dir() and any(tasks_dir.iterdir())
+
+    try:
+        upstream_commit = get_skillsbench_main_commit(repo_url=repo_url, branch=branch)
+    except RuntimeError as e:
+        if has_cached_tasks and cached_commit:
+            logger.warning(
+                "Failed to check SkillsBench upstream HEAD; using cached tasks from "
+                "%s (%s): %s",
+                tasks_dir,
+                cached_commit,
+                e,
+            )
+            return tasks_dir
+        raise
+
+    if has_cached_tasks and cached_commit == upstream_commit:
+        logger.info(
+            "Using cached SkillsBench tasks at %s (commit %s)",
+            tasks_dir,
+            upstream_commit,
+        )
+        return tasks_dir
+
+    if has_cached_tasks:
+        logger.info(
+            "Refreshing SkillsBench tasks in %s from commit %s to %s",
+            tasks_dir,
+            cached_commit or "<unknown>",
+            upstream_commit,
+        )
+    else:
+        logger.info("No cached SkillsBench tasks found at %s; downloading", tasks_dir)
+
+    download_skillsbench_tasks(
+        commit_hash=upstream_commit,
+        tasks_dir=tasks_dir,
+        metadata_path=metadata_path,
+        repo_url=repo_url,
+        branch=branch,
+    )
+    return tasks_dir
+
+
+def resolve_skillsbench_dataset(dataset: str) -> tuple[str, bool]:
+    """Resolve the dataset argument to a synced local snapshot or registry id."""
+    if dataset == INFER_DEFAULTS["dataset"]:
+        local_tasks_dir = ensure_skillsbench_tasks()
+        return str(local_tasks_dir.resolve()), True
+    if dataset == REGISTRY_DATASET_PREFIX or dataset.startswith(
+        f"{REGISTRY_DATASET_PREFIX}@"
+    ):
+        return dataset, False
+    raise ValueError(
+        "Unsupported SkillsBench dataset source. Use the default synced "
+        "SkillsBench snapshot or a Harbor registry id matching "
+        "'benchflow/skillsbench@<version>'."
+    )
+
+
+def _normalize_task_filter_value(task_id: str, *, dataset_is_path: bool) -> str:
+    """Normalize task filter values for Harbor's local-path dataset handling."""
+    if dataset_is_path:
+        return task_id.rsplit("/", 1)[-1]
+    return task_id
+
+
+def _canonicalize_instance_id(task_name: str) -> str:
+    """Normalize SkillsBench task names to stable benchflow/<task-name> ids."""
+    if "/" in task_name:
+        return task_name
+    return f"{INSTANCE_ID_PREFIX}/{task_name}"
+
+
 def run_harbor_evaluation(
     llm: LLM,
     dataset: str,
+    *,
+    dataset_is_path: bool,
     output_dir: str,
     num_workers: int = 1,
     task_ids: list[str] | None = None,
@@ -57,7 +311,8 @@ def run_harbor_evaluation(
 
     Args:
         llm: LLM configuration for the agent.
-        dataset: Harbor dataset name (e.g., benchflow/skillsbench).
+        dataset: Synced SkillsBench task snapshot path or Harbor registry id.
+        dataset_is_path: Whether ``dataset`` should be passed via ``--path``.
         output_dir: Directory to store output files.
         num_workers: Number of parallel workers.
         task_ids: Optional list of specific task IDs to run.
@@ -69,16 +324,18 @@ def run_harbor_evaluation(
     harbor_output_dir = Path(output_dir) / "harbor_output"
     harbor_output_dir.mkdir(parents=True, exist_ok=True)
     harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
+    agent_name = _get_supported_agent_name(harbor_exe)
+    task_filter_flag = _get_supported_task_filter_flag(harbor_exe)
 
     # Build harbor command using harbor CLI flags.
     # Use absolute path for --jobs-dir to avoid CWD-relative path issues.
     cmd = [
         harbor_exe,
         "run",
-        "-d",
+        "--path" if dataset_is_path else "-d",
         dataset,
         "-a",
-        HARBOR_DEFAULTS["agent_name"],
+        agent_name,
         "-m",
         llm.model,
         "--jobs-dir",
@@ -87,21 +344,17 @@ def run_harbor_evaluation(
         str(num_workers),
     ]
 
-    # Pass LLM credentials as agent environment variables
-    if llm.api_key:
-        api_key = (
-            llm.api_key.get_secret_value()
-            if isinstance(llm.api_key, SecretStr)
-            else llm.api_key
-        )
-        cmd.extend(["--ae", f"LLM_API_KEY={api_key}"])
-    if llm.base_url:
-        cmd.extend(["--ae", f"LLM_BASE_URL={llm.base_url}"])
-
     # Add specific task names if provided
     if task_ids:
         for task_id in task_ids:
-            cmd.extend(["--include-task-name", task_id])
+            cmd.extend(
+                [
+                    task_filter_flag,
+                    _normalize_task_filter_value(
+                        task_id, dataset_is_path=dataset_is_path
+                    ),
+                ]
+            )
 
     if n_limit is not None:
         cmd.extend(["--n-tasks", str(n_limit)])
@@ -131,10 +384,31 @@ def run_harbor_evaluation(
         )
 
         if result.returncode != 0:
-            logger.error(f"Harbor command failed with code {result.returncode}")
-            logger.error(f"stdout: {result.stdout}")
-            logger.error(f"stderr: {result.stderr}")
-            raise RuntimeError(f"Harbor evaluation failed: {result.stderr}")
+            if (
+                task_ids
+                and task_filter_flag == "--task-name"
+                and "No such option: --task-name" in result.stderr
+            ):
+                fallback_cmd = [
+                    "--include-task-name" if part == "--task-name" else part
+                    for part in cmd
+                ]
+                logger.warning(
+                    "Harbor does not support --task-name; retrying with "
+                    "--include-task-name"
+                )
+                result = subprocess.run(
+                    fallback_cmd,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+
+            if result.returncode != 0:
+                logger.error(f"Harbor command failed with code {result.returncode}")
+                logger.error(f"stdout: {result.stdout}")
+                logger.error(f"stderr: {result.stderr}")
+                raise RuntimeError(f"Harbor evaluation failed: {result.stderr}")
 
         logger.info("Harbor evaluation completed successfully")
         logger.info(f"stdout: {result.stdout}")
@@ -207,7 +481,9 @@ def convert_harbor_to_eval_output(
             with open(result_file) as f:
                 trial = json.load(f)
 
-            instance_id = trial.get("task_name", result_file.parent.name)
+            instance_id = _canonicalize_instance_id(
+                trial.get("task_name", result_file.parent.name)
+            )
 
             # Check for exceptions
             if trial.get("exception_info"):
@@ -256,7 +532,7 @@ def convert_harbor_to_eval_output(
             logger.error(f"Failed to process result file {result_file}: {e}")
             errors.append(
                 {
-                    "instance_id": result_file.parent.name,
+                    "instance_id": _canonicalize_instance_id(result_file.parent.name),
                     "error": str(e),
                     "test_result": {},
                 }
@@ -302,13 +578,14 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Run full skillsbench evaluation
+    # Run full skillsbench evaluation using a local tasks/ snapshot synced from
+    # https://github.com/benchflow-ai/skillsbench main
     uv run skillsbench-infer .llm_config/claude.json
 
     # Run specific tasks
     uv run skillsbench-infer .llm_config/claude.json --select tasks.txt
 
-    # Run with custom dataset version
+    # Run against a Harbor registry dataset instead of the synced GitHub tasks
     uv run skillsbench-infer .llm_config/claude.json --dataset benchflow/skillsbench@1.0
         """,
     )
@@ -322,7 +599,11 @@ Examples:
         "--dataset",
         type=str,
         default=INFER_DEFAULTS["dataset"],
-        help="Harbor dataset name (e.g., benchflow/skillsbench)",
+        help=(
+            "SkillsBench dataset source. The default value syncs tasks/ from the "
+            "benchflow-ai/skillsbench main branch. You can also pass a Harbor "
+            "registry id like benchflow/skillsbench@1.0."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -385,6 +666,20 @@ Examples:
         )
         sys.exit(1)
 
+    resolved_dataset = args.dataset
+    dataset_is_path = False
+    dataset_commit_hash: str | None = None
+    if not args.skip_harbor:
+        try:
+            resolved_dataset, dataset_is_path = resolve_skillsbench_dataset(
+                args.dataset
+            )
+        except ValueError as e:
+            logger.error(str(e))
+            sys.exit(1)
+        if dataset_is_path and args.dataset == INFER_DEFAULTS["dataset"]:
+            dataset_commit_hash = _load_cached_commit()
+
     # Construct output directory
     dataset_description = args.dataset.replace("/", "__").replace("@", "-")
     structured_output_dir = construct_eval_output_dir(
@@ -402,6 +697,9 @@ Examples:
     metadata = {
         "llm": llm.model_dump_json(),
         "dataset": args.dataset,
+        "resolved_dataset": resolved_dataset,
+        "dataset_is_path": dataset_is_path,
+        "dataset_commit_hash": dataset_commit_hash,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "harbor_agent": HARBOR_DEFAULTS["agent_name"],
         "note": args.note,
@@ -427,7 +725,8 @@ Examples:
         try:
             harbor_output_dir = run_harbor_evaluation(
                 llm=llm,
-                dataset=args.dataset,
+                dataset=resolved_dataset,
+                dataset_is_path=dataset_is_path,
                 output_dir=structured_output_dir,
                 num_workers=args.num_workers,
                 task_ids=task_ids,
