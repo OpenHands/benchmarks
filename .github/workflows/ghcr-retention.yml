@@ -58,6 +58,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          fmt() { python3 -c "import sys; v=sys.argv[1]; print(f'{int(v):,}' if v.lstrip('-').isdigit() else v)" "${1:-unknown}"; }
+
           VERSIONS=$(curl -sf \
             -H "Authorization: Bearer $PAT" \
             -H "Accept: application/vnd.github+json" \
@@ -75,17 +77,34 @@ jobs:
             URL=$([ -n "$NEXT" ] && echo "https://ghcr.io$NEXT" || echo "")
           done
 
+          if [[ "$VERSIONS" =~ ^[0-9]+$ ]] && [[ "$TAGS" =~ ^[0-9]+$ ]]; then
+            UNTAGGED=$((VERSIONS - TAGS))
+          else
+            UNTAGGED="unknown"
+          fi
+
           TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+          # Markdown table → step summary (rendered in the Actions UI "Summary" tab)
           {
             echo ""
-            echo "## Baseline (before cleanup)"
+            echo "## Baseline"
             echo ""
-            echo "| Metric | Value |"
-            echo "|---|---|"
-            echo "| timestamp | \`$TS\` |"
-            echo "| version_count (tagged + untagged) | \`$VERSIONS\` |"
-            echo "| tag_count (public registry) | \`$TAGS\` |"
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "_Measured at \`$TS\`_"
+            echo ""
+            echo "| Metric | Count |"
+            echo "| :--- | ---: |"
+            echo "| Total versions (tagged + untagged) | \`$(fmt "$VERSIONS")\` |"
+            echo "| Tagged versions (public registry) | \`$(fmt "$TAGS")\` |"
+            echo "| Untagged versions (derived) | \`$(fmt "$UNTAGGED")\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Plain-text block → step log (readable without markdown rendering)
+          echo ""
+          echo "Baseline @ $TS"
+          printf "  %-38s %s\n" "Total versions (tagged + untagged):" "$(fmt "$VERSIONS")"
+          printf "  %-38s %s\n" "Tagged versions (public registry):"  "$(fmt "$TAGS")"
+          printf "  %-38s %s\n" "Untagged versions (derived):"        "$(fmt "$UNTAGGED")"
 
           echo "BASELINE_VERSIONS=$VERSIONS" >> "$GITHUB_ENV"
           echo "BASELINE_TAGS=$TAGS" >> "$GITHUB_ENV"
@@ -110,6 +129,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          fmt() { python3 -c "import sys; v=sys.argv[1]; print(f'{int(v):,}' if v.lstrip('-').isdigit() else v)" "${1:-unknown}"; }
+          fmt_signed() { python3 -c "import sys; v=sys.argv[1]; print(f'{int(v):+,}' if v.lstrip('-').isdigit() else v)" "${1:-unknown}"; }
+
           FINAL_VERSIONS=$(curl -sf \
             -H "Authorization: Bearer $PAT" \
             -H "Accept: application/vnd.github+json" \
@@ -127,24 +149,48 @@ jobs:
             URL=$([ -n "$NEXT" ] && echo "https://ghcr.io$NEXT" || echo "")
           done
 
-          delta() {
+          # change = final - baseline. Positive = grew (CI outpaced deletions).
+          # Negative = shrank (deletions outpaced CI pushes).
+          change() {
             if [[ "$1" =~ ^[0-9]+$ ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
-              echo $(($1 - $2))
+              echo $(( $2 - $1 ))
             else
               echo "?"
             fi
           }
-          VERSIONS_DELTA=$(delta "${BASELINE_VERSIONS:-unknown}" "$FINAL_VERSIONS")
-          TAGS_DELTA=$(delta "${BASELINE_TAGS:-unknown}" "$FINAL_TAGS")
+          VERSIONS_CHANGE=$(change "${BASELINE_VERSIONS:-unknown}" "$FINAL_VERSIONS")
+          TAGS_CHANGE=$(change "${BASELINE_TAGS:-unknown}" "$FINAL_TAGS")
 
           TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+          # One-line net impact verdict
+          if [[ "$VERSIONS_CHANGE" =~ ^-?[0-9]+$ ]]; then
+            if   [ "$VERSIONS_CHANGE" -lt 0 ]; then VERDICT="cleanup outpaced CI pushes ($(fmt_signed "$VERSIONS_CHANGE") versions)"
+            elif [ "$VERSIONS_CHANGE" -gt 0 ]; then VERDICT="CI pushes outpaced cleanup ($(fmt_signed "$VERSIONS_CHANGE") versions — package grew)"
+            else                                    VERDICT="no net change"
+            fi
+          else
+            VERDICT="could not compute (baseline or final count unknown)"
+          fi
+
+          # Markdown → step summary
           {
             echo ""
-            echo "## Delta (after cleanup)"
+            echo "## Results"
             echo ""
-            echo "| Metric | Before | After | Δ deleted |"
-            echo "|---|---|---|---|"
-            echo "| version_count | \`${BASELINE_VERSIONS:-?}\` | \`$FINAL_VERSIONS\` | \`$VERSIONS_DELTA\` |"
-            echo "| tag_count | \`${BASELINE_TAGS:-?}\` | \`$FINAL_TAGS\` | \`$TAGS_DELTA\` |"
-            echo "| completed at | \`$TS\` | | |"
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "_Completed at \`$TS\`_"
+            echo ""
+            echo "| Metric | Before | After | Change |"
+            echo "| :--- | ---: | ---: | ---: |"
+            echo "| Total versions | \`$(fmt "${BASELINE_VERSIONS:-?}")\` | \`$(fmt "$FINAL_VERSIONS")\` | \`$(fmt_signed "$VERSIONS_CHANGE")\` |"
+            echo "| Tagged versions | \`$(fmt "${BASELINE_TAGS:-?}")\` | \`$(fmt "$FINAL_TAGS")\` | \`$(fmt_signed "$TAGS_CHANGE")\` |"
+            echo ""
+            echo "**Net impact:** $VERDICT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Plain text → step log
+          echo ""
+          echo "Results @ $TS"
+          printf "  %-18s  %12s → %12s   (%s)\n" "Total versions"  "$(fmt "${BASELINE_VERSIONS:-?}")" "$(fmt "$FINAL_VERSIONS")" "$(fmt_signed "$VERSIONS_CHANGE")"
+          printf "  %-18s  %12s → %12s   (%s)\n" "Tagged versions" "$(fmt "${BASELINE_TAGS:-?}")"     "$(fmt "$FINAL_TAGS")"     "$(fmt_signed "$TAGS_CHANGE")"
+          echo "  Net impact: $VERDICT"
