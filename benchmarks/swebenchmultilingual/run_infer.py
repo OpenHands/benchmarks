@@ -51,7 +51,7 @@ def get_tools_for_preset(
     """Get the list of tools for the given preset.
 
     Args:
-        preset: The tool preset to use (default, gemini, or planning).
+        preset: The tool preset to use (default, gemini, gpt5, or planning).
         enable_browser: Whether to include browser tools.
 
     Returns:
@@ -61,6 +61,10 @@ def get_tools_for_preset(
         from openhands.tools.preset.gemini import get_gemini_tools
 
         return get_gemini_tools(enable_browser=enable_browser)
+    elif preset == "gpt5":
+        from openhands.tools.preset.gpt5 import get_gpt5_tools
+
+        return get_gpt5_tools(enable_browser=enable_browser)
     elif preset == "planning":
         from openhands.tools.preset.planning import get_planning_tools
 

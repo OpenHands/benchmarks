@@ -48,6 +48,67 @@ def _thread_pool(**kw):
     return ThreadPoolExecutor(**kw)
 
 
+class TestSWEBenchBuildImages:
+    def test_parser_does_not_accept_agent_type(self):
+        from benchmarks.swebench.build_images import get_parser
+
+        parser = get_parser()
+
+        with patch("argparse.ArgumentParser.exit", side_effect=SystemExit) as mock_exit:
+            try:
+                parser.parse_args(["--agent-type", "acp-claude"])
+            except SystemExit:
+                pass
+
+        mock_exit.assert_called_once()
+
+    @patch(
+        "benchmarks.swebench.build_base_images.assemble_all_agent_images",
+        return_value=0,
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.build_all_base_images", return_value=0
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.build_builder_image",
+        return_value=BuildOutput(
+            base_image="builder", tags=["builder:tag"], error=None
+        ),
+    )
+    @patch(
+        "benchmarks.swebench.build_images.collect_unique_base_images",
+        return_value=[
+            "docker.io/swebench/sweb.eval.x86_64.django_1776_django-12155:latest"
+        ],
+    )
+    @patch(
+        "benchmarks.swebench.build_images.default_build_output_dir",
+        return_value="build-dir",
+    )
+    def test_main_builds_without_agent_type(
+        self,
+        _build_dir,
+        collect_unique_base_images,
+        build_builder_image,
+        build_all_base_images,
+        assemble_all_agent_images,
+    ):
+        from benchmarks.swebench.build_images import main
+
+        rc = main(["--dataset", "dataset", "--split", "test"])
+
+        assert rc == 0
+        collect_unique_base_images.assert_called_once_with(
+            "dataset",
+            "test",
+            0,
+            None,
+        )
+        build_builder_image.assert_called_once_with(push=False, force_build=False)
+        build_all_base_images.assert_called_once()
+        assemble_all_agent_images.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # build_base_image: basic success / failure / skip
 # ---------------------------------------------------------------------------
@@ -322,6 +383,26 @@ class TestAssembleAgentImage:
 
         assert result.error is None
         assert result.tags == ["tag-1", "tag-2"]
+        commands = [call.args[0] for call in mock_run.call_args_list]
+        assert commands[-3:] == [
+            [
+                "docker",
+                "rmi",
+                "-f",
+                "tag-1",
+                "tag-2",
+                "ghcr.io/openhands/eval-base:abc",
+            ],
+            ["docker", "system", "prune", "-f"],
+            [
+                "docker",
+                "builder",
+                "prune",
+                "-af",
+                "--keep-storage",
+                "30g",
+            ],
+        ]
 
     def test_missing_dockerfile_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -443,6 +524,10 @@ class TestBuildAllBaseImages:
 
 
 class TestAssembleAllAgentImages:
+    @patch(
+        "benchmarks.swebench.build_base_images._run_docker_command",
+        return_value=(_ok_proc(), None),
+    )
     @patch("benchmarks.swebench.build_base_images._assemble_with_logging")
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
@@ -451,7 +536,9 @@ class TestAssembleAllAgentImages:
     @patch(
         "benchmarks.swebench.build_base_images.ProcessPoolExecutor", new=_thread_pool
     )
-    def test_manifest_written(self, mock_sdk, mock_assemble, tmp_path):
+    def test_manifest_written(
+        self, mock_sdk, mock_assemble, mock_docker_command, tmp_path
+    ):
         from benchmarks.swebench.build_base_images import assemble_all_agent_images
 
         ok = BuildOutput(base_image="img-a", tags=["final-tag"], error=None)
@@ -472,6 +559,9 @@ class TestAssembleAllAgentImages:
         ]
         assert len(records) == 1
         assert records[0]["tags"] == ["final-tag"]
+        mock_docker_command.assert_called_once_with(
+            ["docker", "buildx", "prune", "-af"]
+        )
 
 
 # ---------------------------------------------------------------------------

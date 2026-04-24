@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 
 # Tool preset type for selecting which file editing toolset to use
-ToolPresetType = Literal["default", "gemini", "planning"]
+ToolPresetType = Literal["default", "gemini", "gpt5", "planning"]
 
 
 class EvalMetadata(BaseModel):
@@ -101,6 +101,7 @@ class EvalMetadata(BaseModel):
         description=(
             "Tool preset for file editing. 'default' uses FileEditorTool, "
             "'gemini' uses read_file/write_file/edit/list_directory, "
+            "'gpt5' uses apply_patch tool, "
             "'planning' uses planning-mode tools."
         ),
     )
