@@ -234,6 +234,8 @@ def build_base_image(
 
     if push:
         cmd.append("--push")
+        # Skip provenance attestation; see issue #684.
+        cmd.append("--provenance=false")
     else:
         cmd.append("--load")
 
@@ -465,6 +467,8 @@ def build_builder_image(
         ]
         if push:
             cmd.append("--push")
+            # Skip provenance attestation; see issue #684.
+            cmd.append("--provenance=false")
         else:
             cmd.append("--load")
         cmd.append(str(ctx))

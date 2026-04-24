@@ -129,6 +129,9 @@ def run_docker_build_layer(
     # Push or load
     if push:
         cmd.append("--push")
+        # Skip the provenance attestation manifest — each attestation registers
+        # as an extra untagged package version on GHCR; see issue #684.
+        cmd.append("--provenance=false")
     elif load:
         cmd.append("--load")
 
