@@ -21,7 +21,7 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
-MAX_CUSTOM_TAG_LENGTH = 100
+MAX_CUSTOM_TAG_LENGTH = 96
 CUSTOM_TAG_SANITIZER = re.compile(r"[^a-z0-9_.-]+")
 
 

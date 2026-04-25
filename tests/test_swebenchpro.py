@@ -65,7 +65,7 @@ def test_extract_custom_tag_shortens_long_tags():
 
     custom_tag = extract_custom_tag(image)
 
-    assert len(custom_tag) <= 100
+    assert len(custom_tag) <= 96
     assert custom_tag.startswith("qutebrowser.qutebrowser-qutebrowser__qutebrowser-")
     assert custom_tag != image.rsplit(":", 1)[1]
 
