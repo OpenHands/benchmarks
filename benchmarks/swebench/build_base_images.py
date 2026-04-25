@@ -318,6 +318,7 @@ def build_all_base_images(
     dry_run: bool = False,
     max_retries: int = 3,
     force_build: bool = False,
+    custom_tag_fn: Callable[[str], str] | None = None,
 ) -> int:
     """Build all base images concurrently."""
     build_log_dir = build_dir / "base-logs"
@@ -325,11 +326,11 @@ def build_all_base_images(
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
     content_hash = dockerfile_content_hash()
 
+    tag_fn = custom_tag_fn or extract_custom_tag
+
     if dry_run:
         for base in base_images:
-            tag = base_image_tag(
-                extract_custom_tag(base), image, content_hash=content_hash
-            )
+            tag = base_image_tag(tag_fn(base), image, content_hash=content_hash)
             print(f"{base} -> {tag}")
         return 0
 
@@ -348,7 +349,7 @@ def build_all_base_images(
             in_progress: set[str] = set()
             for base in base_images:
                 in_progress.add(base)
-                custom_tag = extract_custom_tag(base)
+                custom_tag = tag_fn(base)
                 fut = ex.submit(
                     _build_base_with_logging,
                     log_dir=build_log_dir,

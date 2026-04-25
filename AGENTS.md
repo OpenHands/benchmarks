@@ -112,4 +112,10 @@ When converting between OpenHands format and benchmark-specific formats:
 - `resolved_instances.txt` is generated from `ambiguity_annotations.json` and contains all instances annotated with the `SOLVEABLE` keyword.
 - `benchmarks/swebenchmultimodal/build_images.py` does not inherit that default automatically; pass `--select benchmarks/swebenchmultimodal/resolved_instances.txt` when you need matching image builds.
 
+# SWE-Bench Pro Notes
+- `ScaleAI/SWE-bench_Pro` exposes the official base image tag in each row's `dockerhub_tag` field; build and inference code should derive base images from that field instead of `swebench.harness.constants.MAP_VERSION_TO_INSTALL`.
+- SWE-Bench Pro agent images expose the checked-out repository at `/app`, not `/testbed`, so inference must copy from `/app` into the workspace before resetting to `base_commit`.
+- The official harness lives at `scaleapi/SWE-bench_Pro-os`; the repo-local wrapper converts OpenHands `output.jsonl` to the upstream patch JSON format and then invokes `swe_bench_pro_eval.py`.
+
+
 </BENCHMARK_SPECIFIC>
