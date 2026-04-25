@@ -2,7 +2,10 @@ import json
 
 from benchmarks.swebench.run_infer import SWEBenchEvaluation
 from benchmarks.swebenchpro import constants
-from benchmarks.swebenchpro.build_images import get_official_docker_image
+from benchmarks.swebenchpro.build_images import (
+    extract_custom_tag,
+    get_official_docker_image,
+)
 from benchmarks.swebenchpro.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.critics import create_critic
@@ -23,7 +26,7 @@ class SWEBenchProEvaluation(SWEBenchEvaluation):
         return get_official_docker_image(instance.data)
 
     def extract_custom_tag(self, official_docker_image: str) -> str:
-        return official_docker_image.rsplit(":", 1)[1]
+        return extract_custom_tag(official_docker_image)
 
     def should_wrap_instance(self, instance: EvalInstance) -> bool:
         return False

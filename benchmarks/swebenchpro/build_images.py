@@ -2,6 +2,8 @@
 """Build agent-server images for SWE-Bench Pro instances."""
 
 import argparse
+import hashlib
+import re
 import sys
 from collections.abc import Mapping
 from typing import Any
@@ -19,6 +21,8 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+MAX_CUSTOM_TAG_LENGTH = 100
+CUSTOM_TAG_SANITIZER = re.compile(r"[^a-z0-9_.-]+")
 
 
 def get_official_docker_image(
@@ -37,7 +41,16 @@ def extract_custom_tag(base_image: str) -> str:
     _, _, tag = base_image.rpartition(":")
     if not tag:
         raise ValueError(f"Could not extract docker tag from image: {base_image}")
-    return tag
+
+    sanitized = CUSTOM_TAG_SANITIZER.sub("-", tag.lower()).strip(".-")
+    if not sanitized:
+        sanitized = hashlib.sha1(tag.encode("utf-8")).hexdigest()[:12]
+    if len(sanitized) <= MAX_CUSTOM_TAG_LENGTH:
+        return sanitized
+
+    digest = hashlib.sha1(tag.encode("utf-8")).hexdigest()[:12]
+    prefix = sanitized[: MAX_CUSTOM_TAG_LENGTH - len(digest) - 1].rstrip(".-")
+    return f"{prefix}-{digest}"
 
 
 def collect_unique_base_images(

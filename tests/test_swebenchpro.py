@@ -56,6 +56,20 @@ def test_collect_unique_base_images_deduplicates(monkeypatch):
     ]
 
 
+def test_extract_custom_tag_shortens_long_tags():
+    image = (
+        "docker.io/jefzda/sweap-images:"
+        "qutebrowser.qutebrowser-qutebrowser__qutebrowser-"
+        "5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac780366"
+    )
+
+    custom_tag = extract_custom_tag(image)
+
+    assert len(custom_tag) <= 100
+    assert custom_tag.startswith("qutebrowser.qutebrowser-qutebrowser__qutebrowser-")
+    assert custom_tag != image.rsplit(":", 1)[1]
+
+
 def test_convert_to_swebenchpro_format_writes_patch_array(tmp_path):
     input_path = tmp_path / "output.jsonl"
     input_path.write_text(
