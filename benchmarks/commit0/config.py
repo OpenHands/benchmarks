@@ -14,9 +14,9 @@ CONDENSER_DEFAULTS = {
 }
 
 # Timeout for each conversation run in seconds.
-# commit0 instances (especially babel/chardet/marshmallow) are large repos that
-# routinely need >60 min — 7200s (2h) avoids spurious timeouts on retries.
-CONVERSATION_TIMEOUT = 7200
+# commit0 instances are large repos that need extended time:
+# marshmallow finished in ~98 min; babel/chardet need >120 min — 10800s (3h).
+CONVERSATION_TIMEOUT = 10800
 
 # Inference defaults (used by run_infer.py)
 # Note: commit0 uses n_critic_runs=1 and max_retries=1 (different from default of 3)
