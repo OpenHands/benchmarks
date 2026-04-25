@@ -136,7 +136,11 @@ def _get_acp_env(agent_type: str) -> dict[str, str]:
     return acp_env
 
 
-def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
+def build_acp_agent(
+    agent_type: str,
+    llm_model: str,
+    prompt_timeout: float | None = None,
+) -> ACPAgent:
     """Create an ACPAgent while remaining compatible with older type stubs.
 
     Provider credentials are passed via ``acp_env`` so they reach the ACP
@@ -146,6 +150,8 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
     ``litellm_proxy.set_current_virtual_key``), it overrides the API key
     so the proxy can track spend for this instance.  Thread-safe via
     ``threading.local``.
+
+    ``prompt_timeout`` overrides the per-agent-type default when provided.
     """
     from benchmarks.utils.litellm_proxy import get_current_virtual_key
 
@@ -159,7 +165,8 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
             if var.endswith("API_KEY"):
                 acp_env[var] = virtual_key
 
-    prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(agent_type, ACP_PROMPT_TIMEOUT)
+    if prompt_timeout is None:
+        prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(agent_type, ACP_PROMPT_TIMEOUT)
 
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),

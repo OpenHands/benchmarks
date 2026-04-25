@@ -13,7 +13,7 @@ from benchmarks.commit0.build_images import (
     get_agent_server_image_tag_prefix,
     get_base_docker_image,
 )
-from benchmarks.commit0.config import BUILD_TARGET, INFER_DEFAULTS
+from benchmarks.commit0.config import BUILD_TARGET, CONVERSATION_TIMEOUT, INFER_DEFAULTS
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
     build_acp_agent,
@@ -383,7 +383,8 @@ class Commit0Evaluation(Evaluation):
         repo_path = f"/workspace/{workspace_dir_name}"
 
         if is_acp_agent(self.metadata.agent_type):
-            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
+            acp_timeout = int(os.getenv("CONVERSATION_TIMEOUT", str(CONVERSATION_TIMEOUT)))
+            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model, prompt_timeout=float(acp_timeout))
         else:
             agent_llm = build_eval_llm(self.metadata.llm)
             tools = get_default_tools(enable_browser=False)
@@ -431,7 +432,7 @@ class Commit0Evaluation(Evaluation):
         )
         with workspace_keepalive(self.metadata.agent_type, workspace):
             conversation.send_message(instruction)
-            run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+            run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", str(CONVERSATION_TIMEOUT)))
             conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
