@@ -2467,6 +2467,7 @@ dependencies = [
     { name = "python-json-logger" },
     { name = "requests" },
     { name = "swebench" },
+    { name = "swesmith" },
     { name = "swt-bench" },
     { name = "tenacity" },
     { name = "toml" },
@@ -2521,6 +2522,7 @@ requires-dist = [
     { name = "python-json-logger", specifier = ">=3.3.0" },
     { name = "requests" },
     { name = "swebench", specifier = "==4.1.0" },
+    { name = "swesmith", specifier = ">=0.0.9" },
     { name = "swt-bench", git = "https://github.com/logic-star-ai/swt-bench.git?rev=5fdcd446ff05e248ecfffc19d560a210699f71f8" },
     { name = "tenacity", specifier = ">=9.1.2" },
     { name = "toml" },
@@ -6839,6 +6841,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/24/e1/c997299ad7bf088876d30398203aa1eed7dec897670dc1aa35b1d748ffcc/swebench-4.1.0.tar.gz", hash = "sha256:5aaa6a92c2db1aa64892d28a47483ca46a45a15cf1d2df673d7744f71811dc9a", size = 134341, upload-time = "2025-09-11T02:58:00.447Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/36/67/981d8b642ac3eac7c8a7b7832ff8b2fb74f96b28b5fcd9a8979879e5c46d/swebench-4.1.0-py3-none-any.whl", hash = "sha256:1243776f720047cc9e20a427f7a52b75c13a07abda6154fb60fe77f82ec8af57", size = 157231, upload-time = "2025-09-11T02:57:58.953Z" },
+]
+
+[[package]]
+name = "swesmith"
+version = "0.0.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/97/e506b20fa59debc66e4660a86b0e98b45d32c87f23b994ad739e9c5d542a/swesmith-0.0.9.tar.gz", hash = "sha256:1726124ea43577853c6efb0a5a0db5fa3ce5c340e1bed479afa5bab85d8a69da", size = 214830, upload-time = "2026-02-27T01:06:13.455Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/2d/71b6ac5dadbe7199085de3815624775744d51b6c554efeeddfb12dc45ce1/swesmith-0.0.9-py3-none-any.whl", hash = "sha256:cbb98a52fc573b38032cde1179b6ce5f5862ce7c31d6931cfd5b8ad4969ce900", size = 275800, upload-time = "2026-02-27T01:06:11.864Z" },
 ]
 
 [[package]]

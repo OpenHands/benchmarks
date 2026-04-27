@@ -14,52 +14,61 @@ from openhands.sdk import (
     Agent,
     Conversation,
     Event,
-    Message,
-    TextContent,
 )
+from openhands.sdk.conversation.exceptions import ConversationRunError
 from openhands.sdk.logger import setup_logging
+from openhands.sdk.security.confirmation_policy import NeverConfirm
+from openhands.sdk.security.llm_analyzer import LLMSecurityAnalyzer
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerWorkspace
 
 
 def _process_one_entry_inner(entry: dict, system_prompt_kwargs: dict):
-    workspace = DockerWorkspace(
+    with DockerWorkspace(
         # base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-        server_image="ghcr.io/openhands/agent-server:latest-python",
+        server_image="ghcr.io/openhands/agent-server:3e0a3a0-python-amd64",
         working_dir="/workspace",
         detach_logs=False,
-    )
+    ) as workspace:
+        task = entry["request_text"]
+        prompt = """
+        You are a helpful assistant that can help with coding tasks
+        Here is the task:
+        {task}
+        """.format(task=task)
 
-    task = entry["request_text"]
-    prompt = """
-    You are a helpful assistant that can help with coding tasks
-    Here is the task:
-    {task}
-    """.format(task=task)
-    msg = Message(
-        role="user",
-        content=[TextContent(text=prompt)],
-    )
+        agent = Agent(
+            llm=llm,
+            tools=get_default_tools(enable_browser=False),
+            system_prompt_kwargs=system_prompt_kwargs,
+        )
 
-    agent = Agent(
-        llm=llm,
-        tools=get_default_tools(enable_browser=False),
-        system_prompt_kwargs=system_prompt_kwargs,
-    )
+        conversation = Conversation(
+            agent=agent,
+            workspace=workspace,
+            # callbacks=[lambda ev: logger.info("Event: %s", ev)],
+            callbacks=[],
+            max_iteration_per_run=10,
+        )
 
-    conversation = Conversation(
-        agent=agent,
-        workspace=workspace,
-        # callbacks=[lambda ev: logger.info("Event: %s", ev)],
-        callbacks=[],
-        max_iteration_per_run=3,
-    )
+        if system_prompt_kwargs.get("llm_security_analyzer"):
+            conversation.set_security_analyzer(LLMSecurityAnalyzer())
+            conversation.set_confirmation_policy(NeverConfirm())
 
-    conversation.send_message(msg)
-    conversation.run()
-    events: list[Event] = list(conversation.state.events)
-    events_json = [event.model_dump() for event in events]
-    workspace.cleanup()
+        conversation.send_message(prompt)
+        try:
+            conversation.run()
+        except ConversationRunError as e:
+            print(f"ConversationRunError (collecting events anyway): {e}")
+            # Reconcile to fetch any final events (e.g. ConversationErrorEvent)
+            # that weren't synced before the error was raised
+            try:
+                conversation.state.events.reconcile()
+            except Exception:
+                pass
+        events: list[Event] = list(conversation.state.events)
+        events_json = [event.model_dump() for event in events]
+
     return {
         "result": events_json,
         "request_text": task,
@@ -78,7 +87,13 @@ def process_one_entry(entry: dict, system_prompt_kwargs: dict, log_dir: str):
     )
     with open(log_file, "a") as f:
         with redirect_stdout(f), redirect_stderr(f):
-            ret = _process_one_entry_inner(entry, system_prompt_kwargs)
+            try:
+                ret = _process_one_entry_inner(entry, system_prompt_kwargs)
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+                return None
     return ret
 
 
@@ -117,7 +132,8 @@ def main(args: argparse.Namespace):
         to_process,
     )
     for result in tqdm(ret, total=len(to_process)):
-        fout.write(json.dumps(result) + "\n")
+        if result is not None:
+            fout.write(json.dumps(result) + "\n")
         fout.flush()
     pool.close()
     pool.join()
@@ -129,9 +145,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-workers", type=int, default=16)
     parser.add_argument("--log-dir", type=str, default="astra-log")
     parser.add_argument("--input-file", type=str, default="astra-dataset/dataset.jsonl")
-    parser.add_argument(
-        "--output-file", type=str, default="astra-output/inference_results.jsonl"
-    )
+    parser.add_argument("--output-file", type=str, default="")
     parser.add_argument("--use-safety-analyzer", action="store_true")
 
     args = parser.parse_args()
@@ -142,6 +156,6 @@ if __name__ == "__main__":
         model="openai/Qwen/Qwen3-Coder-30B-A3B-Instruct",
         base_url="<...>",
         api_key="<...>",
-        custom_llm_provider="openai",
     )
+
     main(args)
