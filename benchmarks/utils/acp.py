@@ -166,7 +166,9 @@ def build_acp_agent(
                 acp_env[var] = virtual_key
 
     if prompt_timeout is None:
-        prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(agent_type, ACP_PROMPT_TIMEOUT)
+        prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(
+            agent_type, ACP_PROMPT_TIMEOUT
+        )
 
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
