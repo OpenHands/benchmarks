@@ -18,6 +18,10 @@ CONDENSER_DEFAULTS = {
 # Using 6h (21600s) for babel which needs extended exploration of a large codebase.
 CONVERSATION_TIMEOUT = 21600
 
+# Per-instance hard kill timeout in seconds (passed to Evaluation base class).
+# Set to 4h to match CONVERSATION_TIMEOUT headroom; babel needs >3h of active work.
+INSTANCE_TIMEOUT = 4 * 60 * 60
+
 # Inference defaults (used by run_infer.py)
 # Note: commit0 uses n_critic_runs=1 and max_retries=1 (different from default of 3)
 INFER_DEFAULTS = {
