@@ -15,11 +15,10 @@ CONDENSER_DEFAULTS = {
 
 # Timeout for each conversation run in seconds.
 # marshmallow: ~98 min, chardet: ~60 min, babel: >3h (exhausted 3h limit without committing)
-# Using 6h (21600s) for babel which needs extended exploration of a large codebase.
-CONVERSATION_TIMEOUT = 21600
+CONVERSATION_TIMEOUT = 4 * 60 * 60
 
 # Per-instance hard kill timeout in seconds (passed to Evaluation base class).
-# Set to 4h to match CONVERSATION_TIMEOUT headroom; babel needs >3h of active work.
+# Matches CONVERSATION_TIMEOUT so the conversation timeout fires before the hard kill.
 INSTANCE_TIMEOUT = 4 * 60 * 60
 
 # Inference defaults (used by run_infer.py)
