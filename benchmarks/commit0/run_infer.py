@@ -390,15 +390,13 @@ class Commit0Evaluation(Evaluation):
         """
         workspace_dir_name = instance.data["repo"].split("/")[1]
         repo_path = f"/workspace/{workspace_dir_name}"
+        run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", str(CONVERSATION_TIMEOUT)))
 
         if is_acp_agent(self.metadata.agent_type):
-            acp_timeout = int(
-                os.getenv("CONVERSATION_TIMEOUT", str(CONVERSATION_TIMEOUT))
-            )
             agent = build_acp_agent(
                 self.metadata.agent_type,
                 self.metadata.llm.model,
-                prompt_timeout=float(acp_timeout),
+                prompt_timeout=float(run_timeout),
             )
         else:
             agent_llm = build_eval_llm(self.metadata.llm)
@@ -447,9 +445,6 @@ class Commit0Evaluation(Evaluation):
         )
         with workspace_keepalive(self.metadata.agent_type, workspace):
             conversation.send_message(instruction)
-            run_timeout = int(
-                os.getenv("CONVERSATION_TIMEOUT", str(CONVERSATION_TIMEOUT))
-            )
             conversation.run(timeout=run_timeout)
 
         history = list(conversation.state.events)
