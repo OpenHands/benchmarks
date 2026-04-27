@@ -1,0 +1,29 @@
+I've uploaded a python code repository in the directory {{ workspace_dir_name }}.
+
+Your task is to implement the body of the function `{{ func_name }}` in the file `{{ file_path }}`.
+
+The function signature and docstring are already in the file. The function body has been replaced with `pass  # TODO: Implement this function`.
+
+<function_info>
+- File: {{ file_path }}
+- Function: {{ func_name }}
+- Docstring: {{ docstring }}
+</function_info>
+
+Follow these steps:
+1. NAVIGATE: Open the file `{{ file_path }}` and locate the function `{{ func_name }}`
+2. CONTEXT: Read the surrounding code to understand:
+   - What imports are available
+   - What other functions/classes exist in the file
+   - The coding style and patterns used
+3. IMPLEMENT: Replace the `pass  # TODO: Implement this function` with a complete implementation that:
+   - Fulfills the description in the docstring
+   - Follows the function signature (parameters and return type if specified)
+   - Uses appropriate imports and dependencies from the file
+   - Handles edge cases appropriately
+4. VERIFY: Review your implementation for:
+   - Correctness (does it do what the docstring says?)
+   - Completeness (all code paths handled?)
+   - Style consistency (matches the rest of the codebase?)
+
+Write clean, working Python code. Your implementation will be tested for correctness.

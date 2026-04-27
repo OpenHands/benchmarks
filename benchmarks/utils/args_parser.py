@@ -7,6 +7,7 @@ to match the evaluation repository configuration.
 """
 
 import argparse
+from pathlib import Path
 
 from benchmarks.utils.critics import add_critic_args
 
@@ -40,7 +41,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         "--workspace",
         type=str,
         default="remote",
-        choices=["docker", "remote"],
+        choices=["docker", "remote", "apptainer"],
         help="Type of workspace to use (default: remote)",
     )
     parser.add_argument(
@@ -64,10 +65,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Limit number of instances to evaluate (0 = no limit)",
     )
     parser.add_argument(
-        "--max-attempts",
+        "--n-critic-runs",
         type=int,
         default=3,
-        help="Maximum number of attempts for iterative mode (default: 3, min: 1)",
+        help="Number of critic evaluation runs for iterative mode (default: 3, min: 1)",
     )
 
     # Add critic arguments (no default)
@@ -84,4 +85,93 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         default=3,
         help="Maximum retries for instances that throw exceptions (default: 3)",
     )
+    parser.add_argument(
+        "--tool-preset",
+        type=str,
+        default="default",
+        choices=["default", "gemini", "gpt5", "planning"],
+        help=(
+            "Tool preset for file editing. 'default' uses FileEditorTool, "
+            "'gemini' uses read_file/write_file/edit/list_directory, "
+            "'gpt5' uses apply_patch tool (default: default)"
+        ),
+    )
+    parser.add_argument(
+        "--enable-delegation",
+        action="store_true",
+        default=False,
+        help="Enable sub-agent delegation tools for the agent",
+    )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        default="default",
+        choices=["default", "acp-claude", "acp-codex", "acp-gemini"],
+        help="Agent type: 'default' for standard Agent, 'acp-claude' for ACPAgent (Claude Code), 'acp-codex' for ACPAgent (Codex), 'acp-gemini' for ACPAgent (Gemini CLI)",
+    )
+    parser.add_argument(
+        "--enable-condenser",
+        action="store_true",
+        help="Enable the context condenser to manage conversation history",
+    )
+    parser.add_argument(
+        "--disable-condenser",
+        action="store_true",
+        help="Disable the context condenser",
+    )
+    parser.add_argument(
+        "--condenser-max-size",
+        type=int,
+        help="Maximum number of events before the condenser activates",
+    )
+    parser.add_argument(
+        "--condenser-keep-first",
+        type=int,
+        help="Number of initial events to always keep when condensing",
+    )
     return parser
+
+
+def add_prompt_path_argument(parser: argparse.ArgumentParser, caller_file: str) -> None:
+    """Add --prompt-path argument with choices from the benchmark's prompts/ dir.
+
+    Resolves prompt templates relative to the caller's directory rather than
+    CWD, so the argument works regardless of where the process is launched.
+
+    Users can pass a bare filename (e.g. ``default.j2``), which is resolved
+    against the benchmark's ``prompts/`` directory, or a full path to any
+    ``.j2`` file for backwards compatibility.  The parsed value is always an
+    absolute path so downstream code can rely on it directly.
+
+    Args:
+        parser: The argument parser to add the argument to.
+        caller_file: Pass ``__file__`` from the calling module so we can
+            locate its sibling ``prompts/`` directory.
+    """
+    prompt_dir = (Path(caller_file).parent / "prompts").resolve()
+    templates = sorted(p.name for p in prompt_dir.glob("*.j2"))
+    assert (prompt_dir / "default.j2").exists(), (
+        f"Default prompt {prompt_dir / 'default.j2'} not found"
+    )
+
+    def _resolve_prompt(value: str) -> str:
+        """Resolve a filename or path to an absolute prompt template path."""
+        # Accept bare filenames (e.g. "default.j2") and resolve them.
+        candidate = prompt_dir / Path(value).name
+        if candidate.is_file():
+            return str(candidate)
+        # Also accept absolute/relative paths for backwards compatibility.
+        p = Path(value)
+        if p.is_file():
+            return str(p.resolve())
+        raise argparse.ArgumentTypeError(
+            f"Prompt template not found: {value!r}. Available: {', '.join(templates)}"
+        )
+
+    parser.add_argument(
+        "--prompt-path",
+        type=_resolve_prompt,
+        default=str(prompt_dir / "default.j2"),
+        metavar="{" + ",".join(templates) + "}",
+        help="Prompt template filename (default: default.j2)",
+    )

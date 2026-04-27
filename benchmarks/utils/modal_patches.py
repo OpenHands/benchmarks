@@ -34,17 +34,17 @@ def _make_emit(stderr: bool):
     return emit
 
 
-def _get_sdk_short_sha() -> str:
+def _get_image_tag_prefix() -> str:
     """
-    Resolve SDK short SHA from the benchmarks repo when available, otherwise
-    fall back to environment variables for the Modal function image.
+    Resolve the image tag prefix from the benchmarks repo when available,
+    otherwise fall back to environment variables for the Modal function image.
     """
     try:
-        from benchmarks.utils.version import SDK_SHORT_SHA as version_sdk_short_sha
+        from benchmarks.utils.version import get_phased_image_tag_prefix
 
-        return version_sdk_short_sha
+        return get_phased_image_tag_prefix()
     except Exception:
-        return os.getenv("SDK_SHORT_SHA", "").strip() or "unknown"
+        return os.getenv("IMAGE_TAG_PREFIX", "").strip() or "unknown"
 
 
 def _get_agent_server_image_repo() -> str:
@@ -77,10 +77,10 @@ def _build_prebuilt_image_tag(test_spec) -> str:
     if not instance_id:
         raise RuntimeError("TestSpec missing instance_id; cannot select Modal image")
 
-    sdk_short_sha = _get_sdk_short_sha()
-    if sdk_short_sha in ("", "unknown", None):
+    image_tag_prefix = _get_image_tag_prefix()
+    if image_tag_prefix in ("", "unknown", None):
         raise RuntimeError(
-            "SDK short SHA is unavailable. Set SDK_SHORT_SHA or ensure the "
+            "Image tag prefix is unavailable. Set IMAGE_TAG_PREFIX or ensure the "
             "benchmarks repository has an initialized SDK submodule."
         )
 
@@ -88,7 +88,7 @@ def _build_prebuilt_image_tag(test_spec) -> str:
     suffix = f"-{target}" if target and target != "binary" else ""
     custom_tag = _get_custom_tag_from_instance_id(instance_id)
     agent_repo = _get_agent_server_image_repo()
-    return f"{agent_repo}:{sdk_short_sha}-{custom_tag}{suffix}"
+    return f"{agent_repo}:{image_tag_prefix}-{custom_tag}{suffix}"
 
 
 def _patch_modal_sklearn_install_flag() -> None:
@@ -497,16 +497,9 @@ def _inject_modal_sitecustomize() -> None:
         )
 
     env_vars = {"PYTHONPATH": "/root"}
-    try:
-        from benchmarks.utils.version import SDK_SHA, SDK_SHORT_SHA
-
-        env_vars["SDK_SHA"] = SDK_SHA
-        env_vars["SDK_SHORT_SHA"] = SDK_SHORT_SHA
-    except Exception:
-        sdk_sha_env = os.getenv("SDK_SHA")
-        if sdk_sha_env:
-            env_vars["SDK_SHA"] = sdk_sha_env
-        env_vars["SDK_SHORT_SHA"] = _get_sdk_short_sha()
+    env_vars["IMAGE_TAG_PREFIX"] = _get_image_tag_prefix()
+    # Backward compatibility - remove in next major version
+    env_vars["SDK_SHORT_SHA"] = env_vars["IMAGE_TAG_PREFIX"]
 
     env_vars["EVAL_AGENT_SERVER_IMAGE"] = _get_agent_server_image_repo()
     env_vars["SWEBENCH_IMAGE_TARGET"] = _get_build_target()

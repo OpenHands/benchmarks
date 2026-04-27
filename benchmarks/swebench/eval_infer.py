@@ -110,9 +110,6 @@ def convert_to_swebench_format(input_file: str, output_file: str) -> None:
         f"{error_count} errors"
     )
 
-    if converted_count == 0:
-        raise ValueError("No valid entries were converted")
-
 
 def run_swebench_evaluation(
     predictions_file: str,
@@ -143,12 +140,8 @@ def run_swebench_evaluation(
         predictions_dir = predictions_path.parent
         predictions_filename = predictions_path.name
 
-        # Run SWE-Bench evaluation using global python (not UV environment)
-        # since swebench is installed globally
         cmd = [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "swebench.harness.run_evaluation",
             "--dataset_name",
@@ -261,11 +254,10 @@ Examples:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=EVAL_DEFAULTS["timeout"],
-        help=f"Timeout in seconds for evaluation (default: {EVAL_DEFAULTS['timeout']})",
+        help="Timeout in seconds for evaluation",
     )
 
-    # Apply EVAL_DEFAULTS from config (for dataset, split, workers)
+    # Apply EVAL_DEFAULTS from config (for dataset, split, workers, modal, timeout)
     parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()

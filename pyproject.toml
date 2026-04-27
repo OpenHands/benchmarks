@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "datasets",
-    "huggingface-hub",
+    "huggingface-hub>=1.10.1",
     "jinja2",
     "pandas",
     "Pillow",
@@ -19,6 +19,7 @@ dependencies = [
     "openhands-workspace",
     "modal>=1.1.4",
     "swebench==4.1.0",
+    "swesmith>=0.0.9",
     "commit0",
     "pytest-json-report",
     # SWT-Bench dependencies (since the git package doesn't install them properly)
@@ -39,9 +40,12 @@ dependencies = [
     "python-json-logger>=3.3.0",
     "tenacity>=9.1.2",
     "websockets>=12",
-    "lmnr>=0.7.24",
-    "multi-swe-bench>=1.1.1",
+    "lmnr>=0.7.41",
+    # TODO Remove the macOS exclusion once https://github.com/multi-swe-bench/multi-swe-bench/pull/93 is merged and released
+    "multi-swe-bench>=1.1.1; sys_platform != 'darwin'",
     "swt-bench @ git+https://github.com/logic-star-ai/swt-bench.git@5fdcd446ff05e248ecfffc19d560a210699f71f8",
+    # See https://github.com/OpenHands/benchmarks/issues/449
+    "hf-xet>=1.1.10,<2.0",
 ]
 
 [project.scripts]
@@ -59,8 +63,24 @@ commit0-eval = "benchmarks.commit0.eval_infer:main"
 multiswebench-infer = "benchmarks.multiswebench.run_infer:main"
 multiswebench-eval = "benchmarks.multiswebench.eval_infer:main"
 openagentsafety-infer = "benchmarks.openagentsafety.run_infer:main"
+openagentsafety-eval = "benchmarks.openagentsafety.eval_infer:main"
 swebenchmultimodal-infer = "benchmarks.swebenchmultimodal.run_infer:main"
 swebenchmultimodal-eval = "benchmarks.swebenchmultimodal.eval_infer:main"
+swebenchmultilingual-infer = "benchmarks.swebenchmultilingual.run_infer:main"
+swebenchmultilingual-eval = "benchmarks.swebenchmultilingual.eval_infer:main"
+swefficiency-infer = "benchmarks.swefficiency.run_infer:main"
+terminalbench-infer = "benchmarks.terminalbench.run_infer:main"
+terminalbench-eval = "benchmarks.terminalbench.eval_infer:main"
+hybridgym-funclocalize-infer = "benchmarks.hybridgym_funclocalize.run_infer:main"
+hybridgym-funclocalize-eval = "benchmarks.hybridgym_funclocalize.eval_infer:main"
+hybridgym-depsearch-infer = "benchmarks.hybridgym_depsearch.run_infer:main"
+hybridgym-depsearch-eval = "benchmarks.hybridgym_depsearch.eval_infer:main"
+hybridgym-funcgen-infer = "benchmarks.hybridgym_funcgen.run_infer:main"
+hybridgym-funcgen-eval = "benchmarks.hybridgym_funcgen.eval_infer:main"
+hybridgym-issuelocalize-infer = "benchmarks.hybridgym_issuelocalize.run_infer:main"
+hybridgym-issuelocalize-eval = "benchmarks.hybridgym_issuelocalize.eval_infer:main"
+swesmith-infer = "benchmarks.swesmith.run_infer:main"
+swesmith-eval = "benchmarks.swesmith.eval_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -82,9 +102,13 @@ dev = [
     "ruff>=0.12.10",
     "pycodestyle>=2.12.0",
     "pytest>=8.0.0",
+    "pytest-asyncio>=1.0.0",
     "pytest-cov>=6.0.0",
     "pytest-forked>=1.6.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 # Ruff configuration
 [tool.ruff]

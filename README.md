@@ -117,40 +117,24 @@ After setting up the environment and configuring your LLM, see the individual be
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
-## Triggering Cloud Evals from This Repo
+## Rich Logging
 
-This repo exposes a manual GitHub Actions workflow that dispatches the `run-eval.yml` workflow in the Software Agent SDK. It is useful when you want to launch evals from the benchmarks repo without switching to the SDK repo.
-
-Requirements:
-- The `ALLHANDS_BOT_GITHUB_PAT` secret must be available in this repository with permission to dispatch workflows in `OpenHands/software-agent-sdk`.
-
-Run it with `gh`:
+Enable enhanced console output with color-coded, structured logs:
 
 ```bash
-gh workflow run run-eval.yml --repo OpenHands/benchmarks --ref main \
-  -f benchmark=swebench \
-  -f sdk_ref=main \
-  -f eval_limit=50 \
-  -f model_ids=litellm_proxy/anthropic/claude-sonnet-4-20250514 \
-  -f reason="benchmarks-trigger" \
-  -f eval_branch=main \
-  -f benchmarks_branch=main \
-  -f instance_ids="" \
-  -f num_infer_workers="" \
-  -f num_eval_workers=""
+export RICH_LOGGING=1   # Enable rich logs (default: disabled)
+export NO_COLOR=1       # Disable colors if needed
 ```
 
-Inputs (forwarded to the SDK `run-eval.yml` workflow):
-- `benchmark`: Benchmark suite to run. Choices: `gaia`, `swebench`, `swtbench`, `commit0`. Default: `swebench`.
-- `sdk_ref`: SDK commit, tag, or branch to evaluate. Default: `main`.
-- `eval_limit`: Number of instances to run. Choices: `1`, `50`, `200`, `500`. Default: `1`.
-- `model_ids`: Comma-separated model IDs (keys of `MODELS` in the SDK `.github/run-eval/resolve_model_config.py`). Empty uses the SDK default.
-- `reason`: Free-form reason for the manual trigger (shows up in logs/PR comments). Optional.
-- `eval_branch`: Branch of the evaluation repo to use (e.g., feature testing). Default: `main`.
-- `benchmarks_branch`: Benchmarks repo branch to evaluate (use your feature branch to test changes). Default: `main`.
-- `instance_ids`: Comma-separated instance IDs to run (overrides `eval_limit` for supported benchmarks). Optional.
-- `num_infer_workers`: Override inference worker count (blank uses benchmark default). Optional.
-- `num_eval_workers`: Override evaluation worker count (blank uses benchmark default). Optional.
+Rich logging shows real-time tool calls, agent messages, and a summary at the end of each instance:
+
+```
+10:30:45 [django-12345]  TOOL   │ ▶ bash #1 cmd='ls -la'
+10:30:46 [django-12345]  TOOL   │   └─ ok
+OK patch=NONEMPTY msgs(a/u)=8/3 tool_calls=12 errors(agent/conv)=0/0 end=finish_tool
+```
+
+File logging (`logs/instance_<id>.log`) is unaffected by this setting.
 
 ## Workspace Types
 

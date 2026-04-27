@@ -1,6 +1,32 @@
 name: Build SWT-Bench Images
 
+run-name: >-
+  Build SWT-Bench Images
+  ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' && format('(SDK: {0})', inputs.sdk-commit) || '' }}
+
 on:
+  # Called from evaluation repo (eval-job.yml) to build images before K8s evaluation
+  workflow_call:
+    inputs:
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use'
+        required: true
+        type: string
+      n-limit:
+        description: 'Limit number of images to build (0 for all)'
+        required: false
+        type: string
+        default: '0'
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        type: string
+        default: ''
+      benchmarks-ref:
+        description: 'Benchmarks repo ref to checkout (for cross-repo calls)'
+        required: false
+        type: string
+        default: ''
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
@@ -34,6 +60,11 @@ on:
         description: 'Software Agent SDK commit/ref to use'
         required: true
         type: string
+      extensions-ref:
+        description: 'Extensions repository branch/ref to use (for testing feature branches with skills/plugins). Leave blank to use main.'
+        required: false
+        default: 'main'
+        type: string
       build-eval-env:
         description: 'Also build prebaked SWT-bench eval env images (default: false)'
         required: false
@@ -47,16 +78,21 @@ on:
       max-retries:
         description: 'Retries per batch for eval env builds'
         required: false
-        default: '2'
+        default: '5'
         type: string
-      build-batch-size:
+      eval-env-build-batch-size:
         description: 'Env images per batch for eval env builds'
         required: false
         default: '10'
         type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
 
 concurrency:
-  group: build-swt-bench-${{ github.ref }}
+  group: build-swt-bench-${{ inputs.sdk-commit || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -65,29 +101,37 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' &&
        github.event.label.name == 'build-swt-bench')
+    # 10h matches the old orchestrate_eval.py polling bound in the evaluation repo.
+    # See #527 for context on past timeout experiments; if large benchmark builds
+    # regress past 10h again, reopen that discussion rather than silently raising.
+    timeout-minutes: 600
 
-    runs-on:
-      labels: blacksmith-32vcpu-ubuntu-2204
+    runs-on: ubuntu-latest-8core
 
     permissions:
       contents: read
       packages: write
       issues: write
 
-    # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+    # Resolve inputs with fallback defaults so both workflow_dispatch and
+    # pull_request_target triggers work without a separate override step.
+    # INSTANCE_IDS/SELECT_FILE must be initialized for set -euo pipefail.
     env:
-      DATASET: eth-sri/SWT-bench_Verified_bm25_27k_zsp
-      SPLIT: test
-      MAX_WORKERS: '4'
-      N_LIMIT: '0'
-      INSTANCE_IDS: ''
+      DATASET: ${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}
+      SPLIT: ${{ inputs.split || 'test' }}
+      MAX_WORKERS: ${{ inputs.max-workers || '4' }}
+      N_LIMIT: ${{ inputs.n-limit || '0' }}
+      INSTANCE_IDS: ${{ inputs.instance-ids || '' }}
       SELECT_FILE: ''
 
     steps:
       - name: Determine checkout ref
         id: checkout-ref
         run: |
-          if [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
+            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-ref: ${{ inputs.benchmarks-ref }}"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
             echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
             echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
@@ -97,11 +141,17 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
+          repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
+          token: ${{ github.token }}
+
+      - uses: ./.github/actions/build-select-file
+        with:
+          instance-ids: ${{ env.INSTANCE_IDS }}
 
       - name: Update SDK submodule
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        if: ${{ inputs.sdk-commit != '' }}
         run: |
           cd vendor/software-agent-sdk
           git fetch origin ${{ inputs.sdk-commit }}
@@ -111,8 +161,8 @@ jobs:
           git add vendor/software-agent-sdk
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
-      - name: Set up Docker Buildx with Blacksmith
-        uses: useblacksmith/setup-docker-builder@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -134,42 +184,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Get inputs with defaults
-          DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
-          SPLIT="${{ inputs.split || 'test' }}"
-          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
-          N_LIMIT="${{ inputs.n-limit || '0' }}"
-          INSTANCE_IDS="${{ inputs.instance-ids }}"
+          MAX_RETRIES="${{ inputs.max-retries || '3' }}"
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
-          # SWT-Bench uses source-minimal target (same as SWE-bench)
-          TARGET="source-minimal"
-
-          SELECT_FILE=""
-          if [ -n "${INSTANCE_IDS}" ]; then
-            SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
-            echo "Creating selected instances file at ${SELECT_FILE}"
-            echo "${INSTANCE_IDS}" \
-              | tr ',' '\n' \
-              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-              | sed '/^$/d' > "${SELECT_FILE}"
-            # When explicit instances are provided, ignore n-limit to avoid double filtering
-            N_LIMIT="0"
-          fi
-
-          CMD="uv run benchmarks/swtbench/build_images.py \
-            --dataset ${DATASET} \
-            --split ${SPLIT} \
+          CMD="uv run benchmarks/swebench/build_images.py \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
             --image ghcr.io/openhands/eval-agent-server \
-            --target ${TARGET} \
-            --max-workers ${MAX_WORKERS} \
-            --push"
+            --push \
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
 
-          # Add n-limit if specified
-          if [ "$N_LIMIT" != "0" ]; then
-            CMD="$CMD --n-limit ${N_LIMIT}"
+          if [ "${N_LIMIT}" != "0" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
           fi
           if [ -n "${SELECT_FILE}" ]; then
-            CMD="$CMD --select ${SELECT_FILE}"
+            CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
           fi
 
           echo "Running: $CMD"
@@ -177,6 +210,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
 
       - name: Build prebaked eval env images
         if: ${{ inputs.build-eval-env == 'true' }}
@@ -197,7 +231,8 @@ jobs:
           MAX_WORKERS="${{ inputs.max-workers || '4' }}"
           BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
           MAX_RETRIES="${{ inputs.max-retries || '2' }}"
-          BUILD_BATCH_SIZE="${{ inputs.build-batch-size || '10' }}"
+          BUILD_BATCH_SIZE="${{ inputs.eval-env-build-batch-size || '10' }}"
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
 
           echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
           echo "MAX_RETRIES=${MAX_RETRIES}" >> "$GITHUB_ENV"
@@ -224,6 +259,9 @@ jobs:
             ARGS+=(--instance-ids "${INSTANCE_IDS}")
           else
             ARGS+=(--eval-limit "${N_LIMIT}")
+          fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            ARGS+=(--force-build)
           fi
 
           echo "Running prebaked eval image build: uv run swtbench-build-eval-images ${ARGS[*]}"
@@ -258,24 +296,9 @@ jobs:
       - name: Display build summary
         if: always()
         run: |
-          MANIFEST_FILE=$(find builds -name "manifest.jsonl" -type f 2>/dev/null | head -1 || true)
-
-          if [ -z "$MANIFEST_FILE" ]; then
-            echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-            echo "❌ Build failed - no manifest found" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          # Count total images built
-          TOTAL_IMAGES=$(wc -l < "$MANIFEST_FILE")
-          SUCCESS_COUNT=$(grep -c '"error":null' "$MANIFEST_FILE" || echo 0)
-          FAIL_COUNT=$((TOTAL_IMAGES - SUCCESS_COUNT))
-
-          echo "## SWT-Bench Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Total Images:** $TOTAL_IMAGES" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Successful:** $SUCCESS_COUNT ✅" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Failed:** $FAIL_COUNT ❌" >> "$GITHUB_STEP_SUMMARY"
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "SWT-Bench Image Build Summary" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Make prebaked eval image package public (best-effort)
         if: ${{ inputs.build-eval-env == 'true' }}

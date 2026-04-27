@@ -5,7 +5,7 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
-from typing import List, Sequence, cast
+from typing import Any, List, Sequence, cast
 
 import huggingface_hub
 import pandas as pd
@@ -15,7 +15,17 @@ from PIL import Image
 from benchmarks.gaia.config import INFER_DEFAULTS
 from benchmarks.gaia.scorer import question_scorer
 from benchmarks.gaia.utils import image_to_jpg_base64_url, image_to_png_base64_url
+from benchmarks.utils.acp import (
+    add_acp_agent_metadata,
+    build_acp_agent,
+    get_acp_forward_env,
+    is_acp_agent,
+    setup_acp_workspace,
+    workspace_keepalive,
+)
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import get_parser
+from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
 from benchmarks.utils.critics import create_critic
@@ -26,11 +36,12 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import image_exists
+from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
+from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
-from benchmarks.utils.version import SDK_SHORT_SHA
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
-    LLM,
     Agent,
     Conversation,
     Event,
@@ -38,11 +49,17 @@ from openhands.sdk import (
     Message,
     MessageEvent,
     TextContent,
+    Tool,
     get_logger,
 )
+from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
+from openhands.sdk.event import ActionEvent
+from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
-from openhands.workspace import APIRemoteWorkspace, DockerDevWorkspace
+from openhands.workspace import APIRemoteWorkspace
 
 
 logger = get_logger(__name__)
@@ -148,14 +165,19 @@ class GAIAEvaluation(Evaluation):
             resource_factor: Resource factor for runtime allocation (default: 1).
             forward_env: Environment variables to forward into the workspace.
         """
+        forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
+
         logger.info(f"Preparing workspace for instance {instance.id}")
 
         if self.metadata.workspace_type == "docker":
-            # Use DockerDevWorkspace with base image (same as main branch)
-            workspace = DockerDevWorkspace(
+            agent_server_image = (
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
+            )
+            workspace = create_docker_workspace(
+                agent_server_image=agent_server_image,
                 base_image="nikolaik/python-nodejs:python3.12-nodejs22",
-                working_dir="/workspace",
-                forward_env=forward_env or [],
+                build_target="binary",
+                forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":
             # For workflow, use APIRemoteWorkspace with pre-built GAIA image
@@ -169,12 +191,11 @@ class GAIAEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            sdk_short_sha = os.getenv("SDK_SHORT_SHA", SDK_SHORT_SHA)
             agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{sdk_short_sha}-gaia-binary"
+                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-gaia-binary"
             )
 
-            if not image_exists(agent_server_image):
+            if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry. "
                     f"Run 'benchmarks/gaia/build_images.py --push' to build and push it first."
@@ -182,7 +203,7 @@ class GAIAEvaluation(Evaluation):
 
             logger.info(
                 f"Using remote workspace with GAIA image {agent_server_image} "
-                f"(sdk sha: {sdk_short_sha}, resource_factor: {resource_factor})"
+                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(os.getenv("REMOTE_RUNTIME_STARTUP_TIMEOUT", "600"))
             workspace = APIRemoteWorkspace(
@@ -301,24 +322,44 @@ class GAIAEvaluation(Evaluation):
                         image_urls.append(image_to_png_base64_url(image))
 
         # Create agent
-        tools = get_default_tools(enable_browser=True)
-        tavily_api_key = os.getenv("TAVILY_API_KEY", "")
-        assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
-        agent = Agent(
-            llm=self.metadata.llm,
-            tools=tools,
-            system_prompt_kwargs={"cli_mode": True},
-            mcp_config={
-                "mcpServers": {
-                    "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},
-                    "tavily": {
-                        "command": "npx",
-                        "args": ["-y", "tavily-mcp@0.2.1"],
-                        "env": {"TAVILY_API_KEY": tavily_api_key},
-                    },
-                }
-            },
-        )
+        if is_acp_agent(self.metadata.agent_type):
+            agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
+        else:
+            agent_llm = build_eval_llm(self.metadata.llm)
+            tools = get_default_tools(enable_browser=True)
+            if self.metadata.enable_delegation:
+                tools.append(Tool(name=DelegateTool.name))
+            tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+            assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
+            condenser = None
+            if self.metadata.enable_condenser:
+                condenser = LLMSummarizingCondenser(
+                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
+                    max_size=self.metadata.condenser_max_size,
+                    keep_first=self.metadata.condenser_keep_first,
+                )
+            # Load public skills (respects EXTENSIONS_REF env var)
+            agent_context = create_agent_context()
+
+            agent = Agent(
+                llm=agent_llm,
+                tools=tools,
+                system_prompt_kwargs={"cli_mode": True},
+                agent_context=agent_context,
+                condenser=condenser,
+                mcp_config={
+                    "mcpServers": {
+                        "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},
+                        "tavily": {
+                            "command": "npx",
+                            "args": ["-y", "tavily-mcp@0.2.1"],
+                            "env": {"TAVILY_API_KEY": tavily_api_key},
+                        },
+                    }
+                },
+            )
+
+        setup_acp_workspace(self.metadata.agent_type, workspace)
 
         # Create conversation
 
@@ -337,19 +378,20 @@ class GAIAEvaluation(Evaluation):
         )
 
         # Send message and run
-        if image_urls:
-            msg = Message(
-                role="user",
-                content=[
-                    TextContent(text=instruction),
-                    ImageContent(image_urls=image_urls),
-                ],
-            )
-            conversation.send_message(msg)
-        else:
-            conversation.send_message(instruction)
-        # Run conversation with fake user responses to handle agent messages
-        run_conversation_with_fake_user_response(conversation)
+        with workspace_keepalive(self.metadata.agent_type, workspace):
+            if image_urls:
+                msg = Message(
+                    role="user",
+                    content=[
+                        TextContent(text=instruction),
+                        ImageContent(image_urls=image_urls),
+                    ],
+                )
+                conversation.send_message(msg)
+            else:
+                conversation.send_message(instruction)
+            # Run conversation with fake user responses to handle agent messages
+            run_conversation_with_fake_user_response(conversation)
 
         # Extract answer from conversation history
         model_answer_raw = self._extract_answer_from_history(conversation.state.events)
@@ -364,18 +406,29 @@ class GAIAEvaluation(Evaluation):
             f"model_answer='{model_answer}', ground_truth='{ground_truth}'"
         )
 
+        summarize_instance(
+            instance_id=instance.id,
+            conversation=conversation,
+            logger=logger,
+        )
+
         # Collect history
+
+        # Build test_result with optional ACP agent metadata
+        test_result_data: dict[str, Any] = {
+            "score": score,
+            "model_answer_raw": model_answer_raw,
+            "model_answer": model_answer,
+            "ground_truth": ground_truth,
+        }
+        if isinstance(agent, ACPAgent):
+            add_acp_agent_metadata(test_result_data, conversation)
 
         # Return evaluation output
         return EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
-            test_result={
-                "score": score,
-                "model_answer_raw": model_answer_raw,
-                "model_answer": model_answer,
-                "ground_truth": ground_truth,
-            },
+            test_result=test_result_data,
             instruction=instruction,
             error=None,
             history=list(conversation.state.events),
@@ -388,14 +441,27 @@ class GAIAEvaluation(Evaluation):
         question = instance.data.get("Question", "")
         file_name = instance.data.get("file_name", "")
 
-        instruction = """You have one question to answer. It is paramount that you provide a correct answer.
+        if is_acp_agent(self.metadata.agent_type):
+            # ACP agents (Claude Code, Codex) may refuse prompts with
+            # coercive/threatening language. Use a neutral variant that
+            # conveys the same intent without triggering safety filters.
+            instruction = """You have one question to answer. It is paramount that you provide a correct answer.
+Give it all you can: you have access to all the relevant tools to solve it and the correct answer is findable with the tools available to you. Please do not respond with 'I cannot answer' or 'None found' — instead, keep exploring different approaches until you find the answer.
+You MUST strictly follow the task-specific formatting instructions for your final answer.
+Here is the task:
+{task_question}
+""".format(  # noqa: E501
+                task_question=question,
+            )
+        else:
+            instruction = """You have one question to answer. It is paramount that you provide a correct answer.
 Give it all you can: I know for a fact that you have access to all the relevant tools to solve it and find the correct answer (the answer does exist). Failure or 'I cannot answer' or 'None found' will not be tolerated, success will be rewarded.
 You must make sure you find the correct answer! You MUST strictly follow the task-specific formatting instructions for your final answer.
 Here is the task:
 {task_question}
 """.format(  # noqa: E501
-            task_question=question,
-        )
+                task_question=question,
+            )
 
         # Add file information if present
         if file_name:
@@ -432,6 +498,8 @@ For example: if you want to search for a research paper on Arxiv, either use the
     def _extract_answer_from_history(self, events: Sequence[Event]) -> str:
         """Extract the last agent message/thought from conversation history.
 
+        This method searches for agent output from either MessageEvent or FinishAction.
+
         Note: When using RemoteConversation (with DockerWorkspace), there's a race
           condition where the final MessageEvent might not appear in the events list
           immediately after run() completes, due to WebSocket event streaming.
@@ -467,50 +535,34 @@ For example: if you want to search for a research paper on Arxiv, either use the
                 )
 
             for event in reversed(events):
-                if isinstance(event, MessageEvent) and event.source == "agent":
-                    logger.info(
-                        f"Found agent MessageEvent on attempt {attempt + 1}: "
-                        f"{type(event).__name__}"
-                    )
-                    # Try different event types
+                if not hasattr(event, "source") or event.source != "agent":
+                    continue
+
+                # Extract text from either MessageEvent or FinishAction
+                text = None
+                if isinstance(event, MessageEvent):
                     if event.llm_message and event.llm_message.content:
                         content = event.llm_message.content[0]
                         assert isinstance(content, TextContent)
-                        return content.text
+                        text = content.text
+                elif isinstance(event, ActionEvent) and isinstance(
+                    event.action, FinishAction
+                ):
+                    text = event.action.message
 
-            # Check for alternative output sources before retrying
-            if attempt == 0:
-                # Check for finish events that might contain output
-                finish_events = [
-                    e for e in events if "finish" in type(e).__name__.lower()
-                ]
-                if finish_events:
-                    logger.info(f"Found {len(finish_events)} finish events")
-                    for event in reversed(finish_events):
-                        output = getattr(event, "output", None)
-                        if output:
-                            logger.info(
-                                f"Found output in {type(event).__name__}: "
-                                f"{str(output)[:100]}"
-                            )
-                            return str(output)
-
-                # Check for error events
-                error_events = [
-                    e for e in events if "error" in type(e).__name__.lower()
-                ]
-                if error_events:
-                    logger.warning(
-                        f"Found {len(error_events)} error events: "
-                        f"{[type(e).__name__ for e in error_events]}"
+                if text:
+                    logger.info(
+                        f"Found agent output on attempt {attempt + 1}: "
+                        f"{type(event).__name__} - {text[:100]}..."
                     )
+                    return text
 
             # If not found and we have retries left, wait and try again
             if attempt < max_retries - 1:
                 current_delay = retry_delay * (retry_backoff**attempt)
                 current_delay = min(current_delay, 5.0)  # Cap at 5 seconds
                 logger.warning(
-                    "Agent MessageEvent not found yet, "
+                    "Agent MessageEvent or FinishAction not found yet, "
                     f"waiting {current_delay:.1f}s before retry..."
                 )
                 time.sleep(current_delay)
@@ -561,16 +613,10 @@ def main() -> None:
     logger.info(f"Using critic: {type(critic).__name__}")
 
     # Validate arguments
-    if args.max_attempts < 1:
-        raise ValueError(f"max_attempts must be >= 1, got {args.max_attempts}")
+    if args.n_critic_runs < 1:
+        raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
-    # Load LLM config
-    llm_config_path = args.llm_config_path
-    if not os.path.isfile(llm_config_path):
-        raise ValueError(f"LLM config file {llm_config_path} does not exist")
-    with open(llm_config_path, "r") as f:
-        llm_config = f.read()
-    llm = LLM.model_validate_json(llm_config)
+    llm = load_llm_config(args.llm_config_path)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     # Construct dataset description
@@ -594,10 +640,13 @@ def main() -> None:
         eval_output_dir=structured_output_dir,
         details={"level": args.level},
         eval_limit=args.n_limit,
-        max_attempts=args.max_attempts,
+        n_critic_runs=args.n_critic_runs,
         critic=critic,
         selected_instances_file=args.select,
+        max_retries=args.max_retries,
         workspace_type=args.workspace,
+        enable_delegation=args.enable_delegation,
+        agent_type=args.agent_type,
     )
 
     # Create evaluator
