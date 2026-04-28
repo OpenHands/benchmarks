@@ -30,6 +30,7 @@ from benchmarks.utils.build_utils import (
     capture_output,
     default_build_output_dir,
 )
+from benchmarks.utils.buildx_utils import maybe_reset_buildkit
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.image_utils import remote_image_exists
 from openhands.sdk import get_logger
@@ -303,6 +304,7 @@ def _build_base_with_logging(
             result.log_path = str(log_path)
             if result.error:
                 logger.error("Base build error for %s: %s", base_image, result.error)
+                maybe_reset_buildkit(base_image, image, attempt, max_retries)
                 if attempt == max_retries - 1:
                     return result
                 continue
@@ -734,6 +736,7 @@ def _assemble_with_logging(
             result.log_path = str(log_path)
             if result.error:
                 logger.error("Assembly error for %s: %s", base_image, result.error)
+                maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                 if attempt == max_retries - 1:
                     return result
                 continue
@@ -754,6 +757,7 @@ def _assemble_with_logging(
                         error=f"Wrapping failed: {wrap_result.error}",
                         log_path=str(log_path),
                     )
+                    maybe_reset_buildkit(base_image, target_image, attempt, max_retries)
                     if attempt == max_retries - 1:
                         return result
                     continue
