@@ -1,10 +1,14 @@
 import pytest
 
+import benchmarks.swebench.run_infer as swebench_run_infer
 from benchmarks.hybridgym_depsearch.run_infer import DepSearchEvaluation
 from benchmarks.hybridgym_funcgen.run_infer import FuncGenEvaluation
 from benchmarks.hybridgym_funclocalize.run_infer import FuncLocalizeEvaluation
 from benchmarks.hybridgym_issuelocalize.run_infer import IssueLocalizeEvaluation
-from benchmarks.swebench.run_infer import get_tools_for_preset as get_swebench_tools
+from benchmarks.swebench.run_infer import (
+    get_system_prompt_filename_for_preset as get_swebench_system_prompt,
+    get_tools_for_preset as get_swebench_tools,
+)
 from benchmarks.swebenchmultilingual.run_infer import (
     get_tools_for_preset as get_swebenchmultilingual_tools,
 )
@@ -48,3 +52,39 @@ def test_common_parser_accepts_gpt5_tool_preset():
     args = parser.parse_args(["--tool-preset", "gpt5"])
 
     assert args.tool_preset == "gpt5"
+
+
+class _FakePromptTemplate:
+    def __init__(self, exists: bool):
+        self._exists = exists
+
+    def joinpath(self, _filename: str):
+        return self
+
+    def is_file(self) -> bool:
+        return self._exists
+
+
+def test_swebench_uses_gpt5_system_prompt_when_available(monkeypatch):
+    monkeypatch.setattr(
+        swebench_run_infer.resources,
+        "files",
+        lambda _package: _FakePromptTemplate(True),
+    )
+
+    assert get_swebench_system_prompt("gpt5") == "system_prompt_gpt_5_4.j2"
+
+
+def test_swebench_falls_back_when_gpt5_system_prompt_is_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        swebench_run_infer.resources,
+        "files",
+        lambda _package: _FakePromptTemplate(False),
+    )
+
+    assert get_swebench_system_prompt("gpt5") is None
+
+
+@pytest.mark.parametrize("preset", ["default", "gemini", "planning"])
+def test_swebench_non_gpt5_presets_do_not_override_system_prompt(preset):
+    assert get_swebench_system_prompt(preset) is None
