@@ -15,9 +15,9 @@ Terminal-Bench evaluates how well AI agents can handle real-world, end-to-end ta
 1. **Install Harbor**: Harbor is the official harness for running Terminal-Bench 2.0.
 
 ```bash
-pip install harbor-bench
+pip install harbor
 # or
-uv pip install harbor-bench
+uv pip install harbor
 ```
 
 2. **Docker**: Harbor requires Docker to be installed and running.
@@ -42,6 +42,9 @@ uv run terminalbench-infer .llm_config/claude.json --select tasks.txt
 
 # Run with specific dataset version
 uv run terminalbench-infer .llm_config/claude.json --dataset terminal-bench@2.0
+
+# Limit the run to 5 tasks (useful for CI smoke tests)
+uv run terminalbench-infer .llm_config/claude.json --n-limit 5
 
 # Run with multiple workers
 uv run terminalbench-infer .llm_config/claude.json --num-workers 4

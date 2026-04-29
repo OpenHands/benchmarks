@@ -1,8 +1,137 @@
 """Tests for commit0 run_infer test command helpers."""
 
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import sentinel
+
 import pytest
 
+from benchmarks.commit0 import build_images as commit0_build_images
 from benchmarks.commit0.run_infer import get_pythonpath_prefix, normalize_pytest_cmd
+from benchmarks.utils.version import IMAGE_TAG_PREFIX
+
+
+def test_commit0_agent_server_image_tag_matches_run_infer():
+    tag = commit0_build_images.get_agent_server_image_tag(
+        "docker.io/wentingzhao/tinydb:v0",
+        "source-minimal",
+        "ghcr.io/example/agent-server",
+    )
+
+    assert tag == (
+        "ghcr.io/example/agent-server:"
+        f"{commit0_build_images.get_agent_server_image_tag_prefix('source-minimal')}"
+        "-commit0-tinydb-source-minimal"
+    )
+
+
+def test_source_targets_include_agent_layer_hash_in_tag_prefix():
+    prefix = commit0_build_images.get_agent_server_image_tag_prefix("source-minimal")
+
+    assert prefix == (
+        f"{IMAGE_TAG_PREFIX}-{commit0_build_images.agent_layer_content_hash()}"
+    )
+
+
+def test_source_targets_use_phased_assembly(monkeypatch):
+    builder_calls = []
+    assemble_calls = []
+
+    def fake_builder_image(*, push, platform, force_build):
+        builder_calls.append((push, platform, force_build))
+        return SimpleNamespace(error=None, tags=["ghcr.io/example/builder:test"])
+
+    def fake_assemble(**kwargs):
+        assemble_calls.append(kwargs)
+        return 0
+
+    monkeypatch.setattr(commit0_build_images, "build_builder_image", fake_builder_image)
+    monkeypatch.setattr(
+        commit0_build_images, "assemble_commit0_agent_images", fake_assemble
+    )
+
+    exit_code = commit0_build_images.build_commit0_images(
+        base_images=["docker.io/example/base:v0"],
+        target="source-minimal",
+        build_dir=sentinel.build_dir,
+        image="ghcr.io/example/agent-server",
+        push=True,
+        max_workers=4,
+        build_batch_size=2,
+        dry_run=False,
+        force_build=True,
+        max_retries=3,
+    )
+
+    assert exit_code == 0
+    assert builder_calls == [(True, "linux/amd64", True)]
+    assert assemble_calls == [
+        {
+            "base_images": ["docker.io/example/base:v0"],
+            "builder_tag": "ghcr.io/example/builder:test",
+            "build_dir": sentinel.build_dir,
+            "target_image": "ghcr.io/example/agent-server",
+            "target": "source-minimal",
+            "push": True,
+            "max_workers": 4,
+            "max_retries": 3,
+            "force_build": True,
+        }
+    ]
+
+
+def test_commit0_main_forwards_expected_build_args(monkeypatch):
+    forwarded = {}
+
+    monkeypatch.setattr(
+        commit0_build_images,
+        "collect_base_images",
+        lambda **_: ["docker.io/example/base:v0"],
+    )
+    monkeypatch.setattr(
+        commit0_build_images,
+        "default_build_output_dir",
+        lambda dataset, split: Path(f"/tmp/{dataset}/{split}"),
+    )
+
+    def fake_build_commit0_images(**kwargs):
+        forwarded.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        commit0_build_images, "build_commit0_images", fake_build_commit0_images
+    )
+
+    exit_code = commit0_build_images.main(
+        [
+            "--dataset",
+            "dataset",
+            "--split",
+            "test",
+            "--repo-split",
+            "tinydb",
+            "--image",
+            "ghcr.io/example/agent-server",
+            "--max-workers",
+            "2",
+            "--n-limit",
+            "1",
+        ]
+    )
+
+    assert exit_code == 0
+    assert forwarded == {
+        "base_images": ["docker.io/example/base:v0"],
+        "target": "source-minimal",
+        "build_dir": Path("/tmp/dataset/test"),
+        "image": "ghcr.io/example/agent-server",
+        "push": False,
+        "max_workers": 2,
+        "build_batch_size": None,
+        "dry_run": False,
+        "force_build": False,
+        "max_retries": 3,
+    }
 
 
 @pytest.mark.parametrize(

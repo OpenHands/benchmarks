@@ -5,8 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from benchmarks.terminalbench.config import INFER_DEFAULTS
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
-from benchmarks.terminalbench.run_infer import convert_harbor_to_eval_output
+from benchmarks.terminalbench.run_infer import (
+    convert_harbor_to_eval_output,
+    run_harbor_evaluation,
+)
+from openhands.sdk import LLM
 
 
 class TestProcessTerminalbenchResults:
@@ -206,6 +211,69 @@ class TestProcessTerminalbenchResults:
         assert "resolved_ids" in report
 
 
+class TestRunHarborEvaluation:
+    """Tests for building Harbor invocation arguments."""
+
+    def test_default_dataset_matches_harbor_registry(self) -> None:
+        """Test that the default dataset name matches Harbor's published registry."""
+        assert INFER_DEFAULTS["dataset"] == "terminal-bench@2.0"
+
+    def test_run_harbor_evaluation_passes_filters_and_limits(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test Harbor command includes task filters and n-limit for CI runs."""
+        captured: dict[str, list[str]] = {}
+
+        def fake_run(cmd: list[str], capture_output: bool, text: bool):
+            captured["cmd"] = cmd
+            return type(
+                "Completed",
+                (),
+                {"returncode": 0, "stdout": "ok", "stderr": ""},
+            )()
+
+        monkeypatch.setattr(
+            "benchmarks.terminalbench.run_infer.subprocess.run", fake_run
+        )
+
+        harbor_output_dir = run_harbor_evaluation(
+            llm=LLM(
+                model="litellm_proxy/test-model",
+                api_key="test-key",
+                base_url="https://proxy.example.com",
+            ),
+            dataset=INFER_DEFAULTS["dataset"],
+            output_dir=str(tmp_path),
+            num_workers=3,
+            task_ids=["task-a", "task-b"],
+            n_limit=5,
+        )
+
+        expected_output_dir = tmp_path / "harbor_output"
+        assert harbor_output_dir == expected_output_dir
+
+        cmd = captured["cmd"]
+        assert cmd[:8] == [
+            "harbor",
+            "run",
+            "-d",
+            "terminal-bench@2.0",
+            "-a",
+            "openhands-sdk",
+            "-m",
+            "litellm_proxy/test-model",
+        ]
+        assert "--jobs-dir" in cmd
+        assert str(expected_output_dir.resolve()) in cmd
+        assert cmd.count("--task-name") == 2
+        assert "task-a" in cmd
+        assert "task-b" in cmd
+        assert cmd[cmd.index("--n-concurrent") + 1] == "3"
+        assert cmd[cmd.index("--n-tasks") + 1] == "5"
+        assert "LLM_API_KEY=test-key" in cmd
+        assert "LLM_BASE_URL=https://proxy.example.com" in cmd
+
+
 class TestConvertHarborToEvalOutput:
     """Tests for convert_harbor_to_eval_output function."""
 
@@ -292,7 +360,7 @@ class TestConvertHarborToEvalOutput:
         assert entries[0]["metrics"]["total_cost_usd"] == 0.0
 
     def test_trial_with_exception(self, tmp_path: Path) -> None:
-        """Test handling of a trial with exception."""
+        """Test exception-only Harbor output is preserved for downstream reporting."""
         trial_result = {
             "task_name": "error-task",
             "trial_name": "error-task__err",
@@ -305,10 +373,26 @@ class TestConvertHarborToEvalOutput:
             tmp_path, [("error-task__err", trial_result)]
         )
         output_file = tmp_path / "output.jsonl"
+        report_file = tmp_path / "report.json"
 
-        # Should raise since all trials have exceptions and none succeeded
-        with pytest.raises(RuntimeError, match="All .* trials failed"):
-            convert_harbor_to_eval_output(harbor_dir, output_file)
+        convert_harbor_to_eval_output(harbor_dir, output_file)
+
+        with open(output_file) as f:
+            entries = [json.loads(line) for line in f]
+
+        assert entries == [
+            {
+                "instance_id": "error-task",
+                "error": "{'type': 'TimeoutError', 'message': 'Agent timed out'}",
+                "test_result": {},
+            }
+        ]
+
+        report = process_terminalbench_results(str(output_file), str(report_file))
+        assert report["total_instances"] == 1
+        assert report["completed_instances"] == 0
+        assert report["error_instances"] == 1
+        assert report["incomplete_ids"] == ["error-task"]
 
     def test_mixed_valid_and_exception_trials(self, tmp_path: Path) -> None:
         """Test handling mix of successful and exception trials."""

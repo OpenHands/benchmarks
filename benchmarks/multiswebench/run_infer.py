@@ -12,6 +12,7 @@ from benchmarks.multiswebench.build_images import (
 )
 from benchmarks.multiswebench.download_dataset import download_and_concat_dataset
 from benchmarks.multiswebench.scripts.data.data_change import format_data_for_inference
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -25,10 +26,8 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import (
-    create_apptainer_workspace,
-    remote_image_exists,
-)
+from benchmarks.utils.image_utils import create_apptainer_workspace, remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -294,18 +293,22 @@ class MultiSWEBenchEvaluation(Evaluation):
             tools.append(Tool(name=DelegateTool.name))
 
         # Create condenser if enabled
+        agent_llm = build_eval_llm(self.metadata.llm)
         condenser = None
         if self.metadata.enable_condenser:
             condenser = LLMSummarizingCondenser(
-                llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
                 max_size=self.metadata.condenser_max_size,
                 keep_first=self.metadata.condenser_keep_first,
             )
 
+        agent_context = create_agent_context()
+
         agent = Agent(
-            llm=self.metadata.llm,
+            llm=agent_llm,
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            agent_context=agent_context,
             condenser=condenser,
             # TODO: we can enable security analyzer later
             # security_analyzer=LLMSecurityAnalyzer(),

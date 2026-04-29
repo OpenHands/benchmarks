@@ -20,17 +20,29 @@ logger = get_logger(__name__)
 # so we use 60 min (3600s) as the default to avoid premature timeouts.
 ACP_PROMPT_TIMEOUT: float = 3600.0
 
+# Per-agent-type timeout overrides.  Gemini CLI agents (both Flash and Pro)
+# routinely make 60-110+ tool calls on complex benchmark instances and need
+# well over 60 min to converge.  Datadog traces from eval-23925785249 showed
+# instances accumulating 114 tool calls at the 3600s cutoff — still actively
+# working, not hung.  Bumping to 7200s avoids pointless retries that can
+# never succeed within the old limit.
+_ACP_PROMPT_TIMEOUT_OVERRIDES: dict[str, float] = {
+    "acp-gemini": 7200.0,
+}
+
 # Mapping of ACP agent types to the env vars they require.
 # Both the API key and base URL are needed to route through LiteLLM proxy.
 _ACP_ENV_VARS: dict[str, list[str]] = {
     "acp-claude": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
     "acp-codex": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
+    "acp-gemini": ["GEMINI_API_KEY", "GEMINI_BASE_URL"],
 }
 
 # Mapping of ACP agent types to their ACP command.
 _ACP_COMMANDS: dict[str, list[str]] = {
     "acp-claude": ["claude-agent-acp"],
     "acp-codex": ["codex-acp"],
+    "acp-gemini": ["gemini", "--acp"],
 }
 
 
@@ -59,24 +71,18 @@ def get_acp_forward_env(
     """Ensure the required env vars are forwarded for ACP agent types.
 
     For non-ACP agent types (e.g. ``"default"``), *forward_env* is returned
-    unchanged.  Raises ``ValueError`` if the required API key is not set in
-    the current environment.
+    unchanged.
 
-    For ACP agent types, both the API key and base URL are forwarded to enable
-    routing through the LiteLLM proxy. LMNR_ENV_VARS are also included to
-    enable Laminar tracing within the ACP subprocess.
+    For ACP agent types, LMNR_ENV_VARS are included in forward_env to enable
+    Laminar tracing within the workspace.  Provider credentials (API keys,
+    base URLs) are **not** forwarded here — they are passed via
+    ``ACPAgent.acp_env`` in :func:`build_acp_agent` to avoid leaking them
+    into logged workspace payloads.
     """
-    env_vars = _ACP_ENV_VARS.get(agent_type)
-    if env_vars is None:
+    if agent_type not in _ACP_ENV_VARS:
         return forward_env
 
     forward_env = list(forward_env or [])
-    for env_var in env_vars:
-        if env_var not in forward_env:
-            # Only the API key is strictly required; base URL defaults to provider
-            if "API_KEY" in env_var and not os.getenv(env_var):
-                raise ValueError(f"{env_var} not found in environment")
-            forward_env.append(env_var)
 
     # Include Laminar env vars for tracing in ACP agents
     for lmnr_var in LMNR_ENV_VARS:
@@ -109,19 +115,77 @@ def extract_acp_model_hint(llm_model: str) -> str | None:
     return model
 
 
+def _get_acp_env(agent_type: str) -> dict[str, str]:
+    """Build the ``acp_env`` dict for the given ACP *agent_type*.
+
+    Reads the provider credentials from the current process environment and
+    returns them as a dict suitable for ``ACPAgent.acp_env``.  This keeps
+    credentials out of the workspace ``forward_env`` (which is logged) and
+    instead passes them directly to the ACP subprocess.
+
+    Raises ``ValueError`` if the required API key is not set.
+    """
+    env_var_names = _ACP_ENV_VARS.get(agent_type, [])
+    acp_env: dict[str, str] = {}
+    for var in env_var_names:
+        value = os.getenv(var)
+        if value:
+            acp_env[var] = value
+        elif "API_KEY" in var:
+            raise ValueError(f"{var} not found in environment")
+    return acp_env
+
+
 def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
-    """Create an ACPAgent while remaining compatible with older type stubs."""
+    """Create an ACPAgent while remaining compatible with older type stubs.
+
+    Provider credentials are passed via ``acp_env`` so they reach the ACP
+    subprocess without being included in the workspace ``forward_env``.
+
+    If a per-instance LiteLLM virtual key is active (set via
+    ``litellm_proxy.set_current_virtual_key``), it overrides the API key
+    so the proxy can track spend for this instance.  Thread-safe via
+    ``threading.local``.
+    """
+    from benchmarks.utils.litellm_proxy import get_current_virtual_key
+
+    acp_env = _get_acp_env(agent_type)
+
+    virtual_key = get_current_virtual_key()
+    if virtual_key is not None:
+        # Override the API key with the per-instance virtual key so the
+        # proxy tracks spend independently for this instance.
+        for var in _ACP_ENV_VARS.get(agent_type, []):
+            if var.endswith("API_KEY"):
+                acp_env[var] = virtual_key
+
+    prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(agent_type, ACP_PROMPT_TIMEOUT)
+
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
         acp_model=extract_acp_model_hint(llm_model),
-        acp_prompt_timeout=ACP_PROMPT_TIMEOUT,
+        acp_prompt_timeout=prompt_timeout,
+        acp_env=acp_env,
     )
 
 
-def add_acp_agent_metadata(test_result: dict[str, Any], agent: ACPAgent) -> None:
-    """Add ACP agent metadata to an eval result payload."""
-    test_result["acp_agent_name"] = cast(Any, agent).agent_name
-    test_result["acp_agent_version"] = cast(Any, agent).agent_version
+def add_acp_agent_metadata(
+    test_result: dict[str, Any],
+    conversation: Any,
+) -> None:
+    """Add ACP agent metadata to an eval result payload.
+
+    Reads ``agent_state`` from the conversation state dump.  For remote
+    conversations ``RemoteState.model_dump()`` returns the cached state
+    that is refreshed from the server when the run completes, so the data
+    is always up-to-date by the time this function is called.
+
+    Requires SDK support: ``ACPAgent.init_state()`` must store metadata in
+    ``state.agent_state``.
+    """
+    agent_state = conversation.state.model_dump().get("agent_state", {})
+    test_result["acp_agent_name"] = agent_state.get("acp_agent_name", "")
+    test_result["acp_agent_version"] = agent_state.get("acp_agent_version", "")
 
 
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:

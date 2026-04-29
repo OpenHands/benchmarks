@@ -8,11 +8,12 @@ images, then assemble final images locally.
 """
 
 import argparse
+import hashlib
 import os
 import subprocess
 import sys
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from threading import Lock
 
@@ -40,6 +41,14 @@ logger = get_logger(__name__)
 EVAL_BASE_IMAGE = os.getenv("OPENHANDS_EVAL_BASE_IMAGE", "ghcr.io/openhands/eval-base")
 EVAL_BUILDER_IMAGE = os.getenv(
     "OPENHANDS_EVAL_BUILDER_IMAGE", "ghcr.io/openhands/eval-builder"
+)
+DOCKER_COMMAND_TIMEOUT_SECONDS = max(
+    1,
+    int(os.getenv("OPENHANDS_DOCKER_COMMAND_TIMEOUT_SECONDS", "2000")),
+)
+PHASED_BUILD_HEARTBEAT_SECONDS = max(
+    1,
+    int(os.getenv("OPENHANDS_PHASED_BUILD_HEARTBEAT_SECONDS", "60")),
 )
 AGENT_LAYER_DOCKERFILE = (
     Path(__file__).parent.parent / "utils" / "Dockerfile.agent-layer"
@@ -78,9 +87,114 @@ def _get_sdk_dockerfile() -> Path:
     return dockerfile
 
 
-def base_image_tag(custom_tag: str, image: str = EVAL_BASE_IMAGE) -> str:
-    """Compute the full registry tag for a pre-built base image."""
-    return f"{image}:{custom_tag}"
+def dockerfile_content_hash() -> str:
+    """Return a 7-char SHA-256 hash of the SDK Dockerfile content."""
+    content = _get_sdk_dockerfile().read_text()
+    return hashlib.sha256(content.encode()).hexdigest()[:7]
+
+
+def base_image_tag(
+    custom_tag: str, image: str = EVAL_BASE_IMAGE, *, content_hash: str
+) -> str:
+    """Compute the full registry tag for a pre-built base image.
+
+    The tag includes a content hash of the SDK Dockerfile so that
+    any change to the Dockerfile automatically invalidates cached images.
+    Compute *content_hash* once via ``dockerfile_content_hash()`` and
+    pass it to all calls.
+    """
+    return f"{image}:{content_hash}-{custom_tag}"
+
+
+def _format_timeout_error(
+    cmd: list[str], exc: subprocess.TimeoutExpired, timeout_seconds: int
+) -> str:
+    output = ""
+    if exc.stderr:
+        output = exc.stderr.strip()
+    elif exc.stdout:
+        output = exc.stdout.strip()
+
+    message = f"Command timed out after {timeout_seconds}s: {' '.join(cmd)}"
+    if output:
+        message += f" | Last output: {output[-500:]}"
+    return message
+
+
+def _run_docker_command(
+    cmd: list[str],
+    *,
+    timeout_seconds: int = DOCKER_COMMAND_TIMEOUT_SECONDS,
+) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
+    """Run a Docker command with timeout handling.
+
+    Returns:
+        ``(proc, None)`` when the command completes before the timeout.
+        ``(None, error_message)`` when the command times out.
+    """
+    try:
+        proc = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        if exc.stdout:
+            print(exc.stdout, end="")
+        if exc.stderr:
+            print(exc.stderr, end="", file=sys.stderr)
+        error = _format_timeout_error(cmd, exc, timeout_seconds)
+        logger.error(error)
+        return None, error
+
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+
+    return proc, None
+
+
+def _pending_summary(in_progress: set[str], limit: int = 3) -> str:
+    pending = sorted(in_progress)
+    if not pending:
+        return "none"
+    sample = ", ".join(pending[:limit])
+    if len(pending) > limit:
+        sample += f", ... (+{len(pending) - limit} more)"
+    return sample
+
+
+def _yield_completed_futures(
+    futures: dict,
+    in_progress: set[str],
+    phase_name: str,
+):
+    """Yield completed futures while emitting periodic heartbeat logs.
+
+    Args:
+        futures: Mapping of submitted futures to their build identifier.
+        in_progress: Caller-maintained set of identifiers still pending.
+        phase_name: Label to include in heartbeat log messages.
+    """
+    pending = set(futures)
+    while pending:
+        done, pending = wait(
+            pending,
+            timeout=PHASED_BUILD_HEARTBEAT_SECONDS,
+            return_when=FIRST_COMPLETED,
+        )
+        if not done:
+            logger.info(
+                "%s still running: pending=%d sample=%s",
+                phase_name,
+                len(in_progress),
+                _pending_summary(in_progress),
+            )
+            continue
+        for fut in done:
+            yield fut
 
 
 def build_base_image(
@@ -89,13 +203,16 @@ def build_base_image(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    force_build: bool = False,
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Build a single base image using the SDK Dockerfile's base-image-minimal target."""
     dockerfile = _get_sdk_dockerfile()
-    tag = base_image_tag(custom_tag, image)
+    tag = base_image_tag(custom_tag, image, content_hash=content_hash)
 
     # Check registry first
-    if remote_image_exists(tag):
+    if not force_build and remote_image_exists(tag):
         logger.info("Base image %s already exists. Skipping.", tag)
         return BuildOutput(base_image=base_image, tags=[tag], error=None)
 
@@ -117,6 +234,8 @@ def build_base_image(
 
     if push:
         cmd.append("--push")
+        # Skip provenance attestation; see issue #684.
+        cmd.append("--provenance=false")
     else:
         cmd.append("--load")
 
@@ -124,12 +243,10 @@ def build_base_image(
     cmd.append(str(dockerfile.parent))
 
     logger.info("Building base image: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
+    proc, timeout_error = _run_docker_command(cmd)
+    if timeout_error:
+        return BuildOutput(base_image=base_image, tags=[], error=timeout_error)
+    assert proc is not None
 
     if proc.returncode != 0:
         error = (
@@ -149,6 +266,9 @@ def _build_base_with_logging(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     max_retries: int = 3,
+    force_build: bool = False,
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Build a single base image with logging and retry support."""
     import time
@@ -165,7 +285,14 @@ def _build_base_with_logging(
                 )
                 time.sleep(2 + attempt * 2)
             try:
-                result = build_base_image(base_image, custom_tag, image, push)
+                result = build_base_image(
+                    base_image,
+                    custom_tag,
+                    image,
+                    push,
+                    force_build=force_build,
+                    content_hash=content_hash,
+                )
             except Exception as e:
                 result = BuildOutput(
                     base_image=base_image,
@@ -192,15 +319,19 @@ def build_all_base_images(
     max_workers: int = 1,
     dry_run: bool = False,
     max_retries: int = 3,
+    force_build: bool = False,
 ) -> int:
     """Build all base images concurrently."""
     build_log_dir = build_dir / "base-logs"
     manifest_file = build_dir / "base-manifest.jsonl"
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    content_hash = dockerfile_content_hash()
 
     if dry_run:
         for base in base_images:
-            tag = base_image_tag(extract_custom_tag(base), image)
+            tag = base_image_tag(
+                extract_custom_tag(base), image, content_hash=content_hash
+            )
             print(f"{base} -> {tag}")
         return 0
 
@@ -228,6 +359,8 @@ def build_all_base_images(
                     image=image,
                     push=push,
                     max_retries=max_retries,
+                    force_build=force_build,
+                    content_hash=content_hash,
                 )
                 futures[fut] = base
 
@@ -241,7 +374,7 @@ def build_all_base_images(
                 "Building",
             )
 
-            for fut in as_completed(futures):
+            for fut in _yield_completed_futures(futures, in_progress, "Base builds"):
                 base = futures[fut]
                 try:
                     result: BuildOutput = fut.result()
@@ -292,6 +425,7 @@ def build_builder_image(
     builder_image: str = EVAL_BUILDER_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    force_build: bool = False,
 ) -> BuildOutput:
     """Build and push the SDK builder image (Phase 0).
 
@@ -304,7 +438,7 @@ def build_builder_image(
     # For the builder, we use the builder_image repo name (not a Docker base image).
     build_id = builder_image
 
-    if remote_image_exists(tag):
+    if not force_build and remote_image_exists(tag):
         logger.info("Builder image %s already exists. Skipping.", tag)
         return BuildOutput(base_image=build_id, tags=[tag], error=None)
 
@@ -333,17 +467,17 @@ def build_builder_image(
         ]
         if push:
             cmd.append("--push")
+            # Skip provenance attestation; see issue #684.
+            cmd.append("--provenance=false")
         else:
             cmd.append("--load")
         cmd.append(str(ctx))
 
         logger.info("Building builder: %s", " ".join(cmd))
-        proc = subprocess.run(cmd, text=True, capture_output=True)
-
-        if proc.stdout:
-            print(proc.stdout, end="")
-        if proc.stderr:
-            print(proc.stderr, end="", file=sys.stderr)
+        proc, timeout_error = _run_docker_command(cmd)
+        if timeout_error:
+            return BuildOutput(base_image=build_id, tags=[], error=timeout_error)
+        assert proc is not None
 
         if proc.returncode != 0:
             error = (
@@ -412,13 +546,17 @@ def assemble_agent_image(
 
     logger.info("[assembly] Building: %s", " ".join(build_cmd))
     build_started = time.monotonic()
-    proc = subprocess.run(build_cmd, text=True, capture_output=True)
+    proc, timeout_error = _run_docker_command(build_cmd)
     build_seconds = round(time.monotonic() - build_started, 3)
-
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
+    if timeout_error:
+        logger.info(
+            "[assembly] FAILED %s: build_seconds=%.1f error=%s",
+            tag_label,
+            build_seconds,
+            timeout_error[:200],
+        )
+        return BuildOutput(base_image=base_tag, tags=[], error=timeout_error)
+    assert proc is not None
 
     if proc.returncode != 0:
         error = (
@@ -443,13 +581,12 @@ def assemble_agent_image(
             push_cmd = ["docker", "push", t]
             logger.info("[assembly] Pushing: %s", t)
             push_started = time.monotonic()
-            push_proc = subprocess.run(push_cmd, text=True, capture_output=True)
+            push_proc, timeout_error = _run_docker_command(push_cmd)
             push_seconds += time.monotonic() - push_started
-
-            if push_proc.stdout:
-                print(push_proc.stdout, end="")
-            if push_proc.stderr:
-                print(push_proc.stderr, end="", file=sys.stderr)
+            if timeout_error:
+                failed_pushes.append((t, timeout_error[:200]))
+                continue
+            assert push_proc is not None
 
             if push_proc.returncode != 0:
                 error = (
@@ -478,6 +615,57 @@ def assemble_agent_image(
         return BuildOutput(base_image=base_tag, tags=pushed_tags, error=error_summary)
 
     push_seconds = round(push_seconds, 3)
+
+    # Release disk after successful pushes. Full cold SWE/SWT-bench builds on
+    # ubuntu-latest-8core otherwise keep every final image and BuildKit ingest
+    # blob in the local daemon until the runner runs out of disk.
+    if push and pushed_tags:
+        rmi_targets = list(dict.fromkeys([*pushed_tags, base_tag]))
+        rmi_proc, rmi_timeout = _run_docker_command(
+            ["docker", "rmi", "-f", *rmi_targets]
+        )
+        if rmi_timeout:
+            logger.warning("[assembly] rmi timed out for %s", tag_label)
+        elif rmi_proc is not None and rmi_proc.returncode != 0:
+            logger.warning(
+                "[assembly] rmi failed for %s (rc=%d): %s",
+                tag_label,
+                rmi_proc.returncode,
+                (rmi_proc.stderr or rmi_proc.stdout or "").strip()[:200],
+            )
+
+        sys_prune_proc, sys_prune_timeout = _run_docker_command(
+            ["docker", "system", "prune", "-f"]
+        )
+        if sys_prune_timeout:
+            logger.warning("[assembly] system prune timed out for %s", tag_label)
+        elif sys_prune_proc is not None and sys_prune_proc.returncode != 0:
+            logger.warning(
+                "[assembly] system prune failed for %s (rc=%d)",
+                tag_label,
+                sys_prune_proc.returncode,
+            )
+
+        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
+        bp_proc, bp_timeout = _run_docker_command(
+            [
+                "docker",
+                "builder",
+                "prune",
+                "-af",
+                "--keep-storage",
+                f"{buildkit_cap_gb}g",
+            ]
+        )
+        if bp_timeout:
+            logger.warning("[assembly] buildkit prune timed out for %s", tag_label)
+        elif bp_proc is not None and bp_proc.returncode != 0:
+            logger.warning(
+                "[assembly] buildkit prune failed for %s (rc=%d)",
+                tag_label,
+                bp_proc.returncode,
+            )
+
     total_seconds = round(time.monotonic() - overall_started, 3)
 
     logger.info(
@@ -503,13 +691,15 @@ def _assemble_with_logging(
     push: bool = False,
     max_retries: int = 3,
     force_build: bool = False,
+    *,
+    content_hash: str,
 ) -> BuildOutput:
     """Assemble a single agent image with logging and retry."""
     import time
 
-    base_tag = base_image_tag(custom_tag)
-    # Match the tag format from the SDK's BuildOptions.all_tags
-    final_tag = f"{target_image}:{sdk_short_sha}-{custom_tag}-{target}"
+    base_tag = base_image_tag(custom_tag, content_hash=content_hash)
+    # Include content_hash so Dockerfile changes invalidate cached assemblies.
+    final_tag = f"{target_image}:{sdk_short_sha}-{content_hash}-{custom_tag}-{target}"
 
     if not force_build and remote_image_exists(final_tag):
         logger.info("Agent image %s already exists. Skipping.", final_tag)
@@ -588,6 +778,18 @@ def assemble_all_agent_images(
     """Assemble all agent images using thin Dockerfile (Phase 2)."""
     _, git_sha, _ = _get_sdk_submodule_info()
     sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
+    content_hash = dockerfile_content_hash()
+
+    logger.info("Pre-assembly prune of buildx-container builder cache")
+    bx_proc, bx_timeout = _run_docker_command(["docker", "buildx", "prune", "-af"])
+    if bx_timeout:
+        logger.warning("Pre-assembly buildx prune timed out")
+    elif bx_proc is not None and bx_proc.returncode != 0:
+        logger.warning(
+            "Pre-assembly buildx prune failed (rc=%d): %s",
+            bx_proc.returncode,
+            (bx_proc.stderr or bx_proc.stdout or "").strip()[:200],
+        )
 
     build_log_dir = build_dir / "assembly-logs"
     manifest_file = build_dir / "manifest.jsonl"
@@ -626,6 +828,7 @@ def assemble_all_agent_images(
                     push=push,
                     max_retries=max_retries,
                     force_build=force_build,
+                    content_hash=content_hash,
                 )
                 futures[fut] = base
 
@@ -639,7 +842,9 @@ def assemble_all_agent_images(
                 "Assembling",
             )
 
-            for fut in as_completed(futures):
+            for fut in _yield_completed_futures(
+                futures, in_progress, "Agent image assembly"
+            ):
                 base = futures[fut]
                 try:
                     result: BuildOutput = fut.result()
@@ -727,7 +932,7 @@ def get_base_build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=3,
+        default=2,
         help="Retries per image build",
     )
     return parser

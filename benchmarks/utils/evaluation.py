@@ -15,6 +15,7 @@ import os
 import threading
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,10 +26,18 @@ from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
+from benchmarks.utils.acp import is_acp_agent
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
+from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
 from benchmarks.utils.iterative import aggregate_results, get_failed_instances
 from benchmarks.utils.laminar import LMNR_ENV_VARS, LaminarEvalMetadata, LaminarService
+from benchmarks.utils.litellm_proxy import (
+    create_virtual_key,
+    delete_key,
+    get_key_spend,
+    set_current_virtual_key,
+)
 from benchmarks.utils.models import (
     EvalInstance,
     EvalInstanceID,
@@ -36,7 +45,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
-from openhands.sdk import get_logger
+from openhands.sdk import __version__ as openhands_sdk_version, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.workspace import APIRemoteWorkspace
@@ -46,6 +55,22 @@ logger = get_logger(__name__)
 
 # Interval in seconds between checking for per-instance timeouts
 TIMEOUT_CHECK_INTERVAL_SECONDS = 60
+
+
+def _default_thread_pool_workers(cpu_count: int | None) -> int:
+    """Return Python's implicit ThreadPoolExecutor size for the given CPU count."""
+    return min(32, (cpu_count or 1) + 4)
+
+
+def _read_cgroup_cpu_max() -> str | None:
+    """Return the cgroup v2 cpu.max value when available."""
+    cpu_max_path = Path("/sys/fs/cgroup/cpu.max")
+    try:
+        if cpu_max_path.exists():
+            return cpu_max_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return None
 
 
 def _to_serializable(obj: Any) -> Any:
@@ -83,7 +108,7 @@ class PendingInstance:
     instance: EvalInstance
     datapoint_id: UUID | None = None
     task: asyncio.Task | None = field(default=None, repr=False)
-    start_time: float | None = None  # Set when task acquires semaphore
+    start_time: float | None = None  # Set when worker thread begins executing
 
 
 OnResult = Callable[[EvalInstance, EvalOutput], None]
@@ -102,6 +127,15 @@ class Evaluation(ABC, BaseModel):
 
     metadata: EvalMetadata
     num_workers: int = Field(default=1, ge=1)
+    max_asyncio_thread_workers: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Upper bound for the asyncio default thread pool used by "
+            "asyncio.to_thread(). This prevents accidental misconfiguration "
+            "from creating an unbounded number of threads."
+        ),
+    )
     current_attempt: int = Field(
         default=1, description="Current attempt number (1-indexed)"
     )
@@ -116,15 +150,38 @@ class Evaluation(ABC, BaseModel):
     )
 
     def model_post_init(self, __context) -> None:
-        """Save metadata to output directory after initialization."""
-        # Ensure output directory exists
-        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
+        """Stamp openhands_sdk_version on self.metadata and persist metadata.json."""
+        self.metadata.openhands_sdk_version = openhands_sdk_version
+        self._save_metadata()
 
-        # Save metadata to JSON file
+    def _save_metadata(self) -> None:
+        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
+
+    def _stamp_acp_metadata_from_outputs(self, outputs: List[EvalOutput]) -> None:
+        """Back-write ACP handshake fields from any completed instance."""
+        if not is_acp_agent(self.metadata.agent_type):
+            return
+        for out in outputs:
+            name = out.test_result.get("acp_agent_name")
+            version = out.test_result.get("acp_agent_version")
+            if name and version:
+                self.metadata.acp_agent_name = name
+                self.metadata.acp_agent_version = version
+                self._save_metadata()
+                logger.info("Stamped ACP metadata: name=%r version=%r", name, version)
+                return
+        completed = sum(1 for out in outputs if out.test_result)
+        logger.warning(
+            "ACP run: %d/%d instances completed but none surfaced "
+            "acp_agent_name+acp_agent_version. push-to-index will see a "
+            "missing agent_version.",
+            completed,
+            len(outputs),
+        )
 
     @property
     def output_path(self) -> str:
@@ -352,6 +409,34 @@ class Evaluation(ABC, BaseModel):
 
         init_worker_ctx()
 
+        loop = asyncio.get_running_loop()
+        cpu_count = os.cpu_count()
+        default_executor_workers = _default_thread_pool_workers(cpu_count)
+        effective_executor_workers = min(
+            self.num_workers, self.max_asyncio_thread_workers
+        )
+        if effective_executor_workers < self.num_workers:
+            logger.warning(
+                "[executor] capping configured_workers=%d to executor_cap=%d",
+                self.num_workers,
+                self.max_asyncio_thread_workers,
+            )
+        loop.set_default_executor(
+            ThreadPoolExecutor(
+                max_workers=effective_executor_workers,
+                thread_name_prefix="evaluation-worker",
+            )
+        )
+        logger.info(
+            "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s",
+            self.num_workers,
+            self.max_asyncio_thread_workers,
+            effective_executor_workers,
+            default_executor_workers,
+            cpu_count,
+            _read_cgroup_cpu_max() or "unknown",
+        )
+
         all_instances = self.prepare_instances()
 
         # Initialize Laminar
@@ -479,6 +564,9 @@ class Evaluation(ABC, BaseModel):
             f"Evaluation complete: {total_instances} total instances, "
             f"{self.metadata.n_critic_runs} critic runs"
         )
+
+        self._stamp_acp_metadata_from_outputs(all_outputs)
+
         return all_outputs
 
     async def _run_attempt_async(
@@ -511,19 +599,26 @@ class Evaluation(ABC, BaseModel):
         ) -> Tuple[EvalInstance, EvalOutput]:
             """Process one instance with semaphore-based concurrency control."""
             async with semaphore:
-                # Record start time when task acquires semaphore (not when queued)
                 task = asyncio.current_task()
-                if task is not None and task in pending_instances:
-                    pending_instances[task].start_time = time.monotonic()
+                pending_info = pending_instances.get(task) if task is not None else None
+
+                def _thread_wrapper() -> Tuple[EvalInstance, EvalOutput]:
+                    # Record start time when the thread actually begins
+                    # executing, not when the semaphore was acquired. This
+                    # avoids counting thread-pool queue time against the
+                    # per-instance timeout.
+                    if pending_info is not None:
+                        pending_info.start_time = time.monotonic()
+                    return self._process_one_sync(
+                        inst,
+                        attempt,
+                        lmnr_session_id=self._laminar_session_id,
+                        lmnr_trace_metadata=self._laminar_trace_meta,
+                        lmnr_datapoint_id=datapoint_id,
+                    )
+
                 # Run the sync processing function in a thread
-                return await asyncio.to_thread(
-                    self._process_one_sync,
-                    inst,
-                    attempt,
-                    lmnr_session_id=self._laminar_session_id,
-                    lmnr_trace_metadata=self._laminar_trace_meta,
-                    lmnr_datapoint_id=datapoint_id,
-                )
+                return await asyncio.to_thread(_thread_wrapper)
 
         # Create all tasks
         tasks: list[asyncio.Task] = []
@@ -764,7 +859,7 @@ class Evaluation(ABC, BaseModel):
                 # max_retries is the number of *additional* attempts after the
                 # first, so total attempts = max_retries + 1 (retry_count 0..N).
                 while retry_count <= max_retries:
-                    out = self._execute_single_attempt(
+                    out, failure_category = self._execute_single_attempt(
                         instance=instance,
                         eval_span_ctx=eval_span_ctx,
                         critic_attempt=critic_attempt,
@@ -779,9 +874,12 @@ class Evaluation(ABC, BaseModel):
                     if out is not None:
                         return instance, out
 
-                    # _execute_single_attempt returns None on non-final failure
+                    # _execute_single_attempt returns (None, category) on
+                    # non-final failure.  Only escalate resource_factor for
+                    # failures that are plausibly resource-related.
                     retry_count += 1
-                    runtime_failure_count += 1
+                    if failure_category == FailureCategory.RESOURCE:
+                        runtime_failure_count += 1
 
                 # Unreachable: _execute_single_attempt always returns EvalOutput
                 # on the final retry, but pyright can't prove the loop exits early.
@@ -800,21 +898,23 @@ class Evaluation(ABC, BaseModel):
         max_retries: int,
         runtime_failure_count: int,
         runtime_runs: list[RemoteRuntimeAllocation],
-    ) -> EvalOutput | None:
+    ) -> tuple[EvalOutput | None, FailureCategory | None]:
         """Execute one attempt with proper span and workspace lifecycle.
 
-        Returns:
-            EvalOutput: on success, or on the *final* retry failure
-                (retry_count == max_retries) so the caller can report it.
-            None: on a non-final failure, signalling the caller should retry::
+        Returns a ``(output, failure_category)`` tuple:
 
-                out = self._execute_single_attempt(...)
-                if out is not None:
-                    return instance, out   # done (success or final failure)
-                # else: bump counters and loop
+            ``(EvalOutput, None)``
+                On success, or on the *final* retry failure so the caller can
+                report it.
+
+            ``(None, FailureCategory)``
+                On a non-final failure, signalling the caller should retry.
+                The category tells the caller whether to escalate
+                ``resource_factor``.
         """
         workspace = None
         exec_span = None
+        virtual_key: str | None = None
         try:
             # Serialize span context and inject via environment variable so
             # workspace can pick it up. Use a lock to avoid races between
@@ -835,6 +935,13 @@ class Evaluation(ABC, BaseModel):
                     f"runtime_failure_count={runtime_failure_count}, "
                     f"resource_factor={resource_factor}"
                 )
+
+            # Create a per-instance LiteLLM virtual key for exact cost tracking.
+            # The key is stored in thread-local so build_acp_agent() can inject
+            # it into the ACP subprocess env. No-op when LITELLM_MASTER_KEY unset.
+            run_id = os.getenv("UNIQUE_EVAL_NAME")
+            virtual_key = create_virtual_key(instance.id, run_id=run_id)
+            set_current_virtual_key(virtual_key)
 
             workspace = self.prepare_workspace(
                 instance,
@@ -868,8 +975,46 @@ class Evaluation(ABC, BaseModel):
             out = self.evaluate_instance(instance, workspace)
             if runtime_runs:
                 out.runtime_runs = runtime_runs
+
+            # Query exact cost from the LiteLLM proxy virtual key.
+            # Stored alongside the SDK's token-count estimate so both
+            # values are available in the output JSON.
+            if virtual_key is not None:
+                proxy_cost = get_key_spend(virtual_key)
+
+                # LiteLLM proxy commits spend asynchronously. For fast
+                # conversations the /key/info query can return 0 for up to
+                # ~15-20 s after the last LLM call.  Retry with exponential
+                # backoff (2+4+8+16 = 30 s max) to cover the tail latency.
+                if proxy_cost is None or proxy_cost == 0.0:
+                    logger.info(
+                        "[worker] proxy spend not yet available for %s, retrying...",
+                        instance.id,
+                    )
+                    for delay in (2, 4, 8, 16):
+                        time.sleep(delay)
+                        retry_cost = get_key_spend(virtual_key)
+                        if retry_cost is not None and retry_cost > 0:
+                            proxy_cost = retry_cost
+                            break
+
+                if proxy_cost is not None and proxy_cost == 0.0:
+                    logger.warning(
+                        "[worker] proxy cost still $0 for %s after retries — "
+                        "spend may not have been committed by the proxy",
+                        instance.id,
+                    )
+
+                if proxy_cost is not None:
+                    out.test_result["proxy_cost"] = proxy_cost
+                    logger.info(
+                        "[worker] proxy cost for %s: $%.6f",
+                        instance.id,
+                        proxy_cost,
+                    )
+
             logger.info("[worker] done id=%s", instance.id)
-            return out
+            return out, None
         except Exception as e:
             if exec_span is not None:
                 exec_span.record_exception(e)
@@ -890,31 +1035,43 @@ class Evaluation(ABC, BaseModel):
                     str(e),
                 )
 
-            # TODO(#277): add an exception classifier to decide when to bump resources
+            # Classify the failure to decide whether resource escalation
+            # is warranted.  See evaluation/issues/408.
+            failure_category = classify_failure(e)
+            escalate = failure_category == FailureCategory.RESOURCE
+
             logger.warning(
-                f"[worker] Instance {instance.id}: runtime_failure_count="
-                f"{runtime_failure_count + 1}"
+                "[worker] Instance %s: failure_category=%s, escalate_resources=%s, "
+                "runtime_failure_count=%d",
+                instance.id,
+                failure_category.value,
+                escalate,
+                runtime_failure_count + (1 if escalate else 0),
             )
 
             if retry_count < max_retries:
                 logger.warning(
                     f"[worker] Instance {instance.id} failed "
-                    f"(attempt {retry_count + 1}/{max_retries}): "
+                    f"(attempt {retry_count + 1}/{max_retries + 1}): "
                     f"{str(e)}"
                 )
             else:
                 logger.error(
                     f"[worker] Instance {instance.id} failed after "
-                    f"{max_retries} retries. Last error: {str(e)}",
+                    f"{max_retries + 1} attempts. Last error: {str(e)}",
                     exc_info=True,
                 )
                 # Create error output for final failure
                 error_output = self._create_error_output(instance, e, max_retries)
                 if runtime_runs:
                     error_output.runtime_runs = runtime_runs
-                return error_output
-            return None
+                return error_output, None
+            return None, failure_category
         finally:
+            # Clean up the per-instance virtual key and thread-local.
+            if virtual_key is not None:
+                delete_key(virtual_key)
+            set_current_virtual_key(None)
             if workspace is not None:
                 self._cleanup_workspace(workspace, instance)
             if exec_span is not None:
