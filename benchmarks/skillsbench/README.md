@@ -31,7 +31,14 @@ SkillsBench comprises tasks across 11 domains, evaluating the efficacy of Skills
 
 2. **Docker**: Harbor requires Docker to be installed and running.
 
-3. **LLM API Key**: Configure your LLM provider credentials.
+3. **Modal Credentials**: Some tasks (e.g., `mhc-implementation`, `diff-transformer`) run workloads on [Modal](https://modal.com) and require a Modal token. Set the following environment variables before running:
+
+   ```bash
+   export MODAL_TOKEN_ID=your_token_id
+   export MODAL_TOKEN_SECRET=your_token_secret
+   ```
+
+4. **LLM API Key**: Configure your LLM provider credentials.
 
 ## Usage
 
@@ -64,7 +71,41 @@ uv run skillsbench-infer .llm_config/claude.json --num-workers 4
 
 # Versioned SkillsBench aliases also resolve to the synced local dataset
 uv run skillsbench-infer .llm_config/claude.json --dataset benchflow/skillsbench@1.0
+
+# Run with agent skill definitions injected into task environments
+uv run skillsbench-infer .llm_config/claude.json --with-skills
+
+# Combine task selection with skills injection
+uv run skillsbench-infer .llm_config/claude.json --task-id benchflow/weighted-gdp-calc --with-skills
+uv run skillsbench-infer .llm_config/claude.json --select tasks.txt --with-skills
+uv run skillsbench-infer .llm_config/claude.json --n-limit 5 --with-skills
 ```
+
+### Skills Injection (`--with-skills`)
+
+The `--with-skills` flag injects agent skill definitions into the Docker environment of each evaluated task. When enabled, the following `COPY` instructions are added to each task's Dockerfile before building:
+
+```dockerfile
+# Claude Code
+COPY skills /root/.claude/skills
+# Claude Code (Harbor compatibility)
+COPY skills /etc/claude-code/.claude/skills
+# Codex
+COPY skills /root/.codex/skills
+# OpenCode
+COPY skills /root/.opencode/skill
+# Goose
+COPY skills /root/.goose/skills
+# Factory
+COPY skills /root/.factory/skills
+# Portable agents format (Goose, Amp)
+COPY skills /root/.agents/skills
+```
+
+This makes any skills bundled in the task's `environment/skills/` directory available to the agent at the standard skill lookup paths for each supported agent framework.
+
+- Dockerfiles are automatically restored to their original content after Harbor finishes, regardless of success or failure.
+- The `with_skills` flag is recorded in `metadata.json` alongside each evaluation run.
 
 ### LLM Configuration
 

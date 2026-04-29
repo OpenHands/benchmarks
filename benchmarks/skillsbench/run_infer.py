@@ -40,6 +40,25 @@ TASKS_METADATA_PATH = DATASET_CACHE_DIR / "source.json"
 REGISTRY_DATASET_PREFIX = "benchflow/skillsbench"
 INSTANCE_ID_PREFIX = "benchflow"
 
+# Skills COPY block injected into Dockerfiles when --with-skills is set.
+# RUN mkdir -p lines ensure parent directories exist before COPY.
+SKILLS_COPY_BLOCK = """\
+# Claude Code
+COPY skills /root/.claude/skills
+# Claude Code (Harbor compatibility)
+COPY skills /etc/claude-code/.claude/skills
+# Codex
+COPY skills /root/.codex/skills
+# OpenCode
+COPY skills /root/.opencode/skill
+# Goose
+COPY skills /root/.goose/skills
+# Factory
+COPY skills /root/.factory/skills
+# Portable agents format (Goose, Amp)
+COPY skills /root/.agents/skills
+"""
+
 
 def check_harbor_installed() -> bool:
     """Check if harbor CLI is installed and available."""
@@ -300,6 +319,66 @@ def _canonicalize_instance_id(task_name: str) -> str:
     if "/" in task_name:
         return task_name
     return f"{INSTANCE_ID_PREFIX}/{task_name}"
+
+
+def get_target_dockerfiles(
+    tasks_dir: Path,
+    task_ids: list[str] | None,
+) -> list[Path]:
+    """Return Dockerfile paths for the selected tasks (or all tasks if none specified)."""
+    if task_ids:
+        names = [tid.rsplit("/", 1)[-1] for tid in task_ids]
+        candidates = [tasks_dir / name / "environment" / "Dockerfile" for name in names]
+    else:
+        candidates = list(tasks_dir.glob("*/environment/Dockerfile"))
+
+    found = [p for p in candidates if p.is_file()]
+    missing = [p for p in candidates if not p.is_file()]
+    for p in missing:
+        logger.warning("Dockerfile not found (skipping skills injection): %s", p)
+    return found
+
+
+def inject_skills_into_dockerfiles(
+    dockerfiles: list[Path],
+) -> list[tuple[Path, str]]:
+    """Inject SKILLS_COPY_BLOCK into Dockerfiles that don't already contain it.
+
+    Returns a list of (path, original_content) for every file that was modified,
+    so callers can revert with revert_dockerfiles().
+    """
+    reverts: list[tuple[Path, str]] = []
+    for dockerfile in dockerfiles:
+        original = dockerfile.read_text(encoding="utf-8")
+        if "COPY skills" in original:
+            logger.debug("Skills already present in %s, skipping injection", dockerfile)
+            continue
+
+        # Insert the block after the last WORKDIR directive, or at end of file.
+        lines = original.splitlines(keepends=True)
+        insert_at = len(lines)
+        for i, line in enumerate(lines):
+            if line.strip().upper().startswith("WORKDIR"):
+                insert_at = i + 1
+
+        injected_lines = (
+            lines[:insert_at] + ["\n", SKILLS_COPY_BLOCK] + lines[insert_at:]
+        )
+        dockerfile.write_text("".join(injected_lines), encoding="utf-8")
+        reverts.append((dockerfile, original))
+        logger.info("Injected skills COPY block into %s", dockerfile)
+
+    return reverts
+
+
+def revert_dockerfiles(reverts: list[tuple[Path, str]]) -> None:
+    """Restore Dockerfiles to their original content after skills injection."""
+    for dockerfile, original in reverts:
+        try:
+            dockerfile.write_text(original, encoding="utf-8")
+            logger.info("Reverted %s", dockerfile)
+        except OSError as e:
+            logger.error("Failed to revert %s: %s", dockerfile, e)
 
 
 def run_harbor_evaluation(
@@ -651,6 +730,17 @@ Examples:
         action="store_true",
         help="Skip running harbor and only convert existing results",
     )
+    parser.add_argument(
+        "--with-skills",
+        action="store_true",
+        default=False,
+        help=(
+            "Inject agent skill definitions into the selected task Dockerfiles before "
+            "running evaluation. Adds COPY instructions for Claude Code, Codex, "
+            "OpenCode, Goose, Factory, and portable-agents skill directories. "
+            "Dockerfiles are restored to their original state after Harbor completes."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -711,6 +801,7 @@ Examples:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "harbor_agent": HARBOR_DEFAULTS["agent_name"],
         "note": args.note,
+        "with_skills": args.with_skills,
     }
     metadata_path = Path(structured_output_dir) / "metadata.json"
     with open(metadata_path, "w") as f:
@@ -729,6 +820,18 @@ Examples:
     output_path = Path(structured_output_dir) / OUTPUT_FILENAME
 
     if not args.skip_harbor:
+        # Optionally inject skill definitions into task Dockerfiles
+        dockerfile_reverts: list[tuple[Path, str]] = []
+        if args.with_skills and dataset_is_path:
+            target_dockerfiles = get_target_dockerfiles(
+                tasks_dir=Path(resolved_dataset),
+                task_ids=task_ids,
+            )
+            dockerfile_reverts = inject_skills_into_dockerfiles(target_dockerfiles)
+            logger.info(
+                "Injected skills into %d Dockerfile(s)", len(dockerfile_reverts)
+            )
+
         # Run harbor evaluation
         try:
             harbor_output_dir = run_harbor_evaluation(
@@ -750,6 +853,13 @@ Examples:
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
             sys.exit(1)
+        finally:
+            if dockerfile_reverts:
+                revert_dockerfiles(dockerfile_reverts)
+                logger.info(
+                    "Reverted %d Dockerfile(s) after evaluation",
+                    len(dockerfile_reverts),
+                )
     else:
         # Skip harbor, just convert existing results
         harbor_output_dir = Path(structured_output_dir) / "harbor_output"
