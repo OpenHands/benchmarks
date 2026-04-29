@@ -175,23 +175,17 @@ def add_acp_agent_metadata(
 ) -> None:
     """Add ACP agent metadata to an eval result payload.
 
-    The ACPAgent stores agent_name/version in ``state.agent_state`` during init.
-    This syncs back in the ``full_state`` ConversationStateUpdateEvent.  We scan
-    the conversation events (last to first) to extract it.
+    Reads ``agent_state`` from the conversation state dump.  For remote
+    conversations ``RemoteState.model_dump()`` returns the cached state
+    that is refreshed from the server when the run completes, so the data
+    is always up-to-date by the time this function is called.
+
+    Requires SDK support: ``ACPAgent.init_state()`` must store metadata in
+    ``state.agent_state``.
     """
-    name = ""
-    version = ""
-    for ev in reversed(list(conversation.state.events)):
-        ev_dict = ev if isinstance(ev, dict) else getattr(ev, "__dict__", {})
-        if ev_dict.get("key") == "full_state":
-            val = ev_dict.get("value", {})
-            agent_state = val.get("agent_state", {}) if isinstance(val, dict) else {}
-            name = agent_state.get("acp_agent_name", "")
-            version = agent_state.get("acp_agent_version", "")
-            if name:
-                break
-    test_result["acp_agent_name"] = name
-    test_result["acp_agent_version"] = version
+    agent_state = conversation.state.model_dump().get("agent_state", {})
+    test_result["acp_agent_name"] = agent_state.get("acp_agent_name", "")
+    test_result["acp_agent_version"] = agent_state.get("acp_agent_version", "")
 
 
 def setup_acp_workspace(agent_type: str, workspace: RemoteWorkspace) -> None:

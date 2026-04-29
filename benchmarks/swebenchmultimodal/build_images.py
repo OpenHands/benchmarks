@@ -130,7 +130,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--select",
         type=str,
-        default=None,
+        default=BUILD_DEFAULTS.get("select"),
         help="Path to text file containing instance IDs to select",
     )
     parser.add_argument(
@@ -165,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Phase 0: Build shared builder image (SDK + dependencies)
     logger.info("Phase 0: Building shared builder image")
-    builder_result = build_builder_image(push=args.push)
+    builder_result = build_builder_image(push=args.push, force_build=args.force_build)
     if builder_result.error or not builder_result.tags:
         logger.error(
             "Phase 0 failed: %s",
@@ -182,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         push=args.push,
         max_workers=args.max_workers,
         max_retries=args.max_retries,
+        force_build=args.force_build,
     )
     if rc != 0:
         logger.error("Phase 1 failed (exit code %d)", rc)

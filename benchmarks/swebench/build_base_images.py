@@ -203,6 +203,7 @@ def build_base_image(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    force_build: bool = False,
     *,
     content_hash: str,
 ) -> BuildOutput:
@@ -211,7 +212,7 @@ def build_base_image(
     tag = base_image_tag(custom_tag, image, content_hash=content_hash)
 
     # Check registry first
-    if remote_image_exists(tag):
+    if not force_build and remote_image_exists(tag):
         logger.info("Base image %s already exists. Skipping.", tag)
         return BuildOutput(base_image=base_image, tags=[tag], error=None)
 
@@ -233,6 +234,8 @@ def build_base_image(
 
     if push:
         cmd.append("--push")
+        # Skip provenance attestation; see issue #684.
+        cmd.append("--provenance=false")
     else:
         cmd.append("--load")
 
@@ -263,6 +266,7 @@ def _build_base_with_logging(
     image: str = EVAL_BASE_IMAGE,
     push: bool = False,
     max_retries: int = 3,
+    force_build: bool = False,
     *,
     content_hash: str,
 ) -> BuildOutput:
@@ -286,6 +290,7 @@ def _build_base_with_logging(
                     custom_tag,
                     image,
                     push,
+                    force_build=force_build,
                     content_hash=content_hash,
                 )
             except Exception as e:
@@ -314,6 +319,7 @@ def build_all_base_images(
     max_workers: int = 1,
     dry_run: bool = False,
     max_retries: int = 3,
+    force_build: bool = False,
 ) -> int:
     """Build all base images concurrently."""
     build_log_dir = build_dir / "base-logs"
@@ -353,6 +359,7 @@ def build_all_base_images(
                     image=image,
                     push=push,
                     max_retries=max_retries,
+                    force_build=force_build,
                     content_hash=content_hash,
                 )
                 futures[fut] = base
@@ -418,6 +425,7 @@ def build_builder_image(
     builder_image: str = EVAL_BUILDER_IMAGE,
     push: bool = False,
     platform: str = "linux/amd64",
+    force_build: bool = False,
 ) -> BuildOutput:
     """Build and push the SDK builder image (Phase 0).
 
@@ -430,7 +438,7 @@ def build_builder_image(
     # For the builder, we use the builder_image repo name (not a Docker base image).
     build_id = builder_image
 
-    if remote_image_exists(tag):
+    if not force_build and remote_image_exists(tag):
         logger.info("Builder image %s already exists. Skipping.", tag)
         return BuildOutput(base_image=build_id, tags=[tag], error=None)
 
@@ -459,6 +467,8 @@ def build_builder_image(
         ]
         if push:
             cmd.append("--push")
+            # Skip provenance attestation; see issue #684.
+            cmd.append("--provenance=false")
         else:
             cmd.append("--load")
         cmd.append(str(ctx))
@@ -605,6 +615,57 @@ def assemble_agent_image(
         return BuildOutput(base_image=base_tag, tags=pushed_tags, error=error_summary)
 
     push_seconds = round(push_seconds, 3)
+
+    # Release disk after successful pushes. Full cold SWE/SWT-bench builds on
+    # ubuntu-latest-8core otherwise keep every final image and BuildKit ingest
+    # blob in the local daemon until the runner runs out of disk.
+    if push and pushed_tags:
+        rmi_targets = list(dict.fromkeys([*pushed_tags, base_tag]))
+        rmi_proc, rmi_timeout = _run_docker_command(
+            ["docker", "rmi", "-f", *rmi_targets]
+        )
+        if rmi_timeout:
+            logger.warning("[assembly] rmi timed out for %s", tag_label)
+        elif rmi_proc is not None and rmi_proc.returncode != 0:
+            logger.warning(
+                "[assembly] rmi failed for %s (rc=%d): %s",
+                tag_label,
+                rmi_proc.returncode,
+                (rmi_proc.stderr or rmi_proc.stdout or "").strip()[:200],
+            )
+
+        sys_prune_proc, sys_prune_timeout = _run_docker_command(
+            ["docker", "system", "prune", "-f"]
+        )
+        if sys_prune_timeout:
+            logger.warning("[assembly] system prune timed out for %s", tag_label)
+        elif sys_prune_proc is not None and sys_prune_proc.returncode != 0:
+            logger.warning(
+                "[assembly] system prune failed for %s (rc=%d)",
+                tag_label,
+                sys_prune_proc.returncode,
+            )
+
+        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
+        bp_proc, bp_timeout = _run_docker_command(
+            [
+                "docker",
+                "builder",
+                "prune",
+                "-af",
+                "--keep-storage",
+                f"{buildkit_cap_gb}g",
+            ]
+        )
+        if bp_timeout:
+            logger.warning("[assembly] buildkit prune timed out for %s", tag_label)
+        elif bp_proc is not None and bp_proc.returncode != 0:
+            logger.warning(
+                "[assembly] buildkit prune failed for %s (rc=%d)",
+                tag_label,
+                bp_proc.returncode,
+            )
+
     total_seconds = round(time.monotonic() - overall_started, 3)
 
     logger.info(
@@ -718,6 +779,17 @@ def assemble_all_agent_images(
     _, git_sha, _ = _get_sdk_submodule_info()
     sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
     content_hash = dockerfile_content_hash()
+
+    logger.info("Pre-assembly prune of buildx-container builder cache")
+    bx_proc, bx_timeout = _run_docker_command(["docker", "buildx", "prune", "-af"])
+    if bx_timeout:
+        logger.warning("Pre-assembly buildx prune timed out")
+    elif bx_proc is not None and bx_proc.returncode != 0:
+        logger.warning(
+            "Pre-assembly buildx prune failed (rc=%d): %s",
+            bx_proc.returncode,
+            (bx_proc.stderr or bx_proc.stdout or "").strip()[:200],
+        )
 
     build_log_dir = build_dir / "assembly-logs"
     manifest_file = build_dir / "manifest.jsonl"

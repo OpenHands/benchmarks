@@ -26,6 +26,7 @@ from lmnr import Laminar
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
+from benchmarks.utils.acp import is_acp_agent
 from benchmarks.utils.constants import OUTPUT_FILENAME
 from benchmarks.utils.critics import get_completed_instances
 from benchmarks.utils.failure_classifier import FailureCategory, classify_failure
@@ -44,7 +45,7 @@ from benchmarks.utils.models import (
     EvalOutput,
     RemoteRuntimeAllocation,
 )
-from openhands.sdk import get_logger
+from openhands.sdk import __version__ as openhands_sdk_version, get_logger
 from openhands.sdk.critic import CriticBase
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.workspace import APIRemoteWorkspace
@@ -107,7 +108,7 @@ class PendingInstance:
     instance: EvalInstance
     datapoint_id: UUID | None = None
     task: asyncio.Task | None = field(default=None, repr=False)
-    start_time: float | None = None  # Set when task acquires semaphore
+    start_time: float | None = None  # Set when worker thread begins executing
 
 
 OnResult = Callable[[EvalInstance, EvalOutput], None]
@@ -149,15 +150,38 @@ class Evaluation(ABC, BaseModel):
     )
 
     def model_post_init(self, __context) -> None:
-        """Save metadata to output directory after initialization."""
-        # Ensure output directory exists
-        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
+        """Stamp openhands_sdk_version on self.metadata and persist metadata.json."""
+        self.metadata.openhands_sdk_version = openhands_sdk_version
+        self._save_metadata()
 
-        # Save metadata to JSON file
+    def _save_metadata(self) -> None:
+        os.makedirs(self.metadata.eval_output_dir, exist_ok=True)
         metadata_file = os.path.join(self.metadata.eval_output_dir, "metadata.json")
         with open(metadata_file, "w", encoding="utf-8") as f:
             f.write(self.metadata.model_dump_json(indent=2))
         logger.info(f"Saved metadata to {metadata_file}")
+
+    def _stamp_acp_metadata_from_outputs(self, outputs: List[EvalOutput]) -> None:
+        """Back-write ACP handshake fields from any completed instance."""
+        if not is_acp_agent(self.metadata.agent_type):
+            return
+        for out in outputs:
+            name = out.test_result.get("acp_agent_name")
+            version = out.test_result.get("acp_agent_version")
+            if name and version:
+                self.metadata.acp_agent_name = name
+                self.metadata.acp_agent_version = version
+                self._save_metadata()
+                logger.info("Stamped ACP metadata: name=%r version=%r", name, version)
+                return
+        completed = sum(1 for out in outputs if out.test_result)
+        logger.warning(
+            "ACP run: %d/%d instances completed but none surfaced "
+            "acp_agent_name+acp_agent_version. push-to-index will see a "
+            "missing agent_version.",
+            completed,
+            len(outputs),
+        )
 
     @property
     def output_path(self) -> str:
@@ -540,6 +564,9 @@ class Evaluation(ABC, BaseModel):
             f"Evaluation complete: {total_instances} total instances, "
             f"{self.metadata.n_critic_runs} critic runs"
         )
+
+        self._stamp_acp_metadata_from_outputs(all_outputs)
+
         return all_outputs
 
     async def _run_attempt_async(
@@ -572,19 +599,26 @@ class Evaluation(ABC, BaseModel):
         ) -> Tuple[EvalInstance, EvalOutput]:
             """Process one instance with semaphore-based concurrency control."""
             async with semaphore:
-                # Record start time when task acquires semaphore (not when queued)
                 task = asyncio.current_task()
-                if task is not None and task in pending_instances:
-                    pending_instances[task].start_time = time.monotonic()
+                pending_info = pending_instances.get(task) if task is not None else None
+
+                def _thread_wrapper() -> Tuple[EvalInstance, EvalOutput]:
+                    # Record start time when the thread actually begins
+                    # executing, not when the semaphore was acquired. This
+                    # avoids counting thread-pool queue time against the
+                    # per-instance timeout.
+                    if pending_info is not None:
+                        pending_info.start_time = time.monotonic()
+                    return self._process_one_sync(
+                        inst,
+                        attempt,
+                        lmnr_session_id=self._laminar_session_id,
+                        lmnr_trace_metadata=self._laminar_trace_meta,
+                        lmnr_datapoint_id=datapoint_id,
+                    )
+
                 # Run the sync processing function in a thread
-                return await asyncio.to_thread(
-                    self._process_one_sync,
-                    inst,
-                    attempt,
-                    lmnr_session_id=self._laminar_session_id,
-                    lmnr_trace_metadata=self._laminar_trace_meta,
-                    lmnr_datapoint_id=datapoint_id,
-                )
+                return await asyncio.to_thread(_thread_wrapper)
 
         # Create all tasks
         tasks: list[asyncio.Task] = []
@@ -949,19 +983,27 @@ class Evaluation(ABC, BaseModel):
                 proxy_cost = get_key_spend(virtual_key)
 
                 # LiteLLM proxy commits spend asynchronously. For fast
-                # conversations, retry with backoff when spend is not yet
-                # available.
+                # conversations the /key/info query can return 0 for up to
+                # ~15-20 s after the last LLM call.  Retry with exponential
+                # backoff (2+4+8+16 = 30 s max) to cover the tail latency.
                 if proxy_cost is None or proxy_cost == 0.0:
                     logger.info(
                         "[worker] proxy spend not yet available for %s, retrying...",
                         instance.id,
                     )
-                    for delay in (1, 2, 4):
+                    for delay in (2, 4, 8, 16):
                         time.sleep(delay)
                         retry_cost = get_key_spend(virtual_key)
                         if retry_cost is not None and retry_cost > 0:
                             proxy_cost = retry_cost
                             break
+
+                if proxy_cost is not None and proxy_cost == 0.0:
+                    logger.warning(
+                        "[worker] proxy cost still $0 for %s after retries — "
+                        "spend may not have been committed by the proxy",
+                        instance.id,
+                    )
 
                 if proxy_cost is not None:
                     out.test_result["proxy_cost"] = proxy_cost

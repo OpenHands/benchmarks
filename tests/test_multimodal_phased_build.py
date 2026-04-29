@@ -265,6 +265,8 @@ class TestMultimodalPhasedOrchestration:
         )
 
         main(["--dataset", "ds", "--split", "dev", "--force-build"])
+        assert mock_builder.call_args.kwargs["force_build"] is True
+        assert _bases.call_args.kwargs["force_build"] is True
         assert mock_assemble.call_args.kwargs["force_build"] is True
 
 
@@ -276,6 +278,7 @@ class TestMultimodalPhasedOrchestration:
 class TestMultimodalParser:
     def test_defaults(self):
         from benchmarks.swebenchmultimodal.build_images import get_parser
+        from benchmarks.swebenchmultimodal.config import BUILD_DEFAULTS
 
         parser = get_parser()
         args = parser.parse_args([])
@@ -285,4 +288,4 @@ class TestMultimodalParser:
         assert args.push is False
         assert args.force_build is False
         assert args.n_limit == 0
-        assert args.select is None
+        assert args.select == BUILD_DEFAULTS["select"]
