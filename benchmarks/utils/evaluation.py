@@ -235,6 +235,45 @@ class Evaluation(ABC, BaseModel):
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
 
+    def _extract_base_state_from_conversation_archive(
+        self,
+        conversation_archive_path: Path,
+    ) -> dict[str, Any] | None:
+        """Load the archived conversation base_state.json payload."""
+        with tarfile.open(conversation_archive_path, mode="r:gz") as conv_tar:
+            base_state_file = next(
+                (
+                    member
+                    for member in conv_tar.getmembers()
+                    if member.name.endswith("base_state.json")
+                ),
+                None,
+            )
+            if base_state_file is None:
+                return None
+
+            base_state_obj = conv_tar.extractfile(base_state_file)
+            if base_state_obj is None:
+                return None
+
+            return json.loads(base_state_obj.read().decode("utf-8"))
+
+    def _has_meaningful_metrics(self, metrics: Metrics) -> bool:
+        """Return whether recovered metrics contain non-zero cost or usage."""
+        if metrics.accumulated_cost > 0:
+            return True
+
+        usage = metrics.accumulated_token_usage
+        return usage is not None and any(
+            (
+                usage.prompt_tokens > 0,
+                usage.completion_tokens > 0,
+                usage.cache_read_tokens > 0,
+                usage.cache_write_tokens > 0,
+                usage.reasoning_tokens > 0,
+            )
+        )
+
     def _load_metrics_from_conversation_archive(
         self,
         conversation_archive_path: Path | None,
@@ -244,37 +283,15 @@ class Evaluation(ABC, BaseModel):
             return None
 
         try:
-            with tarfile.open(conversation_archive_path, mode="r:gz") as conv_tar:
-                base_state_file = next(
-                    (
-                        member
-                        for member in conv_tar.getmembers()
-                        if member.name.endswith("base_state.json")
-                    ),
-                    None,
-                )
-                if base_state_file is None:
-                    return None
-
-                base_state_obj = conv_tar.extractfile(base_state_file)
-                if base_state_obj is None:
-                    return None
-
-                base_state = json.loads(base_state_obj.read().decode("utf-8"))
+            base_state = self._extract_base_state_from_conversation_archive(
+                conversation_archive_path
+            )
+            if base_state is None:
+                return None
 
             stats = ConversationStats.model_validate((base_state.get("stats") or {}))
             metrics = stats.get_combined_metrics()
-            usage = metrics.accumulated_token_usage
-            if metrics.accumulated_cost == 0 and (
-                usage is None
-                or (
-                    usage.prompt_tokens == 0
-                    and usage.completion_tokens == 0
-                    and usage.cache_read_tokens == 0
-                    and usage.cache_write_tokens == 0
-                    and usage.reasoning_tokens == 0
-                )
-            ):
+            if not self._has_meaningful_metrics(metrics):
                 return None
             return metrics
         except Exception as exc:
@@ -1143,6 +1160,8 @@ class Evaluation(ABC, BaseModel):
                     exc_info=True,
                 )
                 if workspace is not None:
+                    # Capture the archive before teardown so failure telemetry
+                    # survives even when cleanup later skips duplicate capture.
                     conversation_archive_path = self._capture_conversation_archive(
                         workspace,
                         instance,
