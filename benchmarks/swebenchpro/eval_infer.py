@@ -48,7 +48,7 @@ def convert_to_swebenchpro_format(
                 data = json.loads(line)
                 instance_id = data.get("instance_id")
                 if not instance_id:
-                    logger.warning("Line %s: Missing instance_id", line_num)
+                    logger.error("Line %s: Missing instance_id", line_num)
                     error_count += 1
                     continue
 
@@ -75,6 +75,12 @@ def convert_to_swebenchpro_format(
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.error("Line %s: Unexpected error - %s", line_num, exc)
                 error_count += 1
+
+    if error_count:
+        raise ValueError(
+            f"Failed to convert {input_file}: encountered {error_count} malformed input entr"
+            f"{'y' if error_count == 1 else 'ies'}"
+        )
 
     with open(output_file, "w", encoding="utf-8") as outfile:
         json.dump(converted_entries, outfile, indent=2)
@@ -103,6 +109,16 @@ def _extract_repo_archive(archive_bytes: bytes, destination: Path) -> Path:
     return destination / next(iter(top_level_dirs))
 
 
+def _validate_harness_dir(harness_dir: Path) -> Path:
+    harness_script = harness_dir / "swe_bench_pro_eval.py"
+    if not harness_script.exists():
+        raise FileNotFoundError(
+            f"Expected official SWE-Bench Pro harness script at {harness_script}. "
+            "Make sure --official-harness-dir points to a checkout of scaleapi/SWE-bench_Pro-os."
+        )
+    return harness_script
+
+
 def ensure_official_harness_checkout(
     cache_dir: str | None = None,
     archive_url: str = constants.OFFICIAL_HARNESS_ARCHIVE_URL,
@@ -114,9 +130,12 @@ def ensure_official_harness_checkout(
         cache_root = Path(cache_dir)
 
     checkout_dir = cache_root / ref
-    harness_script = checkout_dir / "swe_bench_pro_eval.py"
-    if harness_script.exists():
-        return checkout_dir
+    if checkout_dir.exists():
+        try:
+            _validate_harness_dir(checkout_dir)
+            return checkout_dir
+        except FileNotFoundError:
+            shutil.rmtree(checkout_dir)
 
     logger.info("Downloading official SWE-Bench Pro harness from %s", archive_url)
     with urllib.request.urlopen(archive_url, timeout=60) as response:
@@ -131,6 +150,7 @@ def ensure_official_harness_checkout(
             shutil.rmtree(checkout_dir)
         shutil.move(str(extracted_root), str(checkout_dir))
 
+    _validate_harness_dir(checkout_dir)
     return checkout_dir
 
 
@@ -157,10 +177,11 @@ def run_swebenchpro_evaluation(
     block_network: bool,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
+    harness_script = _validate_harness_dir(harness_dir)
 
     cmd = [
         sys.executable,
-        "swe_bench_pro_eval.py",
+        harness_script.name,
         "--raw_sample_path",
         str(raw_sample_path),
         "--patch_path",

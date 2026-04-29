@@ -1,6 +1,7 @@
 import json
 
 import pandas as pd
+import pytest
 
 from benchmarks.swebenchpro.build_images import (
     collect_unique_base_images,
@@ -10,6 +11,7 @@ from benchmarks.swebenchpro.build_images import (
 from benchmarks.swebenchpro.constants import SOURCE_REPO_PATH
 from benchmarks.swebenchpro.eval_infer import (
     convert_to_swebenchpro_format,
+    run_swebenchpro_evaluation,
     write_report,
 )
 
@@ -111,6 +113,50 @@ def test_convert_to_swebenchpro_format_writes_patch_array(tmp_path):
             "prefix": "demo-model",
         },
     ]
+
+
+def test_convert_to_swebenchpro_format_raises_on_malformed_input(tmp_path):
+    input_path = tmp_path / "broken_output.jsonl"
+    input_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "instance_id": "instance_a",
+                        "test_result": {"git_patch": "diff --git a/a b/a"},
+                    }
+                ),
+                "{not-json}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "output.swebenchpro.json"
+
+    with pytest.raises(ValueError, match="malformed input"):
+        convert_to_swebenchpro_format(str(input_path), str(output_path))
+
+    assert not output_path.exists()
+
+
+def test_run_swebenchpro_evaluation_requires_harness_script(tmp_path):
+    raw_sample_path = tmp_path / "raw_samples.jsonl"
+    raw_sample_path.write_text('{"instance_id": "instance_a"}\n', encoding="utf-8")
+    patch_path = tmp_path / "output.swebenchpro.json"
+    patch_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError, match="swe_bench_pro_eval.py"):
+        run_swebenchpro_evaluation(
+            harness_dir=tmp_path,
+            raw_sample_path=raw_sample_path,
+            patch_path=patch_path,
+            output_dir=tmp_path / "eval_output",
+            workers=1,
+            dockerhub_username="anonymous",
+            use_local_docker=True,
+            block_network=False,
+        )
 
 
 def test_write_report_records_resolved_ids(tmp_path):
