@@ -26,6 +26,7 @@ from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
+from benchmarks.utils.image_utils import create_apptainer_workspace
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
@@ -214,7 +215,7 @@ def cleanup_docker_containers():
 def setup_host_mapping(workspace):
     """Add the-agent-company.com host mapping inside the container."""
     try:
-        gateway_ip = "172.17.0.1"
+        gateway_ip = os.getenv("THE_AGENT_COMPANY_HOST_IP", "172.17.0.1")
         logger.info(f"Adding host mapping: {gateway_ip} the-agent-company.com")
         workspace.execute_command(
             f"echo '{gateway_ip} the-agent-company.com' >> /etc/hosts"
@@ -390,32 +391,44 @@ class OpenAgentSafetyEvaluation(Evaluation):
         resource_factor: int = 1,
         forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
-        """Create a fresh Docker workspace for this instance.
+        """Create a fresh workspace for this instance.
 
         Args:
             instance: The evaluation instance to prepare workspace for.
             resource_factor: Resource factor for runtime allocation (default: 1).
             forward_env: Environment variables to forward into the workspace.
         """
-        # Try to build image on-the-fly, fall back to pre-built if build fails
-        try:
-            server_image = build_workspace_image()
-        except (subprocess.CalledProcessError, RuntimeError) as e:
-            logger.warning(f"On-the-fly build failed: {e}")
+        if self.metadata.workspace_type == "docker":
+            # Try to build image on-the-fly, fall back to pre-built if build fails
+            try:
+                server_image = build_workspace_image()
+            except (subprocess.CalledProcessError, RuntimeError) as e:
+                logger.warning(f"On-the-fly build failed: {e}")
+                server_image = get_image_name()
+
+                if not check_image_exists(server_image):
+                    raise RuntimeError(
+                        f"On-the-fly build failed and pre-built image {server_image} does not exist"
+                    )
+                logger.info(f"Using pre-built image {server_image}")
+
+            workspace = DockerWorkspace(
+                server_image=server_image,
+                platform="linux/amd64",
+                extra_ports=True,
+                forward_env=forward_env or [],
+            )
+        elif self.metadata.workspace_type == "apptainer":
             server_image = get_image_name()
-
-            if not check_image_exists(server_image):
-                raise RuntimeError(
-                    f"On-the-fly build failed and pre-built image {server_image} does not exist"
-                )
-            logger.info(f"Using pre-built image {server_image}")
-
-        workspace = DockerWorkspace(
-            server_image=server_image,
-            platform="linux/amd64",
-            extra_ports=True,
-            forward_env=forward_env or [],
-        )
+            workspace = create_apptainer_workspace(
+                agent_server_image=server_image,
+                forward_env=forward_env,
+                extra_ports=True,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported workspace_type: {self.metadata.workspace_type}"
+            )
 
         # Setup host mapping for The Agent Company services
         setup_host_mapping(workspace)

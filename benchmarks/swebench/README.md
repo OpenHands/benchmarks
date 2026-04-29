@@ -60,6 +60,40 @@ uv run swebench-infer path/to/llm_config.json \
     --workspace docker
 ```
 
+### Apptainer Workspace (Local Evaluation without Docker)
+
+If Docker is unavailable, you can run SWE-Bench with Apptainer, but the required agent-server images must already be available to Apptainer.
+
+#### Step 1: Build and push the agent-server images
+
+Build the images from a Docker-capable machine or CI runner, and include `--push` so they end up in a registry Apptainer can pull from:
+
+```bash
+uv run python -m benchmarks.swebench.build_images \
+  --dataset princeton-nlp/SWE-bench_Verified \
+  --split test \
+  --image ghcr.io/openhands/eval-agent-server \
+  --target source-minimal \
+  --push
+```
+
+If you run `build_images.py` without `--push`, the resulting images only exist in the local container daemon and Apptainer cannot use them.
+
+If you build the images from a different checkout or SDK revision than the one used for inference, set `IMAGE_TAG_PREFIX` during inference so it matches the tag prefix used during the build.
+
+#### Step 2: Run inference with Apptainer
+
+```bash
+uv run swebench-infer path/to/llm_config.json \
+    --dataset princeton-nlp/SWE-bench_Verified \
+    --split test \
+    --max-iterations 100 \
+    --workspace apptainer
+```
+
+Apptainer can either pull the image from the registry on first use or reuse the cached SIF in `APPTAINER_CACHE_DIR` on subsequent runs.
+
+
 ### Remote Workspace (Scalable Cloud Evaluation)
 
 Remote workspace enables running evaluations at scale by using a cloud-based runtime API to provision containers. This is ideal for large-scale benchmark runs with high parallelization.

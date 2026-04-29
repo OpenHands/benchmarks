@@ -34,7 +34,7 @@ from benchmarks.utils.evaluation_utils import (
     get_default_on_result_writer,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import create_apptainer_workspace, remote_image_exists
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
@@ -49,7 +49,7 @@ from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
-from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -200,26 +200,13 @@ class SWEBenchEvaluation(Evaluation):
                 forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "apptainer":
-            if not remote_image_exists(agent_server_image):
-                raise RuntimeError(
-                    f"Agent server image {agent_server_image} does not exist in container registry, "
-                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
-                )
-
-            logger.info(
-                f"Using apptainer workspace with pre-built image {agent_server_image} "
-                f"(tag prefix: {get_phased_image_tag_prefix()})"
-            )
             if wrap_needed:
                 logger.info(
-                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                    "Apptainer workspace expects any wrapped image to already exist in the registry"
                 )
-
-            workspace = ApptainerWorkspace(
-                server_image=agent_server_image,
-                working_dir="/workspace",
-                forward_env=forward_env or [],
-                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+            workspace = create_apptainer_workspace(
+                agent_server_image=agent_server_image,
+                forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")

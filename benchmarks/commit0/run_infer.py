@@ -34,7 +34,11 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.image_utils import create_docker_workspace, remote_image_exists
+from benchmarks.utils.image_utils import (
+    create_apptainer_workspace,
+    create_docker_workspace,
+    remote_image_exists,
+)
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
@@ -266,6 +270,12 @@ class Commit0Evaluation(Evaluation):
         build_target = BUILD_TARGET
         logger.info(f"Using base docker image: {base_docker_image}")
 
+        agent_server_image = get_agent_server_image_tag(
+            base_docker_image,
+            build_target,
+            EVAL_AGENT_SERVER_IMAGE,
+        )
+
         if self.metadata.workspace_type == "docker":
             agent_server_image = get_agent_server_image_tag(
                 base_docker_image,
@@ -276,6 +286,11 @@ class Commit0Evaluation(Evaluation):
                 agent_server_image=agent_server_image,
                 base_image=base_docker_image,
                 build_target=build_target,
+                forward_env=forward_env,
+            )
+        elif self.metadata.workspace_type == "apptainer":
+            workspace = create_apptainer_workspace(
+                agent_server_image=agent_server_image,
                 forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":

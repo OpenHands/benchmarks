@@ -27,6 +27,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import (
+    create_apptainer_workspace,
     create_docker_workspace,
     remote_image_exists,
 )
@@ -166,7 +167,7 @@ class SWTBenchEvaluation(Evaluation):
         forward_env: list[str] | None = None,
     ) -> RemoteWorkspace:
         """
-        Create workspace based on workspace_type (docker or remote).
+        Create workspace based on workspace_type (docker, apptainer, or remote).
 
         Args:
             instance: The evaluation instance to prepare workspace for.
@@ -186,12 +187,19 @@ class SWTBenchEvaluation(Evaluation):
         # For non-binary targets, append target suffix
         suffix = f"-{build_target}" if build_target != "binary" else ""
 
+        agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
+
         if self.metadata.workspace_type == "docker":
             agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             workspace = create_docker_workspace(
                 agent_server_image=agent_server_image,
                 base_image=official_docker_image,
                 build_target=build_target,
+                forward_env=forward_env,
+            )
+        elif self.metadata.workspace_type == "apptainer":
+            workspace = create_apptainer_workspace(
+                agent_server_image=agent_server_image,
                 forward_env=forward_env,
             )
         elif self.metadata.workspace_type == "remote":
