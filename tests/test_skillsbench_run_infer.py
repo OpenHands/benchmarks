@@ -120,14 +120,24 @@ class TestDatasetSync:
 
         assert resolved == tasks_dir
 
-    def test_resolve_skillsbench_dataset_preserves_remote_registry_ids(self) -> None:
-        """Test that explicit Harbor dataset ids are passed through unchanged."""
+    def test_resolve_skillsbench_dataset_maps_aliases_to_local_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test SkillsBench dataset aliases resolve to the local Harbor dataset."""
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+
+        monkeypatch.setattr(
+            "benchmarks.skillsbench.run_infer.ensure_skillsbench_tasks",
+            lambda: tasks_dir,
+        )
+
         resolved_dataset, dataset_is_path = resolve_skillsbench_dataset(
             "benchflow/skillsbench@1.0"
         )
 
-        assert resolved_dataset == "benchflow/skillsbench@1.0"
-        assert dataset_is_path is False
+        assert resolved_dataset == str(tasks_dir.resolve())
+        assert dataset_is_path is True
 
 
 class TestRunHarborEvaluation:

@@ -39,8 +39,9 @@ By default, `skillsbench-infer` keeps a local copy of `tasks/` from
 `https://github.com/benchflow-ai/skillsbench` on the `main` branch under
 `benchmarks/skillsbench/data/tasks`. It stores the synced upstream commit hash in
 `benchmarks/skillsbench/data/source.json` and refreshes the local snapshot when the
-upstream `main` commit changes. The only supported dataset sources are this synced
-SkillsBench snapshot and Harbor registry ids matching `benchflow/skillsbench@...`.
+upstream `main` commit changes. Dataset aliases matching
+`benchflow/skillsbench@...` resolve to this same local Harbor task dataset because
+SkillsBench is not yet published in the public Harbor registry.
 
 ### Running Inference
 
@@ -61,7 +62,7 @@ uv run skillsbench-infer .llm_config/claude.json --n-limit 5
 # Run with multiple workers
 uv run skillsbench-infer .llm_config/claude.json --num-workers 4
 
-# Run against a Harbor registry dataset instead of the synced GitHub tasks
+# Versioned SkillsBench aliases also resolve to the synced local dataset
 uv run skillsbench-infer .llm_config/claude.json --dataset benchflow/skillsbench@1.0
 ```
 
