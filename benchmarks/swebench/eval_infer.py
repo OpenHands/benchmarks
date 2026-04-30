@@ -20,7 +20,7 @@ from benchmarks.swebench import constants
 from benchmarks.swebench.config import EVAL_DEFAULTS
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.patch_utils import remove_binary_diffs, remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -83,6 +83,7 @@ def convert_to_swebench_format(input_file: str, output_file: str) -> None:
                     git_patch = ""
 
                 # postprocess git_patch
+                git_patch = remove_binary_diffs(git_patch)
                 git_patch = remove_files_from_patch(
                     git_patch, constants.SETUP_FILES_TO_REMOVE
                 )

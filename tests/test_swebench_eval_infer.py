@@ -60,3 +60,47 @@ class TestConvertToSwebenchFormat:
             result = json.loads(f.readline())
 
         assert result["model_name_or_path"] == MODEL_NAME_OR_PATH
+
+    def test_binary_diffs_are_removed(self):
+        """Test that binary diffs are removed from the patch."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        ) as infile:
+            # Patch with a binary diff that should be removed
+            patch_with_binary = """diff --git a/test.py b/test.py
+--- a/test.py
++++ b/test.py
+@@ -1 +1 @@
+-old
++new
+diff --git a/binary.png b/binary.png
+Binary files differ
+diff --git a/another.py b/another.py
+--- a/another.py
++++ a/another.py
+@@ -1 +1 @@
+-foo
++bar"""
+            entry = {
+                "instance_id": "django__django-12345",
+                "test_result": {"git_patch": patch_with_binary},
+            }
+            infile.write(json.dumps(entry) + "\n")
+            input_path = infile.name
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".swebench.jsonl", delete=False
+        ) as outfile:
+            output_path = outfile.name
+
+        convert_to_swebench_format(input_path, output_path)
+
+        with open(output_path, "r") as f:
+            result = json.loads(f.readline())
+
+        # Verify binary diff was removed
+        assert "Binary files differ" not in result["model_patch"]
+        assert "diff --git a/binary.png" not in result["model_patch"]
+        # Verify regular diffs are preserved
+        assert "diff --git a/test.py" in result["model_patch"]
+        assert "diff --git a/another.py" in result["model_patch"]
