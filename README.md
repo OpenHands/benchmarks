@@ -9,6 +9,7 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 | Benchmark | Description | Status |
 |-----------|-------------|--------|
 | [SWE-Bench](benchmarks/swebench/) | Software engineering tasks from GitHub issues | ✅ Active |
+| [SWE-Bench Pro](benchmarks/swebenchpro/) | Long-horizon software engineering tasks from GitHub issues | ✅ Active |
 | [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
 | [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
@@ -114,6 +115,7 @@ uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
 
 - **[SWE-Bench](benchmarks/swebench/)**: Software engineering tasks from GitHub issues
+- **[SWE-Bench Pro](benchmarks/swebenchpro/)**: Long-horizon software engineering tasks from GitHub issues
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
@@ -170,9 +172,12 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
 
 1. **Pre-built Images**: Images must be built and pushed to a public registry
    - In this repository, add one of the following labels to a PR to trigger image builds:
-     - `build-swebench-50`: Build 50 images (quick testing)
-     - `build-swebench-200`: Build 200 images (medium testing)
-     - `build-swebench`: Build all images (full evaluation)
+     - `build-swebench-50`: Build 50 SWE-Bench images (quick testing)
+     - `build-swebench-200`: Build 200 SWE-Bench images (medium testing)
+     - `build-swebench`: Build all SWE-Bench images (full evaluation)
+     - `build-swebenchpro-50`: Build 50 SWE-Bench Pro images (quick testing)
+     - `build-swebenchpro-200`: Build 200 SWE-Bench Pro images (medium testing)
+     - `build-swebenchpro`: Build all SWE-Bench Pro images (full evaluation)
    - Images are tagged with the SDK SHA from the `vendor/software-agent-sdk` submodule
 
 2. **Runtime API Key**: Set the `RUNTIME_API_KEY` environment variable

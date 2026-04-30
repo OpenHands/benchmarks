@@ -1,0 +1,253 @@
+name: Build SWE-Bench Pro Images
+
+run-name: >-
+  Build SWE-Bench Pro Images
+  ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' && format('(SDK: {0})', inputs.sdk-commit) || '' }}
+
+on:
+  workflow_call:
+    inputs:
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use'
+        required: true
+        type: string
+      n-limit:
+        description: 'Limit number of images to build'
+        required: false
+        type: string
+        default: ''
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        type: string
+        default: ''
+      benchmarks-ref:
+        description: 'Benchmarks repo ref to checkout (for cross-repo calls)'
+        required: false
+        type: string
+        default: ''
+      benchmarks-commit:
+        description: 'Benchmarks repository commit/ref to use when testing older SDK compatibility'
+        required: false
+        type: string
+        default: ''
+      extensions-ref:
+        description: 'Extensions repository branch/ref to use'
+        required: false
+        type: string
+        default: 'main'
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        type: string
+        default: 'false'
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'Dataset name (e.g., ScaleAI/SWE-bench_Pro)'
+        required: true
+        default: 'ScaleAI/SWE-bench_Pro'
+        type: string
+      split:
+        description: 'Dataset split (e.g., test, dev)'
+        required: true
+        default: 'test'
+        type: string
+      max-workers:
+        description: 'Number of concurrent builds'
+        required: false
+        default: '8'
+        type: string
+      max-retries:
+        description: 'Retries per image build'
+        required: false
+        default: '2'
+        type: string
+      n-limit:
+        description: 'Limit number of images to build (for testing). Leave blank for no limit.'
+        required: false
+        default: ''
+        type: string
+      instance-ids:
+        description: 'Comma-separated instance IDs to build (optional, overrides n-limit)'
+        required: false
+        default: ''
+        type: string
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use. Leave blank to use submodule default.'
+        required: false
+        default: ''
+        type: string
+      extensions-ref:
+        description: 'Extensions repository branch/ref to use (for testing feature branches with skills/plugins). Leave blank to use main.'
+        required: false
+        default: 'main'
+        type: string
+      benchmarks-commit:
+        description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch.'
+        required: false
+        default: ''
+        type: string
+      force-build:
+        description: 'Rebuild images even if matching remote tags already exist'
+        required: false
+        default: 'false'
+        type: string
+
+env:
+  DATASET: ScaleAI/SWE-bench_Pro
+  SPLIT: test
+  MAX_WORKERS: '8'
+  MAX_RETRIES: '2'
+  N_LIMIT: '500'
+  INSTANCE_IDS: ''
+  SELECT_FILE: ''
+
+concurrency:
+  group: build-swe-bench-pro-${{ inputs.sdk-commit || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' &&
+       (github.event.label.name == 'build-swebenchpro' ||
+        github.event.label.name == 'build-swebenchpro-50' ||
+        github.event.label.name == 'build-swebenchpro-200'))
+
+    timeout-minutes: 600
+    runs-on: ubuntu-latest-8core
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Determine checkout ref
+        id: checkout-ref
+        run: |
+          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
+            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.benchmarks-commit }}" ]; then
+            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          repository: OpenHands/benchmarks
+          ref: ${{ steps.checkout-ref.outputs.ref }}
+          submodules: recursive
+          token: ${{ github.token }}
+
+      - name: Apply workflow_dispatch overrides (if any)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+
+      - name: Set N_LIMIT based on label
+        if: ${{ github.event_name == 'pull_request_target' }}
+        run: |
+          LABEL_NAME="${{ github.event.label.name }}"
+          if [ "$LABEL_NAME" = "build-swebenchpro-50" ]; then
+            echo "N_LIMIT=50" >> "$GITHUB_ENV"
+          elif [ "$LABEL_NAME" = "build-swebenchpro-200" ]; then
+            echo "N_LIMIT=200" >> "$GITHUB_ENV"
+          elif [ "$LABEL_NAME" = "build-swebenchpro" ]; then
+            echo "N_LIMIT=" >> "$GITHUB_ENV"
+          fi
+
+      - uses: ./.github/actions/build-select-file
+        with:
+          instance-ids: ${{ env.INSTANCE_IDS }}
+
+      - name: Update SDK submodule
+        if: ${{ inputs.sdk-commit != '' }}
+        run: |
+          cd vendor/software-agent-sdk
+          git fetch origin ${{ inputs.sdk-commit }}
+          git checkout FETCH_HEAD
+          cd ../..
+          git add vendor/software-agent-sdk
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: make build
+
+      - name: Build and push SWE-Bench Pro images
+        run: |
+          set -euo pipefail
+          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+
+          CMD="uv run benchmarks/swebenchpro/build_images.py \
+            --dataset '${DATASET}' \
+            --split '${SPLIT}' \
+            --image ghcr.io/openhands/eval-agent-server \
+            --push \
+            --max-workers '${MAX_WORKERS}' \
+            --max-retries '${MAX_RETRIES}'"
+
+          if [ -n "${N_LIMIT}" ]; then
+            CMD="$CMD --n-limit '${N_LIMIT}'"
+          fi
+          if [ -n "${SELECT_FILE}" ]; then
+            CMD="$CMD --select '${SELECT_FILE}'"
+          fi
+          if [ "${FORCE_BUILD}" = "true" ]; then
+            CMD="$CMD --force-build"
+          fi
+
+          echo "Running: $CMD"
+          eval "$CMD"
+        env:
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
+
+      - name: Archive build logs
+        if: always()
+        run: |
+          if [ -d builds ]; then
+            tar -czf build-logs.tar.gz builds/
+          fi
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-logs-${{ github.run_id }}
+          path: build-logs.tar.gz
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Display build summary
+        if: always()
+        run: |
+          uv run python -m benchmarks.scripts.summarize_build_manifests \
+            --build-root builds \
+            --title "SWE-Bench Pro Image Build Summary" >> "$GITHUB_STEP_SUMMARY"

@@ -127,6 +127,18 @@ class SWEBenchEvaluation(Evaluation):
       - evaluate_instance(instance, workspace)
     """
 
+    def get_official_docker_image(self, instance: EvalInstance) -> str:
+        return get_official_docker_image(instance.id)
+
+    def extract_custom_tag(self, official_docker_image: str) -> str:
+        return extract_custom_tag(official_docker_image)
+
+    def should_wrap_instance(self, instance: EvalInstance) -> bool:
+        return should_wrap_instance_id(instance.id)
+
+    def get_source_repo_path(self, instance: EvalInstance) -> str:
+        return "/testbed"
+
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
 
@@ -163,15 +175,15 @@ class SWEBenchEvaluation(Evaluation):
         """
         forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
 
-        official_docker_image = get_official_docker_image(instance.id)
+        official_docker_image = self.get_official_docker_image(instance)
         build_target = constants.DEFAULT_BUILD_TARGET
-        custom_tag = extract_custom_tag(official_docker_image)
+        custom_tag = self.extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = (
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
         )
         base_agent_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
-        wrap_needed = should_wrap_instance_id(instance.id)
+        wrap_needed = self.should_wrap_instance(instance)
         agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
@@ -331,11 +343,12 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         logger.info("repo_path: %s", repo_path)
-        cp_testebed_repo = workspace.execute_command(
-            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
+        source_repo_path = self.get_source_repo_path(instance)
+        cp_testbed_repo = workspace.execute_command(
+            f"mkdir -p {repo_path} ; cp -r {source_repo_path}/. {repo_path}"
         )
-        assert cp_testebed_repo.exit_code == 0, (
-            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
+        assert cp_testbed_repo.exit_code == 0, (
+            f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"
         )
 
         # git reset

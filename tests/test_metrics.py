@@ -214,7 +214,7 @@ def test_eval_output_with_no_metrics():
 
 def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
     """Create a test instance appropriate for the given benchmark."""
-    if benchmark_name == "swebench":
+    if benchmark_name in {"swebench", "swebenchpro"}:
         return EvalInstance(
             id="test__instance-1",
             data={
@@ -373,7 +373,7 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
 
 def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadata:
     """Create metadata appropriate for the given benchmark."""
-    if benchmark_name == "swebench":
+    if benchmark_name in {"swebench", "swebenchpro"}:
         return EvalMetadata(
             llm=llm,
             max_iterations=5,
@@ -580,6 +580,11 @@ def _setup_mocks_for_benchmark(benchmark_name: str, metrics: Metrics):
     return mock_conversation
 
 
+def _get_evaluation_module_name(evaluation_class: type[Evaluation]) -> str:
+    """Return the module that defines the evaluation implementation."""
+    return evaluation_class.evaluate_instance.__module__
+
+
 @pytest.mark.parametrize("benchmark_name,evaluation_class", BENCHMARKS)
 def test_benchmark_metrics_collection(
     benchmark_name: str,
@@ -614,26 +619,33 @@ def test_benchmark_metrics_collection(
     # Setup benchmark-specific mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
-    # Mock common dependencies to avoid actual LLM calls
-    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
+    # Mock common dependencies to avoid actual LLM calls.
+    evaluation_module_name = _get_evaluation_module_name(evaluation_class)
     tools_mock_target = (
-        f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name in ("swebench", "swebenchmultilingual")
-        else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
+        f"{evaluation_module_name}.get_tools_for_preset"
+        if evaluation_module_name
+        in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }
+        else f"{evaluation_module_name}.get_default_tools"
     )
     with (
         patch(
-            f"benchmarks.{benchmark_name}.run_infer.Conversation",
+            f"{evaluation_module_name}.Conversation",
             return_value=mock_conversation,
         ),
-        patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
+        patch(f"{evaluation_module_name}.Agent"),
         patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
-        if benchmark_name in ("swebench", "swebenchmultilingual"):
+        if evaluation_module_name in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }:
             with patch(
-                f"benchmarks.{benchmark_name}.run_infer.get_instruction",
+                f"{evaluation_module_name}.get_instruction",
                 return_value="Test instruction",
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)
@@ -768,24 +780,31 @@ def test_metrics_with_zero_cost(mock_workspace):
     # Setup mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
-    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
+    evaluation_module_name = _get_evaluation_module_name(evaluation_class)
     tools_mock_target = (
-        f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name in ("swebench", "swebenchmultilingual")
-        else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
+        f"{evaluation_module_name}.get_tools_for_preset"
+        if evaluation_module_name
+        in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }
+        else f"{evaluation_module_name}.get_default_tools"
     )
     with (
         patch(
-            f"benchmarks.{benchmark_name}.run_infer.Conversation",
+            f"{evaluation_module_name}.Conversation",
             return_value=mock_conversation,
         ),
-        patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
+        patch(f"{evaluation_module_name}.Agent"),
         patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
-        if benchmark_name in ("swebench", "swebenchmultilingual"):
+        if evaluation_module_name in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }:
             with patch(
-                f"benchmarks.{benchmark_name}.run_infer.get_instruction",
+                f"{evaluation_module_name}.get_instruction",
                 return_value="Test instruction",
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)
