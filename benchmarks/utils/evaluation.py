@@ -10,6 +10,7 @@ concurrency for I/O-bound workloads (HTTP calls to LLM proxy + runtime API).
 
 import asyncio
 import base64
+import gc
 import json
 import os
 import tarfile
@@ -648,6 +649,15 @@ class Evaluation(ABC, BaseModel):
                 # persisted to disk. The critic and aggregator read history
                 # from the attempt files, not from this in-memory list.
                 out.history = []
+
+                # Force the cyclic GC to run now. RemoteConversation objects
+                # have a circular reference (conversation → WebSocket callback
+                # → run_complete_callback closure → conversation) that prevents
+                # CPython's reference counter from freeing them immediately.
+                # Without this, ACP conversations (which have no condenser and
+                # accumulate large event histories) pile up across instances and
+                # can OOM the eval-container before the GC threshold fires.
+                gc.collect()
 
                 attempt_outputs.append(out)
 
