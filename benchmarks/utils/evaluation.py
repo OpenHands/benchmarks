@@ -650,13 +650,9 @@ class Evaluation(ABC, BaseModel):
                 # from the attempt files, not from this in-memory list.
                 out.history = []
 
-                # Force the cyclic GC to run now. RemoteConversation objects
-                # have a circular reference (conversation → WebSocket callback
-                # → run_complete_callback closure → conversation) that prevents
-                # CPython's reference counter from freeing them immediately.
-                # Without this, ACP conversations (which have no condenser and
-                # accumulate large event histories) pile up across instances and
-                # can OOM the eval-container before the GC threshold fires.
+                # Flush cyclic-GC objects. RemoteConversation holds a circular
+                # reference via its WebSocket callback closure, so CPython's
+                # reference counter can't free it immediately on scope exit.
                 gc.collect()
 
                 attempt_outputs.append(out)
