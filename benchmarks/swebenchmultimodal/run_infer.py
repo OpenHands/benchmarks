@@ -315,7 +315,10 @@ class SWEBenchEvaluation(Evaluation):
                 if "image_assets" in instance.data and instance.data["image_assets"]:
                     try:
                         assets = json.loads(instance.data["image_assets"])
-                        if "problem_statement" in assets and assets["problem_statement"]:
+                        if (
+                            "problem_statement" in assets
+                            and assets["problem_statement"]
+                        ):
                             image_urls = assets["problem_statement"]
 
                             # Filter and validate image URLs
@@ -338,7 +341,9 @@ class SWEBenchEvaluation(Evaluation):
 
                             if valid_urls:
                                 # Sort URLs by their position in the instruction
-                                sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
+                                sorted_urls = sorted(
+                                    index_dict.items(), key=lambda x: x[1]
+                                )
                                 sorted_urls = [item[0] for item in sorted_urls]
 
                                 # Add image numbering to instruction
@@ -367,7 +372,9 @@ class SWEBenchEvaluation(Evaluation):
                                 )
                                 conversation.send_message(instruction)
                         else:
-                            logger.info("No problem_statement images found in image_assets")
+                            logger.info(
+                                "No problem_statement images found in image_assets"
+                            )
                             conversation.send_message(instruction)
                     except (json.JSONDecodeError, KeyError) as e:
                         logger.warning(f"Failed to parse image_assets: {e}")
