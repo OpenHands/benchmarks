@@ -289,141 +289,151 @@ class SWEBenchEvaluation(Evaluation):
             delete_on_close=True,
         )
 
-        logger.info("repo_path: %s", repo_path)
-        # Copy testbed repo to workspace (same as regular swebench)
-        # The multimodal benchmark uses regular SWE-bench images which have /testbed
-        cp_testbed_repo = workspace.execute_command(
-            f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}"
-        )
-        assert cp_testbed_repo.exit_code == 0, (
-            f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"
-        )
+        try:
+            logger.info("repo_path: %s", repo_path)
+            # Copy testbed repo to workspace (same as regular swebench)
+            # The multimodal benchmark uses regular SWE-bench images which have /testbed
+            cp_testbed_repo = workspace.execute_command(
+                f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}"
+            )
+            assert cp_testbed_repo.exit_code == 0, (
+                f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"
+            )
 
-        # git reset to clean state
-        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
-        assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
+            # git reset to clean state
+            git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
+            assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
-        instruction = get_instruction(
-            instance=instance.data,
-            metadata=self.metadata,
-            workspace_path=workspace.working_dir,
-        )
+            instruction = get_instruction(
+                instance=instance.data,
+                metadata=self.metadata,
+                workspace_path=workspace.working_dir,
+            )
 
-        # Handle image assets for multimodal instances
-        with workspace_keepalive(self.metadata.agent_type, workspace):
-            if "image_assets" in instance.data and instance.data["image_assets"]:
-                try:
-                    assets = json.loads(instance.data["image_assets"])
-                    if "problem_statement" in assets and assets["problem_statement"]:
-                        image_urls = assets["problem_statement"]
+            # Handle image assets for multimodal instances
+            with workspace_keepalive(self.metadata.agent_type, workspace):
+                if "image_assets" in instance.data and instance.data["image_assets"]:
+                    try:
+                        assets = json.loads(instance.data["image_assets"])
+                        if "problem_statement" in assets and assets["problem_statement"]:
+                            image_urls = assets["problem_statement"]
 
-                        # Filter and validate image URLs
-                        valid_urls = []
-                        index_dict = {}
-                        for url in image_urls:
-                            if is_valid_image_url(url):
-                                if url in instruction:
-                                    valid_urls.append(url)
-                                    idx = instruction.find(url)
-                                    index_dict[url] = idx
+                            # Filter and validate image URLs
+                            valid_urls = []
+                            index_dict = {}
+                            for url in image_urls:
+                                if is_valid_image_url(url):
+                                    if url in instruction:
+                                        valid_urls.append(url)
+                                        idx = instruction.find(url)
+                                        index_dict[url] = idx
+                                    else:
+                                        logger.warning(
+                                            f"Image URL {url} not found in instruction, skipping"
+                                        )
                                 else:
-                                    logger.warning(
-                                        f"Image URL {url} not found in instruction, skipping"
+                                    logger.info(
+                                        f"Image URL {url} is invalid or inaccessible, skipping"
                                     )
+
+                            if valid_urls:
+                                # Sort URLs by their position in the instruction
+                                sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
+                                sorted_urls = [item[0] for item in sorted_urls]
+
+                                # Add image numbering to instruction
+                                modified_instruction = instruction
+                                for idx, url in enumerate(sorted_urls):
+                                    modified_instruction = modified_instruction.replace(
+                                        url, f"{url} (Image: {idx + 1})"
+                                    )
+
+                                logger.info(
+                                    f"Sending instruction with {len(sorted_urls)} valid images"
+                                )
+
+                                # Create message with both text and images
+                                message = Message(
+                                    role="user",
+                                    content=[
+                                        TextContent(text=modified_instruction),
+                                        ImageContent(image_urls=sorted_urls),
+                                    ],
+                                )
+                                conversation.send_message(message)
                             else:
                                 logger.info(
-                                    f"Image URL {url} is invalid or inaccessible, skipping"
+                                    "No valid image URLs found, sending text-only instruction"
                                 )
-
-                        if valid_urls:
-                            # Sort URLs by their position in the instruction
-                            sorted_urls = sorted(index_dict.items(), key=lambda x: x[1])
-                            sorted_urls = [item[0] for item in sorted_urls]
-
-                            # Add image numbering to instruction
-                            modified_instruction = instruction
-                            for idx, url in enumerate(sorted_urls):
-                                modified_instruction = modified_instruction.replace(
-                                    url, f"{url} (Image: {idx + 1})"
-                                )
-
-                            logger.info(
-                                f"Sending instruction with {len(sorted_urls)} valid images"
-                            )
-
-                            # Create message with both text and images
-                            message = Message(
-                                role="user",
-                                content=[
-                                    TextContent(text=modified_instruction),
-                                    ImageContent(image_urls=sorted_urls),
-                                ],
-                            )
-                            conversation.send_message(message)
+                                conversation.send_message(instruction)
                         else:
-                            logger.info(
-                                "No valid image URLs found, sending text-only instruction"
-                            )
+                            logger.info("No problem_statement images found in image_assets")
                             conversation.send_message(instruction)
-                    else:
-                        logger.info("No problem_statement images found in image_assets")
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning(f"Failed to parse image_assets: {e}")
                         conversation.send_message(instruction)
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.warning(f"Failed to parse image_assets: {e}")
+                else:
+                    logger.info("No image_assets found, sending text-only instruction")
                     conversation.send_message(instruction)
-            else:
-                logger.info("No image_assets found, sending text-only instruction")
-                conversation.send_message(instruction)
-            # Run conversation with fake user responses to handle agent messages
-            run_conversation_with_fake_user_response(conversation)
+                # Run conversation with fake user responses to handle agent messages
+                run_conversation_with_fake_user_response(conversation)
 
-        # git add
-        workspace.execute_command(f"cd {repo_path} ; git add -A")
+            # git add
+            workspace.execute_command(f"cd {repo_path} ; git add -A")
 
-        # git commit (same as regular swebench - includes git config)
-        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
-        # and prevent the commit from being created
-        workspace.execute_command(
-            f"cd {repo_path} && "
-            "git config --global user.email 'evaluation@openhands.dev' && "
-            "git config --global user.name 'OpenHands Evaluation' && "
-            "git commit --no-verify -m 'patch'"
-        )
+            # git commit (same as regular swebench - includes git config)
+            # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
+            # and prevent the commit from being created
+            workspace.execute_command(
+                f"cd {repo_path} && "
+                "git config --global user.email 'evaluation@openhands.dev' && "
+                "git config --global user.name 'OpenHands Evaluation' && "
+                "git commit --no-verify -m 'patch'"
+            )
 
-        # Get git patch (same as regular swebench - use base_commit)
-        base_commit = instance.data["base_commit"]
-        git_patch_result = workspace.execute_command(
-            f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD"
-        )
-        assert git_patch_result.exit_code == 0, (
-            f"git diff failed: {git_patch_result.stderr}"
-        )
-        git_patch = git_patch_result.stdout
+            # Get git patch (same as regular swebench - use base_commit)
+            base_commit = instance.data["base_commit"]
+            git_patch_result = workspace.execute_command(
+                f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD"
+            )
+            assert git_patch_result.exit_code == 0, (
+                f"git diff failed: {git_patch_result.stderr}"
+            )
+            git_patch = git_patch_result.stdout
 
-        # Log instance summary
-        summarize_instance(
-            instance_id=instance.id,
-            conversation=conversation,
-            git_patch=git_patch or "",
-            logger=logger,
-        )
+            # Log instance summary
+            summarize_instance(
+                instance_id=instance.id,
+                conversation=conversation,
+                git_patch=git_patch or "",
+                logger=logger,
+            )
 
-        # Build test_result with optional ACP agent metadata
-        test_result: dict[str, Any] = {
-            "git_patch": git_patch,
-        }
-        if isinstance(agent, ACPAgent):
-            add_acp_agent_metadata(test_result, conversation)
+            # Build test_result with optional ACP agent metadata
+            test_result: dict[str, Any] = {
+                "git_patch": git_patch,
+            }
+            if isinstance(agent, ACPAgent):
+                add_acp_agent_metadata(test_result, conversation)
 
-        # EvalOutput is your model; keep fields consistent with prior JSONL
+            history = list(conversation.state.events)
+            metrics = conversation.conversation_stats.get_combined_metrics()
+        finally:
+            # Break the circular reference (RemoteConversation → WebSocket callback →
+            # run_complete_callback closure → self) so CPython's reference counter can
+            # reclaim the object immediately rather than waiting for the cyclic GC.
+            # Without this, ACP conversations with large event histories (no condenser,
+            # many tool calls) accumulate across instances and OOM the eval-container.
+            conversation.close()
+
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
             test_result=test_result,
             instruction=instruction,
             error=None,
-            history=list(conversation.state.events),
-            metrics=conversation.conversation_stats.get_combined_metrics(),
+            history=history,
+            metrics=metrics,
         )
         return out
 
