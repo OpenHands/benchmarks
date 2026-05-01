@@ -330,74 +330,84 @@ class SWEBenchEvaluation(Evaluation):
             delete_on_close=True,
         )
 
-        logger.info("repo_path: %s", repo_path)
-        cp_testebed_repo = workspace.execute_command(
-            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
-        )
-        assert cp_testebed_repo.exit_code == 0, (
-            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
-        )
+        try:
+            logger.info("repo_path: %s", repo_path)
+            cp_testebed_repo = workspace.execute_command(
+                (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
+            )
+            assert cp_testebed_repo.exit_code == 0, (
+                f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
+            )
 
-        # git reset
-        git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
-        assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
+            # git reset
+            git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
+            assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
 
-        instruction = get_instruction(
-            instance=instance.data,
-            metadata=self.metadata,
-            workspace_path=workspace.working_dir,
-        )
-        with workspace_keepalive(self.metadata.agent_type, workspace):
-            conversation.send_message(instruction)
-            # Run conversation with fake user responses to handle agent messages
-            run_conversation_with_fake_user_response(conversation)
+            instruction = get_instruction(
+                instance=instance.data,
+                metadata=self.metadata,
+                workspace_path=workspace.working_dir,
+            )
+            with workspace_keepalive(self.metadata.agent_type, workspace):
+                conversation.send_message(instruction)
+                # Run conversation with fake user responses to handle agent messages
+                run_conversation_with_fake_user_response(conversation)
 
-        # git add
-        workspace.execute_command(f"cd {repo_path} ; git add -A")
+            # git add
+            workspace.execute_command(f"cd {repo_path} ; git add -A")
 
-        # git commit
-        # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
-        workspace.execute_command(
-            f"cd {repo_path} && "
-            f"git config --global user.email '{constants.GIT_USER_EMAIL}' && "
-            f"git config --global user.name '{constants.GIT_USER_NAME}' && "
-            f"git commit --no-verify -m '{constants.GIT_COMMIT_MESSAGE}'"
-        )
+            # git commit
+            # Use --no-verify to bypass pre-commit hooks (e.g., husky) that can fail
+            workspace.execute_command(
+                f"cd {repo_path} && "
+                f"git config --global user.email '{constants.GIT_USER_EMAIL}' && "
+                f"git config --global user.name '{constants.GIT_USER_NAME}' && "
+                f"git commit --no-verify -m '{constants.GIT_COMMIT_MESSAGE}'"
+            )
 
-        # Get git patch
-        base_commit = instance.data["base_commit"]
-        git_patch_result = workspace.execute_command(
-            (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
-        )
-        assert git_patch_result.exit_code == 0, (
-            f"git diff failed: {git_patch_result.stderr}"
-        )
-        git_patch = git_patch_result.stdout
+            # Get git patch
+            base_commit = instance.data["base_commit"]
+            git_patch_result = workspace.execute_command(
+                (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
+            )
+            assert git_patch_result.exit_code == 0, (
+                f"git diff failed: {git_patch_result.stderr}"
+            )
+            git_patch = git_patch_result.stdout
 
-        # Log instance summary
-        summarize_instance(
-            instance_id=instance.id,
-            conversation=conversation,
-            git_patch=git_patch,
-            logger=logger,
-        )
+            # Log instance summary
+            summarize_instance(
+                instance_id=instance.id,
+                conversation=conversation,
+                git_patch=git_patch,
+                logger=logger,
+            )
 
-        # Build test_result with git patch and optional ACP agent metadata
-        test_result: dict[str, Any] = {
-            "git_patch": git_patch,
-        }
-        if isinstance(agent, ACPAgent):
-            add_acp_agent_metadata(test_result, conversation)
+            # Build test_result with git patch and optional ACP agent metadata
+            test_result: dict[str, Any] = {
+                "git_patch": git_patch,
+            }
+            if isinstance(agent, ACPAgent):
+                add_acp_agent_metadata(test_result, conversation)
 
-        # EvalOutput is your model; keep fields consistent with prior JSONL
+            history = list(conversation.state.events)
+            metrics = conversation.conversation_stats.get_combined_metrics()
+        finally:
+            # Break the circular reference (RemoteConversation → WebSocket callback →
+            # run_complete_callback closure → self) so CPython's reference counter can
+            # reclaim the object immediately rather than waiting for the cyclic GC.
+            # Without this, ACP conversations with large event histories (no condenser,
+            # many tool calls) accumulate across instances and OOM the eval-container.
+            conversation.close()
+
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
             test_result=test_result,
             instruction=instruction,
             error=None,
-            history=list(conversation.state.events),
-            metrics=conversation.conversation_stats.get_combined_metrics(),
+            history=history,
+            metrics=metrics,
         )
         return out
 
