@@ -191,12 +191,21 @@ class ProgramBenchEvaluation(Evaluation):
     ) -> RemoteWorkspace:
         """Create a Docker workspace layered on the cleanroom task image.
 
-        ProgramBench requires the agent to have **no internet access** during
-        inference (per the upstream usage guide). We honour that with
-        ``network=None`` on the started container — the layered agent-server
-        image carries everything it needs. The base image still needs network
-        during the build phase, which is unavoidable: that build only adds
-        agent tooling, not data.
+        ProgramBench's leaderboard rules require the agent to have **no
+        internet access** during inference. Achieving that *and* keeping the
+        SDK's HTTP control channel alive is non-trivial:
+
+        * ``--network none`` blocks the SDK from reaching the agent-server
+          because Docker port mappings need a network interface.
+        * ``docker network create --internal`` blocks ``-p`` port mappings.
+        * The robust answer is in-container egress filtering (iptables in an
+          init step), which needs ``CAP_NET_ADMIN`` and is **future work**.
+
+        For now we leave ``network=None`` (default bridge). The system prompt
+        explicitly tells the agent it has no internet, and the cleanroom image
+        ships with everything the task needs locally. Agents that try to call
+        out anyway will produce non-leaderboard-faithful runs — that limitation
+        is documented in the README and tracked in AGENTS.md.
         """
         details = self.metadata.details or {}
         forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
@@ -216,9 +225,9 @@ class ProgramBenchEvaluation(Evaluation):
                 ),
                 target=target,  # type: ignore[arg-type]
                 forward_env=forward_env or [],
-                # Agent inference must be offline — the prompt explicitly
-                # tells the agent it has no internet, and we enforce it here.
-                network="none" if details.get("offline_inference", True) else None,
+                # See docstring above. Strict offline isolation is follow-up
+                # work; today we rely on the prompt + cleanroom image.
+                network=None,
             )
         elif self.metadata.workspace_type == "remote":
             raise NotImplementedError(
@@ -392,23 +401,26 @@ class ProgramBenchEvaluation(Evaluation):
 
 
 def _validate_offline_constraint(workspace_type: str, args_offline: bool) -> None:
-    """Refuse silently downgrading ProgramBench's offline-agent invariant.
+    """Surface ProgramBench's offline-agent invariant to the user.
 
-    The ProgramBench paper explicitly forbids the agent from having internet
-    access during inference. We default to enforcing it for docker
-    workspaces; for remote we currently bail since we don't have a reliable
-    network-isolation hook.
+    The ProgramBench paper forbids the agent from having internet access
+    during inference. We currently rely on the prompt + cleanroom image to
+    keep the agent honest; strict in-container egress filtering (iptables
+    with ``CAP_NET_ADMIN``) is a known follow-up. Always log the caveat so
+    runs are not mistaken for leaderboard-faithful submissions.
     """
-    if not args_offline:
+    logger.warning(
+        "ProgramBench: strict offline isolation is not yet enforced inside "
+        "the agent container. Runs may not be leaderboard-faithful unless the "
+        "agent stays offline of its own accord. (--allow-network=%s, "
+        "workspace=%s)",
+        not args_offline,
+        workspace_type,
+    )
+    if workspace_type != "docker":
         logger.warning(
-            "Offline-inference enforcement disabled (--allow-network). "
-            "ProgramBench results obtained this way are NOT comparable to "
-            "the upstream leaderboard."
-        )
-    if workspace_type != "docker" and args_offline:
-        logger.warning(
-            "Offline-inference enforcement only applies to --workspace docker. "
-            "Remote workspace runs cannot guarantee network isolation."
+            "Network isolation only applies to --workspace docker; remote "
+            "workspaces have no guarantees yet."
         )
 
 
@@ -438,9 +450,10 @@ def main() -> None:
         "--allow-network",
         action="store_true",
         default=False,
-        help="Disable the network=none isolation around the agent's "
-        "container. Off by default; using this invalidates leaderboard "
-        "comparability.",
+        help="Reserved for future strict-offline mode. Today the agent "
+        "container always has internet via the default Docker bridge "
+        "(see prepare_workspace docstring). This flag is recorded in "
+        "metadata so runs remain reproducible once strict isolation lands.",
     )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()

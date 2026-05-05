@@ -111,7 +111,7 @@ When converting between OpenHands format and benchmark-specific formats:
 - Upstream package is `programbench` (PyPI). Pinned `>=1.0,<2.0` in `pyproject.toml` (skipped on macOS — upstream images are linux/amd64 only).
 - Task images live at `programbench/<owner>_1776_<repo>.<sha>:<tag>` on Docker Hub. The agent runs against `:task_cleanroom`; evaluation runs against `:task`.
 - The `__` separator in instance ids is replaced with `_1776_` for Docker tag compatibility (see `_instance_to_image`).
-- Inference must be **offline** (`network=none` on the agent container). Don't pass `--allow-network` outside debugging — it invalidates leaderboard comparability.
+- **Strict offline isolation is not yet enforced** (known limitation). `--network=none` breaks the SDK's HTTP control channel and `docker network create --internal` breaks `-p` port mapping; the proper fix is in-container egress filtering with `CAP_NET_ADMIN` + iptables in an init step. Until that lands, the agent container uses the default Docker bridge and we rely on the system prompt + cleanroom image to keep the agent honest. `--allow-network` is reserved so future strict-offline runs are distinguishable in metadata. Treat current results as engineering-grade, not leaderboard-faithful.
 - `programbench-infer` writes submission tarballs to `<eval_output_dir>/run/<instance_id>/submission.tar.gz`; this matches the layout the upstream `programbench eval` CLI consumes.
 - The 200-task base set is loaded via `programbench.utils.load_data.load_all_instances(include_tests=False)`. Use `include_tests=False` during inference because the tests blob is large and only needed by the eval harness.
 - CI smoke runs the first 5 instances (matches `benchmarks/programbench/instances.txt`).

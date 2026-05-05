@@ -77,10 +77,19 @@ eval_outputs/
 
 ## Caveats
 
-- **Offline inference.** ProgramBench requires the agent to have no
-  internet access. We enforce `network=none` on the agent's Docker
-  container by default; pass `--allow-network` only when debugging — it
-  invalidates leaderboard comparability.
+- **Offline inference (known limitation).** ProgramBench's leaderboard
+  rules require the agent to have no internet access during inference.
+  Enforcing that via Docker is harder than it sounds: `--network none`
+  breaks the SDK's HTTP control channel (Docker port mapping needs a
+  network interface), and `docker network create --internal` blocks
+  the `-p` mapping too. We currently rely on the system prompt + the
+  cleanroom image (which ships everything the task needs) and leave
+  the container on the default Docker bridge. Strict in-container
+  egress filtering (iptables in an init step with `CAP_NET_ADMIN`) is
+  tracked as follow-up work in `AGENTS.md`. The `--allow-network` flag
+  is reserved so that future strict-offline runs are distinguishable in
+  metadata. **Until that lands, treat results as engineering-grade, not
+  leaderboard-faithful.**
 - **Image pulls are large.** Each task image is multiple GiB. Plan disk
   budget accordingly.
 - **Remote workspace** is not yet wired up for ProgramBench because we
