@@ -360,6 +360,18 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "problem_statement": "Test problem for swesmith",
             },
         )
+    elif benchmark_name == "programbench":
+        return EvalInstance(
+            id="testowner__testrepo.deadbee",
+            data={
+                "instance_id": "testowner__testrepo.deadbee",
+                "repository": "testowner/testrepo",
+                "commit": "deadbeefcafebabedeadbeefcafebabedeadbeef",
+                "language": "c",
+                "difficulty": "easy",
+                "task_image": "programbench/testowner_1776_testrepo.deadbee:task_cleanroom",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -538,6 +550,29 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             prompt_path=prompt_path,
             critic=PassCritic(),
         )
+    elif benchmark_name == "programbench":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "programbench"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="programbench/ProgramBench",
+            dataset_split="test",
+            details={
+                "task_image_tag": "task_cleanroom",
+                "build_target": "source-minimal",
+                "workspace_dir": "/workspace",
+                "offline_inference": True,
+            },
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
     else:
         # Generic metadata for unknown benchmarks
         return EvalMetadata(
@@ -655,6 +690,22 @@ def test_benchmark_metrics_collection(
                 patch(
                     "benchmarks.swesmith.run_infer.registry.get_from_inst",
                     return_value=mock_profile,
+                ),
+            ):
+                result = evaluation.evaluate_instance(instance, mock_workspace)
+        elif benchmark_name == "programbench":
+            # ProgramBench's evaluate_instance also tars up /workspace into a
+            # submission archive; we stub that out — collecting a real archive
+            # from a MagicMock workspace isn't meaningful and isn't what this
+            # test exercises.
+            with (
+                patch(
+                    "benchmarks.programbench.run_infer.ProgramBenchEvaluation._collect_submission",
+                    return_value=Path("/tmp/eval_output/run/test/submission.tar.gz"),
+                ),
+                patch(
+                    "pathlib.Path.stat",
+                    return_value=MagicMock(st_size=42),
                 ),
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)

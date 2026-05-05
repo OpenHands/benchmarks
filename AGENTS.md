@@ -107,6 +107,15 @@ When converting between OpenHands format and benchmark-specific formats:
 - The Harbor dataset name used in CI is `terminal-bench@2.0`.
 - For CI smoke tests, pass `--n-limit <count>` to `terminalbench-infer` so Harbor only runs the requested subset.
 
+# ProgramBench Notes
+- Upstream package is `programbench` (PyPI). Pinned `>=1.0,<2.0` in `pyproject.toml` (skipped on macOS — upstream images are linux/amd64 only).
+- Task images live at `programbench/<owner>_1776_<repo>.<sha>:<tag>` on Docker Hub. The agent runs against `:task_cleanroom`; evaluation runs against `:task`.
+- The `__` separator in instance ids is replaced with `_1776_` for Docker tag compatibility (see `_instance_to_image`).
+- Inference must be **offline** (`network=none` on the agent container). Don't pass `--allow-network` outside debugging — it invalidates leaderboard comparability.
+- `programbench-infer` writes submission tarballs to `<eval_output_dir>/run/<instance_id>/submission.tar.gz`; this matches the layout the upstream `programbench eval` CLI consumes.
+- The 200-task base set is loaded via `programbench.utils.load_data.load_all_instances(include_tests=False)`. Use `include_tests=False` during inference because the tests blob is large and only needed by the eval harness.
+- CI smoke runs the first 5 instances (matches `benchmarks/programbench/instances.txt`).
+
 # SWE-Bench Multimodal Notes
 - The default `swebenchmultimodal-infer` selection now comes from `benchmarks/swebenchmultimodal/resolved_instances.txt`.
 - `resolved_instances.txt` is generated from `ambiguity_annotations.json` and contains all instances annotated with the `SOLVEABLE` keyword.

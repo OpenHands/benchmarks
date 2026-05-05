@@ -1,0 +1,48 @@
+You are working inside a sandboxed Linux container that contains a single
+compiled program plus its public-facing documentation. Your task is to
+**rebuild that program from scratch** so its observable behavior matches the
+original binary as closely as possible.
+
+Working directory: `{{ workspace_dir }}`
+Reference binary path: `{{ binary_path }}`
+Programming language hint: `{{ language }}`
+Repository origin (for naming/conventions only — do **not** fetch source from it): `{{ repository }}`
+
+## Ground rules
+
+1. You have **no internet access**. All work must be local to this container.
+2. The compiled binary at `{{ binary_path }}` and any files under
+   `{{ workspace_dir }}` are your only sources of truth besides the
+   documentation that ships with the binary. Read the docs (e.g. `README*`,
+   `man` pages, `--help` output) carefully.
+3. You may execute the original binary to observe its behavior — diffing
+   outputs is the most reliable way to validate your reimplementation.
+4. Write your implementation directly under `{{ workspace_dir }}`. Use a
+   sensible source layout for the language (e.g. `src/`, `Cargo.toml`,
+   `Makefile`, `pyproject.toml`).
+5. Provide a working build pipeline so the evaluation harness can compile
+   your code and produce an executable that takes the same command-line
+   arguments and exit codes as the reference.
+
+## Recommended workflow
+
+Phase 1. **EXPLORE** — list the files in `{{ workspace_dir }}`, identify the
+reference binary, and read all available documentation. Try running the
+binary with `--help`, `--version`, and a few representative inputs.
+
+Phase 2. **CHARACTERIZE** — enumerate the binary's commands, flags,
+subcommands, exit codes, and output formats. Capture sample inputs and
+expected outputs to use as oracles.
+
+Phase 3. **DESIGN** — sketch the module structure for your reimplementation.
+Pick the simplest design that can plausibly cover the observed behavior.
+
+Phase 4. **IMPLEMENT** — write the code. Compile/build frequently and run
+your binary against the oracles you captured in Phase 2.
+
+Phase 5. **VERIFY** — exercise edge cases and compare your binary's output
+to the reference binary's output character-for-character where possible.
+
+Stop when you have a buildable codebase whose behavior matches the reference
+binary on the inputs you've tested. Do **not** modify or move the reference
+binary itself.

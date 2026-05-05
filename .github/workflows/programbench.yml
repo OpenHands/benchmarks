@@ -1,0 +1,151 @@
+name: ProgramBench smoke (5 instances)
+
+# ProgramBench inference and evaluation each pull multi-GiB Docker images per
+# task, so we keep this workflow opt-in: it runs on workflow_dispatch and on
+# PRs that carry the `run-programbench-5` label. Both paths run at most 5
+# instances by default.
+#
+# This is a *smoke* workflow: it verifies the integration is wired up
+# (entrypoints exist, packages resolve, the harness CLI is reachable) and
+# attempts to run 5 instances end-to-end with the software-agent-sdk. The
+# workflow is allowed to fail individual instances without failing the job
+# so we catch CLI-wiring regressions even when LLM credentials or upstream
+# images are temporarily unavailable.
+
+on:
+  workflow_dispatch:
+    inputs:
+      n_limit:
+        description: "Number of ProgramBench instances to run"
+        required: false
+        default: "5"
+      llm_model:
+        description: "LLM model id (LiteLLM-style)"
+        required: false
+        default: "litellm_proxy/anthropic/claude-sonnet-4-20250514"
+      run_eval:
+        description: "Run programbench eval after inference"
+        required: false
+        type: boolean
+        default: true
+  pull_request:
+    types: [labeled, opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  programbench-smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-programbench-5')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      N_LIMIT: ${{ github.event.inputs.n_limit || '5' }}
+      LLM_MODEL: ${{ github.event.inputs.llm_model || 'litellm_proxy/anthropic/claude-sonnet-4-20250514' }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY_EVAL }}
+      LLM_BASE_URL: https://llm-proxy.eval.all-hands.dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Verify entrypoints are wired up
+        # Cheap sanity check that fails fast if pyproject.toml is misconfigured
+        # — runs even when LLM creds are missing so PR authors get useful
+        # signal from this workflow.
+        run: |
+          uv run programbench-infer --help > /dev/null
+          uv run programbench-eval --help > /dev/null
+
+      - name: Verify upstream programbench CLI resolves
+        run: |
+          uv run programbench --help > /dev/null
+
+      - name: Configure LLM
+        # Skip the actual run if no eval LLM key is configured. We don't
+        # want to fail the workflow because the contributor doesn't have
+        # access to the eval proxy — `--help` already confirmed the wiring.
+        id: llm
+        run: |
+          if [ -z "${LLM_API_KEY:-}" ]; then
+            echo "have_llm=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::LLM_API_KEY_EVAL secret not set; skipping live run."
+          else
+            mkdir -p .llm_config
+            cat > .llm_config/eval.json <<JSON
+          {
+            "model": "${LLM_MODEL}",
+            "base_url": "${LLM_BASE_URL}",
+            "api_key": "${LLM_API_KEY}"
+          }
+          JSON
+            uv run validate-cfg .llm_config/eval.json
+            echo "have_llm=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run ProgramBench inference (n_limit instances)
+        if: steps.llm.outputs.have_llm == 'true'
+        # Continue past partial failures — the job is a smoke test, not a
+        # full leaderboard run. Real failures show up in the eval report.
+        continue-on-error: true
+        run: |
+          uv run programbench-infer .llm_config/eval.json \
+            --workspace docker \
+            --n-limit "$N_LIMIT" \
+            --num-workers 1 \
+            --note ci-smoke \
+            | tee infer.out
+
+      - name: Locate inference output
+        if: steps.llm.outputs.have_llm == 'true'
+        id: locate
+        run: |
+          # programbench-infer prints `{"output_json": "..."}` on the last
+          # line of stdout. Extract it for the eval step.
+          if [ ! -s infer.out ]; then
+            echo "::warning::No inference output recorded; skipping eval."
+            echo "have_output=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          OUTPUT_JSON=$(tail -n 1 infer.out | python3 -c 'import json,sys; print(json.load(sys.stdin)["output_json"])')
+          if [ -f "$OUTPUT_JSON" ]; then
+            echo "output_json=$OUTPUT_JSON" >> "$GITHUB_OUTPUT"
+            echo "have_output=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Output file $OUTPUT_JSON missing; skipping eval."
+            echo "have_output=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run ProgramBench evaluation
+        if: >-
+          steps.llm.outputs.have_llm == 'true' &&
+          steps.locate.outputs.have_output == 'true' &&
+          (github.event.inputs.run_eval != 'false')
+        continue-on-error: true
+        run: |
+          uv run programbench-eval "${{ steps.locate.outputs.output_json }}" \
+            --workers 1 --branch-workers 1
+
+      - name: Upload artefacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: programbench-smoke-${{ github.run_id }}
+          path: |
+            eval_outputs/**
+            infer.out
+          if-no-files-found: ignore
+          retention-days: 14
