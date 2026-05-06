@@ -376,9 +376,24 @@ class ProgramBenchEvaluation(Evaluation):
                 f"exit_code={result.exit_code} stderr={result.stderr!r}"
             )
 
-        # Pull the tarball out of the container. We try the workspace's
-        # download_directory hook first (used by some workspace impls),
-        # then fall back to ``cat``ing the file out.
+        # Pull the tarball out of the container. Preference order:
+        #   1. workspace.download_directory(...) — used by a few specialised
+        #      workspace impls (kept for forward-compat).
+        #   2. workspace.file_download(src, dst) — the standard
+        #      RemoteWorkspace API (DockerDevWorkspace inherits this).
+        #      Streams bytes via the HTTP response body, so it preserves
+        #      every byte regardless of size.
+        #   3. base64-over-execute_command stdout — DEPRECATED last-resort
+        #      fallback. The execute_command polling loop in
+        #      remote_workspace_mixin.py breaks the moment it sees an
+        #      event with exit_code, which can fire before the trailing
+        #      BashOutput chunks have been polled. For large tarballs
+        #      (≥ a few MB of base64) that race truncates stdout and
+        #      yields a tarball with a valid gzip header but a partial
+        #      deflate stream. ProgramBench's grader rejects it with
+        #      "gzip: stdin: invalid compressed data — format violated,
+        #      tar: Unexpected EOF in archive". Only used when neither
+        #      richer hook is available.
         download_directory = getattr(workspace, "download_directory", None)
         if download_directory is not None:
             try:
@@ -388,14 +403,34 @@ class ProgramBenchEvaluation(Evaluation):
                     return submission_path
             except Exception as exc:  # pragma: no cover - workspace impl detail
                 logger.warning(
-                    "download_directory failed for %s: %s; falling back to cat",
+                    "download_directory failed for %s: %s; falling back to file_download",
                     instance.id,
                     exc,
                 )
 
-        # Fallback: stream the tar bytes through ``base64`` to avoid mangling
-        # binary content over the workspace HTTP API. This is slower but
-        # works against any RemoteWorkspace.
+        file_download = getattr(workspace, "file_download", None)
+        if file_download is not None:
+            try:
+                result = file_download(in_container_tar, str(submission_path))
+                # FileOperationResult exposes a .success bool on every
+                # remote workspace impl; treat any non-success as fatal so
+                # we don't silently fall through to the base64 path.
+                if getattr(result, "success", True) and submission_path.exists():
+                    return submission_path
+                logger.warning(
+                    "file_download for %s did not yield a file (result=%r); "
+                    "falling back to base64",
+                    instance.id,
+                    result,
+                )
+            except Exception as exc:  # pragma: no cover - workspace impl detail
+                logger.warning(
+                    "file_download failed for %s: %s; falling back to base64",
+                    instance.id,
+                    exc,
+                )
+
+        # Last-resort base64 fallback (see preamble above re: truncation).
         with tempfile.NamedTemporaryFile(
             "w", suffix=".b64", delete=False
         ) as encoded_tmp:
