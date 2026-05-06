@@ -358,9 +358,15 @@ class ProgramBenchEvaluation(Evaluation):
         # harness ignores extra files it doesn't recognize.
         repo_basename = instance.data["repository"].split("/")[-1]
         in_container_tar = "/tmp/submission.tar.gz"
+        # Also exclude `./executable` — the reference binary that ships at
+        # the workspace root in some ProgramBench cleanroom images. It's
+        # mode 0700 owned by root, so tar fails with "Cannot open:
+        # Permission denied" if we try to archive it as the agent user.
+        # The eval harness ignores it anyway.
         tar_cmd = (
             f"cd {shlex.quote(workspace_dir)} && "
             f"tar --exclude={shlex.quote(repo_basename)} "
+            f"--exclude=./executable "
             f"-czf {in_container_tar} ."
         )
         result = workspace.execute_command(tar_cmd, timeout=600)
