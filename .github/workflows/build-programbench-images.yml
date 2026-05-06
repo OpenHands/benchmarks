@@ -76,10 +76,11 @@ jobs:
           fi
 
       - name: Checkout benchmarks repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: OpenHands/benchmarks
           ref: ${{ steps.ref.outputs.ref }}
+          submodules: recursive
           token: ${{ github.token }}
 
       - name: Install uv
