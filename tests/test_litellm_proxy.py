@@ -87,6 +87,7 @@ class TestCreateVirtualKey:
             "run_id": "run-42",
         }
         assert kwargs["json"]["max_budget"] == 10.0
+        assert kwargs["json"]["duration"] == "6h"
         assert kwargs["headers"]["Authorization"] == "Bearer sk-admin"
 
     def test_raises_on_http_error(self, monkeypatch):
