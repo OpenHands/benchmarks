@@ -101,11 +101,20 @@ jobs:
         # Continue past partial failures — the job is a smoke test, not a
         # full leaderboard run. Real failures show up in the eval report.
         continue-on-error: true
+        env:
+          # Hard wall-clock budget per instance. ProgramBench tasks can
+          # genuinely take >15 min with reasoning_effort=high, but in CI we
+          # care about surfacing wiring problems quickly, not full quality.
+          # Agents that wander into interactive programs (cmatrix, top, …)
+          # also get bounded here so the smoke can move on to the next case.
+          CONVERSATION_TIMEOUT: "900"
         run: |
           uv run programbench-infer .llm_config/eval.json \
             --workspace docker \
             --n-limit "$N_LIMIT" \
             --num-workers 1 \
+            --max-iterations 50 \
+            --n-critic-runs 1 \
             --note ci-smoke \
             | tee infer.out
 
