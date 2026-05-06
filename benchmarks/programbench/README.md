@@ -41,9 +41,9 @@ can be used as the inference agent.
 # Smoke test — first 5 tasks
 uv run programbench-infer .llm_config/claude.json --n-limit 5
 
-# Selected subset of tasks
+# Selected subset of tasks: pass a newline-separated instance-id file
 uv run programbench-infer .llm_config/claude.json \
-    --select benchmarks/programbench/instances.txt
+    --select my_instances.txt
 
 # Higher concurrency, more iterations
 uv run programbench-infer .llm_config/claude.json \
