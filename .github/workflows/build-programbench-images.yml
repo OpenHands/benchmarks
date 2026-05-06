@@ -78,7 +78,9 @@ jobs:
       - name: Checkout benchmarks repo
         uses: actions/checkout@v5
         with:
+          repository: OpenHands/benchmarks
           ref: ${{ steps.ref.outputs.ref }}
+          token: ${{ github.token }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
