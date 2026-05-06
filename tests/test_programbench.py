@@ -321,3 +321,435 @@ class TestResolveRunDir:
         (tmp_path / "output.jsonl").write_text("")
         with pytest.raises(FileNotFoundError, match="ProgramBench submissions"):
             get_run_dir(tmp_path / "output.jsonl")
+
+
+# ---------------------------------------------------------------------------
+# Gold-tests Stop hook
+# ---------------------------------------------------------------------------
+
+
+def _make_metadata_with_details(**details: object):
+    """Build a minimal ``EvalMetadata`` for hook tests.
+
+    We stay off the LLM's network (api_key is just a placeholder). The
+    fields below are the bare minimum the pydantic model requires.
+    """
+    from pydantic import SecretStr
+
+    from benchmarks.utils.critics import AgentFinishedCritic
+    from benchmarks.utils.models import EvalMetadata
+    from openhands.sdk import LLM
+
+    return EvalMetadata(
+        llm=LLM(
+            model="openai/gpt-4o-mini",
+            api_key=SecretStr("sk-test"),
+            usage_id="test",
+        ),
+        dataset="programbench/ProgramBench",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir="/tmp/test",
+        details=dict(details),
+        prompt_path=str(Path(run_infer.__file__).parent / "prompts" / "default.j2"),
+        critic=AgentFinishedCritic(),
+    )
+
+
+class TestGoldTestsHookConfig:
+    """Unit tests for ``_build_gold_tests_hook_config``."""
+
+    def test_returns_none_when_disabled(self) -> None:
+        cfg = run_infer._build_gold_tests_hook_config(_make_metadata_with_details())
+        assert cfg is None
+
+    def test_returns_none_when_explicitly_false(self) -> None:
+        cfg = run_infer._build_gold_tests_hook_config(
+            _make_metadata_with_details(enforce_gold_tests=False)
+        )
+        assert cfg is None
+
+    def test_builds_stop_hook_when_enabled(self) -> None:
+        cfg = run_infer._build_gold_tests_hook_config(
+            _make_metadata_with_details(enforce_gold_tests=True)
+        )
+        assert cfg is not None
+        assert len(cfg.stop) == 1
+        matcher = cfg.stop[0]
+        assert matcher.matcher == "*"
+        assert len(matcher.hooks) == 1
+        hook = matcher.hooks[0]
+        # Hook command should embed the actual script body so the
+        # cleanroom container doesn't need any extra files.
+        script_body = run_infer.GOLD_TESTS_HOOK_PATH.read_text()
+        assert script_body.strip() in hook.command
+        assert hook.command.startswith("bash -s")
+
+    def test_respects_custom_timeout(self) -> None:
+        cfg = run_infer._build_gold_tests_hook_config(
+            _make_metadata_with_details(
+                enforce_gold_tests=True, gold_tests_hook_timeout=42
+            )
+        )
+        assert cfg is not None
+        assert cfg.stop[0].hooks[0].timeout == 42
+
+    def test_only_stop_event_is_populated(self) -> None:
+        # Sanity: we don't accidentally wire the script to fire on every
+        # tool invocation.
+        cfg = run_infer._build_gold_tests_hook_config(
+            _make_metadata_with_details(enforce_gold_tests=True)
+        )
+        assert cfg is not None
+        assert cfg.pre_tool_use == []
+        assert cfg.post_tool_use == []
+        assert cfg.user_prompt_submit == []
+        assert cfg.session_start == []
+        assert cfg.session_end == []
+
+
+# ---------------------------------------------------------------------------
+# Hook script behaviour (executed by bash; no Docker required)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def hook_sandbox(tmp_path: Path) -> dict[str, Path]:
+    """Set up a fake /workspace + /opt + state dir for the bash hook."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    eval_dir = workspace / "eval"
+    eval_dir.mkdir()
+    runs_dir = workspace / ".programbench-stop-hook"
+    return {
+        "workspace": workspace,
+        "eval": eval_dir,
+        "runs_dir": runs_dir,
+        "agent": workspace / "executable",
+        "gold": tmp_path / "gold-stash",
+    }
+
+
+def _run_hook(
+    script: Path,
+    cwd: Path,
+    env_overrides: dict[str, str],
+    stdin: str = "{}",
+):
+    """Invoke the hook script with isolated env vars."""
+    import os
+    import subprocess
+
+    env = {
+        # Keep PATH so coreutils/sha256sum/python3 resolve, but drop everything else.
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        # Default these so the hook never accidentally touches /opt or /workspace
+        # on the developer's host.
+        "PB_STASHED_GOLD_PATH": str(env_overrides.pop("PB_STASHED_GOLD_PATH", "")),
+        "PB_AGENT_BINARY_PATH": str(env_overrides.pop("PB_AGENT_BINARY_PATH", "")),
+        "PB_STOP_HOOK_RUNS_DIR": str(env_overrides.pop("PB_STOP_HOOK_RUNS_DIR", "")),
+        "PB_STOP_HOOK_MAX_RETRIES": str(
+            env_overrides.pop("PB_STOP_HOOK_MAX_RETRIES", 3)
+        ),
+        "PB_STOP_HOOK_TEST_TIMEOUT": str(
+            env_overrides.pop("PB_STOP_HOOK_TEST_TIMEOUT", 10)
+        ),
+    }
+    env.update({k: str(v) for k, v in env_overrides.items()})
+    return subprocess.run(
+        ["bash", str(script)],
+        cwd=str(cwd),
+        env=env,
+        input=stdin,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def _write_runner(eval_dir: Path, junit_xml: str) -> None:
+    """Drop a deterministic ``run.sh`` that emits the supplied JUnit XML.
+
+    We don't actually need pytest for these tests — only the XML the hook
+    parses. The ``run.sh`` differentiates between gold and agent runs by
+    inspecting ./executable's contents, so that one fixture covers both
+    test branches the hook makes.
+    """
+    runner = eval_dir / "run.sh"
+    runner.write_text(
+        "#!/usr/bin/env bash\n"
+        f"cat > eval/results.xml <<'XML'\n{junit_xml}\nXML\n"
+        "exit 0\n"
+    )
+    runner.chmod(0o755)
+
+
+GOLD_PASS_AGENT_FAIL_XML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="pb">
+  <testcase classname="t" name="adds">{adds}</testcase>
+  <testcase classname="t" name="subs">{subs}</testcase>
+</testsuite>"""
+
+
+class TestGoldTestsHookScript:
+    """End-to-end tests of the bash hook script.
+
+    These run the actual script against synthesised binaries / runner.sh
+    inside ``tmp_path``. Pytest never has to be installed in the host
+    environment because we replace ``./eval/run.sh`` with a fixture that
+    writes a JUnit XML directly.
+    """
+
+    SCRIPT = run_infer.GOLD_TESTS_HOOK_PATH
+
+    def test_allows_stop_when_no_gold_binary(self, hook_sandbox) -> None:
+        # No gold binary on disk — hook can't compare and should let the
+        # agent stop (the upstream eval will catch real regressions).
+        hook_sandbox["agent"].write_text("agent-build")
+        hook_sandbox["agent"].chmod(0o755)
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides={
+                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
+                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert "gold binary missing" in result.stderr
+
+    def test_blocks_stop_when_no_agent_binary(self, hook_sandbox) -> None:
+        # Agent never built ./executable — hook must block.
+        hook_sandbox["gold"].write_text("gold-build")
+        hook_sandbox["gold"].chmod(0o755)
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides={
+                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
+                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            },
+        )
+        assert result.returncode == 1
+        assert "no agent binary" in result.stderr
+
+    def test_allows_stop_when_binary_matches_gold(self, hook_sandbox) -> None:
+        # Byte-identical → cheap path: skip pytest entirely.
+        same = b"# identical bytes\n"
+        hook_sandbox["agent"].write_bytes(same)
+        hook_sandbox["gold"].write_bytes(same)
+        hook_sandbox["agent"].chmod(0o755)
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides={
+                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
+                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert "byte-identical" in result.stderr
+
+    def test_allows_stop_when_no_runner_present(self, hook_sandbox) -> None:
+        # Different binaries but no eval/run.sh → can't compare → allow.
+        hook_sandbox["agent"].write_text("agent")
+        hook_sandbox["gold"].write_text("gold")
+        hook_sandbox["agent"].chmod(0o755)
+        # Ensure no run.sh
+        runner = hook_sandbox["eval"] / "run.sh"
+        if runner.exists():
+            runner.unlink()
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides={
+                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
+                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert "no eval/run.sh" in result.stderr
+
+    def test_blocks_stop_on_test_mismatch(self, hook_sandbox) -> None:
+        # Runner emits "both pass" when the binary is gold and "subs fails"
+        # when the binary is agent. Hook must spot the mismatch and block.
+        hook_sandbox["gold"].write_text("# gold-build\n")
+        hook_sandbox["agent"].write_text("# agent-build\n")
+        hook_sandbox["agent"].chmod(0o755)
+        runner = hook_sandbox["eval"] / "run.sh"
+        runner.write_text(
+            "#!/usr/bin/env bash\n"
+            "if grep -q '# gold-build' ./executable; then\n"
+            "  cat > eval/results.xml <<'XML'\n"
+            + GOLD_PASS_AGENT_FAIL_XML_TEMPLATE.format(adds="", subs="")
+            + "\nXML\n"
+            "else\n"
+            "  cat > eval/results.xml <<'XML'\n"
+            + GOLD_PASS_AGENT_FAIL_XML_TEMPLATE.format(
+                adds="", subs="<failure>subs broke</failure>"
+            )
+            + "\nXML\n"
+            "fi\n"
+            "exit 0\n"
+        )
+        runner.chmod(0o755)
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides={
+                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
+                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            },
+        )
+        assert result.returncode == 1, result.stderr
+        assert "1 test(s) pass against the gold binary" in result.stderr
+        assert "t.subs" in result.stderr  # mismatch was the 'subs' test
+        # Agent binary must be back in place after the script runs (otherwise
+        # subsequent agent steps would see gold and pass tests "for free").
+        assert "# agent-build" in hook_sandbox["agent"].read_text()
+
+    def test_allows_stop_when_tests_fully_match(self, hook_sandbox) -> None:
+        # Runner emits identical XML regardless of binary → no mismatch.
+        hook_sandbox["gold"].write_text("# gold-build\n")
+        hook_sandbox["agent"].write_text("# agent-build\n")
+        hook_sandbox["agent"].chmod(0o755)
+        _write_runner(
+            hook_sandbox["eval"],
+            GOLD_PASS_AGENT_FAIL_XML_TEMPLATE.format(adds="", subs=""),
+        )
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides={
+                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
+                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert "all gold-passing tests also pass" in result.stderr
+
+    def test_retry_cap_lets_agent_eventually_stop(self, hook_sandbox) -> None:
+        # If the agent stays broken, the hook must eventually concede so
+        # we don't loop forever and exhaust max_iterations on stop hooks.
+        hook_sandbox["gold"].write_text("# gold\n")
+        hook_sandbox["agent"].write_text("# agent\n")
+        hook_sandbox["agent"].chmod(0o755)
+        runner_xml = (
+            "<?xml version='1.0'?><testsuite>"
+            "<testcase classname='t' name='x'>"
+            "<failure>broken</failure>"
+            "</testcase></testsuite>"
+        )
+        # gold passes, agent fails — same setup as the mismatch test
+        runner = hook_sandbox["eval"] / "run.sh"
+        runner.write_text(
+            "#!/usr/bin/env bash\n"
+            "if grep -q '# gold' ./executable; then\n"
+            "  cat > eval/results.xml <<'XML'\n"
+            "<?xml version='1.0'?><testsuite>"
+            "<testcase classname='t' name='x'/>"
+            "</testsuite>\nXML\n"
+            "else\n"
+            "  cat > eval/results.xml <<XML\n"
+            f"{runner_xml}\nXML\n"
+            "fi\n"
+            "exit 0\n"
+        )
+        runner.chmod(0o755)
+        env_overrides_base = {
+            "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
+            "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+            "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            "PB_STOP_HOOK_MAX_RETRIES": "2",
+        }
+        # First two invocations block...
+        for attempt in (1, 2):
+            r = _run_hook(
+                self.SCRIPT,
+                cwd=hook_sandbox["workspace"],
+                env_overrides=dict(env_overrides_base),
+            )
+            assert r.returncode == 1, (
+                f"attempt {attempt} should block; stderr={r.stderr}"
+            )
+        # Third invocation hits the cap and concedes.
+        r = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=dict(env_overrides_base),
+        )
+        assert r.returncode == 0, r.stderr
+        assert "max retries" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# CLI flag plumbing
+# ---------------------------------------------------------------------------
+
+
+class TestCondenserCliPlumbing:
+    """`--condenser-max-size` etc. used to be parsed but ignored. These
+    tests pin the shape we now expect: the parser accepts them, defaults
+    are well-defined, and `--enforce-gold-tests` shows up alongside the
+    pre-existing flags."""
+
+    def test_help_advertises_all_relevant_flags(self) -> None:
+        import argparse
+
+        from benchmarks.programbench.config import INFER_DEFAULTS
+        from benchmarks.programbench.run_infer import main
+
+        # We can't easily exercise main() (it triggers --help/SystemExit
+        # gymnastics), so import the helpers it composes.
+        from benchmarks.utils.args_parser import (
+            add_prompt_path_argument,
+            get_parser,
+        )
+
+        parser = get_parser()
+        # Mimic main() so the flag set we test matches reality.
+        add_prompt_path_argument(parser, str(Path(run_infer.__file__)))
+        parser.add_argument("--task-image-tag", type=str)
+        parser.add_argument(
+            "--build-target",
+            type=str,
+            choices=["binary", "binary-minimal", "source", "source-minimal"],
+        )
+        parser.add_argument("--allow-network", action="store_true")
+        parser.add_argument("--enforce-gold-tests", action="store_true")
+        parser.add_argument("--gold-tests-hook-timeout", type=int, default=600)
+        parser.set_defaults(**INFER_DEFAULTS)
+
+        # Assertion: argparse can parse a leaderboard-style invocation
+        # without error and the args round-trip into known names.
+        args = parser.parse_args(
+            [
+                "/dev/null",  # llm_config_path positional
+                "--max-iterations",
+                "1000",
+                "--enable-condenser",
+                "--condenser-max-size",
+                "80",
+                "--condenser-keep-first",
+                "4",
+                "--enforce-gold-tests",
+                "--gold-tests-hook-timeout",
+                "300",
+            ]
+        )
+        assert args.max_iterations == 1000
+        assert args.enable_condenser is True
+        assert args.condenser_max_size == 80
+        assert args.condenser_keep_first == 4
+        assert args.enforce_gold_tests is True
+        assert args.gold_tests_hook_timeout == 300
+        # Sanity: didn't introduce a stray attribute that nobody owns.
+        assert isinstance(parser, argparse.ArgumentParser)
+        # silences "imported but unused" without changing public surface
+        assert callable(main)

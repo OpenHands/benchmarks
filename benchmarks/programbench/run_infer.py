@@ -64,6 +64,12 @@ from benchmarks.utils.models import (
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
+from openhands.sdk.hooks import (
+    HookConfig,
+    HookDefinition,
+    HookMatcher,
+    HookType,
+)
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
@@ -278,12 +284,15 @@ class ProgramBenchEvaluation(Evaluation):
             attempt=self.current_attempt,
         )
 
+        hook_config = _build_gold_tests_hook_config(self.metadata)
+
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
             callbacks=[persist_callback],
             max_iteration_per_run=self.metadata.max_iterations,
             delete_on_close=True,
+            hook_config=hook_config,
         )
 
         instruction = _render_instruction(instance.data, self.metadata)
@@ -431,6 +440,53 @@ def _create_submission_layout(eval_output_dir: str) -> Path:
     return run_dir
 
 
+GOLD_TESTS_HOOK_PATH: Path = (
+    Path(__file__).parent / "hooks" / "check_gold_tests.sh"
+).resolve()
+"""Path to the bash script copied into the agent container as a Stop hook
+when ``--enforce-gold-tests`` is set. Exposed as a constant so tests can
+exercise the script directly."""
+
+
+def _build_gold_tests_hook_config(metadata: EvalMetadata) -> HookConfig | None:
+    """Return a ``HookConfig`` that vetoes agent-stop unless its binary
+    matches the gold binary on every test the gold passes.
+
+    Returns ``None`` when ``details["enforce_gold_tests"]`` is not set,
+    so the conversation is built with hooks disabled by default.
+
+    The hook command is the entire script body inlined into a
+    ``bash -c`` invocation; this keeps the integration self-contained
+    (no separate file to ship into the cleanroom image).
+    """
+    details = metadata.details or {}
+    if not details.get("enforce_gold_tests"):
+        return None
+
+    script_body = GOLD_TESTS_HOOK_PATH.read_text()
+    # Use bash -s so the script reads as $0 with no extra args; piping the
+    # script body in via heredoc avoids shell-quoting the entire file.
+    command = (
+        f"bash -s <<'PROGRAMBENCH_HOOK_EOF'\n{script_body}\nPROGRAMBENCH_HOOK_EOF\n"
+    )
+
+    hook_timeout = int(details.get("gold_tests_hook_timeout", 600))
+    return HookConfig(
+        stop=[
+            HookMatcher(
+                matcher="*",
+                hooks=[
+                    HookDefinition(
+                        type=HookType.COMMAND,
+                        command=command,
+                        timeout=hook_timeout,
+                    )
+                ],
+            )
+        ]
+    )
+
+
 def main() -> None:
     parser = get_parser()
     add_prompt_path_argument(parser, __file__)
@@ -455,6 +511,25 @@ def main() -> None:
         "(see prepare_workspace docstring). This flag is recorded in "
         "metadata so runs remain reproducible once strict isolation lands.",
     )
+    parser.add_argument(
+        "--enforce-gold-tests",
+        action="store_true",
+        default=False,
+        help="Install a Stop hook that runs the agent's binary against the "
+        "stashed gold binary's tests and refuses to let the agent finish "
+        "while any gold-passing test fails on the agent's binary. Off by "
+        "default because each rejection re-runs pytest inside the "
+        "container (slow); recommended for full-quality eval runs.",
+    )
+    parser.add_argument(
+        "--gold-tests-hook-timeout",
+        type=int,
+        default=600,
+        help="Wall-clock timeout (seconds) for a single gold-tests hook "
+        "invocation. The hook re-runs the test suite twice (once with "
+        "the gold binary, once with the agent's), so 10 minutes is a "
+        "reasonable default for most ProgramBench tasks.",
+    )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
 
@@ -478,6 +553,22 @@ def main() -> None:
     )
     _create_submission_layout(structured_output_dir)
 
+    enable_condenser = args.enable_condenser
+    if args.disable_condenser:
+        enable_condenser = False
+
+    # Pull the condenser-window knobs out of args explicitly so pyright can
+    # see the int type. argparse leaves them as ``None`` when the user
+    # doesn't pass the flag, in which case EvalMetadata's own defaults win.
+    condenser_max_size: int = (
+        args.condenser_max_size
+        if args.condenser_max_size is not None
+        else 240  # mirrors EvalMetadata's default; kept here for explicitness
+    )
+    condenser_keep_first: int = (
+        args.condenser_keep_first if args.condenser_keep_first is not None else 2
+    )
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -489,6 +580,8 @@ def main() -> None:
             "build_target": args.build_target,
             "workspace_dir": str(INFER_DEFAULTS["workspace_dir"]),
             "offline_inference": not args.allow_network,
+            "enforce_gold_tests": args.enforce_gold_tests,
+            "gold_tests_hook_timeout": args.gold_tests_hook_timeout,
         },
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
@@ -500,6 +593,9 @@ def main() -> None:
         workspace_type=args.workspace,
         enable_delegation=args.enable_delegation,
         agent_type=args.agent_type,
+        enable_condenser=enable_condenser,
+        condenser_max_size=condenser_max_size,
+        condenser_keep_first=condenser_keep_first,
     )
 
     evaluator = ProgramBenchEvaluation(
