@@ -879,12 +879,20 @@ class TestCondenserCliPlumbing:
             choices=["binary", "binary-minimal", "source", "source-minimal"],
         )
         parser.add_argument("--allow-network", action="store_true")
-        parser.add_argument("--enforce-gold-tests", action="store_true")
+        # Mirror run_infer.main(): enforce-gold-tests is on by default
+        # (helm dispatch can't pass extra CLI args, so the default is the
+        # only switch we have for production runs).
+        parser.add_argument(
+            "--enforce-gold-tests",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+        )
         parser.add_argument("--gold-tests-hook-timeout", type=int, default=600)
         parser.set_defaults(**INFER_DEFAULTS)
 
-        # Assertion: argparse can parse a leaderboard-style invocation
-        # without error and the args round-trip into known names.
+        # Assertion 1: argparse can parse a leaderboard-style invocation
+        # without flipping the gold-tests default, and the args
+        # round-trip into known names.
         args = parser.parse_args(
             [
                 "/dev/null",  # llm_config_path positional
@@ -895,7 +903,6 @@ class TestCondenserCliPlumbing:
                 "80",
                 "--condenser-keep-first",
                 "4",
-                "--enforce-gold-tests",
                 "--gold-tests-hook-timeout",
                 "300",
             ]
@@ -904,8 +911,15 @@ class TestCondenserCliPlumbing:
         assert args.enable_condenser is True
         assert args.condenser_max_size == 80
         assert args.condenser_keep_first == 4
+        # Default-on so production helm dispatch picks up the gold-tests
+        # hook without orchestrator changes.
         assert args.enforce_gold_tests is True
         assert args.gold_tests_hook_timeout == 300
+
+        # Assertion 2: ``--no-enforce-gold-tests`` lets local smoke
+        # runs opt out of the heavy test re-run.
+        opted_out = parser.parse_args(["/dev/null", "--no-enforce-gold-tests"])
+        assert opted_out.enforce_gold_tests is False
         # Sanity: didn't introduce a stray attribute that nobody owns.
         assert isinstance(parser, argparse.ArgumentParser)
         # silences "imported but unused" without changing public surface

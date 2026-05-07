@@ -23,6 +23,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import base64
 import json
 import os
@@ -590,13 +591,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--enforce-gold-tests",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Install a Stop hook that runs the agent's binary against the "
         "stashed gold binary's tests and refuses to let the agent finish "
-        "while any gold-passing test fails on the agent's binary. Off by "
-        "default because each rejection re-runs pytest inside the "
-        "container (slow); recommended for full-quality eval runs.",
+        "while any gold-passing test fails on the agent's binary. On by "
+        "default — the helm-dispatched orchestrator path doesn't forward "
+        "extra CLI args, so the flag-default is the only switch we have "
+        "for production runs. Pass ``--no-enforce-gold-tests`` to skip "
+        "the (heavy) test re-run for fast local smoke runs.",
     )
     parser.add_argument(
         "--gold-tests-hook-timeout",
