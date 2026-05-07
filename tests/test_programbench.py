@@ -356,48 +356,71 @@ def _make_metadata_with_details(**details: object):
     )
 
 
-class TestGoldTestsHookConfig:
-    """Unit tests for ``_build_gold_tests_hook_config``."""
+class TestStopHookConfig:
+    """Unit tests for ``_build_stop_hook_config``.
 
-    def test_returns_none_when_disabled(self) -> None:
-        cfg = run_infer._build_gold_tests_hook_config(_make_metadata_with_details())
-        assert cfg is None
+    The compile-contract hook is always installed so the build-contract
+    layer can never be skipped. ``enforce_gold_tests`` adds the heavier
+    gold-vs-agent test comparison hook on top, sequenced after the
+    contract check.
+    """
 
-    def test_returns_none_when_explicitly_false(self) -> None:
-        cfg = run_infer._build_gold_tests_hook_config(
-            _make_metadata_with_details(enforce_gold_tests=False)
+    def test_installs_compile_contract_hook_by_default(self) -> None:
+        cfg = run_infer._build_stop_hook_config(_make_metadata_with_details())
+        assert cfg is not None
+        assert len(cfg.stop) == 1
+        # Default is contract-only — single hook in the matcher.
+        assert len(cfg.stop[0].hooks) == 1
+        contract_body = run_infer.COMPILE_CONTRACT_HOOK_PATH.read_text()
+        assert contract_body.strip() in cfg.stop[0].hooks[0].command
+
+    def test_returns_none_when_explicitly_disabled(self) -> None:
+        cfg = run_infer._build_stop_hook_config(
+            _make_metadata_with_details(disable_stop_hooks=True)
         )
         assert cfg is None
 
-    def test_builds_stop_hook_when_enabled(self) -> None:
-        cfg = run_infer._build_gold_tests_hook_config(
+    def test_appends_gold_tests_hook_when_enforced(self) -> None:
+        cfg = run_infer._build_stop_hook_config(
             _make_metadata_with_details(enforce_gold_tests=True)
         )
         assert cfg is not None
-        assert len(cfg.stop) == 1
-        matcher = cfg.stop[0]
-        assert matcher.matcher == "*"
-        assert len(matcher.hooks) == 1
-        hook = matcher.hooks[0]
-        # Hook command should embed the actual script body so the
-        # cleanroom container doesn't need any extra files.
-        script_body = run_infer.GOLD_TESTS_HOOK_PATH.read_text()
-        assert script_body.strip() in hook.command
-        assert hook.command.startswith("bash -s")
+        assert len(cfg.stop[0].hooks) == 2
+        # Order matters: the cheap contract check must run first so the
+        # gold-tests hook never sees a missing compile.sh.
+        first, second = cfg.stop[0].hooks
+        contract_body = run_infer.COMPILE_CONTRACT_HOOK_PATH.read_text()
+        gold_body = run_infer.GOLD_TESTS_HOOK_PATH.read_text()
+        assert contract_body.strip() in first.command
+        assert gold_body.strip() in second.command
 
-    def test_respects_custom_timeout(self) -> None:
-        cfg = run_infer._build_gold_tests_hook_config(
+    def test_does_not_install_gold_tests_hook_by_default(self) -> None:
+        cfg = run_infer._build_stop_hook_config(_make_metadata_with_details())
+        assert cfg is not None
+        gold_body = run_infer.GOLD_TESTS_HOOK_PATH.read_text()
+        for hook in cfg.stop[0].hooks:
+            assert gold_body.strip() not in hook.command
+
+    def test_respects_custom_contract_timeout(self) -> None:
+        cfg = run_infer._build_stop_hook_config(
+            _make_metadata_with_details(compile_contract_hook_timeout=11)
+        )
+        assert cfg is not None
+        assert cfg.stop[0].hooks[0].timeout == 11
+
+    def test_respects_custom_gold_tests_timeout(self) -> None:
+        cfg = run_infer._build_stop_hook_config(
             _make_metadata_with_details(
                 enforce_gold_tests=True, gold_tests_hook_timeout=42
             )
         )
         assert cfg is not None
-        assert cfg.stop[0].hooks[0].timeout == 42
+        assert cfg.stop[0].hooks[1].timeout == 42
 
     def test_only_stop_event_is_populated(self) -> None:
-        # Sanity: we don't accidentally wire the script to fire on every
-        # tool invocation.
-        cfg = run_infer._build_gold_tests_hook_config(
+        # Sanity: we don't accidentally wire the scripts to fire on
+        # every tool invocation.
+        cfg = run_infer._build_stop_hook_config(
             _make_metadata_with_details(enforce_gold_tests=True)
         )
         assert cfg is not None
@@ -686,6 +709,140 @@ class TestGoldTestsHookScript:
         )
         assert r.returncode == 0, r.stderr
         assert "max retries" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# Compile-contract hook script (executed by bash)
+# ---------------------------------------------------------------------------
+
+
+def _run_compile_hook(
+    workspace: Path,
+    *,
+    runs_dir: Path | None = None,
+    max_retries: int = 3,
+    timeout_secs: int = 60,
+):
+    """Invoke ``check_compile_contract.sh`` against an isolated workspace."""
+    import os
+    import subprocess
+
+    runs_dir = runs_dir or (workspace / ".programbench-compile-hook")
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "PB_WORKSPACE": str(workspace),
+        "PB_COMPILE_HOOK_RUNS_DIR": str(runs_dir),
+        "PB_COMPILE_HOOK_MAX_RETRIES": str(max_retries),
+        "PB_COMPILE_HOOK_TIMEOUT": str(timeout_secs),
+    }
+    return subprocess.run(
+        ["bash", str(run_infer.COMPILE_CONTRACT_HOOK_PATH)],
+        cwd=str(workspace),
+        env=env,
+        input="{}",
+        capture_output=True,
+        text=True,
+        timeout=timeout_secs + 10,
+    )
+
+
+class TestCompileContractHookScript:
+    """End-to-end behaviour of ``check_compile_contract.sh``.
+
+    These tests synthesise a fake workspace and a small compile.sh and
+    run the actual bash hook, checking that it correctly accepts /
+    rejects each contract scenario without needing Docker.
+    """
+
+    def test_blocks_stop_when_compile_sh_missing(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        r = _run_compile_hook(workspace)
+        assert r.returncode == 1, r.stderr
+        assert "compile.sh is missing" in r.stderr
+        # Helpful copy-paste-ready examples should always be in the
+        # feedback so the agent has something concrete to act on.
+        assert "cargo build --release" in r.stderr
+
+    def test_blocks_stop_when_compile_sh_fails(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        compile_sh = workspace / "compile.sh"
+        compile_sh.write_text("#!/usr/bin/env bash\necho boom >&2\nexit 7\n")
+        compile_sh.chmod(0o755)
+        r = _run_compile_hook(workspace)
+        assert r.returncode == 1, r.stderr
+        assert "exited non-zero" in r.stderr
+        # Tail of the script's stderr should make it into the message.
+        assert "boom" in r.stderr
+
+    def test_blocks_stop_when_executable_not_produced(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        # Script exits 0 but never writes ./executable.
+        (workspace / "compile.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (workspace / "compile.sh").chmod(0o755)
+        r = _run_compile_hook(workspace)
+        assert r.returncode == 1, r.stderr
+        assert "./executable was not produced" in r.stderr
+
+    def test_allows_stop_when_compile_sh_produces_executable(
+        self, tmp_path: Path
+    ) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        # A minimal but valid compile.sh: writes a runnable
+        # ./executable. We don't exercise the binary itself; the hook
+        # only checks the file exists at the right path.
+        (workspace / "compile.sh").write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            'printf "#!/usr/bin/env bash\\nexit 0\\n" > ./executable\n'
+            "chmod +x ./executable\n"
+        )
+        (workspace / "compile.sh").chmod(0o755)
+        r = _run_compile_hook(workspace)
+        assert r.returncode == 0, r.stderr
+        assert "build contract OK" in r.stderr
+        # Verify the hook actually ran the script (./executable exists)
+        # rather than short-circuiting somewhere.
+        assert (workspace / "executable").exists()
+
+    def test_wipes_stale_executable_before_running_compile(
+        self, tmp_path: Path
+    ) -> None:
+        # Regression: if the agent built ./executable manually but
+        # compile.sh doesn't actually produce one, the hook must catch
+        # it. Otherwise the grader will silently fail on a clean
+        # extraction.
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        stale = workspace / "executable"
+        stale.write_text("stale-binary")
+        stale.chmod(0o755)
+        # compile.sh that doesn't actually build anything.
+        (workspace / "compile.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (workspace / "compile.sh").chmod(0o755)
+        r = _run_compile_hook(workspace)
+        assert r.returncode == 1, r.stderr
+        assert "./executable was not produced" in r.stderr
+
+    def test_allows_stop_after_max_retries(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        # No compile.sh — this would normally block. After hitting the
+        # retry cap, the hook should release the agent so a stuck
+        # conversation can finish.
+        runs_dir = workspace / "runs"
+        runs = [
+            _run_compile_hook(workspace, runs_dir=runs_dir, max_retries=3)
+            for _ in range(4)
+        ]
+        # First three calls block (rc=1, contract not satisfied); the
+        # fourth trips the retry cap and releases the agent.
+        assert [r.returncode for r in runs[:3]] == [1, 1, 1]
+        assert runs[3].returncode == 0, runs[3].stderr
+        assert "max retries" in runs[3].stderr
 
 
 # ---------------------------------------------------------------------------

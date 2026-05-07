@@ -284,7 +284,7 @@ class ProgramBenchEvaluation(Evaluation):
             attempt=self.current_attempt,
         )
 
-        hook_config = _build_gold_tests_hook_config(self.metadata)
+        hook_config = _build_stop_hook_config(self.metadata)
 
         conversation = Conversation(
             agent=agent,
@@ -481,48 +481,84 @@ def _create_submission_layout(eval_output_dir: str) -> Path:
     return run_dir
 
 
+COMPILE_CONTRACT_HOOK_PATH: Path = (
+    Path(__file__).parent / "hooks" / "check_compile_contract.sh"
+).resolve()
+"""Always-on Stop hook that validates ProgramBench's build contract:
+``./compile.sh`` exists at the workspace root, exits 0 from a clean
+state, and produces ``./executable``. Without this guard the grader
+silently turns working solutions into ``compile_failed`` errors —
+exactly the failure mode that turned every instance in
+retry-7…retry-12 into a 0/3 result. Exposed as a constant so tests
+can exercise the script directly."""
+
 GOLD_TESTS_HOOK_PATH: Path = (
     Path(__file__).parent / "hooks" / "check_gold_tests.sh"
 ).resolve()
-"""Path to the bash script copied into the agent container as a Stop hook
-when ``--enforce-gold-tests`` is set. Exposed as a constant so tests can
-exercise the script directly."""
+"""Opt-in (``--enforce-gold-tests``) Stop hook that re-runs the test
+suite against the gold binary and the agent's binary, and blocks stop
+unless every gold-passing test also passes against the agent. Heavier
+than the contract hook, hence kept separate. Exposed as a constant so
+tests can exercise the script directly."""
 
 
-def _build_gold_tests_hook_config(metadata: EvalMetadata) -> HookConfig | None:
-    """Return a ``HookConfig`` that vetoes agent-stop unless its binary
-    matches the gold binary on every test the gold passes.
+def _hook_definition_from_script(script_path: Path, *, timeout: int) -> HookDefinition:
+    """Inline a Bash script as a ``HookDefinition`` command.
 
-    Returns ``None`` when ``details["enforce_gold_tests"]`` is not set,
-    so the conversation is built with hooks disabled by default.
-
-    The hook command is the entire script body inlined into a
-    ``bash -c`` invocation; this keeps the integration self-contained
-    (no separate file to ship into the cleanroom image).
+    Each Stop hook is invoked by the SDK by spawning the configured
+    command with the ``HookEvent`` JSON on stdin. Inlining the body via
+    a here-doc keeps the integration self-contained — no separate file
+    has to be shipped into the cleanroom image.
     """
-    details = metadata.details or {}
-    if not details.get("enforce_gold_tests"):
-        return None
-
-    script_body = GOLD_TESTS_HOOK_PATH.read_text()
-    # Use bash -s so the script reads as $0 with no extra args; piping the
-    # script body in via heredoc avoids shell-quoting the entire file.
+    script_body = script_path.read_text()
     command = (
         f"bash -s <<'PROGRAMBENCH_HOOK_EOF'\n{script_body}\nPROGRAMBENCH_HOOK_EOF\n"
     )
+    return HookDefinition(
+        type=HookType.COMMAND,
+        command=command,
+        timeout=timeout,
+    )
 
-    hook_timeout = int(details.get("gold_tests_hook_timeout", 600))
+
+def _build_stop_hook_config(metadata: EvalMetadata) -> HookConfig | None:
+    """Compose the agent's Stop hooks.
+
+    Always installs the compile-contract hook so submissions can never
+    silently miss ``./compile.sh``. When
+    ``details["enforce_gold_tests"]`` is set, the (heavier) gold-tests
+    hook is appended after it; the SDK runs hooks in order and stops at
+    the first one that vetoes the stop, so the cheap contract check
+    always runs first.
+
+    Returns ``None`` only when callers explicitly opt out via
+    ``details["disable_stop_hooks"]`` (used by the test suite for fast
+    smoke runs).
+    """
+    details = metadata.details or {}
+    if details.get("disable_stop_hooks"):
+        return None
+
+    hooks: list[HookDefinition] = [
+        _hook_definition_from_script(
+            COMPILE_CONTRACT_HOOK_PATH,
+            timeout=int(details.get("compile_contract_hook_timeout", 1800)),
+        )
+    ]
+
+    if details.get("enforce_gold_tests"):
+        hooks.append(
+            _hook_definition_from_script(
+                GOLD_TESTS_HOOK_PATH,
+                timeout=int(details.get("gold_tests_hook_timeout", 600)),
+            )
+        )
+
     return HookConfig(
         stop=[
             HookMatcher(
                 matcher="*",
-                hooks=[
-                    HookDefinition(
-                        type=HookType.COMMAND,
-                        command=command,
-                        timeout=hook_timeout,
-                    )
-                ],
+                hooks=hooks,
             )
         ]
     )

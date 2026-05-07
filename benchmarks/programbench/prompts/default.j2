@@ -17,12 +17,35 @@ Repository origin (for naming/conventions only — do **not** fetch source from 
    `man` pages, `--help` output) carefully.
 3. You may execute the original binary to observe its behavior — diffing
    outputs is the most reliable way to validate your reimplementation.
-4. Write your implementation directly under `{{ workspace_dir }}`. Use a
-   sensible source layout for the language (e.g. `src/`, `Cargo.toml`,
-   `Makefile`, `pyproject.toml`).
-5. Provide a working build pipeline so the evaluation harness can compile
-   your code and produce an executable that takes the same command-line
-   arguments and exit codes as the reference.
+4. Write your implementation directly under `{{ workspace_dir }}`. Use any
+   source layout that makes sense for the language (e.g. `src/`, `Cargo.toml`,
+   `Makefile`, `pyproject.toml` — pick whatever the chosen language and
+   build tool expects).
+
+## Build contract (required)
+
+The evaluation harness builds and runs your code with this exact sequence:
+
+```bash
+chmod +x ./compile.sh && ./compile.sh   # build step — must exit 0
+ls && cp ./executable /opt/programbench-gold-executable-do-not-modify
+```
+
+So your submission **must satisfy two hard requirements** for evaluation to
+work at all — without these, every test branch is marked as a compile error
+and you score 0:
+
+5. **Provide `./compile.sh` at the workspace root** (`{{ workspace_dir }}/compile.sh`).
+   It is a plain Bash script that the harness will `chmod +x` and run. It
+   must build your project end-to-end with no internet access and exit 0.
+   Anything else can live wherever you like — `compile.sh` is just a thin
+   wrapper that drives the real build (e.g. `cargo build --release && cp
+   target/release/foo ./executable` or `make && cp build/foo ./executable`).
+6. **`./compile.sh` must produce a binary at exactly `./executable`**
+   (i.e. `{{ workspace_dir }}/executable`). The harness copies that file
+   verbatim and runs it for every test, so the path and name are
+   non-negotiable. The binary must accept the same command-line arguments
+   and exit codes as the reference binary at `{{ binary_path }}`.
 
 ## Recommended workflow
 
