@@ -928,11 +928,7 @@ class TestHooksRunUnderSdkHeredocWrap:
     def _wrap(script_path: Path) -> str:
         """Mirror ``run_infer.py::_hook_definition_from_script`` exactly."""
         body = script_path.read_text()
-        return (
-            "bash -s <<'PROGRAMBENCH_HOOK_EOF'\n"
-            f"{body}\n"
-            "PROGRAMBENCH_HOOK_EOF\n"
-        )
+        return f"bash -s <<'PROGRAMBENCH_HOOK_EOF'\n{body}\nPROGRAMBENCH_HOOK_EOF\n"
 
     @staticmethod
     def _run_wrapped(
@@ -948,9 +944,7 @@ class TestHooksRunUnderSdkHeredocWrap:
         import subprocess
 
         env = {
-            "PATH": os.environ.get(
-                "PATH", "/usr/local/bin:/usr/bin:/bin"
-            ),
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         }
         env.update({k: str(v) for k, v in env_overrides.items()})
         return subprocess.run(
@@ -1033,9 +1027,7 @@ class TestHooksRunUnderSdkHeredocWrap:
         assert "no agent binary" in result.stderr
 
     @pytest.mark.parametrize("script", [GOLD, COMPILE])
-    def test_hooks_do_not_consume_their_own_stdin(
-        self, script: Path
-    ) -> None:
+    def test_hooks_do_not_consume_their_own_stdin(self, script: Path) -> None:
         """Static guard: forbid stdin-consuming patterns at the top
         level of any hook script.
 
