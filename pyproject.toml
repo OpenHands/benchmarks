@@ -69,6 +69,7 @@ swebenchmultimodal-eval = "benchmarks.swebenchmultimodal.eval_infer:main"
 swebenchmultilingual-infer = "benchmarks.swebenchmultilingual.run_infer:main"
 swebenchmultilingual-eval = "benchmarks.swebenchmultilingual.eval_infer:main"
 swefficiency-infer = "benchmarks.swefficiency.run_infer:main"
+evoclaw-infer = "benchmarks.evoclaw.run_infer:main"
 terminalbench-infer = "benchmarks.terminalbench.run_infer:main"
 terminalbench-eval = "benchmarks.terminalbench.eval_infer:main"
 skillsbench-infer = "benchmarks.skillsbench.run_infer:main"
@@ -90,7 +91,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["benchmarks"]
+include = ["benchmarks", "benchmarks.*"]
 
 [tool.setuptools]
 # Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
