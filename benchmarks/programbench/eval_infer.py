@@ -82,9 +82,19 @@ def _run_programbench_eval(
     docker_cpus: int,
     image_tag: str,
     force: bool,
+    timeout: float | None,
     extra_args: list[str] | None = None,
 ) -> int:
-    """Invoke ``programbench eval <run_dir>`` and return its exit code."""
+    """Invoke ``programbench eval <run_dir>`` and return its exit code.
+
+    ``timeout`` is a wall-clock cap (seconds). ``programbench eval`` itself
+    has no global timeout knob and a single hung docker container — e.g.
+    a misbehaving submission whose entrypoint blocks forever — would
+    otherwise leave the eval pod alive indefinitely. When the timeout
+    fires we kill the subprocess and surface a non-zero exit code so the
+    caller can still aggregate whatever per-instance JSON landed before
+    the hang.
+    """
     cli = shutil.which("programbench")
     if cli is None:
         raise RuntimeError(
@@ -109,7 +119,15 @@ def _run_programbench_eval(
     if extra_args:
         cmd.extend(extra_args)
     logger.info("Running %s", " ".join(cmd))
-    completed = subprocess.run(cmd, check=False)
+    try:
+        completed = subprocess.run(cmd, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        logger.error(
+            "programbench eval exceeded timeout of %ss; killing subprocess "
+            "and aggregating partial results.",
+            timeout,
+        )
+        return 124  # GNU `timeout` convention: exit 124 on timeout
     return completed.returncode
 
 
@@ -241,6 +259,18 @@ Examples:
         help="Pass --force to programbench eval (re-eval already-graded instances).",
     )
     parser.add_argument(
+        "--eval-timeout",
+        type=float,
+        default=float(os.environ.get("PROGRAMBENCH_EVAL_TIMEOUT", "0") or 0) or None,
+        help=(
+            "Wall-clock timeout (seconds) for the underlying `programbench "
+            "eval` subprocess. 0 or unset disables. Also configurable via "
+            "the PROGRAMBENCH_EVAL_TIMEOUT environment variable. Useful in "
+            "CI to bound a hung docker container; partial per-instance "
+            "JSON is still aggregated on timeout."
+        ),
+    )
+    parser.add_argument(
         "--skip-eval",
         action="store_true",
         help="Skip running programbench eval and only aggregate existing "
@@ -268,6 +298,7 @@ Examples:
             docker_cpus=args.docker_cpus,
             image_tag=args.image_tag,
             force=args.force,
+            timeout=args.eval_timeout,
         )
         if rc != 0:
             # Don't exit here: programbench eval can return non-zero when

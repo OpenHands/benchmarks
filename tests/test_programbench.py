@@ -12,6 +12,7 @@ are exercised end-to-end by the CI smoke workflow.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -19,6 +20,7 @@ import pytest
 
 from benchmarks.programbench import run_infer
 from benchmarks.programbench.eval_infer import (
+    _run_programbench_eval,
     aggregate_eval_results,
     get_run_dir,
 )
@@ -1326,3 +1328,113 @@ class TestCondenserCliPlumbing:
         assert isinstance(parser, argparse.ArgumentParser)
         # silences "imported but unused" without changing public surface
         assert callable(main)
+
+
+# ---------------------------------------------------------------------------
+# _run_programbench_eval timeout safety net
+# ---------------------------------------------------------------------------
+
+
+class TestRunProgrambenchEvalTimeout:
+    """Bound the wall clock of the ``programbench eval`` subprocess.
+
+    We discovered on retry-16 that a hung docker container in the eval
+    phase keeps the eval pod alive indefinitely (no global timeout in
+    the upstream CLI, no ``activeDeadlineSeconds`` on the k8s job, no
+    ``EVAL_TIMEOUT`` plumbed for programbench). The fix is a defensive
+    ``subprocess.run(timeout=...)`` with a ``--eval-timeout`` CLI flag
+    plumbed through the eval-job script. These tests pin both the
+    happy-path return code and the timeout-kill behaviour using a
+    sleep-based fake CLI on PATH.
+    """
+
+    @pytest.fixture
+    def fake_cli(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Drop a fake ``programbench`` shim on PATH whose ``eval`` subcommand
+        sleeps for a configurable duration. Lets us hit the timeout path
+        without requiring docker or the upstream wheel."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        cli = bin_dir / "programbench"
+        cli.write_text(
+            "#!/usr/bin/env bash\n"
+            "# Honor the test-controlled sleep duration; default 0 to keep\n"
+            "# happy-path tests fast.\n"
+            'sleep "${PROGRAMBENCH_FAKE_SLEEP:-0}"\n'
+            'exit "${PROGRAMBENCH_FAKE_EXIT:-0}"\n'
+        )
+        cli.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+        return cli
+
+    def test_returns_subprocess_rc_under_timeout(
+        self,
+        fake_cli: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When the subprocess exits before the deadline, propagate its rc."""
+        monkeypatch.setenv("PROGRAMBENCH_FAKE_EXIT", "0")
+        rc = _run_programbench_eval(
+            tmp_path,
+            workers=1,
+            branch_workers=1,
+            docker_cpus=1,
+            image_tag="task",
+            force=False,
+            timeout=5.0,
+        )
+        assert rc == 0
+
+        monkeypatch.setenv("PROGRAMBENCH_FAKE_EXIT", "7")
+        rc_nonzero = _run_programbench_eval(
+            tmp_path,
+            workers=1,
+            branch_workers=1,
+            docker_cpus=1,
+            image_tag="task",
+            force=False,
+            timeout=5.0,
+        )
+        assert rc_nonzero == 7
+
+    def test_returns_124_on_timeout(
+        self,
+        fake_cli: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When the subprocess wedges past the deadline, kill it and return
+        124 (GNU ``timeout`` convention) rather than blocking forever."""
+        monkeypatch.setenv("PROGRAMBENCH_FAKE_SLEEP", "10")
+        rc = _run_programbench_eval(
+            tmp_path,
+            workers=1,
+            branch_workers=1,
+            docker_cpus=1,
+            image_tag="task",
+            force=False,
+            timeout=0.5,
+        )
+        assert rc == 124
+
+    def test_no_timeout_passes_none_through(
+        self,
+        fake_cli: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``timeout=None`` (the legacy default for callers that opt out)
+        must NOT raise ``TimeoutExpired``: ``subprocess.run`` accepts None
+        as "no timeout" and we forward it untouched."""
+        monkeypatch.setenv("PROGRAMBENCH_FAKE_SLEEP", "0")
+        rc = _run_programbench_eval(
+            tmp_path,
+            workers=1,
+            branch_workers=1,
+            docker_cpus=1,
+            image_tag="task",
+            force=False,
+            timeout=None,
+        )
+        assert rc == 0
