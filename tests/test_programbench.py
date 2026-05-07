@@ -889,6 +889,196 @@ class TestStopHookSdkContract:
         )
 
 
+class TestHooksRunUnderSdkHeredocWrap:
+    """Both Stop hooks MUST actually execute when wrapped the way the SDK
+    runs them in production.
+
+    ``run_infer.py::_hook_definition_from_script`` packages each hook as
+
+        bash -s <<'PROGRAMBENCH_HOOK_EOF'
+        <hook script body>
+        PROGRAMBENCH_HOOK_EOF
+
+    and the SDK's ``HookExecutor.execute`` invokes that string via
+    ``subprocess.run(..., shell=True, input=event_json)``. Under
+    ``bash -s`` bash reads the script body itself from stdin (the
+    heredoc), which means the hook MUST NOT consume or redirect its
+    own stdin -- doing so swallows the rest of the script source and
+    bash silently exits 0 before any of the contract checks run,
+    turning the hook into a no-op that green-lights every broken
+    submission.
+
+    retry-15 hit exactly this: a ``cat >/dev/null`` line at the top
+    of each hook (intended to "drain stdin so the SDK doesn't see a
+    SIGPIPE") consumed the rest of the heredoc, the hooks reported
+    ``exit_code=0, stdout='', stderr=''`` for every Stop event, and
+    the agent shipped 0/3 with the gold-tests hook supposedly enabled.
+    The existing ``TestGoldTestsHookScript`` /
+    ``TestCompileContractHookScript`` suites couldn't see this because
+    they invoke the script as ``bash <file>`` rather than via the
+    SDK's heredoc wrap.
+
+    These tests close that gap by exercising the *actual* wrap.
+    """
+
+    GOLD = run_infer.GOLD_TESTS_HOOK_PATH
+    COMPILE = run_infer.COMPILE_CONTRACT_HOOK_PATH
+
+    @staticmethod
+    def _wrap(script_path: Path) -> str:
+        """Mirror ``run_infer.py::_hook_definition_from_script`` exactly."""
+        body = script_path.read_text()
+        return (
+            "bash -s <<'PROGRAMBENCH_HOOK_EOF'\n"
+            f"{body}\n"
+            "PROGRAMBENCH_HOOK_EOF\n"
+        )
+
+    @staticmethod
+    def _run_wrapped(
+        script_path: Path,
+        *,
+        env_overrides: dict[str, str],
+        cwd: Path,
+        stdin: str = '{"reason":"agent_finished","event_type":"Stop"}',
+        timeout: int = 30,
+    ):
+        """Run the heredoc-wrapped hook the way the SDK does."""
+        import os
+        import subprocess
+
+        env = {
+            "PATH": os.environ.get(
+                "PATH", "/usr/local/bin:/usr/bin:/bin"
+            ),
+        }
+        env.update({k: str(v) for k, v in env_overrides.items()})
+        return subprocess.run(
+            TestHooksRunUnderSdkHeredocWrap._wrap(script_path),
+            shell=True,
+            cwd=str(cwd),
+            env=env,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    def test_compile_hook_blocks_missing_compile_sh_via_heredoc_wrap(
+        self, tmp_path: Path
+    ) -> None:
+        """Smoking gun for retry-15: empty workspace + no compile.sh
+        MUST produce rc=2 with explanatory stderr -- not silent rc=0
+        with empty output.
+        """
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        runs = tmp_path / "runs"
+        result = self._run_wrapped(
+            self.COMPILE,
+            cwd=workspace,
+            env_overrides={
+                "PB_WORKSPACE": str(workspace),
+                "PB_COMPILE_HOOK_RUNS_DIR": str(runs),
+                "PB_COMPILE_HOOK_MAX_RETRIES": "3",
+                "PB_COMPILE_HOOK_TIMEOUT": "30",
+            },
+        )
+        # rc=2 because the workspace is missing compile.sh.
+        assert result.returncode == 2, (
+            "compile-contract hook silently exited rc="
+            f"{result.returncode} under SDK heredoc wrap; "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        # And it must produce real feedback the SDK can route back to
+        # the agent. Empty stderr was the smoking gun in retry-15.
+        assert result.stderr.strip(), (
+            "compile-contract hook produced no stderr under SDK wrap; "
+            "this is the retry-15 self-termination footprint."
+        )
+        assert "compile.sh is missing" in result.stderr
+
+    def test_gold_tests_hook_blocks_missing_agent_binary_via_heredoc_wrap(
+        self, tmp_path: Path
+    ) -> None:
+        """Same regression, gold-tests side: no ./executable MUST
+        block with rc=2 even under the heredoc wrap.
+        """
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        runs = tmp_path / "runs"
+        gold = tmp_path / "gold"
+        gold.write_text("# gold-build\n")
+        gold.chmod(0o755)
+        result = self._run_wrapped(
+            self.GOLD,
+            cwd=workspace,
+            env_overrides={
+                "PB_AGENT_BINARY_PATH": str(workspace / "executable"),
+                "PB_STASHED_GOLD_PATH": str(gold),
+                "PB_STOP_HOOK_RUNS_DIR": str(runs),
+                "PB_STOP_HOOK_MAX_RETRIES": "3",
+                "PB_STOP_HOOK_TEST_TIMEOUT": "10",
+            },
+        )
+        assert result.returncode == 2, (
+            "gold-tests hook silently exited rc="
+            f"{result.returncode} under SDK heredoc wrap; "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        assert result.stderr.strip(), (
+            "gold-tests hook produced no stderr under SDK wrap; "
+            "this is the retry-15 self-termination footprint."
+        )
+        assert "no agent binary" in result.stderr
+
+    @pytest.mark.parametrize("script", [GOLD, COMPILE])
+    def test_hooks_do_not_consume_their_own_stdin(
+        self, script: Path
+    ) -> None:
+        """Static guard: forbid stdin-consuming patterns at the top
+        level of any hook script.
+
+        Under ``bash -s`` + heredoc, anything that consumes stdin
+        consumes the script source itself. The forbidden patterns
+        below all share that footprint:
+
+          * ``cat`` with no file argument and no input redirect
+          * ``exec </dev/null`` (or any ``exec <…``)
+          * unguarded ``read line``
+
+        We only inspect non-comment lines: comments are *about* the
+        contract, not violations of it.
+        """
+        body = script.read_text()
+        offenders: list[tuple[int, str]] = []
+        for lineno, raw in enumerate(body.splitlines(), 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            # cat with no file argument (would read from stdin)
+            if re.match(r"^cat(\s+[<>][^\s]+)*\s*(\|.*)?$", line):
+                offenders.append((lineno, raw))
+            elif re.match(r"^cat\s+([<>][^\s]+\s*)+$", line):
+                offenders.append((lineno, raw))
+            # exec </anything — redirects bash's own stdin
+            elif re.match(r"^exec\s+<", line):
+                offenders.append((lineno, raw))
+            # read at top-level (subshell/while loops have their own
+            # stdin scope; we only catch bare ``read VAR`` /
+            # ``read -r VAR``).  ``\bread\b`` ensures we don't fire on
+            # ``readonly`` / ``readline``.
+            elif re.match(r"^read(\s+|$)", line):
+                offenders.append((lineno, raw))
+        assert offenders == [], (
+            f"{script}: top-level statements that read or redirect "
+            "stdin -- under ``bash -s`` + heredoc those swallow the "
+            "rest of THIS script's source and bash silently exits 0 "
+            "before any contract check runs.  Offenders: "
+            f"{offenders}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Compile-contract hook script (executed by bash)
 # ---------------------------------------------------------------------------

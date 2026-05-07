@@ -31,7 +31,13 @@
 # and let the agent ship a broken submission.  Tests pin this.
 #
 # Inputs:
-#   stdin                          JSON HookEvent (drained, ignored)
+#   stdin                          NOT read. When the SDK wraps the
+#                                  hook in ``bash -s <<EOF ... EOF``,
+#                                  bash's stdin IS the heredoc — the
+#                                  rest of this script. We close it
+#                                  with ``exec </dev/null`` below so
+#                                  no descendant accidentally reads
+#                                  from (and prematurely consumes) it.
 #   PB_WORKSPACE                   (default: /workspace) workspace root
 #   PB_COMPILE_HOOK_MAX_RETRIES    (default: 20) cap re-entries; the
 #                                  agent's per-conversation iteration
@@ -67,8 +73,23 @@ if [ ! -d "$WORKSPACE" ]; then
 fi
 mkdir -p "$RUNS_DIR"
 
-# Drain stdin so the SDK doesn't see a SIGPIPE.
-cat >/dev/null || true
+# IMPORTANT: do NOT read or redirect stdin from this script.
+#
+# The SDK wraps this hook via ``bash -s <<'PROGRAMBENCH_HOOK_EOF' ...
+# PROGRAMBENCH_HOOK_EOF`` (see ``run_infer.py::
+# _hook_definition_from_script``).  Under ``bash -s`` bash reads the
+# script body itself from stdin (the heredoc).  Anything that consumes
+# stdin here — ``cat >/dev/null``, ``exec </dev/null``, ``read line``
+# — consumes the rest of THIS script's source, after which bash hits
+# EOF on the next read and silently exits 0 BEFORE any of the
+# contract checks below ever runs, turning the hook into a no-op
+# that green-lights every broken submission.
+#
+# We don't need the JSON HookEvent the SDK pipes to the parent shell
+# anyway (it goes to /bin/sh, not to bash), so just leave stdin alone.
+# A regression test pins this:
+# ``tests/test_programbench.py::
+# test_hooks_actually_run_under_bash_dash_s_heredoc``.
 
 # --- Retry cap ------------------------------------------------------------
 RETRY_FILE="$RUNS_DIR/count"

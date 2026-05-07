@@ -20,8 +20,14 @@
 # and let the agent ship a broken submission.  Tests pin this.
 #
 # Inputs:
-#   stdin              JSON HookEvent (we don't actually need it, but the
-#                      SDK pipes it in)
+#   stdin              NOT read. The SDK wraps this script via
+#                      ``bash -s <<'EOF' ... EOF`` (see
+#                      ``run_infer.py::_hook_definition_from_script``),
+#                      which makes the heredoc itself bash's stdin —
+#                      i.e. the rest of THIS script.  We close stdin
+#                      with ``exec </dev/null`` below so no descendant
+#                      accidentally reads from (and prematurely
+#                      consumes) the script source.
 #
 #   PB_STASHED_GOLD_PATH         (optional) location of the gold binary
 #   PB_AGENT_BINARY_PATH         (optional) location of the agent's binary
@@ -72,8 +78,23 @@ AGENT_NAME="$(basename "$AGENT")"
 
 mkdir -p "$RUNS_DIR"
 
-# Drain stdin so the SDK doesn't see a SIGPIPE.
-cat >/dev/null || true
+# IMPORTANT: do NOT read or redirect stdin from this script.
+#
+# The SDK wraps this hook via ``bash -s <<'PROGRAMBENCH_HOOK_EOF' ...
+# PROGRAMBENCH_HOOK_EOF`` (see ``run_infer.py::
+# _hook_definition_from_script``).  Under ``bash -s`` bash reads the
+# script body itself from stdin (the heredoc).  Anything that consumes
+# stdin here — ``cat >/dev/null``, ``exec </dev/null``, ``read line``
+# — consumes the rest of THIS script's source, after which bash hits
+# EOF on the next read and silently exits 0 BEFORE any of the gold/
+# agent comparison below ever runs, turning the hook into a no-op
+# that green-lights every broken submission.
+#
+# We don't need the JSON HookEvent the SDK pipes to the parent shell
+# anyway (it goes to /bin/sh, not to bash), so just leave stdin alone.
+# A regression test pins this:
+# ``tests/test_programbench.py::
+# test_hooks_actually_run_under_bash_dash_s_heredoc``.
 
 # --- Retry cap -------------------------------------------------------------
 RETRY_FILE="$RUNS_DIR/count"
