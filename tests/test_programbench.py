@@ -137,6 +137,116 @@ class TestRenderInstruction:
 
 
 # ---------------------------------------------------------------------------
+# Submission tarball shape (workspace-isolation contract)
+# ---------------------------------------------------------------------------
+
+
+class TestSubmissionTarballShape:
+    """Pin the ``tar`` invocation produced by ``_collect_submission``.
+
+    The agent-server flushes events into ``/workspace/conversations/`` and
+    ``/workspace/bash_events/`` asynchronously — even after
+    ``conversation.run()`` returns — so without explicit excludes tar
+    races those writes and aborts with ``tar: .: file changed as we
+    read it``. These tests pin the defences so we don't silently
+    regress them and re-introduce the retry-13 failure mode."""
+
+    def _make_workspace(self):  # -> tuple[RemoteWorkspace-shaped Mock, list[str]]
+        from unittest.mock import MagicMock
+
+        captured: list[str] = []
+
+        def fake_execute_command(cmd: str, timeout: int = 0):
+            captured.append(cmd)
+            r = MagicMock()
+            r.exit_code = 0
+            r.stdout = ""
+            r.stderr = ""
+            return r
+
+        def fake_file_download(src: str, dst: str):
+            Path(dst).write_bytes(b"fake-archive")
+            r = MagicMock()
+            r.success = True
+            return r
+
+        workspace = MagicMock()
+        workspace.execute_command = fake_execute_command
+        workspace.file_download = fake_file_download
+        # Force the download_directory branch to fall through; otherwise
+        # MagicMock auto-creates a truthy attribute.
+        workspace.download_directory = None
+        return workspace, captured
+
+    def _make_evaluation(self, tmp_path: Path):
+        from benchmarks.programbench.run_infer import ProgramBenchEvaluation
+        from benchmarks.utils.models import EvalMetadata
+        from openhands.sdk import LLM
+        from openhands.sdk.critic import PassCritic
+
+        prompt_path = (
+            Path(run_infer.__file__).parent / "prompts" / "default.j2"
+        ).resolve()
+        return ProgramBenchEvaluation(
+            metadata=EvalMetadata(
+                llm=LLM(model="dummy", usage_id="test"),
+                dataset="programbench/ProgramBench",
+                max_iterations=10,
+                eval_output_dir=str(tmp_path),
+                prompt_path=str(prompt_path),
+                critic=PassCritic(),
+            ),
+        )
+
+    def test_excludes_async_state_dirs_and_tolerates_warning(
+        self, tmp_path: Path
+    ) -> None:
+        from benchmarks.utils.models import EvalInstance
+
+        evaluation = self._make_evaluation(tmp_path)
+        workspace, captured = self._make_workspace()
+        instance = EvalInstance(
+            id="abishekvashok__cmatrix.5c082c6",
+            data={
+                "repository": "abishekvashok/cmatrix",
+                "task_image": "programbench/cmatrix:task_cleanroom",
+            },
+        )
+
+        # The duck-typed workspace mock is fine at runtime; cast away
+        # the strict RemoteWorkspace type for pyright.
+        from typing import cast
+
+        from openhands.sdk.workspace.remote import RemoteWorkspace
+
+        evaluation._collect_submission(instance, cast(RemoteWorkspace, workspace))
+
+        assert len(captured) == 1, (
+            f"expected exactly one tar invocation, captured {len(captured)}"
+        )
+        tar_cmd = captured[0]
+        # Defences against the agent-server's async event flush — these
+        # are the actual root cause of the retry-13 tar race.
+        assert "--warning=no-file-changed" in tar_cmd, (
+            "tar must tolerate the 'file changed as we read it' warning "
+            "from concurrent agent-server writes; otherwise the orchestrator "
+            "fails the instance even though the archive is intact."
+        )
+        assert "--exclude=./conversations" in tar_cmd, (
+            "agent-server flushes event journals to /workspace/conversations/; "
+            "they must be excluded so tar isn't racing them."
+        )
+        assert "--exclude=./bash_events" in tar_cmd, (
+            "agent-server flushes bash command history to "
+            "/workspace/bash_events/; they must be excluded so tar isn't "
+            "racing them."
+        )
+        # Pre-existing exclusions still pinned.
+        assert "--exclude=./executable" in tar_cmd
+        assert "cmatrix" in tar_cmd  # repo basename via shlex.quote
+
+
+# ---------------------------------------------------------------------------
 # eval_infer aggregation
 # ---------------------------------------------------------------------------
 
@@ -438,12 +548,19 @@ class TestStopHookConfig:
 
 @pytest.fixture
 def hook_sandbox(tmp_path: Path) -> dict[str, Path]:
-    """Set up a fake /workspace + /opt + state dir for the bash hook."""
+    """Set up a fake /workspace + /opt + state dir for the bash hook.
+
+    ``runs_dir`` is deliberately a sibling of ``workspace`` (not a
+    subdirectory) so the hook's state mirrors the production default
+    (``/tmp/...``) rather than the old in-workspace location. The
+    workspace-isolation contract — see ``test_does_not_mutate_workspace``
+    in ``TestCompileContractHookScript`` — requires that the hook
+    leaves ``$WORKSPACE`` byte-stable."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     eval_dir = workspace / "eval"
     eval_dir.mkdir()
-    runs_dir = workspace / ".programbench-stop-hook"
+    runs_dir = tmp_path / "stop-hook-state"
     return {
         "workspace": workspace,
         "eval": eval_dir,
@@ -723,11 +840,16 @@ def _run_compile_hook(
     max_retries: int = 3,
     timeout_secs: int = 60,
 ):
-    """Invoke ``check_compile_contract.sh`` against an isolated workspace."""
+    """Invoke ``check_compile_contract.sh`` against an isolated workspace.
+
+    The default ``runs_dir`` is a sibling of ``workspace`` rather than a
+    subdirectory, mirroring the production default (``/tmp/...``). This
+    matters because the workspace-isolation contract requires runs_dir
+    to live outside ``$WORKSPACE``."""
     import os
     import subprocess
 
-    runs_dir = runs_dir or (workspace / ".programbench-compile-hook")
+    runs_dir = runs_dir or (workspace.parent / ".programbench-compile-hook-state")
     env = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "PB_WORKSPACE": str(workspace),
@@ -804,9 +926,46 @@ class TestCompileContractHookScript:
         r = _run_compile_hook(workspace)
         assert r.returncode == 0, r.stderr
         assert "build contract OK" in r.stderr
-        # Verify the hook actually ran the script (./executable exists)
-        # rather than short-circuiting somewhere.
-        assert (workspace / "executable").exists()
+        # The verification log lists the scratch dir, confirming the
+        # hook actually executed compile.sh (rather than short-circuiting).
+        assert "verified in /tmp/" in r.stderr
+
+    def test_does_not_mutate_workspace(self, tmp_path: Path) -> None:
+        """Workspace-isolation contract: regardless of what compile.sh
+        does, the hook must leave $WORKSPACE byte-stable so the
+        orchestrator's submission tarball can't race with our build
+        artifacts (``tar: .: file changed as we read it``).
+
+        Pins the fix that retired in-workspace compilation. Earlier
+        versions of this hook ran compile.sh directly in $WORKSPACE,
+        which left target/, build/, and ./executable behind and tripped
+        ``tar: .: file changed as we read it`` mid-snapshot."""
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        # A noisy compile.sh that creates several files and dirs in
+        # the cwd. None of these should bleed into $WORKSPACE.
+        (workspace / "compile.sh").write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "mkdir -p target/release build\n"
+            "echo objfile > build/foo.o\n"
+            "echo binary  > target/release/foo\n"
+            'printf "#!/usr/bin/env bash\\nexit 0\\n" > ./executable\n'
+            "chmod +x ./executable\n"
+        )
+        (workspace / "compile.sh").chmod(0o755)
+        before = sorted(p.name for p in workspace.iterdir())
+
+        r = _run_compile_hook(workspace)
+        assert r.returncode == 0, r.stderr
+
+        after = sorted(p.name for p in workspace.iterdir())
+        assert before == after, (
+            "compile-contract hook leaked artifacts into $WORKSPACE "
+            f"(before={before}, after={after}). This will trip "
+            "'tar: .: file changed as we read it' when the orchestrator "
+            "snapshots the submission."
+        )
 
     def test_wipes_stale_executable_before_running_compile(
         self, tmp_path: Path

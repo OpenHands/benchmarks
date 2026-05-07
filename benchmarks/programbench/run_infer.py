@@ -357,6 +357,25 @@ class ProgramBenchEvaluation(Evaluation):
         # move the reference binary") since it could otherwise be tarred
         # back into the submission and short-circuit the eval. The eval
         # harness ignores extra files it doesn't recognize.
+        #
+        # We also exclude two agent-server internal directories that
+        # otherwise cause "tar: .: file changed as we read it" warnings
+        # mid-snapshot:
+        #   * conversations/  — event journals, persisted async by
+        #     openhands-agent-server (config default
+        #     ``workspace/conversations``)
+        #   * bash_events/    — bash command history, also flushed async
+        # ``conversation.run()`` returns to us when the agent emits its
+        # Stop event, but the agent-server keeps writing to these dirs
+        # for a brief window after that. Excluding them eliminates the
+        # active source of /workspace churn during tar; the eval harness
+        # doesn't read them anyway.
+        #
+        # ``--warning=no-file-changed`` is belt-and-braces: if anything
+        # else in /workspace gets written during tar (e.g., a slow
+        # ``__pycache__`` write from a transitively-spawned tool), tar
+        # still archives a coherent snapshot rather than aborting with
+        # rc=1.
         repo_basename = instance.data["repository"].split("/")[-1]
         in_container_tar = "/tmp/submission.tar.gz"
         # Also exclude `./executable` — the reference binary that ships at
@@ -366,8 +385,11 @@ class ProgramBenchEvaluation(Evaluation):
         # The eval harness ignores it anyway.
         tar_cmd = (
             f"cd {shlex.quote(workspace_dir)} && "
-            f"tar --exclude={shlex.quote(repo_basename)} "
+            f"tar --warning=no-file-changed "
+            f"--exclude={shlex.quote(repo_basename)} "
             f"--exclude=./executable "
+            f"--exclude=./conversations "
+            f"--exclude=./bash_events "
             f"-czf {in_container_tar} ."
         )
         result = workspace.execute_command(tar_cmd, timeout=600)

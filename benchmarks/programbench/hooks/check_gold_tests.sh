@@ -19,24 +19,46 @@
 #   PB_STASHED_GOLD_PATH         (optional) location of the gold binary
 #   PB_AGENT_BINARY_PATH         (optional) location of the agent's binary
 #   PB_STOP_HOOK_MAX_RETRIES     (optional) cap re-entries (default: 3)
-#   PB_STOP_HOOK_RUNS_DIR        (optional) where to keep state across calls
-#                                (default: /workspace/.programbench-stop-hook)
+#   PB_STOP_HOOK_RUNS_DIR        (optional) where to keep state across calls.
+#                                MUST be outside /workspace — the orchestrator
+#                                tars /workspace immediately after this hook
+#                                returns, so any churn here races with tar
+#                                and triggers ``tar: .: file changed as we
+#                                read it``. Default: /tmp/programbench-stop-hook
 #   PB_STOP_HOOK_TEST_TIMEOUT    (optional) per-pytest-run timeout seconds
 #                                (default: 300)
 #
 # We deliberately do *not* shell out into another container; the agent
 # container already has the build tooling and pytest installed by the
 # upstream programbench cleanroom image.
+#
+# ⚠ Workspace isolation contract (the reason this script is more involved
+# than it looks): the orchestrator creates ``submission.tar.gz`` from
+# /workspace immediately after the hook returns. Any files we add/delete/
+# rename in /workspace.  during the hook race with that tar invocation and
+# crash the run with ``file changed as we read it``. Therefore we:
+#   1. Copy /workspace to a scratch dir under /tmp,
+#   2. Do all binary-swapping and pytest-running inside the scratch dir,
+#   3. Tear down the scratch dir on exit.
+# /workspace is read-only as far as this hook is concerned.
 
 set -uo pipefail
 
 GOLD="${PB_STASHED_GOLD_PATH:-/opt/programbench-stashed-executable-do-not-modify}"
 AGENT="${PB_AGENT_BINARY_PATH:-./executable}"
-RUNS_DIR="${PB_STOP_HOOK_RUNS_DIR:-/workspace/.programbench-stop-hook}"
+# RUNS_DIR holds cross-invocation state (the retry counter). Placing it
+# under /tmp instead of /workspace guarantees it can't pollute the
+# workspace tarball even if a hook invocation is killed mid-write.
+RUNS_DIR="${PB_STOP_HOOK_RUNS_DIR:-/tmp/programbench-stop-hook}"
 MAX_RETRIES="${PB_STOP_HOOK_MAX_RETRIES:-3}"
 TEST_TIMEOUT="${PB_STOP_HOOK_TEST_TIMEOUT:-300}"
 
-cd "$(dirname "$AGENT")" 2>/dev/null || cd /workspace
+# Resolve AGENT to an absolute path before we cd anywhere — every
+# subsequent reference uses $WORKSPACE / $SCRATCH to dereference.
+WORKSPACE="$(cd "$(dirname "$AGENT")" 2>/dev/null && pwd)"
+[ -z "$WORKSPACE" ] && WORKSPACE=/workspace
+AGENT_NAME="$(basename "$AGENT")"
+
 mkdir -p "$RUNS_DIR"
 
 # Drain stdin so the SDK doesn't see a SIGPIPE.
@@ -53,12 +75,11 @@ if [ "$COUNT" -gt "$MAX_RETRIES" ]; then
 fi
 
 # --- Quick sanity: agent must have a binary -------------------------------
-if [ ! -f "$AGENT" ]; then
-    echo "[stop-hook] no agent binary at $AGENT — build your solution before finishing" >&2
+# (All subsequent file reads use the original $WORKSPACE; we never modify
+# anything there.)
+if [ ! -f "$WORKSPACE/$AGENT_NAME" ]; then
+    echo "[stop-hook] no agent binary at $WORKSPACE/$AGENT_NAME — build your solution before finishing" >&2
     exit 1
-fi
-if [ ! -x "$AGENT" ]; then
-    chmod +x "$AGENT" 2>/dev/null || true
 fi
 
 # --- If gold binary isn't available, we can't compare → allow stop --------
@@ -68,7 +89,7 @@ if [ ! -f "$GOLD" ]; then
 fi
 
 # --- Cheap path: byte-identical → allow stop ------------------------------
-AHASH=$(sha256sum "$AGENT" 2>/dev/null | awk '{print $1}')
+AHASH=$(sha256sum "$WORKSPACE/$AGENT_NAME" 2>/dev/null | awk '{print $1}')
 GHASH=$(sha256sum "$GOLD"  2>/dev/null | awk '{print $1}')
 if [ -n "$AHASH" ] && [ "$AHASH" = "$GHASH" ]; then
     echo "[stop-hook] binary is byte-identical to gold (sha256=$AHASH); allowing stop" >&2
@@ -76,20 +97,38 @@ if [ -n "$AHASH" ] && [ "$AHASH" = "$GHASH" ]; then
 fi
 
 # --- Need an eval/run.sh to compare meaningfully --------------------------
-RUN_SH=eval/run.sh
-if [ ! -f "$RUN_SH" ]; then
-    echo "[stop-hook] no $RUN_SH to run tests against; allowing stop" >&2
+if [ ! -f "$WORKSPACE/eval/run.sh" ]; then
+    echo "[stop-hook] no eval/run.sh to run tests against; allowing stop" >&2
     exit 0
 fi
-chmod +x "$RUN_SH" 2>/dev/null || true
+
+# --- Workspace-isolated test runs ----------------------------------------
+# Materialise a copy of the workspace under /tmp and do ALL test work
+# there. /workspace stays bit-for-bit identical from this point on, so
+# the orchestrator's submission tarball can't race with us.
+SCRATCH=$(mktemp -d /tmp/pb-stop-hook-scratch.XXXXXX) || {
+    echo "[stop-hook] could not allocate scratch dir; allowing stop" >&2
+    exit 0
+}
+# Always tear down — even on early exits — so /tmp stays clean.
+trap 'rm -rf "$SCRATCH" 2>/dev/null || true' EXIT
+
+# `cp -a` preserves modes/symlinks/timestamps, which matters because
+# eval/run.sh often hardcodes ./executable and executable bits.
+if ! cp -a "$WORKSPACE/." "$SCRATCH/" 2>"$RUNS_DIR/cp.err"; then
+    echo "[stop-hook] could not stage workspace into scratch dir: $(cat "$RUNS_DIR/cp.err" 2>/dev/null | head -3); allowing stop" >&2
+    exit 0
+fi
+chmod +x "$SCRATCH/$AGENT_NAME" "$SCRATCH/eval/run.sh" 2>/dev/null || true
+cd "$SCRATCH"
 
 run_branch () {
-    # Runs the test suite once and copies the JUnit XML to $1.xml
+    # Runs the test suite once in $SCRATCH and copies the JUnit XML to $1.xml
     # Returns 0 on completion regardless of test outcomes; the caller
     # interprets the XML.
     local out=$1
     rm -f eval/results.xml results.xml
-    timeout "$TEST_TIMEOUT" bash "$RUN_SH" > "$out" 2>&1
+    timeout "$TEST_TIMEOUT" bash eval/run.sh > "$out" 2>&1
     local rc=$?
     if [ -f eval/results.xml ]; then
         cp eval/results.xml "$out.xml"
@@ -99,17 +138,18 @@ run_branch () {
     return "$rc"
 }
 
-cp "$AGENT" "$RUNS_DIR/agent.bin"
-cp "$GOLD"  "$RUNS_DIR/gold.bin"
+# Stash the agent's binary so we can swap freely inside the scratch.
+cp "$SCRATCH/$AGENT_NAME" "$RUNS_DIR/agent.bin"
+cp "$GOLD"               "$RUNS_DIR/gold.bin"
 
-# Run gold first.
-cp -f "$RUNS_DIR/gold.bin" "$AGENT"
-chmod +x "$AGENT"
+# Gold branch.
+cp -f "$RUNS_DIR/gold.bin" "$SCRATCH/$AGENT_NAME"
+chmod +x "$SCRATCH/$AGENT_NAME"
 run_branch "$RUNS_DIR/gold.log"
 
-# Run agent.
-cp -f "$RUNS_DIR/agent.bin" "$AGENT"
-chmod +x "$AGENT"
+# Agent branch.
+cp -f "$RUNS_DIR/agent.bin" "$SCRATCH/$AGENT_NAME"
+chmod +x "$SCRATCH/$AGENT_NAME"
 run_branch "$RUNS_DIR/agent.log"
 
 # --- Compare per-test pass/fail in JUnit XML ------------------------------

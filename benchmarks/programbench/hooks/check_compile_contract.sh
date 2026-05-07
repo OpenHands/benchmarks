@@ -27,21 +27,33 @@
 #   stdin                          JSON HookEvent (drained, ignored)
 #   PB_WORKSPACE                   (default: /workspace) workspace root
 #   PB_COMPILE_HOOK_MAX_RETRIES    (default: 3) cap re-entries
-#   PB_COMPILE_HOOK_RUNS_DIR       (default:
-#                                  $PB_WORKSPACE/.programbench-compile-hook)
+#   PB_COMPILE_HOOK_RUNS_DIR       (default: /tmp/programbench-compile-hook)
+#                                  MUST be outside $PB_WORKSPACE — the
+#                                  orchestrator tars $PB_WORKSPACE
+#                                  immediately after this hook returns,
+#                                  so any churn here races with tar and
+#                                  trips ``tar: .: file changed as we
+#                                  read it``.
 #   PB_COMPILE_HOOK_TIMEOUT        (default: 1800) compile.sh timeout secs
+#
+# ⚠ Workspace isolation contract: see the longer note in
+# ``check_gold_tests.sh``. We copy $PB_WORKSPACE to a scratch dir under
+# /tmp before running compile.sh, so the workspace stays bit-for-bit
+# identical and the orchestrator's submission tarball can't race with us.
 
 set -uo pipefail
 
 WORKSPACE="${PB_WORKSPACE:-/workspace}"
-RUNS_DIR="${PB_COMPILE_HOOK_RUNS_DIR:-$WORKSPACE/.programbench-compile-hook}"
+# State (retry counter, build log) lives outside the workspace so it
+# can't pollute the submission tarball.
+RUNS_DIR="${PB_COMPILE_HOOK_RUNS_DIR:-/tmp/programbench-compile-hook}"
 MAX_RETRIES="${PB_COMPILE_HOOK_MAX_RETRIES:-3}"
 TIMEOUT="${PB_COMPILE_HOOK_TIMEOUT:-1800}"
 
-cd "$WORKSPACE" 2>/dev/null || {
-    echo "[compile-contract] cannot cd to $WORKSPACE; allowing stop" >&2
+if [ ! -d "$WORKSPACE" ]; then
+    echo "[compile-contract] $WORKSPACE does not exist; allowing stop" >&2
     exit 0
-}
+fi
 mkdir -p "$RUNS_DIR"
 
 # Drain stdin so the SDK doesn't see a SIGPIPE.
@@ -57,8 +69,8 @@ if [ "$COUNT" -gt "$MAX_RETRIES" ]; then
     exit 0
 fi
 
-# --- 1. compile.sh must exist --------------------------------------------
-if [ ! -f "./compile.sh" ]; then
+# --- 1. compile.sh must exist (read-only check on $WORKSPACE) -----------
+if [ ! -f "$WORKSPACE/compile.sh" ]; then
     {
         echo "[compile-contract] $WORKSPACE/compile.sh is missing."
         echo
@@ -87,12 +99,33 @@ if [ ! -f "./compile.sh" ]; then
     } >&2
     exit 1
 fi
-chmod +x ./compile.sh 2>/dev/null || true
 
 # --- 2. compile.sh must build cleanly and produce ./executable ----------
-# Wipe any pre-existing ./executable so we're verifying compile.sh
-# actually produces it (rather than a leftover from a manual build).
-rm -f ./executable
+# Materialise a scratch copy of $WORKSPACE under /tmp and run compile.sh
+# there. $WORKSPACE stays bit-for-bit identical, so the orchestrator's
+# subsequent submission tarball cannot race with our build artifacts
+# (target/, build/, *.o, ./executable, etc.). See the workspace
+# isolation contract note at the top of the file.
+SCRATCH=$(mktemp -d /tmp/pb-compile-hook-scratch.XXXXXX) || {
+    echo "[compile-contract] could not allocate scratch dir; allowing stop" >&2
+    exit 0
+}
+trap 'rm -rf "$SCRATCH" 2>/dev/null || true' EXIT
+
+# `cp -a` preserves modes/symlinks/timestamps. We copy the agent's
+# ./compile.sh (and source tree) — *not* any pre-built artefacts the
+# agent might have produced manually — by wiping ./executable in the
+# scratch only. $WORKSPACE/executable is left alone.
+if ! cp -a "$WORKSPACE/." "$SCRATCH/" 2>"$RUNS_DIR/cp.err"; then
+    echo "[compile-contract] could not stage workspace into scratch dir: $(cat "$RUNS_DIR/cp.err" 2>/dev/null | head -3); allowing stop" >&2
+    exit 0
+fi
+chmod +x "$SCRATCH/compile.sh" 2>/dev/null || true
+# Wipe any pre-existing ./executable in the scratch only so we're
+# verifying compile.sh actually produces it (rather than a leftover
+# from a manual build the agent did inside $WORKSPACE).
+rm -f "$SCRATCH/executable"
+cd "$SCRATCH"
 
 LOG="$RUNS_DIR/compile.log"
 if ! timeout "$TIMEOUT" bash ./compile.sh > "$LOG" 2>&1; then
@@ -132,9 +165,5 @@ if [ ! -f "./executable" ]; then
     exit 1
 fi
 
-if [ ! -x "./executable" ]; then
-    chmod +x ./executable 2>/dev/null || true
-fi
-
-echo "[compile-contract] build contract OK (compile.sh -> ./executable)" >&2
+echo "[compile-contract] build contract OK (compile.sh -> ./executable, verified in $SCRATCH)" >&2
 exit 0
