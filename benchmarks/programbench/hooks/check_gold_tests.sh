@@ -9,8 +9,15 @@
 #
 # Behaviour:
 #   exit 0  -> allow the agent to stop
-#   exit 1  -> block the stop, print feedback to stderr (the SDK injects it
+#   exit 2  -> block the stop, print feedback to stderr (the SDK injects it
 #              as an environment MessageEvent and resumes the conversation)
+#
+# ⚠ The SDK's Stop-hook contract treats *only* ``exit 2`` as a block
+# (see ``openhands/sdk/hooks/executor.py`` -- ``blocked = (rc == 2)``).
+# Any other non-zero exit is logged as a hook error but does NOT keep
+# the agent running.  The block paths in this script therefore exit 2,
+# never exit 1 -- using exit 1 here would silently ignore the rejection
+# and let the agent ship a broken submission.  Tests pin this.
 #
 # Inputs:
 #   stdin              JSON HookEvent (we don't actually need it, but the
@@ -18,7 +25,11 @@
 #
 #   PB_STASHED_GOLD_PATH         (optional) location of the gold binary
 #   PB_AGENT_BINARY_PATH         (optional) location of the agent's binary
-#   PB_STOP_HOOK_MAX_RETRIES     (optional) cap re-entries (default: 3)
+#   PB_STOP_HOOK_MAX_RETRIES     (optional) cap re-entries (default: 20).
+#                                The agent's per-conversation iteration
+#                                budget already bounds runaway loops, so
+#                                this only guards against a hook whose
+#                                feedback the agent ignores.
 #   PB_STOP_HOOK_RUNS_DIR        (optional) where to keep state across calls.
 #                                MUST be outside /workspace — the orchestrator
 #                                tars /workspace immediately after this hook
@@ -50,7 +61,7 @@ AGENT="${PB_AGENT_BINARY_PATH:-./executable}"
 # under /tmp instead of /workspace guarantees it can't pollute the
 # workspace tarball even if a hook invocation is killed mid-write.
 RUNS_DIR="${PB_STOP_HOOK_RUNS_DIR:-/tmp/programbench-stop-hook}"
-MAX_RETRIES="${PB_STOP_HOOK_MAX_RETRIES:-3}"
+MAX_RETRIES="${PB_STOP_HOOK_MAX_RETRIES:-20}"
 TEST_TIMEOUT="${PB_STOP_HOOK_TEST_TIMEOUT:-300}"
 
 # Resolve AGENT to an absolute path before we cd anywhere — every
@@ -79,7 +90,7 @@ fi
 # anything there.)
 if [ ! -f "$WORKSPACE/$AGENT_NAME" ]; then
     echo "[stop-hook] no agent binary at $WORKSPACE/$AGENT_NAME — build your solution before finishing" >&2
-    exit 1
+    exit 2
 fi
 
 # --- If gold binary isn't available, we can't compare → allow stop --------
@@ -222,4 +233,4 @@ JOINED=$(IFS=", "; echo "${EXAMPLES[*]:-(none collected)}")
     echo "Keep iterating: rebuild ./executable so it matches gold's behaviour, then signal completion again."
     echo "(retry $COUNT/$MAX_RETRIES)"
 } >&2
-exit 1
+exit 2

@@ -19,14 +19,25 @@
 #
 # Behaviour:
 #   exit 0  -> allow the agent to stop
-#   exit 1  -> block the stop, print feedback to stderr (the SDK
+#   exit 2  -> block the stop, print feedback to stderr (the SDK
 #              injects it as an environment MessageEvent and resumes
 #              the conversation)
+#
+# ⚠ The SDK's Stop-hook contract treats *only* ``exit 2`` as a block
+# (see ``openhands/sdk/hooks/executor.py`` -- ``blocked = (rc == 2)``).
+# Any other non-zero exit is logged as a hook error but does NOT keep
+# the agent running.  The block paths in this script therefore exit 2,
+# never exit 1 -- using exit 1 here would silently ignore the rejection
+# and let the agent ship a broken submission.  Tests pin this.
 #
 # Inputs:
 #   stdin                          JSON HookEvent (drained, ignored)
 #   PB_WORKSPACE                   (default: /workspace) workspace root
-#   PB_COMPILE_HOOK_MAX_RETRIES    (default: 3) cap re-entries
+#   PB_COMPILE_HOOK_MAX_RETRIES    (default: 20) cap re-entries; the
+#                                  agent's per-conversation iteration
+#                                  budget already bounds runaway loops,
+#                                  so this only guards against a hook
+#                                  whose feedback the agent ignores.
 #   PB_COMPILE_HOOK_RUNS_DIR       (default: /tmp/programbench-compile-hook)
 #                                  MUST be outside $PB_WORKSPACE — the
 #                                  orchestrator tars $PB_WORKSPACE
@@ -47,7 +58,7 @@ WORKSPACE="${PB_WORKSPACE:-/workspace}"
 # State (retry counter, build log) lives outside the workspace so it
 # can't pollute the submission tarball.
 RUNS_DIR="${PB_COMPILE_HOOK_RUNS_DIR:-/tmp/programbench-compile-hook}"
-MAX_RETRIES="${PB_COMPILE_HOOK_MAX_RETRIES:-3}"
+MAX_RETRIES="${PB_COMPILE_HOOK_MAX_RETRIES:-20}"
 TIMEOUT="${PB_COMPILE_HOOK_TIMEOUT:-1800}"
 
 if [ ! -d "$WORKSPACE" ]; then
@@ -97,7 +108,7 @@ if [ ! -f "$WORKSPACE/compile.sh" ]; then
         echo "Then signal completion again."
         echo "(retry $COUNT/$MAX_RETRIES)"
     } >&2
-    exit 1
+    exit 2
 fi
 
 # --- 2. compile.sh must build cleanly and produce ./executable ----------
@@ -144,7 +155,7 @@ if ! timeout "$TIMEOUT" bash ./compile.sh > "$LOG" 2>&1; then
         echo "invokes) and signal completion again."
         echo "(retry $COUNT/$MAX_RETRIES)"
     } >&2
-    exit 1
+    exit 2
 fi
 
 if [ ! -f "./executable" ]; then
@@ -162,7 +173,7 @@ if [ ! -f "./executable" ]; then
         echo "Then signal completion again."
         echo "(retry $COUNT/$MAX_RETRIES)"
     } >&2
-    exit 1
+    exit 2
 fi
 
 echo "[compile-contract] build contract OK (compile.sh -> ./executable, verified in $SCRATCH)" >&2

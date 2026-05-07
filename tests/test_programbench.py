@@ -12,6 +12,7 @@ are exercised end-to-end by the CI smoke workflow.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -682,7 +683,7 @@ class TestGoldTestsHookScript:
                 "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
             },
         )
-        assert result.returncode == 1
+        assert result.returncode == 2
         assert "no agent binary" in result.stderr
 
     def test_allows_stop_when_binary_matches_gold(self, hook_sandbox) -> None:
@@ -756,7 +757,7 @@ class TestGoldTestsHookScript:
                 "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
             },
         )
-        assert result.returncode == 1, result.stderr
+        assert result.returncode == 2, result.stderr
         assert "1 test(s) pass against the gold binary" in result.stderr
         assert "t.subs" in result.stderr  # mismatch was the 'subs' test
         # Agent binary must be back in place after the script runs (otherwise
@@ -825,7 +826,7 @@ class TestGoldTestsHookScript:
                 cwd=hook_sandbox["workspace"],
                 env_overrides=dict(env_overrides_base),
             )
-            assert r.returncode == 1, (
+            assert r.returncode == 2, (
                 f"attempt {attempt} should block; stderr={r.stderr}"
             )
         # Third invocation hits the cap and concedes.
@@ -836,6 +837,56 @@ class TestGoldTestsHookScript:
         )
         assert r.returncode == 0, r.stderr
         assert "max retries" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# SDK Stop-hook contract pin
+# ---------------------------------------------------------------------------
+
+
+class TestStopHookSdkContract:
+    """Both Stop hooks MUST exit 2 (not 1) on the block path.
+
+    The OpenHands Software Agent SDK's hook executor only treats
+    ``exit_code == 2`` as a Stop block (see
+    ``software-agent-sdk/openhands-sdk/openhands/sdk/hooks/executor.py``
+    where ``blocked = (returncode == 2)``).  Any other non-zero exit is
+    logged as ``Stop hook error`` and the agent is allowed to stop.
+
+    retry-14 hit exactly this: every block path used ``exit 1`` and the
+    SDK silently let the agent ship a broken submission, producing
+    ``Resolved 0 / 3 (almost: 1, errors: 0)`` with no signs of agent
+    iteration.  These assertions exist so a future refactor can't
+    quietly regress to ``exit 1``.
+    """
+
+    GOLD = Path("benchmarks/programbench/hooks/check_gold_tests.sh")
+    COMPILE = Path("benchmarks/programbench/hooks/check_compile_contract.sh")
+
+    @pytest.mark.parametrize("script", [GOLD, COMPILE])
+    def test_block_paths_exit_two_not_one(self, script: Path) -> None:
+        text = script.read_text()
+        # Any standalone ``exit 1`` is a smell -- the SDK ignores it.
+        offending = [
+            (i + 1, line)
+            for i, line in enumerate(text.splitlines())
+            if re.match(r"^\s*exit 1\s*$", line)
+        ]
+        assert offending == [], (
+            f"{script}: {len(offending)} `exit 1` line(s) -- the SDK only "
+            "blocks on rc=2, so these silently let the agent stop. "
+            f"Offending lines: {offending}"
+        )
+
+    @pytest.mark.parametrize("script", [GOLD, COMPILE])
+    def test_documents_exit_two_contract(self, script: Path) -> None:
+        # Force future maintainers to read about the contract before
+        # editing the hook.
+        text = script.read_text()
+        assert "exit 2" in text, (
+            f"{script}: should declare ``exit 2 -> block`` in its header "
+            "comment so the SDK contract is discoverable."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -890,7 +941,7 @@ class TestCompileContractHookScript:
         workspace = tmp_path / "ws"
         workspace.mkdir()
         r = _run_compile_hook(workspace)
-        assert r.returncode == 1, r.stderr
+        assert r.returncode == 2, r.stderr
         assert "compile.sh is missing" in r.stderr
         # Helpful copy-paste-ready examples should always be in the
         # feedback so the agent has something concrete to act on.
@@ -903,7 +954,7 @@ class TestCompileContractHookScript:
         compile_sh.write_text("#!/usr/bin/env bash\necho boom >&2\nexit 7\n")
         compile_sh.chmod(0o755)
         r = _run_compile_hook(workspace)
-        assert r.returncode == 1, r.stderr
+        assert r.returncode == 2, r.stderr
         assert "exited non-zero" in r.stderr
         # Tail of the script's stderr should make it into the message.
         assert "boom" in r.stderr
@@ -915,7 +966,7 @@ class TestCompileContractHookScript:
         (workspace / "compile.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
         (workspace / "compile.sh").chmod(0o755)
         r = _run_compile_hook(workspace)
-        assert r.returncode == 1, r.stderr
+        assert r.returncode == 2, r.stderr
         assert "./executable was not produced" in r.stderr
 
     def test_allows_stop_when_compile_sh_produces_executable(
@@ -993,7 +1044,7 @@ class TestCompileContractHookScript:
         (workspace / "compile.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
         (workspace / "compile.sh").chmod(0o755)
         r = _run_compile_hook(workspace)
-        assert r.returncode == 1, r.stderr
+        assert r.returncode == 2, r.stderr
         assert "./executable was not produced" in r.stderr
 
     def test_allows_stop_after_max_retries(self, tmp_path: Path) -> None:
@@ -1007,9 +1058,9 @@ class TestCompileContractHookScript:
             _run_compile_hook(workspace, runs_dir=runs_dir, max_retries=3)
             for _ in range(4)
         ]
-        # First three calls block (rc=1, contract not satisfied); the
+        # First three calls block (rc=2, contract not satisfied); the
         # fourth trips the retry cap and releases the agent.
-        assert [r.returncode for r in runs[:3]] == [1, 1, 1]
+        assert [r.returncode for r in runs[:3]] == [2, 2, 2]
         assert runs[3].returncode == 0, runs[3].stderr
         assert "max retries" in runs[3].stderr
 
