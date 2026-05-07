@@ -290,6 +290,32 @@ def main() -> None:
         action="store_true",
         help="Block network access inside the evaluation containers",
     )
+    # Accepted for parity with swebench-eval so that the shared eval-job
+    # script (run_swebenchpro.sh) can be templated identically to
+    # run_swebench.sh. The official SWE-Bench Pro harness does not surface
+    # either knob today; --run-id is used purely to disambiguate the report
+    # filename when multiple evaluations share an input file, and --timeout
+    # is currently a no-op here (the upstream harness handles its own
+    # per-instance timeouts via Modal).
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help=(
+            "Optional run identifier; when provided, suffixes the generated "
+            "report filename so concurrent evaluations don't clobber each "
+            "other."
+        ),
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help=(
+            "Per-instance timeout in seconds. Accepted for compatibility "
+            "with swebench-eval; the SWE-Bench Pro official harness "
+            "manages its own timeouts."
+        ),
+    )
     parser.set_defaults(**EVAL_DEFAULTS)
 
     args = parser.parse_args()
@@ -304,7 +330,8 @@ def main() -> None:
         if args.output_file
         else input_file.with_suffix(".swebenchpro.json")
     )
-    report_path = input_file.with_suffix(".report.json")
+    report_suffix = f".{args.run_id}.report.json" if args.run_id else ".report.json"
+    report_path = input_file.with_suffix(report_suffix)
 
     try:
         convert_to_swebenchpro_format(str(input_file), str(output_file))
