@@ -48,8 +48,16 @@ INFER_DEFAULTS: _InferDefaults = {
     "build_target": "source-minimal",
     # Conversation iteration budget. ProgramBench tasks tend to be larger
     # than typical SWE-Bench instances since the agent rebuilds an entire
-    # codebase from scratch.
-    "max_iterations": 200,
+    # codebase from scratch. We allow up to 1000 because:
+    #   1. The full rebuild loop (read docs → infer interface → implement
+    #      → run gold tests → diagnose failures → patch) can chain many
+    #      bash + edit + test iterations on non-trivial CLIs.
+    #   2. Stop hooks (gold-tests-hook) may reject the agent's first
+    #      attempt to finish and demand more work; we want a generous
+    #      budget for those retries.
+    # Lowering this for cost only makes sense for quick smoke runs (pass
+    # ``--max-iterations`` explicitly).
+    "max_iterations": 1000,
 }
 
 # Default evaluation settings.

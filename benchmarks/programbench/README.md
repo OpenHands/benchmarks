@@ -64,7 +64,7 @@ the upstream harness, and `--force` to regrade everything.
 ```
 eval_outputs/
 └── programbench__ProgramBench-test/
-    └── <model>_sdk_<sha>_maxiter_200/
+    └── <model>_sdk_<sha>_maxiter_1000/
         ├── metadata.json
         ├── output.jsonl
         ├── output.report.json
