@@ -241,8 +241,18 @@ class TestSubmissionTarballShape:
             "/workspace/bash_events/; they must be excluded so tar isn't "
             "racing them."
         )
-        # Pre-existing exclusions still pinned.
+        # Defences against unreadable files (root-owned reference
+        # binaries and any *.orig copies the agent may have made).
+        assert "--ignore-failed-read" in tar_cmd, (
+            "tar must skip rather than abort when any /workspace file is "
+            "permission-denied; the eval harness ignores stray files anyway."
+        )
         assert "--exclude=./executable" in tar_cmd
+        assert "--exclude=./executable.orig" in tar_cmd, (
+            "agents commonly do ``cp executable executable.orig`` to "
+            "preserve the reference binary; cp preserves perms so the "
+            "copy is also root-owned 0700 and trips tar."
+        )
         assert "cmatrix" in tar_cmd  # repo basename via shlex.quote
 
 

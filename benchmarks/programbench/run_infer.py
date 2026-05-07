@@ -383,11 +383,29 @@ class ProgramBenchEvaluation(Evaluation):
         # mode 0700 owned by root, so tar fails with "Cannot open:
         # Permission denied" if we try to archive it as the agent user.
         # The eval harness ignores it anyway.
+        #
+        # ``./executable.orig`` is a sibling that some agents create with
+        # ``cp executable executable.orig`` before overwriting
+        # ``./executable`` with their own build (a reasonable
+        # "preserve the reference" instinct). ``cp`` preserves the
+        # file's original permissions, so the copy is *also* root-owned
+        # and 0700, and tar fails the same way. The eval harness
+        # ignores it.
+        #
+        # ``--ignore-failed-read`` is the catch-all: if any other file
+        # in /workspace is unreadable (e.g., a permission-denied
+        # artefact from a tool we don't anticipate), tar logs a warning
+        # to stderr and continues rather than aborting with rc=2. The
+        # archive simply omits the unreadable file. The grader only
+        # reads compile.sh / eval/run.sh / source files — so missing a
+        # stray unreadable file never affects scoring.
         tar_cmd = (
             f"cd {shlex.quote(workspace_dir)} && "
             f"tar --warning=no-file-changed "
+            f"--ignore-failed-read "
             f"--exclude={shlex.quote(repo_basename)} "
             f"--exclude=./executable "
+            f"--exclude=./executable.orig "
             f"--exclude=./conversations "
             f"--exclude=./bash_events "
             f"-czf {in_container_tar} ."
