@@ -55,7 +55,23 @@ binary with `--help`, `--version`, and a few representative inputs.
 
 Phase 2. **CHARACTERIZE** — enumerate the binary's commands, flags,
 subcommands, exit codes, and output formats. Capture sample inputs and
-expected outputs to use as oracles.
+expected outputs to use as oracles. Specifically:
+
+- **Walk every subcommand's `--help` recursively.** Top-level `--help`
+  rarely lists hidden subcommands. Run `{{ binary_path }} <cmd> --help`
+  for every command you see, and for any sub-subcommands those reveal.
+  Common gotchas: `edit reload`, `edit increment`, `import --from <fmt>`
+  may all exist without being listed at the top level.
+- **Probe error paths systematically.** The hidden test suite checks
+  exit codes and stderr text on bad input as carefully as it checks
+  the happy path. For each command, try: invalid arg values, conflicting
+  flags, out-of-range numbers, missing files, permission errors, and
+  empty input. Record the exact exit code AND the exact stderr text.
+  A binary that exits 0 on garbage input where the reference exits 1
+  will fail dozens of tests.
+- **Capture exact byte-level fixtures, not summaries.** Use
+  `{{ binary_path }} --help > /tmp/ref-help.txt` and similar so you
+  can `diff` later. Eyeballing won't catch single-character drift.
 
 Phase 3. **DESIGN** — sketch the module structure for your reimplementation.
 Pick the simplest design that can plausibly cover the observed behavior.
@@ -63,8 +79,35 @@ Pick the simplest design that can plausibly cover the observed behavior.
 Phase 4. **IMPLEMENT** — write the code. Compile/build frequently and run
 your binary against the oracles you captured in Phase 2.
 
-Phase 5. **VERIFY** — exercise edge cases and compare your binary's output
-to the reference binary's output character-for-character where possible.
+**Do NOT add helpful output the reference doesn't print.** No progress
+banners, no `"Starting N workers..."`, no `"Targeting file '...'"`
+preamble lines, no friendly status messages. The hidden tests assert
+output character-for-character; any "improvement" you add to UX is a
+test failure. Match the reference in spirit AND in bytes — even when
+the reference is terser than you'd choose for a real product.
+
+Phase 5. **VERIFY** — before calling `finish`, run these diffs and
+make sure each prints **nothing**:
+
+```bash
+diff <({{ binary_path }} --help) <({{ workspace_dir }}/executable --help)
+diff <({{ binary_path }} -h)     <({{ workspace_dir }}/executable -h)
+```
+
+(Skip `-h` if the reference doesn't accept it.) A non-empty diff means
+your help banner has drifted from the reference's — usually a leading
+space, a trailing newline, a typo, or a re-flowed paragraph. Fix every
+diff line before finishing.
+
+A Stop hook enforces these two diffs automatically: if either is
+non-empty, the hook will block your `finish` call and feed the diff
+back to you so you can iterate. Treat the hook's feedback as
+non-negotiable.
+
+For other commands and edge cases, exercise them yourself and compare
+the reference binary's output to yours character-for-character. The
+test suite is hidden, so the only way to gauge correctness is to be
+ruthless about matching observable behaviour.
 
 Stop when you have a buildable codebase whose behavior matches the reference
 binary on the inputs you've tested. Do **not** modify or move the reference

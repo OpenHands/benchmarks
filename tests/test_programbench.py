@@ -447,8 +447,23 @@ class TestResolveRunDir:
 
 
 # ---------------------------------------------------------------------------
-# Gold-tests Stop hook
+# Reference-diffs Stop hook (replaces the older gold-tests hook whose
+# /opt/programbench-stashed-executable-do-not-modify lookup was never
+# populated by the upstream cleanroom images).
 # ---------------------------------------------------------------------------
+
+
+def _make_eval_instance(
+    instance_id: str = "abishekvashok__cmatrix.5c082c6",
+    repository: str = "abishekvashok/cmatrix",
+):
+    """Build a minimal ``EvalInstance`` for hook-config tests."""
+    from benchmarks.utils.models import EvalInstance
+
+    return EvalInstance(
+        id=instance_id,
+        data={"repository": repository, "instance_id": instance_id},
+    )
 
 
 def _make_metadata_with_details(**details: object):
@@ -483,9 +498,8 @@ class TestStopHookConfig:
     """Unit tests for ``_build_stop_hook_config``.
 
     The compile-contract hook is always installed so the build-contract
-    layer can never be skipped. ``enforce_gold_tests`` adds the heavier
-    gold-vs-agent test comparison hook on top, sequenced after the
-    contract check.
+    layer can never be skipped. ``enforce_reference_diffs`` adds the
+    reference-diffs hook on top, sequenced after the contract check.
     """
 
     def test_installs_compile_contract_hook_by_default(self) -> None:
@@ -503,26 +517,62 @@ class TestStopHookConfig:
         )
         assert cfg is None
 
-    def test_appends_gold_tests_hook_when_enforced(self) -> None:
+    def test_appends_reference_diffs_hook_when_enforced(self) -> None:
         cfg = run_infer._build_stop_hook_config(
-            _make_metadata_with_details(enforce_gold_tests=True)
+            _make_metadata_with_details(enforce_reference_diffs=True),
+            _make_eval_instance(),
         )
         assert cfg is not None
         assert len(cfg.stop[0].hooks) == 2
         # Order matters: the cheap contract check must run first so the
-        # gold-tests hook never sees a missing compile.sh.
+        # reference-diffs hook never sees a missing ./executable.
         first, second = cfg.stop[0].hooks
         contract_body = run_infer.COMPILE_CONTRACT_HOOK_PATH.read_text()
-        gold_body = run_infer.GOLD_TESTS_HOOK_PATH.read_text()
+        ref_body = run_infer.REFERENCE_DIFFS_HOOK_PATH.read_text()
         assert contract_body.strip() in first.command
-        assert gold_body.strip() in second.command
+        assert ref_body.strip() in second.command
 
-    def test_does_not_install_gold_tests_hook_by_default(self) -> None:
-        cfg = run_infer._build_stop_hook_config(_make_metadata_with_details())
+    def test_reference_diffs_hook_injects_per_instance_binary_path(self) -> None:
+        # The diffs hook needs PB_REFERENCE_BINARY_PATH set to the
+        # cleanroom-image-resident reference binary; ``_build_stop_hook_config``
+        # threads that through as an env-prelude on the bash command.
+        cfg = run_infer._build_stop_hook_config(
+            _make_metadata_with_details(enforce_reference_diffs=True),
+            _make_eval_instance(repository="abishekvashok/cmatrix"),
+        )
         assert cfg is not None
-        gold_body = run_infer.GOLD_TESTS_HOOK_PATH.read_text()
+        diffs_cmd = cfg.stop[0].hooks[1].command
+        assert "PB_REFERENCE_BINARY_PATH=/workspace/cmatrix" in diffs_cmd
+        # And the prelude must come BEFORE `bash -s` so the env
+        # carries into the heredoc-wrapped script body.
+        assert diffs_cmd.index("PB_REFERENCE_BINARY_PATH") < diffs_cmd.index("bash -s")
+
+    def test_reference_diffs_hook_omits_env_prelude_when_no_instance(self) -> None:
+        # When callers don't supply an instance (e.g. early-startup
+        # paths or tests that exercise composition only), we leave
+        # the env-prelude blank rather than blowing up. The hook
+        # script falls back to its allow-stop branch.
+        cfg = run_infer._build_stop_hook_config(
+            _make_metadata_with_details(enforce_reference_diffs=True),
+            None,
+        )
+        assert cfg is not None
+        diffs_cmd = cfg.stop[0].hooks[1].command
+        # The script body itself references PB_REFERENCE_BINARY_PATH (in
+        # docstrings and as the env-var to read). We're checking the
+        # env-prelude specifically: there must be no
+        # ``PB_REFERENCE_BINARY_PATH=...`` ASSIGNMENT before ``bash -s``.
+        prelude = diffs_cmd.split("bash -s", 1)[0]
+        assert "PB_REFERENCE_BINARY_PATH=" not in prelude
+
+    def test_does_not_install_reference_diffs_hook_by_default(self) -> None:
+        cfg = run_infer._build_stop_hook_config(
+            _make_metadata_with_details(), _make_eval_instance()
+        )
+        assert cfg is not None
+        ref_body = run_infer.REFERENCE_DIFFS_HOOK_PATH.read_text()
         for hook in cfg.stop[0].hooks:
-            assert gold_body.strip() not in hook.command
+            assert ref_body.strip() not in hook.command
 
     def test_respects_custom_contract_timeout(self) -> None:
         cfg = run_infer._build_stop_hook_config(
@@ -531,11 +581,12 @@ class TestStopHookConfig:
         assert cfg is not None
         assert cfg.stop[0].hooks[0].timeout == 11
 
-    def test_respects_custom_gold_tests_timeout(self) -> None:
+    def test_respects_custom_reference_diffs_timeout(self) -> None:
         cfg = run_infer._build_stop_hook_config(
             _make_metadata_with_details(
-                enforce_gold_tests=True, gold_tests_hook_timeout=42
-            )
+                enforce_reference_diffs=True, reference_diffs_hook_timeout=42
+            ),
+            _make_eval_instance(),
         )
         assert cfg is not None
         assert cfg.stop[0].hooks[1].timeout == 42
@@ -544,7 +595,8 @@ class TestStopHookConfig:
         # Sanity: we don't accidentally wire the scripts to fire on
         # every tool invocation.
         cfg = run_infer._build_stop_hook_config(
-            _make_metadata_with_details(enforce_gold_tests=True)
+            _make_metadata_with_details(enforce_reference_diffs=True),
+            _make_eval_instance(),
         )
         assert cfg is not None
         assert cfg.pre_tool_use == []
@@ -561,7 +613,7 @@ class TestStopHookConfig:
 
 @pytest.fixture
 def hook_sandbox(tmp_path: Path) -> dict[str, Path]:
-    """Set up a fake /workspace + /opt + state dir for the bash hook.
+    """Set up a fake workspace + state dir for the bash hooks.
 
     ``runs_dir`` is deliberately a sibling of ``workspace`` (not a
     subdirectory) so the hook's state mirrors the production default
@@ -579,7 +631,7 @@ def hook_sandbox(tmp_path: Path) -> dict[str, Path]:
         "eval": eval_dir,
         "runs_dir": runs_dir,
         "agent": workspace / "executable",
-        "gold": tmp_path / "gold-stash",
+        "reference": tmp_path / "reference_bin",
     }
 
 
@@ -589,24 +641,18 @@ def _run_hook(
     env_overrides: dict[str, str],
     stdin: str = "{}",
 ):
-    """Invoke the hook script with isolated env vars."""
+    """Invoke the hook script with isolated env vars.
+
+    ``env_overrides`` is passed verbatim to the subprocess; only ``PATH``
+    is preserved by default so coreutils/timeout/diff resolve. Drop
+    everything else so a developer's locally-set ``PB_*`` doesn't leak
+    in and skew the assertions.
+    """
     import os
     import subprocess
 
     env = {
-        # Keep PATH so coreutils/sha256sum/python3 resolve, but drop everything else.
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-        # Default these so the hook never accidentally touches /opt or /workspace
-        # on the developer's host.
-        "PB_STASHED_GOLD_PATH": str(env_overrides.pop("PB_STASHED_GOLD_PATH", "")),
-        "PB_AGENT_BINARY_PATH": str(env_overrides.pop("PB_AGENT_BINARY_PATH", "")),
-        "PB_STOP_HOOK_RUNS_DIR": str(env_overrides.pop("PB_STOP_HOOK_RUNS_DIR", "")),
-        "PB_STOP_HOOK_MAX_RETRIES": str(
-            env_overrides.pop("PB_STOP_HOOK_MAX_RETRIES", 3)
-        ),
-        "PB_STOP_HOOK_TEST_TIMEOUT": str(
-            env_overrides.pop("PB_STOP_HOOK_TEST_TIMEOUT", 10)
-        ),
     }
     env.update({k: str(v) for k, v in env_overrides.items()})
     return subprocess.run(
@@ -620,213 +666,192 @@ def _run_hook(
     )
 
 
-def _write_runner(eval_dir: Path, junit_xml: str) -> None:
-    """Drop a deterministic ``run.sh`` that emits the supplied JUnit XML.
+def _build_help_binary(
+    src_path: Path,
+    out_path: Path,
+    *,
+    help_text: str,
+    short_help_text: str | None = None,
+) -> None:
+    """Compile a tiny C ``--help`` / ``-h`` echo binary.
 
-    We don't actually need pytest for these tests — only the XML the hook
-    parses. The ``run.sh`` differentiates between gold and agent runs by
-    inspecting ./executable's contents, so that one fixture covers both
-    test branches the hook makes.
+    The hook script's whole job is byte-comparing those flags' output;
+    using a real (compiled, executable) binary instead of a shell wrapper
+    keeps the test exercising the same ``execve``-based code path the
+    production hook hits.
     """
-    runner = eval_dir / "run.sh"
-    runner.write_text(
-        "#!/usr/bin/env bash\n"
-        f"cat > eval/results.xml <<'XML'\n{junit_xml}\nXML\n"
-        "exit 0\n"
+    import shutil
+    import subprocess
+
+    if shutil.which("gcc") is None:
+        pytest.skip(
+            "gcc not available; reference-diffs hook tests need to compile a tiny C binary"
+        )
+    short = short_help_text if short_help_text is not None else help_text
+    src_path.write_text(
+        "#include <stdio.h>\n"
+        "#include <string.h>\n"
+        "int main(int argc, char **argv) {\n"
+        '    if (argc > 1 && strcmp(argv[1], "--help") == 0) {\n'
+        f"        fputs({json.dumps(help_text)}, stdout);\n"
+        "        return 0;\n"
+        "    }\n"
+        '    if (argc > 1 && strcmp(argv[1], "-h") == 0) {\n'
+        f"        fputs({json.dumps(short)}, stdout);\n"
+        "        return 0;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n"
     )
-    runner.chmod(0o755)
+    subprocess.run(
+        ["gcc", "-O0", "-o", str(out_path), str(src_path)],
+        check=True,
+        capture_output=True,
+    )
+    out_path.chmod(0o755)
 
 
-GOLD_PASS_AGENT_FAIL_XML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="pb">
-  <testcase classname="t" name="adds">{adds}</testcase>
-  <testcase classname="t" name="subs">{subs}</testcase>
-</testsuite>"""
+class TestReferenceDiffsHookScript:
+    """End-to-end tests of the new reference-diffs Stop hook.
 
-
-class TestGoldTestsHookScript:
-    """End-to-end tests of the bash hook script.
-
-    These run the actual script against synthesised binaries / runner.sh
-    inside ``tmp_path``. Pytest never has to be installed in the host
-    environment because we replace ``./eval/run.sh`` with a fixture that
-    writes a JUnit XML directly.
+    The hook compares the agent's binary's ``--help`` / ``-h`` output
+    against the reference binary's, byte-for-byte. We give it real
+    compiled C binaries (one matching, one diverging by a single
+    character) and check it blocks/allows correctly.
     """
 
-    SCRIPT = run_infer.GOLD_TESTS_HOOK_PATH
+    SCRIPT = run_infer.REFERENCE_DIFFS_HOOK_PATH
 
-    def test_allows_stop_when_no_gold_binary(self, hook_sandbox) -> None:
-        # No gold binary on disk — hook can't compare and should let the
-        # agent stop (the upstream eval will catch real regressions).
-        hook_sandbox["agent"].write_text("agent-build")
-        hook_sandbox["agent"].chmod(0o755)
+    def _common_env(self, hook_sandbox) -> dict[str, str]:
+        return {
+            "PB_REFERENCE_BINARY_PATH": str(hook_sandbox["reference"]),
+            "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+            "PB_REFERENCE_DIFFS_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            "PB_REFERENCE_DIFFS_MAX_RETRIES": "3",
+            "PB_REFERENCE_DIFFS_TIMEOUT": "10",
+        }
+
+    def test_allows_stop_when_help_matches_byte_for_byte(self, hook_sandbox, tmp_path):
+        same = " Usage: ref [-abc]\n"
+        _build_help_binary(
+            tmp_path / "ref.c", hook_sandbox["reference"], help_text=same
+        )
+        _build_help_binary(tmp_path / "agent.c", hook_sandbox["agent"], help_text=same)
         result = _run_hook(
             self.SCRIPT,
             cwd=hook_sandbox["workspace"],
-            env_overrides={
-                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
-                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
-                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
-            },
+            env_overrides=self._common_env(hook_sandbox),
         )
         assert result.returncode == 0, result.stderr
-        assert "gold binary missing" in result.stderr
+        assert "match reference" in result.stderr
 
-    def test_blocks_stop_when_no_agent_binary(self, hook_sandbox) -> None:
-        # Agent never built ./executable — hook must block.
-        hook_sandbox["gold"].write_text("gold-build")
-        hook_sandbox["gold"].chmod(0o755)
+    def test_blocks_stop_on_leading_space_drift(self, hook_sandbox, tmp_path):
+        # The exact failure mode that hit cmatrix: reference's help banner
+        # starts with " Usage:" (leading space) but the agent's prints
+        # "Usage:". Single-character drift, score-killing.
+        ref_help = " Usage: ref [-abc]\n"
+        agent_help = "Usage: ref [-abc]\n"
+        _build_help_binary(
+            tmp_path / "ref.c", hook_sandbox["reference"], help_text=ref_help
+        )
+        _build_help_binary(
+            tmp_path / "agent.c", hook_sandbox["agent"], help_text=agent_help
+        )
         result = _run_hook(
             self.SCRIPT,
             cwd=hook_sandbox["workspace"],
-            env_overrides={
-                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
-                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
-                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
-            },
-        )
-        assert result.returncode == 2
-        assert "no agent binary" in result.stderr
-
-    def test_allows_stop_when_binary_matches_gold(self, hook_sandbox) -> None:
-        # Byte-identical → cheap path: skip pytest entirely.
-        same = b"# identical bytes\n"
-        hook_sandbox["agent"].write_bytes(same)
-        hook_sandbox["gold"].write_bytes(same)
-        hook_sandbox["agent"].chmod(0o755)
-        result = _run_hook(
-            self.SCRIPT,
-            cwd=hook_sandbox["workspace"],
-            env_overrides={
-                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
-                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
-                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
-            },
-        )
-        assert result.returncode == 0, result.stderr
-        assert "byte-identical" in result.stderr
-
-    def test_allows_stop_when_no_runner_present(self, hook_sandbox) -> None:
-        # Different binaries but no eval/run.sh → can't compare → allow.
-        hook_sandbox["agent"].write_text("agent")
-        hook_sandbox["gold"].write_text("gold")
-        hook_sandbox["agent"].chmod(0o755)
-        # Ensure no run.sh
-        runner = hook_sandbox["eval"] / "run.sh"
-        if runner.exists():
-            runner.unlink()
-        result = _run_hook(
-            self.SCRIPT,
-            cwd=hook_sandbox["workspace"],
-            env_overrides={
-                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
-                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
-                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
-            },
-        )
-        assert result.returncode == 0, result.stderr
-        assert "no eval/run.sh" in result.stderr
-
-    def test_blocks_stop_on_test_mismatch(self, hook_sandbox) -> None:
-        # Runner emits "both pass" when the binary is gold and "subs fails"
-        # when the binary is agent. Hook must spot the mismatch and block.
-        hook_sandbox["gold"].write_text("# gold-build\n")
-        hook_sandbox["agent"].write_text("# agent-build\n")
-        hook_sandbox["agent"].chmod(0o755)
-        runner = hook_sandbox["eval"] / "run.sh"
-        runner.write_text(
-            "#!/usr/bin/env bash\n"
-            "if grep -q '# gold-build' ./executable; then\n"
-            "  cat > eval/results.xml <<'XML'\n"
-            + GOLD_PASS_AGENT_FAIL_XML_TEMPLATE.format(adds="", subs="")
-            + "\nXML\n"
-            "else\n"
-            "  cat > eval/results.xml <<'XML'\n"
-            + GOLD_PASS_AGENT_FAIL_XML_TEMPLATE.format(
-                adds="", subs="<failure>subs broke</failure>"
-            )
-            + "\nXML\n"
-            "fi\n"
-            "exit 0\n"
-        )
-        runner.chmod(0o755)
-        result = _run_hook(
-            self.SCRIPT,
-            cwd=hook_sandbox["workspace"],
-            env_overrides={
-                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
-                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
-                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
-            },
+            env_overrides=self._common_env(hook_sandbox),
         )
         assert result.returncode == 2, result.stderr
-        assert "1 test(s) pass against the gold binary" in result.stderr
-        assert "t.subs" in result.stderr  # mismatch was the 'subs' test
-        # Agent binary must be back in place after the script runs (otherwise
-        # subsequent agent steps would see gold and pass tests "for free").
-        assert "# agent-build" in hook_sandbox["agent"].read_text()
+        assert "differs from the reference" in result.stderr
+        # The unified diff is what gives the agent something actionable.
+        assert "--help" in result.stderr
+        assert "Usage: ref" in result.stderr
 
-    def test_allows_stop_when_tests_fully_match(self, hook_sandbox) -> None:
-        # Runner emits identical XML regardless of binary → no mismatch.
-        hook_sandbox["gold"].write_text("# gold-build\n")
-        hook_sandbox["agent"].write_text("# agent-build\n")
-        hook_sandbox["agent"].chmod(0o755)
-        _write_runner(
-            hook_sandbox["eval"],
-            GOLD_PASS_AGENT_FAIL_XML_TEMPLATE.format(adds="", subs=""),
+    def test_blocks_stop_on_invented_banner_line(self, hook_sandbox, tmp_path):
+        # The exact failure mode that hit zip-password-finder: the agent
+        # added a "Targeting file '...'" preamble that the reference
+        # never prints. Even when the rest matches.
+        ref_help = "ref 1.0\n"
+        agent_help = "Starting up...\nref 1.0\n"
+        _build_help_binary(
+            tmp_path / "ref.c", hook_sandbox["reference"], help_text=ref_help
+        )
+        _build_help_binary(
+            tmp_path / "agent.c", hook_sandbox["agent"], help_text=agent_help
         )
         result = _run_hook(
             self.SCRIPT,
             cwd=hook_sandbox["workspace"],
-            env_overrides={
-                "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
-                "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
-                "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
-            },
+            env_overrides=self._common_env(hook_sandbox),
+        )
+        assert result.returncode == 2, result.stderr
+        assert "Starting up" in result.stderr
+
+    def test_allows_stop_when_reference_binary_missing(self, hook_sandbox, tmp_path):
+        # If the reference somehow isn't present in the cleanroom image,
+        # we have nothing to compare against and must fall back to
+        # allow-stop (the upstream eval is the source of truth).
+        _build_help_binary(tmp_path / "agent.c", hook_sandbox["agent"], help_text="x\n")
+        env = self._common_env(hook_sandbox)
+        env["PB_REFERENCE_BINARY_PATH"] = "/nonexistent/reference"
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=env,
         )
         assert result.returncode == 0, result.stderr
-        assert "all gold-passing tests also pass" in result.stderr
+        assert "not an executable file" in result.stderr
 
-    def test_retry_cap_lets_agent_eventually_stop(self, hook_sandbox) -> None:
+    def test_allows_stop_when_reference_path_unset(self, hook_sandbox, tmp_path):
+        # Defensive: if the prelude rendering somehow skipped the env var
+        # (e.g. _build_stop_hook_config was called without an instance),
+        # we still allow-stop so the agent isn't stuck. The diffs hook
+        # is opportunistic, not authoritative.
+        _build_help_binary(tmp_path / "agent.c", hook_sandbox["agent"], help_text="x\n")
+        env = self._common_env(hook_sandbox)
+        env.pop("PB_REFERENCE_BINARY_PATH", None)
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=env,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "PB_REFERENCE_BINARY_PATH unset" in result.stderr
+
+    def test_allows_stop_when_agent_binary_missing(self, hook_sandbox, tmp_path):
+        # Compile-contract hook owns the missing-./executable error path;
+        # the diffs hook must defer rather than double-block (which would
+        # eat into the retry cap before the agent sees the contract msg).
+        _build_help_binary(
+            tmp_path / "ref.c", hook_sandbox["reference"], help_text="x\n"
+        )
+        # Note: hook_sandbox["agent"] does NOT exist on disk.
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=self._common_env(hook_sandbox),
+        )
+        assert result.returncode == 0, result.stderr
+        assert "deferring to compile-contract hook" in result.stderr
+
+    def test_retry_cap_lets_agent_eventually_stop(self, hook_sandbox, tmp_path):
         # If the agent stays broken, the hook must eventually concede so
-        # we don't loop forever and exhaust max_iterations on stop hooks.
-        hook_sandbox["gold"].write_text("# gold\n")
-        hook_sandbox["agent"].write_text("# agent\n")
-        hook_sandbox["agent"].chmod(0o755)
-        runner_xml = (
-            "<?xml version='1.0'?><testsuite>"
-            "<testcase classname='t' name='x'>"
-            "<failure>broken</failure>"
-            "</testcase></testsuite>"
+        # we don't burn the entire iteration budget on stop hooks.
+        _build_help_binary(
+            tmp_path / "ref.c", hook_sandbox["reference"], help_text="ref\n"
         )
-        # gold passes, agent fails — same setup as the mismatch test
-        runner = hook_sandbox["eval"] / "run.sh"
-        runner.write_text(
-            "#!/usr/bin/env bash\n"
-            "if grep -q '# gold' ./executable; then\n"
-            "  cat > eval/results.xml <<'XML'\n"
-            "<?xml version='1.0'?><testsuite>"
-            "<testcase classname='t' name='x'/>"
-            "</testsuite>\nXML\n"
-            "else\n"
-            "  cat > eval/results.xml <<XML\n"
-            f"{runner_xml}\nXML\n"
-            "fi\n"
-            "exit 0\n"
+        _build_help_binary(
+            tmp_path / "agent.c", hook_sandbox["agent"], help_text="other\n"
         )
-        runner.chmod(0o755)
-        env_overrides_base = {
-            "PB_STASHED_GOLD_PATH": str(hook_sandbox["gold"]),
-            "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
-            "PB_STOP_HOOK_RUNS_DIR": str(hook_sandbox["runs_dir"]),
-            "PB_STOP_HOOK_MAX_RETRIES": "2",
-        }
+        env = self._common_env(hook_sandbox)
+        env["PB_REFERENCE_DIFFS_MAX_RETRIES"] = "2"
         # First two invocations block...
         for attempt in (1, 2):
             r = _run_hook(
                 self.SCRIPT,
                 cwd=hook_sandbox["workspace"],
-                env_overrides=dict(env_overrides_base),
+                env_overrides=dict(env),
             )
             assert r.returncode == 2, (
                 f"attempt {attempt} should block; stderr={r.stderr}"
@@ -835,10 +860,60 @@ class TestGoldTestsHookScript:
         r = _run_hook(
             self.SCRIPT,
             cwd=hook_sandbox["workspace"],
-            env_overrides=dict(env_overrides_base),
+            env_overrides=dict(env),
         )
         assert r.returncode == 0, r.stderr
         assert "max retries" in r.stderr
+
+    def test_does_not_mutate_workspace(self, hook_sandbox, tmp_path):
+        # The orchestrator tars /workspace immediately after the hook
+        # returns; any churn there would race with tar. Assert the
+        # workspace's mtime + listing is byte-stable across the hook.
+        _build_help_binary(
+            tmp_path / "ref.c", hook_sandbox["reference"], help_text="x\n"
+        )
+        _build_help_binary(tmp_path / "agent.c", hook_sandbox["agent"], help_text="x\n")
+        before = sorted(
+            (p.relative_to(hook_sandbox["workspace"]), p.stat().st_size)
+            for p in hook_sandbox["workspace"].rglob("*")
+            if p.is_file()
+        )
+        _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=self._common_env(hook_sandbox),
+        )
+        after = sorted(
+            (p.relative_to(hook_sandbox["workspace"]), p.stat().st_size)
+            for p in hook_sandbox["workspace"].rglob("*")
+            if p.is_file()
+        )
+        assert before == after, (
+            "reference-diffs hook mutated the workspace; this races with "
+            "the orchestrator's submission tar invocation"
+        )
+
+    def test_truncates_runaway_diff(self, hook_sandbox, tmp_path):
+        # If the agent emits megabytes of garbage on --help (e.g. a
+        # debug dump), the hook must NOT pipe all of it back to the
+        # agent — that would bury the conversation in one event.
+        ref_help = "x\n"
+        agent_help = "y" * 20000 + "\n"
+        _build_help_binary(
+            tmp_path / "ref.c", hook_sandbox["reference"], help_text=ref_help
+        )
+        _build_help_binary(
+            tmp_path / "agent.c", hook_sandbox["agent"], help_text=agent_help
+        )
+        env = self._common_env(hook_sandbox)
+        env["PB_REFERENCE_DIFFS_MAX_DIFF_BYTES"] = "500"
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=env,
+        )
+        assert result.returncode == 2, result.stderr
+        assert "diff truncated" in result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -862,10 +937,10 @@ class TestStopHookSdkContract:
     quietly regress to ``exit 1``.
     """
 
-    GOLD = Path("benchmarks/programbench/hooks/check_gold_tests.sh")
+    REF_DIFFS = Path("benchmarks/programbench/hooks/check_reference_diffs.sh")
     COMPILE = Path("benchmarks/programbench/hooks/check_compile_contract.sh")
 
-    @pytest.mark.parametrize("script", [GOLD, COMPILE])
+    @pytest.mark.parametrize("script", [REF_DIFFS, COMPILE])
     def test_block_paths_exit_two_not_one(self, script: Path) -> None:
         text = script.read_text()
         # Any standalone ``exit 1`` is a smell -- the SDK ignores it.
@@ -880,7 +955,7 @@ class TestStopHookSdkContract:
             f"Offending lines: {offending}"
         )
 
-    @pytest.mark.parametrize("script", [GOLD, COMPILE])
+    @pytest.mark.parametrize("script", [REF_DIFFS, COMPILE])
     def test_documents_exit_two_contract(self, script: Path) -> None:
         # Force future maintainers to read about the contract before
         # editing the hook.
@@ -914,16 +989,16 @@ class TestHooksRunUnderSdkHeredocWrap:
     of each hook (intended to "drain stdin so the SDK doesn't see a
     SIGPIPE") consumed the rest of the heredoc, the hooks reported
     ``exit_code=0, stdout='', stderr=''`` for every Stop event, and
-    the agent shipped 0/3 with the gold-tests hook supposedly enabled.
-    The existing ``TestGoldTestsHookScript`` /
-    ``TestCompileContractHookScript`` suites couldn't see this because
-    they invoke the script as ``bash <file>`` rather than via the
-    SDK's heredoc wrap.
+    the agent shipped 0/3 with the (then-named) gold-tests hook
+    supposedly enabled. The existing
+    ``TestReferenceDiffsHookScript`` / ``TestCompileContractHookScript``
+    suites couldn't see this because they invoke the script as
+    ``bash <file>`` rather than via the SDK's heredoc wrap.
 
     These tests close that gap by exercising the *actual* wrap.
     """
 
-    GOLD = run_infer.GOLD_TESTS_HOOK_PATH
+    REF_DIFFS = run_infer.REFERENCE_DIFFS_HOOK_PATH
     COMPILE = run_infer.COMPILE_CONTRACT_HOOK_PATH
 
     @staticmethod
@@ -994,41 +1069,44 @@ class TestHooksRunUnderSdkHeredocWrap:
         )
         assert "compile.sh is missing" in result.stderr
 
-    def test_gold_tests_hook_blocks_missing_agent_binary_via_heredoc_wrap(
+    def test_reference_diffs_hook_blocks_on_help_drift_via_heredoc_wrap(
         self, tmp_path: Path
     ) -> None:
-        """Same regression, gold-tests side: no ./executable MUST
-        block with rc=2 even under the heredoc wrap.
+        """Same regression, reference-diffs side: a single-byte help
+        drift between the agent and reference MUST block with rc=2
+        even under the heredoc wrap.
         """
         workspace = tmp_path / "ws"
         workspace.mkdir()
         runs = tmp_path / "runs"
-        gold = tmp_path / "gold"
-        gold.write_text("# gold-build\n")
-        gold.chmod(0o755)
+        reference = tmp_path / "ref"
+        agent = workspace / "executable"
+        # Use the same compiled-binary fixture the rest of the suite uses.
+        _build_help_binary(tmp_path / "ref.c", reference, help_text=" ref\n")
+        _build_help_binary(tmp_path / "agent.c", agent, help_text="ref\n")
         result = self._run_wrapped(
-            self.GOLD,
+            self.REF_DIFFS,
             cwd=workspace,
             env_overrides={
-                "PB_AGENT_BINARY_PATH": str(workspace / "executable"),
-                "PB_STASHED_GOLD_PATH": str(gold),
-                "PB_STOP_HOOK_RUNS_DIR": str(runs),
-                "PB_STOP_HOOK_MAX_RETRIES": "3",
-                "PB_STOP_HOOK_TEST_TIMEOUT": "10",
+                "PB_REFERENCE_BINARY_PATH": str(reference),
+                "PB_AGENT_BINARY_PATH": str(agent),
+                "PB_REFERENCE_DIFFS_RUNS_DIR": str(runs),
+                "PB_REFERENCE_DIFFS_MAX_RETRIES": "3",
+                "PB_REFERENCE_DIFFS_TIMEOUT": "10",
             },
         )
         assert result.returncode == 2, (
-            "gold-tests hook silently exited rc="
+            "reference-diffs hook silently exited rc="
             f"{result.returncode} under SDK heredoc wrap; "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
         assert result.stderr.strip(), (
-            "gold-tests hook produced no stderr under SDK wrap; "
+            "reference-diffs hook produced no stderr under SDK wrap; "
             "this is the retry-15 self-termination footprint."
         )
-        assert "no agent binary" in result.stderr
+        assert "differs from the reference" in result.stderr
 
-    @pytest.mark.parametrize("script", [GOLD, COMPILE])
+    @pytest.mark.parametrize("script", [REF_DIFFS, COMPILE])
     def test_hooks_do_not_consume_their_own_stdin(self, script: Path) -> None:
         """Static guard: forbid stdin-consuming patterns at the top
         level of any hook script.
@@ -1257,8 +1335,8 @@ class TestCompileContractHookScript:
 class TestCondenserCliPlumbing:
     """`--condenser-max-size` etc. used to be parsed but ignored. These
     tests pin the shape we now expect: the parser accepts them, defaults
-    are well-defined, and `--enforce-gold-tests` shows up alongside the
-    pre-existing flags."""
+    are well-defined, and `--enforce-reference-diffs` shows up alongside
+    the pre-existing flags."""
 
     def test_help_advertises_all_relevant_flags(self) -> None:
         import argparse
@@ -1283,19 +1361,19 @@ class TestCondenserCliPlumbing:
             choices=["binary", "binary-minimal", "source", "source-minimal"],
         )
         parser.add_argument("--allow-network", action="store_true")
-        # Mirror run_infer.main(): enforce-gold-tests is on by default
-        # (helm dispatch can't pass extra CLI args, so the default is the
-        # only switch we have for production runs).
+        # Mirror run_infer.main(): enforce-reference-diffs is on by
+        # default (helm dispatch can't pass extra CLI args, so the
+        # default is the only switch we have for production runs).
         parser.add_argument(
-            "--enforce-gold-tests",
+            "--enforce-reference-diffs",
             action=argparse.BooleanOptionalAction,
             default=True,
         )
-        parser.add_argument("--gold-tests-hook-timeout", type=int, default=600)
+        parser.add_argument("--reference-diffs-hook-timeout", type=int, default=120)
         parser.set_defaults(**INFER_DEFAULTS)
 
         # Assertion 1: argparse can parse a leaderboard-style invocation
-        # without flipping the gold-tests default, and the args
+        # without flipping the reference-diffs default, and the args
         # round-trip into known names.
         args = parser.parse_args(
             [
@@ -1307,23 +1385,23 @@ class TestCondenserCliPlumbing:
                 "80",
                 "--condenser-keep-first",
                 "4",
-                "--gold-tests-hook-timeout",
-                "300",
+                "--reference-diffs-hook-timeout",
+                "180",
             ]
         )
         assert args.max_iterations == 1000
         assert args.enable_condenser is True
         assert args.condenser_max_size == 80
         assert args.condenser_keep_first == 4
-        # Default-on so production helm dispatch picks up the gold-tests
-        # hook without orchestrator changes.
-        assert args.enforce_gold_tests is True
-        assert args.gold_tests_hook_timeout == 300
+        # Default-on so production helm dispatch picks up the
+        # reference-diffs hook without orchestrator changes.
+        assert args.enforce_reference_diffs is True
+        assert args.reference_diffs_hook_timeout == 180
 
-        # Assertion 2: ``--no-enforce-gold-tests`` lets local smoke
-        # runs opt out of the heavy test re-run.
-        opted_out = parser.parse_args(["/dev/null", "--no-enforce-gold-tests"])
-        assert opted_out.enforce_gold_tests is False
+        # Assertion 2: ``--no-enforce-reference-diffs`` lets local
+        # smoke runs opt out of the diff check.
+        opted_out = parser.parse_args(["/dev/null", "--no-enforce-reference-diffs"])
+        assert opted_out.enforce_reference_diffs is False
         # Sanity: didn't introduce a stray attribute that nobody owns.
         assert isinstance(parser, argparse.ArgumentParser)
         # silences "imported but unused" without changing public surface

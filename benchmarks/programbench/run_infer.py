@@ -285,7 +285,7 @@ class ProgramBenchEvaluation(Evaluation):
             attempt=self.current_attempt,
         )
 
-        hook_config = _build_stop_hook_config(self.metadata)
+        hook_config = _build_stop_hook_config(self.metadata, instance)
 
         conversation = Conversation(
             agent=agent,
@@ -533,27 +533,57 @@ exactly the failure mode that turned every instance in
 retry-7…retry-12 into a 0/3 result. Exposed as a constant so tests
 can exercise the script directly."""
 
-GOLD_TESTS_HOOK_PATH: Path = (
-    Path(__file__).parent / "hooks" / "check_gold_tests.sh"
+REFERENCE_DIFFS_HOOK_PATH: Path = (
+    Path(__file__).parent / "hooks" / "check_reference_diffs.sh"
 ).resolve()
-"""Opt-in (``--enforce-gold-tests``) Stop hook that re-runs the test
-suite against the gold binary and the agent's binary, and blocks stop
-unless every gold-passing test also passes against the agent. Heavier
-than the contract hook, hence kept separate. Exposed as a constant so
-tests can exercise the script directly."""
+"""Opt-in (``--enforce-reference-diffs``) Stop hook that compares the
+agent's binary against the reference binary at
+``/workspace/<repo_name>`` on a small set of deterministic probes
+(``--help`` / ``-h``) and blocks stop on any byte-level diff. Replaces
+the older ``check_gold_tests.sh`` whose
+``/opt/programbench-stashed-executable-do-not-modify`` lookup was
+never populated by the upstream cleanroom images and so always
+fail-opened.
+
+The reference binary IS guaranteed to ship in the cleanroom image
+(the prompt template tells the agent it lives at
+``/workspace/<repo_name>``), so leaning on it gives us a meaningful
+pre-finish verification step that closes the most common
+character-for-character failure mode (e.g. cmatrix's leading-space
+help banner). Exposed as a constant so tests can exercise the script
+directly."""
 
 
-def _hook_definition_from_script(script_path: Path, *, timeout: int) -> HookDefinition:
+def _hook_definition_from_script(
+    script_path: Path,
+    *,
+    timeout: int,
+    env_overrides: dict[str, str] | None = None,
+) -> HookDefinition:
     """Inline a Bash script as a ``HookDefinition`` command.
 
     Each Stop hook is invoked by the SDK by spawning the configured
-    command with the ``HookEvent`` JSON on stdin. Inlining the body via
-    a here-doc keeps the integration self-contained — no separate file
-    has to be shipped into the cleanroom image.
+    command with the ``HookEvent`` JSON on stdin. Inlining the body
+    via a here-doc keeps the integration self-contained — no separate
+    file has to be shipped into the cleanroom image.
+
+    ``env_overrides``, if supplied, is rendered as a ``KEY=VAL``
+    prefix ahead of ``bash -s`` so the script body sees those
+    variables. We inline rather than rely on ``HookDefinition.env``
+    because the SDK invokes the command via ``shell=True``, which
+    threads the prefix through unchanged. ``shlex.quote`` keeps
+    paths-with-spaces (and the rare metacharacter) safe.
     """
     script_body = script_path.read_text()
+    env_prefix = ""
+    if env_overrides:
+        env_prefix = (
+            " ".join(f"{k}={shlex.quote(v)}" for k, v in env_overrides.items()) + " "
+        )
     command = (
-        f"bash -s <<'PROGRAMBENCH_HOOK_EOF'\n{script_body}\nPROGRAMBENCH_HOOK_EOF\n"
+        f"{env_prefix}bash -s <<'PROGRAMBENCH_HOOK_EOF'\n"
+        f"{script_body}\n"
+        f"PROGRAMBENCH_HOOK_EOF\n"
     )
     return HookDefinition(
         type=HookType.COMMAND,
@@ -562,19 +592,46 @@ def _hook_definition_from_script(script_path: Path, *, timeout: int) -> HookDefi
     )
 
 
-def _build_stop_hook_config(metadata: EvalMetadata) -> HookConfig | None:
+def _reference_binary_path_for(instance: EvalInstance | None) -> str:
+    """Resolve the reference binary path the agent is cloning, matching
+    ``_render_instruction``'s ``binary_path`` rendering.
+
+    Returns an empty string when no instance is supplied (only the
+    test suite hits that branch); the diffs hook treats unset/missing
+    paths as "skip and allow stop", so the unit-test path stays safe.
+    """
+    if instance is None:
+        return ""
+    repository = instance.data.get("repository", "")
+    if not repository:
+        return ""
+    repo_name = repository.split("/")[-1]
+    return f"/workspace/{repo_name}"
+
+
+def _build_stop_hook_config(
+    metadata: EvalMetadata,
+    instance: EvalInstance | None = None,
+) -> HookConfig | None:
     """Compose the agent's Stop hooks.
 
     Always installs the compile-contract hook so submissions can never
     silently miss ``./compile.sh``. When
-    ``details["enforce_gold_tests"]`` is set, the (heavier) gold-tests
-    hook is appended after it; the SDK runs hooks in order and stops at
-    the first one that vetoes the stop, so the cheap contract check
-    always runs first.
+    ``details["enforce_reference_diffs"]`` is set, the
+    reference-diffs hook is appended after it; the SDK runs hooks in
+    order and stops at the first one that vetoes the stop, so the
+    cheap contract check always runs first.
+
+    The reference-diffs hook needs the per-instance reference binary
+    path; we inject it via ``PB_REFERENCE_BINARY_PATH`` in the hook
+    command's env-prelude (see ``_hook_definition_from_script``). When
+    callers don't supply an ``instance`` (e.g. some unit tests that
+    only exercise hook composition), the env var is left blank and
+    the hook script falls back to its allow-stop path.
 
     Returns ``None`` only when callers explicitly opt out via
-    ``details["disable_stop_hooks"]`` (used by the test suite for fast
-    smoke runs).
+    ``details["disable_stop_hooks"]`` (used by the test suite for
+    fast smoke runs).
     """
     details = metadata.details or {}
     if details.get("disable_stop_hooks"):
@@ -587,11 +644,16 @@ def _build_stop_hook_config(metadata: EvalMetadata) -> HookConfig | None:
         )
     ]
 
-    if details.get("enforce_gold_tests"):
+    if details.get("enforce_reference_diffs"):
+        ref_env: dict[str, str] = {}
+        ref_path = _reference_binary_path_for(instance)
+        if ref_path:
+            ref_env["PB_REFERENCE_BINARY_PATH"] = ref_path
         hooks.append(
             _hook_definition_from_script(
-                GOLD_TESTS_HOOK_PATH,
-                timeout=int(details.get("gold_tests_hook_timeout", 600)),
+                REFERENCE_DIFFS_HOOK_PATH,
+                timeout=int(details.get("reference_diffs_hook_timeout", 120)),
+                env_overrides=ref_env or None,
             )
         )
 
@@ -630,25 +692,28 @@ def main() -> None:
         "metadata so runs remain reproducible once strict isolation lands.",
     )
     parser.add_argument(
-        "--enforce-gold-tests",
+        "--enforce-reference-diffs",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Install a Stop hook that runs the agent's binary against the "
-        "stashed gold binary's tests and refuses to let the agent finish "
-        "while any gold-passing test fails on the agent's binary. On by "
-        "default — the helm-dispatched orchestrator path doesn't forward "
-        "extra CLI args, so the flag-default is the only switch we have "
-        "for production runs. Pass ``--no-enforce-gold-tests`` to skip "
-        "the (heavy) test re-run for fast local smoke runs.",
+        help="Install a Stop hook that diffs the agent's binary's "
+        "``--help`` / ``-h`` output against the reference binary's and "
+        "refuses to let the agent finish while any byte-level diff "
+        "remains. On by default — the helm-dispatched orchestrator "
+        "path doesn't forward extra CLI args, so the flag-default is "
+        "the only switch we have for production runs. Pass "
+        "``--no-enforce-reference-diffs`` to skip the diff for fast "
+        "local smoke runs. Replaces the older ``--enforce-gold-tests`` "
+        "flag, whose hook depended on a stashed-gold path the upstream "
+        "cleanroom images never populated.",
     )
     parser.add_argument(
-        "--gold-tests-hook-timeout",
+        "--reference-diffs-hook-timeout",
         type=int,
-        default=600,
-        help="Wall-clock timeout (seconds) for a single gold-tests hook "
-        "invocation. The hook re-runs the test suite twice (once with "
-        "the gold binary, once with the agent's), so 10 minutes is a "
-        "reasonable default for most ProgramBench tasks.",
+        default=120,
+        help="Wall-clock timeout (seconds) for a single reference-diffs "
+        "hook invocation. The hook runs each binary once per probe "
+        "(``--help``, ``-h``) with its own per-probe timeout, so 2 "
+        "minutes is plenty for the wrapping invocation.",
     )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
@@ -700,8 +765,8 @@ def main() -> None:
             "build_target": args.build_target,
             "workspace_dir": str(INFER_DEFAULTS["workspace_dir"]),
             "offline_inference": not args.allow_network,
-            "enforce_gold_tests": args.enforce_gold_tests,
-            "gold_tests_hook_timeout": args.gold_tests_hook_timeout,
+            "enforce_reference_diffs": args.enforce_reference_diffs,
+            "reference_diffs_hook_timeout": args.reference_diffs_hook_timeout,
         },
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
