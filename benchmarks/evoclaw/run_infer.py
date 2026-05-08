@@ -32,6 +32,7 @@ from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
+from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import DockerDevWorkspace
 
 
@@ -55,8 +56,6 @@ def get_tools_for_preset(
 
         return get_planning_tools()
 
-    from openhands.tools.preset.default import get_default_tools
-
     return get_default_tools(enable_browser=enable_browser)
 
 
@@ -67,7 +66,9 @@ def _repo_image_name(repo_name: str) -> str:
 def _read_selected_milestones(repo_root: Path) -> list[str]:
     selected = repo_root / "selected_milestone_ids.txt"
     if selected.exists():
-        return [line.strip() for line in selected.read_text().splitlines() if line.strip()]
+        return [
+            line.strip() for line in selected.read_text().splitlines() if line.strip()
+        ]
 
     milestones = repo_root / "milestones.csv"
     if milestones.exists():
