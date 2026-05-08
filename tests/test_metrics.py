@@ -360,6 +360,15 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "problem_statement": "Test problem for swesmith",
             },
         )
+    elif benchmark_name == "evoclaw":
+        return EvalInstance(
+            id="test-instance-1",
+            data={
+                "repo_root": "test/repo",
+                "image": "test/base:latest",
+                "milestone_ids": ["M1"],
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -538,6 +547,24 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             prompt_path=prompt_path,
             critic=PassCritic(),
         )
+    elif benchmark_name == "evoclaw":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "evoclaw"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="evoclaw",
+            dataset_split="test",
+            details={"data_root": "test/data", "selected_repos": None},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
     else:
         # Generic metadata for unknown benchmarks
         return EvalMetadata(
@@ -656,6 +683,16 @@ def test_benchmark_metrics_collection(
                     "benchmarks.swesmith.run_infer.registry.get_from_inst",
                     return_value=mock_profile,
                 ),
+            ):
+                result = evaluation.evaluate_instance(instance, mock_workspace)
+        elif benchmark_name == "evoclaw":
+            with patch.object(
+                evaluation,
+                "_upload_task_materials",
+                return_value={
+                    "task_queue_path": "/e2e_workspace/TASK_QUEUE.md",
+                    "srs_dir": "/e2e_workspace/srs",
+                },
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)
         else:
