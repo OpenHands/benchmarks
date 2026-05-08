@@ -925,6 +925,377 @@ class TestReferenceDiffsHookScript:
 
 
 # ---------------------------------------------------------------------------
+# Reference-diffs hook v2: subcommand discovery + argv[0] normalization
+# ---------------------------------------------------------------------------
+
+
+def _build_subcommand_binary(
+    src_path: Path,
+    out_path: Path,
+    *,
+    top_help: str,
+    subcommands: dict[str, dict[str, object]],
+    use_argv0_in_help: bool = False,
+) -> None:
+    """Compile a tiny C binary that mimics a clap-style multi-subcommand CLI.
+
+    ``subcommands`` is keyed by subcommand name and each value is a dict
+    with optional keys:
+      * ``help``: stdout text for ``<sub> --help`` (rc 0)
+      * ``error_text``: stderr text for any other ``<sub> ...`` invocation
+      * ``error_rc``: rc for the same (default 0)
+
+    The point is to exercise three v2 probe paths:
+      1. subcommand --help byte-comparison
+      2. subcommand <bogus-flag> -> rc/stderr divergence
+      3. subcommand <bogus-path> -> rc/stderr divergence
+
+    ``use_argv0_in_help=True`` makes top-level help include the program's
+    argv[0] basename, used to verify argv[0] normalization works for
+    real ELF binaries.
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("gcc") is None:
+        pytest.skip(
+            "gcc not available; reference-diffs v2 hook tests need to compile a tiny C binary"
+        )
+
+    # Build the C source. The big switch over subcommand names matches by
+    # strcmp; we compose it with json.dumps for safe quoting.
+    sub_blocks = []
+    for name, spec in subcommands.items():
+        # ``spec`` is dict[str, object] for flexibility; coerce here so
+        # we get pyright-clean str/int locals that can flow into the
+        # f-string below.
+        help_text = str(spec.get("help", f"Usage: ... {name}"))
+        err_text = str(spec.get("error_text", ""))
+        err_rc_raw = spec.get("error_rc", 0)
+        err_rc = int(err_rc_raw) if isinstance(err_rc_raw, (int, str)) else 0
+        sub_blocks.append(
+            f"    if (strcmp(argv[1], {json.dumps(name)}) == 0) {{\n"
+            f'        if (argc > 2 && strcmp(argv[2], "--help") == 0) {{\n'
+            f"            fputs({json.dumps(help_text)}, stdout);\n"
+            f"            return 0;\n"
+            f"        }}\n"
+            f"        fputs({json.dumps(err_text)}, stderr);\n"
+            f"        return {err_rc};\n"
+            f"    }}\n"
+        )
+
+    if use_argv0_in_help:
+        # bn = basename(argv[0]), then printf("...%s...", bn)
+        help_section = (
+            "        char buf[256];\n"
+            "        strncpy(buf, argv[0], sizeof(buf)-1); buf[sizeof(buf)-1] = 0;\n"
+            "        char *bn = basename(buf);\n"
+            f"        printf({json.dumps(top_help)}, bn);\n"
+        )
+        extra_includes = "#include <libgen.h>\n"
+    else:
+        help_section = f"        fputs({json.dumps(top_help)}, stdout);\n"
+        extra_includes = ""
+
+    src_path.write_text(
+        "#include <stdio.h>\n"
+        "#include <string.h>\n"
+        "#include <stdlib.h>\n" + extra_includes + "int main(int argc, char **argv) {\n"
+        '    if (argc > 1 && (strcmp(argv[1], "--help") == 0\n'
+        '                  || strcmp(argv[1], "-h") == 0)) {\n'
+        + help_section
+        + "        return 0;\n"
+        "    }\n" + "".join(sub_blocks) + '    fputs("error: unknown\\n", stderr);\n'
+        "    return 2;\n"
+        "}\n"
+    )
+    subprocess.run(
+        ["gcc", "-O0", "-o", str(out_path), str(src_path)],
+        check=True,
+        capture_output=True,
+    )
+    out_path.chmod(0o755)
+
+
+class TestReferenceDiffsHookV2:
+    """v2 probe suite: subcommand discovery + invalid-input + argv[0] norm.
+
+    Post-retry-22 we extended the hook to discover subcommands from the
+    reference's top-level ``--help`` output and probe each one with
+    ``--help``, an invalid flag, and a nonexistent path. We also wrap
+    invocation in ``exec -a`` so both binaries see the same argv[0] —
+    this prevents false positives when both ref and agent correctly
+    derive their ``Usage:`` line from argv[0] but happen to live at
+    different paths on disk (the realistic ProgramBench layout).
+    """
+
+    SCRIPT = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks"
+        / "programbench"
+        / "hooks"
+        / "check_reference_diffs.sh"
+    )
+
+    def _common_env(self, hook_sandbox) -> dict[str, str]:
+        return {
+            "PB_REFERENCE_BINARY_PATH": str(hook_sandbox["reference"]),
+            "PB_AGENT_BINARY_PATH": str(hook_sandbox["agent"]),
+            "PB_REFERENCE_DIFFS_RUNS_DIR": str(hook_sandbox["runs_dir"]),
+            "PB_WORKSPACE": str(hook_sandbox["workspace"]),
+        }
+
+    # Reference top-level help text: a clap-shaped Commands: section
+    # listing two subcommands plus the auto-help one (which the hook's
+    # parser must filter out). We pin the exact format because the awk
+    # parser is heuristic and a future change here could regress
+    # discovery silently.
+    REF_TOP_HELP = (
+        "A test reference binary\n"
+        "\n"
+        "Usage: executable [COMMAND]\n"
+        "\n"
+        "Commands:\n"
+        "  add     Add an entry\n"
+        "  remove  Remove an entry\n"
+        "  help    Print help\n"
+        "\n"
+        "Options:\n"
+        "  -h, --help  Print help\n"
+    )
+
+    def test_blocks_on_subcommand_help_drift(self, hook_sandbox, tmp_path):
+        # Top-level help matches; a SUBCOMMAND'S --help drifts. v1
+        # would have allowed stop (it only diffed top-level). v2 must
+        # block.
+        _build_subcommand_binary(
+            tmp_path / "ref.c",
+            hook_sandbox["reference"],
+            top_help=self.REF_TOP_HELP,
+            subcommands={
+                "add": {"help": "Usage: executable add <DIR>\n"},
+                "remove": {"help": "Usage: executable remove <DIR>\n"},
+            },
+        )
+        _build_subcommand_binary(
+            tmp_path / "agent.c",
+            hook_sandbox["agent"],
+            top_help=self.REF_TOP_HELP,  # top-level matches
+            subcommands={
+                "add": {
+                    # --- drift: agent emits an extra "Args:" line that
+                    # the reference doesn't have. ---
+                    "help": "Usage: executable add <DIR>\nArgs:\n  <DIR>  the directory\n",
+                },
+                "remove": {"help": "Usage: executable remove <DIR>\n"},
+            },
+        )
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=self._common_env(hook_sandbox),
+        )
+        assert result.returncode == 2, result.stderr
+        assert "subcommand `add --help`" in result.stderr
+        # The diff body must include the line that drifted, so the agent
+        # can act on it without re-running the probe themselves.
+        assert "Args:" in result.stderr
+
+    def test_blocks_on_missing_subcommand_validation(self, hook_sandbox, tmp_path):
+        # Reference rc=1 with a "not a directory" stderr on bad input;
+        # agent rc=0 with empty output (the silent-success bug). v1
+        # would have missed this entirely (top-level help is identical);
+        # v2's invalid-flag and nonexistent-path probes catch it.
+        _build_subcommand_binary(
+            tmp_path / "ref.c",
+            hook_sandbox["reference"],
+            top_help=self.REF_TOP_HELP,
+            subcommands={
+                "add": {
+                    "help": "Usage: executable add <DIR>\n",
+                    "error_text": "error: not a directory\n",
+                    "error_rc": 1,
+                },
+                "remove": {
+                    "help": "Usage: executable remove <DIR>\n",
+                    "error_text": "error: entry not found\n",
+                    "error_rc": 1,
+                },
+            },
+        )
+        _build_subcommand_binary(
+            tmp_path / "agent.c",
+            hook_sandbox["agent"],
+            top_help=self.REF_TOP_HELP,
+            subcommands={
+                "add": {
+                    "help": "Usage: executable add <DIR>\n",
+                    "error_text": "",
+                    "error_rc": 0,  # <-- BUG: silent success
+                },
+                "remove": {
+                    "help": "Usage: executable remove <DIR>\n",
+                    "error_text": "",
+                    "error_rc": 0,  # <-- BUG: silent success
+                },
+            },
+        )
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=self._common_env(hook_sandbox),
+        )
+        assert result.returncode == 2, result.stderr
+        # Both invalid-flag and nonexistent-path probes catch the rc divergence.
+        assert "invalid flag" in result.stderr
+        assert "nonexistent path" in result.stderr
+        # And the rc=1 vs rc=0 must be visible in the diff header.
+        assert "rc: ref=1, agent=0" in result.stderr
+
+    def test_argv0_normalization_avoids_basename_false_positive(
+        self, hook_sandbox, tmp_path
+    ):
+        # Both binaries derive their ``Usage:`` line from argv[0] (the
+        # clap-default behaviour). They are byte-identical implementations
+        # but live at different paths on disk. v1 would diff their
+        # outputs and find ``Usage: ref [COMMAND]`` vs ``Usage: agent
+        # [COMMAND]`` — a FALSE POSITIVE. v2 wraps both in ``exec -a
+        # executable`` so argv[0] is normalised and the outputs match.
+        # NOTE: top_help must contain a single ``%s`` for the argv[0]
+        # basename when ``use_argv0_in_help=True``.
+        argv0_help_template = (
+            "A test\n"
+            "\n"
+            "Usage: %s [COMMAND]\n"
+            "\n"
+            "Commands:\n"
+            "  add  Add an entry\n"
+            "  help Print help\n"
+        )
+        _build_subcommand_binary(
+            tmp_path / "ref.c",
+            hook_sandbox["reference"],
+            top_help=argv0_help_template,
+            subcommands={"add": {"help": "Usage: add <DIR>\n"}},
+            use_argv0_in_help=True,
+        )
+        _build_subcommand_binary(
+            tmp_path / "agent.c",
+            hook_sandbox["agent"],
+            top_help=argv0_help_template,
+            subcommands={"add": {"help": "Usage: add <DIR>\n"}},
+            use_argv0_in_help=True,
+        )
+        # Sanity: rename so the two binaries have OBVIOUSLY different
+        # paths-on-disk. If exec -a normalisation is broken, the hook
+        # WOULD see ``Usage: ref_bin`` vs ``Usage: agent_bin`` and block.
+        ref_renamed = hook_sandbox["reference"].parent / "ref_bin"
+        agent_renamed = hook_sandbox["agent"].parent / "agent_bin"
+        hook_sandbox["reference"].rename(ref_renamed)
+        hook_sandbox["agent"].rename(agent_renamed)
+        env = self._common_env(hook_sandbox)
+        env["PB_REFERENCE_BINARY_PATH"] = str(ref_renamed)
+        env["PB_AGENT_BINARY_PATH"] = str(agent_renamed)
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=env,
+        )
+        assert result.returncode == 0, (
+            f"argv[0] normalisation regressed; rc={result.returncode}\n"
+            f"stderr=\n{result.stderr}"
+        )
+        # Sanity: it still verified the probes (didn't no-op).
+        assert "all" in result.stderr and "comparable probe" in result.stderr
+
+    def test_no_commands_section_falls_back_to_toplevel_only(
+        self, hook_sandbox, tmp_path
+    ):
+        # Reference has NO ``Commands:`` section in its --help output
+        # (single-purpose binary like cmatrix). The discovery awk must
+        # emit zero subcommands and the hook must still allow stop on
+        # matching top-level help.
+        plain_help = (
+            "A single-purpose tool\n"
+            "\n"
+            "Usage: executable [-abc] [-C COLOR]\n"
+            "\n"
+            "Options:\n"
+            "  -a   thing a\n"
+            "  -C   colour\n"
+        )
+        _build_subcommand_binary(
+            tmp_path / "ref.c",
+            hook_sandbox["reference"],
+            top_help=plain_help,
+            subcommands={},
+        )
+        _build_subcommand_binary(
+            tmp_path / "agent.c",
+            hook_sandbox["agent"],
+            top_help=plain_help,
+            subcommands={},
+        )
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=self._common_env(hook_sandbox),
+        )
+        assert result.returncode == 0, result.stderr
+        # Three top-level probes (--help, -h, top-level invalid flag),
+        # zero subcommand probes. Pin that we did NOT silently skip them.
+        assert "all 3 comparable probe" in result.stderr or (
+            "all" in result.stderr and "comparable probe" in result.stderr
+        )
+
+    def test_caps_subcommand_count_to_avoid_runaway(self, hook_sandbox, tmp_path):
+        # If the binary has 30 subcommands, we must cap the probe count.
+        # Each subcommand gets up to 3 probes (--help, invalid flag,
+        # nonexistent path) but the bogus-flag/path probes are SKIPPED
+        # by the hook when the reference's stderr is empty (nothing
+        # meaningful to compare). We give every subcommand non-empty
+        # error text so all 3 probes contribute, and pin the cap envvar
+        # so this test doesn't depend on the default drifting.
+        many_help = "Tool\n\nUsage: executable [CMD]\n\nCommands:\n"
+        names = [f"cmd{i:02d}" for i in range(30)]
+        for n in names:
+            many_help += f"  {n}  Do {n}\n"
+        many_help += "\nOptions:\n  -h  help\n"
+        subs = {
+            n: {
+                "help": f"Usage: executable {n}\n",
+                "error_text": f"error: bad {n} args\n",
+                "error_rc": 1,
+            }
+            for n in names
+        }
+        _build_subcommand_binary(
+            tmp_path / "ref.c",
+            hook_sandbox["reference"],
+            top_help=many_help,
+            subcommands=subs,
+        )
+        # Agent: identical → no diffs expected, just verify count.
+        _build_subcommand_binary(
+            tmp_path / "agent.c",
+            hook_sandbox["agent"],
+            top_help=many_help,
+            subcommands=subs,
+        )
+        env = self._common_env(hook_sandbox)
+        env["PB_REFERENCE_DIFFS_MAX_SUBCMDS"] = "5"
+        result = _run_hook(
+            self.SCRIPT,
+            cwd=hook_sandbox["workspace"],
+            env_overrides=env,
+        )
+        assert result.returncode == 0, result.stderr
+        # 3 top-level + 5 subcommands * 3 probes = 18 total. If the cap
+        # weren't honoured this would be 3 + 30*3 = 93.
+        assert "all 18 comparable probe" in result.stderr, result.stderr
+
+
+# ---------------------------------------------------------------------------
 # SDK Stop-hook contract pin
 # ---------------------------------------------------------------------------
 

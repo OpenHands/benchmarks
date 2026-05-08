@@ -640,7 +640,12 @@ def _build_stop_hook_config(
         hooks.append(
             _hook_definition_from_script(
                 REFERENCE_DIFFS_HOOK_PATH,
-                timeout=int(details.get("reference_diffs_hook_timeout", 120)),
+                # 240s is enough headroom for the v2 probe set: 2
+                # top-level help probes (30s each) + 1 top-level invalid
+                # flag (5s) + 8 subcommands * 3 probes each (5s each) =
+                # 60 + 5 + 120 = 185s worst case, with margin for diff
+                # rendering and scratch I/O.
+                timeout=int(details.get("reference_diffs_hook_timeout", 240)),
             )
         )
 
