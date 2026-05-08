@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import json
 import os
-import re
 import shlex
 from pathlib import Path
 from typing import List
@@ -105,53 +104,9 @@ def _write_workspace_file(
         raise RuntimeError(f"Failed to upload {local_path} to {remote_path}: {result}")
 
 
-def _affected_writable_paths(repo_root: Path, milestone_ids: list[str]) -> list[str]:
-    paths: set[str] = set()
-    for milestone_id in milestone_ids:
-        srs_path = repo_root / "srs" / milestone_id / "SRS.md"
-        if not srs_path.exists():
-            continue
-
-        in_affected_section = False
-        for line in srs_path.read_text(encoding="utf-8").splitlines():
-            if "Affected Modules" in line:
-                in_affected_section = True
-                continue
-            if in_affected_section and line.startswith("##"):
-                break
-            if not in_affected_section:
-                continue
-
-            for match in re.findall(r"`([^`]+)`", line):
-                relative = match.strip().lstrip("/")
-                if relative.startswith("testbed/"):
-                    relative = relative[len("testbed/") :]
-                if not relative or "*" in relative:
-                    continue
-                parts = [part for part in relative.split("/") if part]
-                if not parts:
-                    continue
-                if len(parts) == 1:
-                    paths.add(parts[0])
-                elif parts[0] == "ui" and len(parts) > 2:
-                    paths.add(str(Path(parts[0]) / parts[1]))
-                else:
-                    paths.add(parts[0])
-
-    return sorted(paths)
-
-
-def _ensure_workspace_writable(
-    workspace: RemoteWorkspace,
-    repo_root: Path,
-    milestone_ids: list[str],
-) -> None:
+def _ensure_workspace_writable(workspace: RemoteWorkspace, repo_root: Path) -> None:
     with (repo_root / "metadata.json").open(encoding="utf-8") as f:
         metadata = json.load(f)
-
-    src_dirs = _affected_writable_paths(repo_root, milestone_ids)
-    if not src_dirs:
-        src_dirs = metadata.get("repo_src_dirs") or []
 
     chown_parts = [
         f"sudo chown $(id -u):$(id -g) {shlex.quote(workspace.working_dir)}",
@@ -161,14 +116,17 @@ def _ensure_workspace_writable(
         ),
         f"git config --global --add safe.directory {shlex.quote(workspace.working_dir)}",
     ]
-    for src_dir in src_dirs:
+    for src_dir in metadata.get("repo_src_dirs") or []:
         relative = str(src_dir).strip().strip("/")
         if not relative or "*" in relative:
             continue
         remote_path = f"{workspace.working_dir}/{relative}"
         chown_parts.append(
             f"if [ -e {shlex.quote(remote_path)} ]; then "
-            f"sudo chown -R $(id -u):$(id -g) {shlex.quote(remote_path)}; fi"
+            f"sudo find {shlex.quote(remote_path)} "
+            r"\( -name .git -o -name node_modules -o -name .venv "
+            r"-o -name __pycache__ \) -prune -o "
+            "-exec chown $(id -u):$(id -g) {} +; fi"
         )
 
     result = workspace.execute_command(
@@ -254,11 +212,7 @@ class EvoClawEvaluation(Evaluation):
         remote_root = "/tmp/evoclaw"
         remote_srs_dir = f"{remote_root}/srs"
         remote_task_queue = f"{remote_root}/TASK_QUEUE.md"
-        _ensure_workspace_writable(
-            workspace,
-            repo_root,
-            instance.data["milestone_ids"],
-        )
+        _ensure_workspace_writable(workspace, repo_root)
         mkdir_result = workspace.execute_command(
             f"mkdir -p {remote_srs_dir}", timeout=30
         )
