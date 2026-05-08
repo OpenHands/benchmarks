@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
+import shlex
 from pathlib import Path
 from typing import List
 
@@ -103,6 +105,82 @@ def _write_workspace_file(
         raise RuntimeError(f"Failed to upload {local_path} to {remote_path}: {result}")
 
 
+def _affected_writable_paths(repo_root: Path, milestone_ids: list[str]) -> list[str]:
+    paths: set[str] = set()
+    for milestone_id in milestone_ids:
+        srs_path = repo_root / "srs" / milestone_id / "SRS.md"
+        if not srs_path.exists():
+            continue
+
+        in_affected_section = False
+        for line in srs_path.read_text(encoding="utf-8").splitlines():
+            if "Affected Modules" in line:
+                in_affected_section = True
+                continue
+            if in_affected_section and line.startswith("##"):
+                break
+            if not in_affected_section:
+                continue
+
+            for match in re.findall(r"`([^`]+)`", line):
+                relative = match.strip().lstrip("/")
+                if relative.startswith("testbed/"):
+                    relative = relative[len("testbed/") :]
+                if not relative or "*" in relative:
+                    continue
+                parts = Path(relative).parts
+                if not parts:
+                    continue
+                if len(parts) == 1:
+                    paths.add(parts[0])
+                elif parts[0] == "ui" and len(parts) > 2:
+                    paths.add(str(Path(parts[0]) / parts[1]))
+                else:
+                    paths.add(parts[0])
+
+    return sorted(paths)
+
+
+def _ensure_workspace_writable(
+    workspace: RemoteWorkspace,
+    repo_root: Path,
+    milestone_ids: list[str],
+) -> None:
+    with (repo_root / "metadata.json").open(encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    src_dirs = _affected_writable_paths(repo_root, milestone_ids)
+    if not src_dirs:
+        src_dirs = metadata.get("repo_src_dirs") or []
+
+    chown_parts = [
+        f"sudo chown $(id -u):$(id -g) {shlex.quote(workspace.working_dir)}",
+        (
+            f"sudo find {shlex.quote(workspace.working_dir)} -maxdepth 1 "
+            "-type f -exec chown $(id -u):$(id -g) {} +"
+        ),
+        f"git config --global --add safe.directory {shlex.quote(workspace.working_dir)}",
+    ]
+    for src_dir in src_dirs:
+        relative = str(src_dir).strip().strip("/")
+        if not relative or "*" in relative:
+            continue
+        remote_path = f"{workspace.working_dir}/{relative}"
+        chown_parts.append(
+            f"if [ -e {shlex.quote(remote_path)} ]; then "
+            f"sudo chown -R $(id -u):$(id -g) {shlex.quote(remote_path)}; fi"
+        )
+
+    result = workspace.execute_command(
+        " && ".join(chown_parts),
+        timeout=120,
+    )
+    if result.exit_code != 0:
+        raise RuntimeError(
+            f"Failed to make {workspace.working_dir} writable: {result.stderr}"
+        )
+
+
 def _render_instruction(
     prompt_path: str,
     task_queue_path: str,
@@ -173,9 +251,21 @@ class EvoClawEvaluation(Evaluation):
         instance_dir = material_dir / instance.id
         instance_dir.mkdir(parents=True, exist_ok=True)
 
-        remote_srs_dir = "/e2e_workspace/srs"
-        remote_task_queue = "/e2e_workspace/TASK_QUEUE.md"
-        workspace.execute_command("mkdir -p /e2e_workspace/srs", timeout=30)
+        remote_root = "/tmp/evoclaw"
+        remote_srs_dir = f"{remote_root}/srs"
+        remote_task_queue = f"{remote_root}/TASK_QUEUE.md"
+        _ensure_workspace_writable(
+            workspace,
+            repo_root,
+            instance.data["milestone_ids"],
+        )
+        mkdir_result = workspace.execute_command(
+            f"mkdir -p {remote_srs_dir}", timeout=30
+        )
+        if mkdir_result.exit_code != 0:
+            raise RuntimeError(
+                f"Failed to create {remote_srs_dir}: {mkdir_result.stderr}"
+            )
 
         queue_lines = [
             "# EvoClaw Task Queue",
@@ -254,12 +344,29 @@ class EvoClawEvaluation(Evaluation):
             srs_dir=paths["srs_dir"],
         )
 
-        workspace.execute_command("cd /testbed && git reset --hard", timeout=120)
+        repo_dir = shlex.quote(workspace.working_dir)
+        status_result = workspace.execute_command(
+            f"GIT_OPTIONAL_LOCKS=0 git -C {repo_dir} status --short",
+            timeout=120,
+        )
+        if status_result.exit_code != 0:
+            raise RuntimeError(f"git status failed: {status_result.stderr}")
+        if status_result.stdout.strip():
+            logger.warning(
+                "Workspace %s starts with existing changes:\n%s",
+                workspace.working_dir,
+                status_result.stdout,
+            )
         conversation.send_message(instruction)
-        run_conversation_with_fake_user_response(conversation)
+        run_error = None
+        try:
+            run_conversation_with_fake_user_response(conversation)
+        except Exception as exc:
+            run_error = str(exc)
+            logger.exception("Conversation run failed for %s", instance.id)
 
         diff_result = workspace.execute_command(
-            "cd /testbed && git --no-pager diff --no-color",
+            f"GIT_OPTIONAL_LOCKS=0 git -C {repo_dir} --no-pager diff --no-color",
             timeout=120,
         )
         if diff_result.exit_code != 0:
@@ -278,7 +385,7 @@ class EvoClawEvaluation(Evaluation):
             attempt=self.current_attempt,
             test_result={"git_patch": git_patch},
             instruction=instruction,
-            error=None,
+            error=run_error,
             history=list(conversation.state.events),
             metrics=conversation.conversation_stats.get_combined_metrics(),
             instance=instance.data,
