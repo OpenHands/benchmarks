@@ -92,7 +92,14 @@
 set -uo pipefail
 
 WORKSPACE="${PB_WORKSPACE:-/workspace}"
-REF="${PB_REFERENCE_BINARY_PATH:-}"
+# The cleanroom image ships the reference binary at /workspace/executable
+# with mode ---x--x--x (execute-only). The agent's compile.sh must produce
+# a binary at /workspace/executable, so the agent is told (in the very
+# first directive of prompts/default.j2) to ``mv /workspace/executable
+# /workspace/executable.ref`` before doing anything else. The default
+# below matches that convention; tests and ad-hoc callers can override
+# via PB_REFERENCE_BINARY_PATH.
+REF="${PB_REFERENCE_BINARY_PATH:-/workspace/executable.ref}"
 AGENT="${PB_AGENT_BINARY_PATH:-./executable}"
 RUNS_DIR="${PB_REFERENCE_DIFFS_RUNS_DIR:-/tmp/programbench-ref-diffs}"
 MAX_RETRIES="${PB_REFERENCE_DIFFS_MAX_RETRIES:-20}"
@@ -117,16 +124,16 @@ if [ "$COUNT" -gt "$MAX_RETRIES" ]; then
 fi
 
 # --- Reference binary availability --------------------------------------
-# If the cleanroom image somehow didn't ship the reference binary, we
-# can't compare. Fall back to allow-stop and let the upstream eval be
-# the source of truth (we've already lost no information vs the old
-# fail-open hook).
-if [ -z "$REF" ]; then
-    echo "[ref-diffs] PB_REFERENCE_BINARY_PATH unset; allowing stop" >&2
-    exit 0
-fi
+# If the agent never ran the prompted ``mv /workspace/executable
+# /workspace/executable.ref``, the reference path won't exist (the
+# agent's compile.sh has by now overwritten /workspace/executable
+# with their own build, so we can't fall back to that). Fall back to
+# allow-stop and let the upstream eval be the source of truth — we've
+# lost no information vs the old fail-open gold-tests hook.
 if [ ! -f "$REF" ] || [ ! -x "$REF" ]; then
-    echo "[ref-diffs] reference binary at $REF is not an executable file; allowing stop" >&2
+    echo "[ref-diffs] reference binary at $REF is not an executable file" >&2
+    echo "[ref-diffs] (the prompt's Step 0 'mv /workspace/executable" >&2
+    echo "[ref-diffs] /workspace/executable.ref' likely did not run); allowing stop" >&2
     exit 0
 fi
 

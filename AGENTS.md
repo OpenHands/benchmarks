@@ -115,6 +115,30 @@ When converting between OpenHands format and benchmark-specific formats:
 - `programbench-infer` writes submission tarballs to `<eval_output_dir>/run/<instance_id>/submission.tar.gz`; this matches the layout the upstream `programbench eval` CLI consumes.
 - The 200-task base set is loaded via `programbench.utils.load_data.load_all_instances(include_tests=False)`. Use `include_tests=False` during inference because the tests blob is large and only needed by the eval harness.
 - CI smoke runs the first 5 instances (matches `benchmarks/programbench/instances.txt`).
+- **Cleanroom workspace layout** (verified by inspecting agent runtime in retry-21):
+    - `/workspace/.git/`, `/workspace/README.md`, etc. — cloned reference repo (sources only).
+    - `/workspace/executable` — **the reference binary**, mode `---x--x--x` (execute-only,
+      NOT readable). The `binary_path` rendered into `prompts/default.j2` (currently
+      `/workspace/<repo_name>`) is **wrong**; the agent always finds the real binary at
+      `/workspace/executable` via its own `ls`.
+    - `/workspace/project/` — initially empty placeholder (legacy / unused).
+    - The agent's working directory is `/workspace/`. `compile.sh` lives at
+      `/workspace/compile.sh` and produces `/workspace/executable` — i.e. the agent's
+      build literally **overwrites the reference binary** at `/workspace/executable`.
+      By the time any Stop hook fires (end of conversation), the reference is gone.
+- **Reference-diffs hook gotcha** (retry-21 lesson): a Stop hook that diffs
+  `$REF --help` against `./executable --help` cannot work if it tries to use
+  `/workspace/executable` as `$REF` — because the agent's compile.sh has replaced
+  it. Two paths forward:
+    1. Capture `executable --help` / `executable -h` into a hidden, read-only
+       location (e.g. `/opt/programbench-ref/`) **before the conversation starts**
+       (e.g. via a pre-conversation `WorkspaceClient.bash` call in `run_infer.py`),
+       then have the Stop hook diff against those captured outputs.
+    2. Tell the agent in the prompt to `mv /workspace/executable
+       /workspace/executable.ref` before building (some agents already do this
+       spontaneously; we observed it in zoxide retry-21).
+  Approach (1) is robust to agent behaviour; approach (2) keeps the hook simple
+  but depends on agent compliance.
 
 # SWE-Bench Multimodal Notes
 - The default `swebenchmultimodal-infer` selection now comes from `benchmarks/swebenchmultimodal/resolved_instances.txt`.

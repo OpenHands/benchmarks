@@ -149,13 +149,17 @@ def _render_instruction(
     prompt_path = Path(metadata.prompt_path)
     env = Environment(loader=FileSystemLoader(str(prompt_path.parent)))
     template = env.get_template(prompt_path.name)
-    # The cleanroom image conventionally places the binary at
-    # ``/workspace/<repo_name>`` (matching the upstream repo basename), but
-    # the agent is told to discover it itself — we just provide a hint.
-    repo_name = instance["repository"].split("/")[-1]
+    # The cleanroom image places the reference binary at
+    # ``/workspace/executable`` with mode ``---x--x--x`` (execute-only).
+    # Step 0 of the prompt instructs the agent to ``mv`` that file to
+    # ``/workspace/executable.ref`` BEFORE running ``compile.sh`` (which
+    # would otherwise overwrite the reference with the agent's own
+    # build). Every ``{{ binary_path }}`` reference in the template
+    # therefore points at the post-mv path; the Stop hook
+    # (``check_reference_diffs.sh``) defaults to the same path.
     return template.render(
         workspace_dir="/workspace",
-        binary_path=f"/workspace/{repo_name}",
+        binary_path="/workspace/executable.ref",
         language=instance.get("language", "unknown"),
         repository=instance["repository"],
     )
@@ -592,23 +596,6 @@ def _hook_definition_from_script(
     )
 
 
-def _reference_binary_path_for(instance: EvalInstance | None) -> str:
-    """Resolve the reference binary path the agent is cloning, matching
-    ``_render_instruction``'s ``binary_path`` rendering.
-
-    Returns an empty string when no instance is supplied (only the
-    test suite hits that branch); the diffs hook treats unset/missing
-    paths as "skip and allow stop", so the unit-test path stays safe.
-    """
-    if instance is None:
-        return ""
-    repository = instance.data.get("repository", "")
-    if not repository:
-        return ""
-    repo_name = repository.split("/")[-1]
-    return f"/workspace/{repo_name}"
-
-
 def _build_stop_hook_config(
     metadata: EvalMetadata,
     instance: EvalInstance | None = None,
@@ -622,12 +609,13 @@ def _build_stop_hook_config(
     order and stops at the first one that vetoes the stop, so the
     cheap contract check always runs first.
 
-    The reference-diffs hook needs the per-instance reference binary
-    path; we inject it via ``PB_REFERENCE_BINARY_PATH`` in the hook
-    command's env-prelude (see ``_hook_definition_from_script``). When
-    callers don't supply an ``instance`` (e.g. some unit tests that
-    only exercise hook composition), the env var is left blank and
-    the hook script falls back to its allow-stop path.
+    The reference-diffs hook reads the reference binary from
+    ``/workspace/executable.ref`` by default (matching the path the
+    agent is told to ``mv`` to in Step 0 of the prompt template).
+    Callers don't need to pass anything per-instance; the ``instance``
+    argument is currently retained for forward compatibility (e.g.
+    if a future variant captures reference outputs into an
+    instance-keyed location).
 
     Returns ``None`` only when callers explicitly opt out via
     ``details["disable_stop_hooks"]`` (used by the test suite for
@@ -636,6 +624,10 @@ def _build_stop_hook_config(
     details = metadata.details or {}
     if details.get("disable_stop_hooks"):
         return None
+    # ``instance`` is unused today but kept in the signature so callers
+    # don't need to change when we plumb instance-keyed reference
+    # capture in (planned).
+    del instance
 
     hooks: list[HookDefinition] = [
         _hook_definition_from_script(
@@ -645,15 +637,10 @@ def _build_stop_hook_config(
     ]
 
     if details.get("enforce_reference_diffs"):
-        ref_env: dict[str, str] = {}
-        ref_path = _reference_binary_path_for(instance)
-        if ref_path:
-            ref_env["PB_REFERENCE_BINARY_PATH"] = ref_path
         hooks.append(
             _hook_definition_from_script(
                 REFERENCE_DIFFS_HOOK_PATH,
                 timeout=int(details.get("reference_diffs_hook_timeout", 120)),
-                env_overrides=ref_env or None,
             )
         )
 

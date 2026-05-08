@@ -130,7 +130,15 @@ class TestRenderInstruction:
         instruction = run_infer._render_instruction(instance, metadata)
         # Sanity: the template must drop key facts about the task in.
         assert "/workspace" in instruction
-        assert "/workspace/cmatrix" in instruction  # binary path hint
+        # Binary path: post-Step-0 stable name, NOT a per-instance hint.
+        # Pre-retry-21 the prompt rendered ``/workspace/<repo_name>`` here,
+        # but that path doesn't exist in the cleanroom image (the actual
+        # reference is at ``/workspace/executable``, mode ---x--x--x);
+        # Step 0 of the prompt now instructs the agent to ``mv`` it to
+        # ``/workspace/executable.ref`` before doing anything else.
+        assert "/workspace/executable.ref" in instruction
+        assert "Step 0" in instruction
+        # Per-instance metadata still surfaces (just not as the binary path):
         assert "abishekvashok/cmatrix" in instruction
         # The default template formats the language hint as `c` (backticked).
         assert "`c`" in instruction
@@ -532,38 +540,34 @@ class TestStopHookConfig:
         assert contract_body.strip() in first.command
         assert ref_body.strip() in second.command
 
-    def test_reference_diffs_hook_injects_per_instance_binary_path(self) -> None:
-        # The diffs hook needs PB_REFERENCE_BINARY_PATH set to the
-        # cleanroom-image-resident reference binary; ``_build_stop_hook_config``
-        # threads that through as an env-prelude on the bash command.
-        cfg = run_infer._build_stop_hook_config(
-            _make_metadata_with_details(enforce_reference_diffs=True),
+    def test_reference_diffs_hook_omits_env_prelude(self) -> None:
+        # The diffs hook used to need ``PB_REFERENCE_BINARY_PATH`` set
+        # per-instance via an env-prelude (when we believed the reference
+        # was at ``/workspace/<repo_name>``). After the retry-21
+        # post-mortem we now know the reference always lives at
+        # ``/workspace/executable.ref`` (Step 0 of the prompt does the
+        # ``mv``), so the hook bakes that as a default and the env-prelude
+        # is gone. This test pins that there's no stray
+        # ``PB_REFERENCE_BINARY_PATH=...`` assignment before ``bash -s``,
+        # regardless of whether an instance is supplied.
+        for instance in (
             _make_eval_instance(repository="abishekvashok/cmatrix"),
-        )
-        assert cfg is not None
-        diffs_cmd = cfg.stop[0].hooks[1].command
-        assert "PB_REFERENCE_BINARY_PATH=/workspace/cmatrix" in diffs_cmd
-        # And the prelude must come BEFORE `bash -s` so the env
-        # carries into the heredoc-wrapped script body.
-        assert diffs_cmd.index("PB_REFERENCE_BINARY_PATH") < diffs_cmd.index("bash -s")
-
-    def test_reference_diffs_hook_omits_env_prelude_when_no_instance(self) -> None:
-        # When callers don't supply an instance (e.g. early-startup
-        # paths or tests that exercise composition only), we leave
-        # the env-prelude blank rather than blowing up. The hook
-        # script falls back to its allow-stop branch.
-        cfg = run_infer._build_stop_hook_config(
-            _make_metadata_with_details(enforce_reference_diffs=True),
             None,
-        )
-        assert cfg is not None
-        diffs_cmd = cfg.stop[0].hooks[1].command
-        # The script body itself references PB_REFERENCE_BINARY_PATH (in
-        # docstrings and as the env-var to read). We're checking the
-        # env-prelude specifically: there must be no
-        # ``PB_REFERENCE_BINARY_PATH=...`` ASSIGNMENT before ``bash -s``.
-        prelude = diffs_cmd.split("bash -s", 1)[0]
-        assert "PB_REFERENCE_BINARY_PATH=" not in prelude
+        ):
+            cfg = run_infer._build_stop_hook_config(
+                _make_metadata_with_details(enforce_reference_diffs=True),
+                instance,
+            )
+            assert cfg is not None
+            diffs_cmd = cfg.stop[0].hooks[1].command
+            prelude = diffs_cmd.split("bash -s", 1)[0]
+            # The script BODY references PB_REFERENCE_BINARY_PATH in its
+            # own ``${VAR:-default}`` expansion; the env-PRELUDE (before
+            # ``bash -s``) must not set it.
+            assert "PB_REFERENCE_BINARY_PATH=" not in prelude
+            # And the hook body must default to executable.ref, matching
+            # the prompt's Step 0.
+            assert "PB_REFERENCE_BINARY_PATH:-/workspace/executable.ref" in diffs_cmd
 
     def test_does_not_install_reference_diffs_hook_by_default(self) -> None:
         cfg = run_infer._build_stop_hook_config(
@@ -803,11 +807,13 @@ class TestReferenceDiffsHookScript:
         assert result.returncode == 0, result.stderr
         assert "not an executable file" in result.stderr
 
-    def test_allows_stop_when_reference_path_unset(self, hook_sandbox, tmp_path):
-        # Defensive: if the prelude rendering somehow skipped the env var
-        # (e.g. _build_stop_hook_config was called without an instance),
-        # we still allow-stop so the agent isn't stuck. The diffs hook
-        # is opportunistic, not authoritative.
+    def test_default_reference_path_is_executable_ref(self, hook_sandbox, tmp_path):
+        # When PB_REFERENCE_BINARY_PATH isn't set in the env, the hook
+        # defaults to /workspace/executable.ref -- matching the path
+        # Step 0 of the prompt tells the agent to ``mv`` the cleanroom
+        # reference into. In the test sandbox that path won't exist, so
+        # we still get an allow-stop fallback, but the stderr message
+        # has to mention executable.ref so we know we hit the default.
         _build_help_binary(tmp_path / "agent.c", hook_sandbox["agent"], help_text="x\n")
         env = self._common_env(hook_sandbox)
         env.pop("PB_REFERENCE_BINARY_PATH", None)
@@ -817,7 +823,9 @@ class TestReferenceDiffsHookScript:
             env_overrides=env,
         )
         assert result.returncode == 0, result.stderr
-        assert "PB_REFERENCE_BINARY_PATH unset" in result.stderr
+        # Default should be honoured, not silently swapped:
+        assert "/workspace/executable.ref" in result.stderr
+        assert "is not an executable file" in result.stderr
 
     def test_allows_stop_when_agent_binary_missing(self, hook_sandbox, tmp_path):
         # Compile-contract hook owns the missing-./executable error path;

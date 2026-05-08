@@ -8,6 +8,30 @@ Reference binary path: `{{ binary_path }}`
 Programming language hint: `{{ language }}`
 Repository origin (for naming/conventions only — do **not** fetch source from it): `{{ repository }}`
 
+## ⚠ Step 0 — DO THIS FIRST, BEFORE ANY OTHER COMMAND
+
+The cleanroom container ships the reference binary at
+`{{ workspace_dir }}/executable`. Your `compile.sh` is also required to
+produce its output at `{{ workspace_dir }}/executable` (see the build
+contract below), so **the moment you run `./compile.sh`, your build will
+overwrite the reference and you will lose the ability to compare**.
+
+To preserve the reference under a stable, tool-agnostic name, run this
+**before** you do anything else — before you `ls`, before you read the
+docs, before any shell command that might shadow the file:
+
+```bash
+[ -e {{ binary_path }} ] || mv {{ workspace_dir }}/executable {{ binary_path }}
+```
+
+After this, `{{ binary_path }}` is the reference for the rest of the
+run, and `{{ workspace_dir }}/executable` is reserved for your own build
+output. Every reference to `{{ binary_path }}` in the rest of these
+instructions assumes you have run Step 0. The Stop hook
+(`check_reference_diffs.sh`) also expects the reference at this exact
+path; if you skip Step 0, the hook silently no-ops and the hidden test
+suite becomes your only feedback signal.
+
 ## Ground rules
 
 1. You have **no internet access**. All work must be local to this container.
