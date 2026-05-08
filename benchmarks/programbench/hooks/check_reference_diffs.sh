@@ -226,6 +226,22 @@ ARGV0_NAME="${PB_REFERENCE_DIFFS_ARGV0_NAME:-executable}"
 # $bin's actual path. This removes filename noise from the diff (see
 # ARGV0_NAME comment above).
 #
+# CRITICAL: stdin is redirected from ``/dev/null``. The SDK invokes
+# this script via ``bash -s <<'EOF' ... EOF`` (see ``run_infer.py::
+# _hook_definition_from_script``) which makes the script body itself
+# the parent bash's stdin. Any descendant that READS stdin will eat
+# script body bytes from there, corrupting the rest of the hook. We
+# already audit-pin "this script doesn't read stdin" in
+# ``test_hooks_do_not_consume_their_own_stdin``, but with v2 we now
+# probe arbitrary subcommands of the agent's binary -- one of which
+# could plausibly read stdin (think ``cat``/``grep`` semantics where
+# bare invocation means "read stdin"). ``< /dev/null`` insulates the
+# script body from any such probe. Without this redirect, retry-23
+# hung for 6 hours waiting for inference output -- a probe consumed
+# part of the script body and the resulting hook returned garbage,
+# but exit 1 is silently ignored by the SDK and the agent kept
+# iterating until the workflow's wall-clock timeout.
+#
 # Args: $1 = bin path, $2 = per-probe timeout (seconds), $3.. = argv to bin
 run_probe() {
     local bin="$1"
@@ -233,7 +249,7 @@ run_probe() {
     shift 2
     timeout --foreground --kill-after=2 "$probe_timeout" \
         bash -c 'exec -a "$1" "${@:2}"' \
-        _ "$ARGV0_NAME" "$bin" "$@" 2>&1
+        _ "$ARGV0_NAME" "$bin" "$@" </dev/null 2>&1
     return $?
 }
 
