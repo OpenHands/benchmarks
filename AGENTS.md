@@ -138,7 +138,33 @@ When converting between OpenHands format and benchmark-specific formats:
        /workspace/executable.ref` before building (some agents already do this
        spontaneously; we observed it in zoxide retry-21).
   Approach (1) is robust to agent behaviour; approach (2) keeps the hook simple
-  but depends on agent compliance.
+  but depends on agent compliance. **Retry-22 shipped approach (2)** with a
+  Step-0 prominent block at the top of `prompts/default.j2`; Sonnet 4.5
+  complied 3-for-3 on the smoke set.
+
+- **Reference-diffs hook v2** (retry-22 -> retry-23): the v1 hook only diffed
+  top-level `--help` and `-h`. Bucketing R22's residual 352 failures showed
+  68% are reachable by expanding the probe set. v2 adds:
+    1. **Top-level invalid flag probe** (`<bin> --__bogus__`) — catches argv
+       parser leaks (agent silently accepts unknown flags rc=0 where ref rc=2).
+    2. **Subcommand discovery** via awk parsing of the reference's
+       `Commands:` / `Subcommands:` / `Available Commands:` /
+       `Available subcommands:` section. Capped at
+       `PB_REFERENCE_DIFFS_MAX_SUBCMDS` (default 8).
+    3. **Per-subcommand probes**: `<sub> --help` (drift detection),
+       `<sub> --__bogus__` (validation gap), `<sub> /<bogus-path>`
+       (validation gap). Compares both rc and stderr/stdout.
+    4. **argv[0] normalization** via `bash -c 'exec -a "$1" "${@:2}"' _
+       executable "$bin" "$@"`. Both ref and agent see argv[0]="executable",
+       so binaries that derive `Usage:` from argv[0] (clap default) don't
+       false-positive on basename drift. **Note:** this only works for ELF
+       binaries — shell scripts get $0 from the kernel exec path, not from
+       `exec -a`. ProgramBench reference binaries are always compiled, so
+       we're safe in production.
+  Hook timeout was bumped 120s -> 240s to fit the worst-case probe count
+  (3 top-level @ 30s + 8 subs * 3 probes @ 5s = ~185s).
+  Smoke-tested with synthetic gcc-built C binaries; see
+  `tests/test_programbench.py::TestReferenceDiffsHookV2`.
 
 # SWE-Bench Multimodal Notes
 - The default `swebenchmultimodal-infer` selection now comes from `benchmarks/swebenchmultimodal/resolved_instances.txt`.
