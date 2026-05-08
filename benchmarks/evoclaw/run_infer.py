@@ -139,6 +139,24 @@ def _ensure_workspace_writable(workspace: RemoteWorkspace, repo_root: Path) -> N
         )
 
 
+def _capture_git_patch(workspace: RemoteWorkspace, repo_dir: str) -> str:
+    """Capture tracked changes plus newly-created files as one git patch."""
+    intent_result = workspace.execute_command(
+        f"GIT_OPTIONAL_LOCKS=0 git -C {repo_dir} add -N .",
+        timeout=120,
+    )
+    if intent_result.exit_code != 0:
+        raise RuntimeError(f"git add -N failed: {intent_result.stderr}")
+
+    diff_result = workspace.execute_command(
+        f"GIT_OPTIONAL_LOCKS=0 git -C {repo_dir} --no-pager diff --no-color --binary",
+        timeout=120,
+    )
+    if diff_result.exit_code != 0:
+        raise RuntimeError(f"git diff failed: {diff_result.stderr}")
+    return diff_result.stdout
+
+
 def _render_instruction(
     prompt_path: str,
     task_queue_path: str,
@@ -319,13 +337,7 @@ class EvoClawEvaluation(Evaluation):
             run_error = str(exc)
             logger.exception("Conversation run failed for %s", instance.id)
 
-        diff_result = workspace.execute_command(
-            f"GIT_OPTIONAL_LOCKS=0 git -C {repo_dir} --no-pager diff --no-color",
-            timeout=120,
-        )
-        if diff_result.exit_code != 0:
-            raise RuntimeError(f"git diff failed: {diff_result.stderr}")
-        git_patch = diff_result.stdout
+        git_patch = _capture_git_patch(workspace, repo_dir)
 
         summarize_instance(
             instance_id=instance.id,
@@ -359,6 +371,12 @@ def main() -> None:
         nargs="+",
         default=None,
         help="Optional repo-name substring filters, e.g. --repos navidrome ripgrep.",
+    )
+    parser.add_argument(
+        "--instance-timeout",
+        type=int,
+        default=INFER_DEFAULTS["instance_timeout"],
+        help="Maximum wall-clock seconds per instance (default: 18000 = 5 hours).",
     )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
@@ -413,6 +431,7 @@ def main() -> None:
     evaluator = EvoClawEvaluation(
         metadata=metadata,
         num_workers=args.num_workers,
+        instance_timeout=args.instance_timeout,
     )
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 

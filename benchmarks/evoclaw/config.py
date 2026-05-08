@@ -4,6 +4,7 @@ INFER_DEFAULTS = {
     "dataset": "evoclaw",
     "split": "test",
     "max_iterations": 3000,
+    "instance_timeout": 18000,
     "num_workers": 1,
     "n_critic_runs": 1,
     "workspace": "docker",
