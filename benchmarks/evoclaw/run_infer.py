@@ -128,7 +128,7 @@ def _affected_writable_paths(repo_root: Path, milestone_ids: list[str]) -> list[
                     relative = relative[len("testbed/") :]
                 if not relative or "*" in relative:
                     continue
-                parts = Path(relative).parts
+                parts = [part for part in relative.split("/") if part]
                 if not parts:
                     continue
                 if len(parts) == 1:
