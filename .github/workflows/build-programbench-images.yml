@@ -1,0 +1,139 @@
+name: Build ProgramBench Images
+
+run-name: >-
+  Build ProgramBench Images
+  ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' && format('(SDK: {0})', inputs.sdk-commit) || '' }}
+
+# ProgramBench task images are published by the upstream project at
+# programbench/<owner>_1776_<repo>.<sha>:task_cleanroom on Docker Hub. There
+# is nothing to build on our side at orchestrator time — we layer
+# openhands-agent-server onto each cleanroom image at runtime via
+# DockerDevWorkspace inside `programbench-infer`.
+#
+# This reusable workflow exists purely to satisfy the eval-job.yml shape in
+# the OpenHands/evaluation repo (each benchmark must contribute a
+# build-<benchmark>-images.yml that the orchestrator depends on). It runs a
+# cheap reachability check against Docker Hub for the requested instances
+# and exits successfully, so the downstream eval phase can proceed.
+
+on:
+  workflow_call:
+    inputs:
+      sdk-commit:
+        description: 'Software Agent SDK commit/ref to use (for parity with other build workflows; not consumed by ProgramBench)'
+        required: false
+        type: string
+        default: ''
+      n-limit:
+        description: 'Number of instances to verify reachability for (0 = all)'
+        required: false
+        type: string
+        default: '5'
+      instance-ids:
+        description: 'Comma-separated list of instance IDs to verify (overrides n-limit)'
+        required: false
+        type: string
+        default: ''
+      benchmarks-ref:
+        description: 'Benchmarks repo ref to checkout (for cross-repo calls)'
+        required: false
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      n-limit:
+        description: 'Number of instances to verify reachability for (0 = all)'
+        required: false
+        default: '5'
+        type: string
+      instance-ids:
+        description: 'Comma-separated list of instance IDs to verify (overrides n-limit)'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: build-programbench-${{ inputs.sdk-commit || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-cleanroom-images:
+    name: Verify ProgramBench cleanroom images on Docker Hub
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Determine checkout ref
+        id: ref
+        env:
+          BENCHMARKS_REF: ${{ inputs.benchmarks-ref }}
+        run: |
+          if [ -n "${BENCHMARKS_REF:-}" ]; then
+            echo "ref=${BENCHMARKS_REF}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout benchmarks repo
+        uses: actions/checkout@v6
+        with:
+          repository: OpenHands/benchmarks
+          ref: ${{ steps.ref.outputs.ref }}
+          submodules: recursive
+          token: ${{ github.token }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync deps
+        run: uv sync --frozen
+
+      - name: Resolve instance ids
+        id: resolve
+        env:
+          INSTANCE_IDS: ${{ inputs.instance-ids }}
+          N_LIMIT: ${{ inputs.n-limit }}
+        run: |
+          set -eo pipefail
+          if [ -n "${INSTANCE_IDS:-}" ]; then
+            tr ',' '\n' <<< "${INSTANCE_IDS}" | sed '/^$/d' > instance_ids.txt
+          else
+            uv run python - <<'PY' > instance_ids.txt
+          import os
+          from benchmarks.programbench.run_infer import _load_upstream_instances
+
+          n = int(os.environ.get("N_LIMIT") or "0")
+          ins = _load_upstream_instances()
+          if n > 0:
+              ins = ins[:n]
+          for entry in ins:
+              print(entry["instance_id"])
+          PY
+          fi
+          echo "Will verify $(wc -l < instance_ids.txt) instance(s):"
+          cat instance_ids.txt
+
+      - name: Verify each cleanroom image is reachable
+        # We hit the Docker Hub manifest endpoint instead of pulling — pulling
+        # the full image is multi-GiB per task and not needed at this stage.
+        # The downstream eval-job will pull on demand inside its DIND pod.
+        run: |
+          set -eo pipefail
+          fail=0
+          while IFS= read -r iid; do
+            [ -z "$iid" ] && continue
+            tagged="${iid//__/_1776_}"
+            image="programbench/${tagged}"
+            url="https://hub.docker.com/v2/repositories/${image}/tags/task_cleanroom"
+            status=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+            if [ "$status" = "200" ]; then
+              echo "✅ ${image}:task_cleanroom"
+            else
+              echo "❌ ${image}:task_cleanroom (HTTP ${status})"
+              fail=1
+            fi
+          done < instance_ids.txt
+          exit "$fail"
