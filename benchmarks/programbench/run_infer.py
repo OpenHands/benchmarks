@@ -30,7 +30,6 @@ import os
 import shlex
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, List
 
@@ -83,6 +82,12 @@ logger = get_logger(__name__)
 # Subdirectory under ``eval_output_dir`` that ``programbench eval`` consumes.
 # Each instance lives at ``<eval_output_dir>/run/<instance_id>/submission.tar.gz``.
 RUN_SUBDIR = "run"
+
+
+# The deprecated base64-over-stdout download path can truncate multi-megabyte
+# archives because execute_command may return before all BashOutput chunks are
+# polled. Keep it available only for tiny archives where the risk is negligible.
+BASE64_DOWNLOAD_MAX_BYTES = 1_000_000
 
 
 def _instance_to_image(instance_id: str, tag: str) -> str:
@@ -429,16 +434,17 @@ class ProgramBenchEvaluation(Evaluation):
         #      Streams bytes via the HTTP response body, so it preserves
         #      every byte regardless of size.
         #   3. base64-over-execute_command stdout — DEPRECATED last-resort
-        #      fallback. The execute_command polling loop in
-        #      remote_workspace_mixin.py breaks the moment it sees an
-        #      event with exit_code, which can fire before the trailing
+        #      fallback for tiny archives only. The execute_command polling
+        #      loop in remote_workspace_mixin.py breaks the moment it sees
+        #      an event with exit_code, which can fire before the trailing
         #      BashOutput chunks have been polled. For large tarballs
         #      (≥ a few MB of base64) that race truncates stdout and
         #      yields a tarball with a valid gzip header but a partial
         #      deflate stream. ProgramBench's grader rejects it with
         #      "gzip: stdin: invalid compressed data — format violated,
-        #      tar: Unexpected EOF in archive". Only used when neither
-        #      richer hook is available.
+        #      tar: Unexpected EOF in archive". We reject archives above
+        #      BASE64_DOWNLOAD_MAX_BYTES rather than risk a corrupted
+        #      submission.
         download_directory = getattr(workspace, "download_directory", None)
         if download_directory is not None:
             try:
@@ -475,22 +481,45 @@ class ProgramBenchEvaluation(Evaluation):
                     exc,
                 )
 
-        # Last-resort base64 fallback (see preamble above re: truncation).
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".b64", delete=False
-        ) as encoded_tmp:
-            encoded_path = encoded_tmp.name
+        stat_cmd = f"stat -c%s {shlex.quote(in_container_tar)}"
+        stat_result = workspace.execute_command(stat_cmd, timeout=60)
+        if stat_result.exit_code != 0:
+            raise RuntimeError(
+                f"Failed to stat submission tarball for {instance.id}: "
+                f"exit_code={stat_result.exit_code} stderr={stat_result.stderr!r}"
+            )
         try:
-            cat_cmd = f"base64 -w0 {in_container_tar}"
-            cat_result = workspace.execute_command(cat_cmd, timeout=600)
-            if cat_result.exit_code != 0:
-                raise RuntimeError(
-                    f"Failed to read submission tarball for {instance.id}: "
-                    f"exit_code={cat_result.exit_code} stderr={cat_result.stderr!r}"
-                )
-            submission_path.write_bytes(base64.b64decode(cat_result.stdout))
-        finally:
-            Path(encoded_path).unlink(missing_ok=True)
+            archive_size = int(stat_result.stdout.strip())
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Failed to parse submission tarball size for {instance.id}: "
+                f"stdout={stat_result.stdout!r}"
+            ) from exc
+        if archive_size > BASE64_DOWNLOAD_MAX_BYTES:
+            raise RuntimeError(
+                "Refusing deprecated base64 download fallback for "
+                f"{instance.id}: archive is {archive_size} bytes, above the "
+                f"{BASE64_DOWNLOAD_MAX_BYTES} byte safety limit. "
+                "RemoteWorkspace.file_download is required for larger "
+                "ProgramBench submissions."
+            )
+
+        logger.warning(
+            "Using deprecated base64 download fallback for %s "
+            "(archive_size=%d bytes, max_safe_size=%d bytes). Prefer "
+            "workspace.file_download to avoid stdout truncation.",
+            instance.id,
+            archive_size,
+            BASE64_DOWNLOAD_MAX_BYTES,
+        )
+        cat_cmd = f"base64 -w0 {in_container_tar}"
+        cat_result = workspace.execute_command(cat_cmd, timeout=600)
+        if cat_result.exit_code != 0:
+            raise RuntimeError(
+                f"Failed to read submission tarball for {instance.id}: "
+                f"exit_code={cat_result.exit_code} stderr={cat_result.stderr!r}"
+            )
+        submission_path.write_bytes(base64.b64decode(cat_result.stdout))
 
         return submission_path
 

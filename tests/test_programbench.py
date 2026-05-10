@@ -11,10 +11,13 @@ are exercised end-to-end by the CI smoke workflow.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
 from pathlib import Path
+from typing import cast
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -163,8 +166,6 @@ class TestSubmissionTarballShape:
     regress them and re-introduce the retry-13 failure mode."""
 
     def _make_workspace(self):  # -> tuple[RemoteWorkspace-shaped Mock, list[str]]
-        from unittest.mock import MagicMock
-
         captured: list[str] = []
 
         def fake_execute_command(cmd: str, timeout: int = 0):
@@ -226,8 +227,6 @@ class TestSubmissionTarballShape:
 
         # The duck-typed workspace mock is fine at runtime; cast away
         # the strict RemoteWorkspace type for pyright.
-        from typing import cast
-
         from openhands.sdk.workspace.remote import RemoteWorkspace
 
         evaluation._collect_submission(instance, cast(RemoteWorkspace, workspace))
@@ -265,6 +264,112 @@ class TestSubmissionTarballShape:
             "copy is also root-owned 0700 and trips tar."
         )
         assert "cmatrix" in tar_cmd  # repo basename via shlex.quote
+
+    def test_uses_file_download_without_base64_fallback(self, tmp_path: Path) -> None:
+        from benchmarks.utils.models import EvalInstance
+        from openhands.sdk.workspace.remote import RemoteWorkspace
+
+        evaluation = self._make_evaluation(tmp_path)
+        workspace, captured = self._make_workspace()
+        instance = EvalInstance(
+            id="abishekvashok__cmatrix.5c082c6",
+            data={
+                "repository": "abishekvashok/cmatrix",
+                "task_image": "programbench/cmatrix:task_cleanroom",
+            },
+        )
+
+        submission_path = evaluation._collect_submission(
+            instance, cast(RemoteWorkspace, workspace)
+        )
+
+        assert submission_path.read_bytes() == b"fake-archive"
+        assert len(captured) == 1
+        assert "base64" not in captured[0]
+
+    def test_rejects_large_archive_when_only_base64_fallback_remains(
+        self, tmp_path: Path
+    ) -> None:
+        from benchmarks.utils.models import EvalInstance
+        from openhands.sdk.workspace.remote import RemoteWorkspace
+
+        captured: list[str] = []
+
+        def fake_execute_command(cmd: str, timeout: int = 0):
+            captured.append(cmd)
+            result = MagicMock()
+            result.exit_code = 0
+            result.stderr = ""
+            if cmd.startswith("stat "):
+                result.stdout = str(run_infer.BASE64_DOWNLOAD_MAX_BYTES + 1)
+            else:
+                result.stdout = ""
+            return result
+
+        evaluation = self._make_evaluation(tmp_path)
+        workspace = MagicMock()
+        workspace.execute_command = fake_execute_command
+        workspace.file_download = None
+        workspace.download_directory = None
+        instance = EvalInstance(
+            id="abishekvashok__cmatrix.5c082c6",
+            data={
+                "repository": "abishekvashok/cmatrix",
+                "task_image": "programbench/cmatrix:task_cleanroom",
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="Refusing deprecated base64"):
+            evaluation._collect_submission(instance, cast(RemoteWorkspace, workspace))
+
+        assert len(captured) == 2
+        assert captured[1].startswith("stat ")
+
+    def test_base64_fallback_warns_for_tiny_archives(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from benchmarks.utils.models import EvalInstance
+        from openhands.sdk.workspace.remote import RemoteWorkspace
+
+        payload = b"tiny-archive"
+        encoded_payload = base64.b64encode(payload).decode()
+        captured: list[str] = []
+
+        def fake_execute_command(cmd: str, timeout: int = 0):
+            captured.append(cmd)
+            result = MagicMock()
+            result.exit_code = 0
+            result.stderr = ""
+            if cmd.startswith("stat "):
+                result.stdout = str(len(payload))
+            elif cmd.startswith("base64 "):
+                result.stdout = encoded_payload
+            else:
+                result.stdout = ""
+            return result
+
+        evaluation = self._make_evaluation(tmp_path)
+        workspace = MagicMock()
+        workspace.execute_command = fake_execute_command
+        workspace.file_download = None
+        workspace.download_directory = None
+        instance = EvalInstance(
+            id="abishekvashok__cmatrix.5c082c6",
+            data={
+                "repository": "abishekvashok/cmatrix",
+                "task_image": "programbench/cmatrix:task_cleanroom",
+            },
+        )
+
+        with caplog.at_level("WARNING"):
+            submission_path = evaluation._collect_submission(
+                instance, cast(RemoteWorkspace, workspace)
+            )
+
+        assert submission_path.read_bytes() == payload
+        assert any("deprecated base64 download fallback" in m for m in caplog.messages)
+        assert len(captured) == 3
+        assert captured[2].startswith("base64 ")
 
 
 # ---------------------------------------------------------------------------
