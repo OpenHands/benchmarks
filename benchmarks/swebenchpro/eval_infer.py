@@ -369,9 +369,22 @@ def main() -> None:
                 block_network=args.block_network,
             )
             write_report(eval_results_path, report_path)
-            LaminarService.get().update_evaluation_scores(
-                str(input_file), str(report_path)
-            )
+            # Laminar's score-update call iterates every instance and makes a
+            # remote API request per row. We've seen the SWE-Bench Pro flow
+            # die silently right after the Laminar "already initialized" log
+            # on multi-instance runs (no traceback in eval.log, exit 1 from
+            # the parent shell), which loses 10+ minutes of valid harness
+            # work. Telemetry must never fail the evaluation — log and move
+            # on if it raises (or even if the interpreter is mid-tear-down).
+            try:
+                LaminarService.get().update_evaluation_scores(
+                    str(input_file), str(report_path)
+                )
+            except BaseException as exc:  # noqa: BLE001
+                logger.warning(
+                    "Laminar update_evaluation_scores failed (continuing): %s",
+                    exc,
+                )
 
         generate_cost_report(str(input_file))
         logger.info("Script completed successfully!")
