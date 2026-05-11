@@ -116,6 +116,8 @@ When converting between OpenHands format and benchmark-specific formats:
 - `ScaleAI/SWE-bench_Pro` exposes the official base image tag in each row's `dockerhub_tag` field; build and inference code should derive base images from that field instead of `swebench.harness.constants.MAP_VERSION_TO_INSTALL`.
 - SWE-Bench Pro agent images expose the checked-out repository at `/app`, not `/testbed`, so inference must copy from `/app` into the workspace before resetting to `base_commit`.
 - The official harness lives at `scaleapi/SWE-bench_Pro-os`; the repo-local wrapper converts OpenHands `output.jsonl` to the upstream patch JSON format and then invokes `swe_bench_pro_eval.py`.
+- Upstream's `eval_with_docker` bind-mounts each instance's `workspace_dir` (via `os.path.abspath`) into the per-instance test container — unlike `swebench`/`swtbench` which use `put_archive`/`get_archive` (tar in/out). Under a DinD sidecar (separate filesystem from the eval container), that bind source resolves to nothing on the dockerd side, so the container starts with an empty `/workspace`, can't find `entryscript.sh`, and emits zero output. Fix: put the harness's input + workspace under a volume that's mounted at the same path in both containers (we use the `dind-shared` emptyDir at `/shared`).
+- Laminar's `update_evaluation_scores` makes one API call per instance after the harness finishes; it can silently kill the wrapper interpreter on multi-instance runs (no traceback in the log) — wrap the call in `except BaseException` and keep a bash-side fallback that uses the on-disk report file if the wrapper exits non-zero but the report exists. Telemetry must never sink a valid evaluation.
 
 
 </BENCHMARK_SPECIFIC>
