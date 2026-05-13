@@ -25,7 +25,10 @@ from benchmarks.swtbench.image_utils import (
 )
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
-from benchmarks.utils.patch_utils import remove_files_from_patch
+from benchmarks.utils.patch_utils import (
+    keep_only_test_files,
+    remove_files_from_patch,
+)
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import get_logger
 
@@ -205,6 +208,13 @@ def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
                 # postprocess git_patch
                 setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
                 git_patch = remove_files_from_patch(git_patch, setup_files)
+                # SWT-bench only scores diffs to existing test files. Strip
+                # everything else (source-code "fix" attempts, scratch files
+                # like reproduction.py / FIX_SUMMARY.md, build/, docs/, etc.):
+                # a non-test diff that lands in model_patch can silence the
+                # F2P signal because the test then runs against the agent's
+                # own patched code instead of the buggy code.
+                git_patch = keep_only_test_files(git_patch)
 
                 # Create SWT-Bench format entry
                 swtbench_entry = {
