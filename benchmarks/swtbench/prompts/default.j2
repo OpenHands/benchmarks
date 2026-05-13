@@ -10,10 +10,19 @@ I've uploaded a python code repository in the directory {{ workspace_dir_name }}
 
 Can you help me implement the necessary changes to the repository to test whether the issue in <issue_description> was resolved?
 I will take care of all changes to any of the non-test files. This means you DON'T have to modify the actual logic and ONLY have to update test logic and tests!
-Your task is to make the minimal changes to tests files in the /workspace directory to reproduce the issue in the <issue_description>, i.e., such that the generated tests fail in the current state (where the issue is unresolved) and pass when the issue will be resolved.
+Your task is to make the minimal changes to existing test files in the /workspace directory to reproduce the issue in the <issue_description>, i.e., such that the generated tests fail in the current state (where the issue is unresolved) and pass when the issue will be resolved.
+
+IMPORTANT — only the diff against existing test files inside the repository's test directory (e.g. `tests/`, `test/`, `testing/`) will be scored:
+* DO NOT modify any source file (e.g. files under `sympy/`, `django/`, `sphinx/`, `requests/`, …). Doing so makes your test pass against your own "fix" instead of failing on the buggy code, which silences the bug-reveal signal and earns zero credit.
+* DO NOT commit scratch files at the repository root (e.g. `reproduction.py`, `test_repro.py`, `FIX_SUMMARY.md`). Use the BashTool to run throwaway Python instead of saving a file.
+* DO NOT touch `build/`, `docs/`, `pyproject.toml`, `tox.ini`, `setup.py`, etc.
+* The harness applies the real maintainer fix on top of your patch when scoring, so the bug does NOT need to be fixed for your test to pass on the post-fix state — only write the test.
+
 Follow these steps to reproduce the issue:
 1. As a first step, it might be a good idea to explore the repo to familiarize yourself with its structure.
-2. Create a script `reproduction.py` to reproduce the error and execute it with `python reproduction.py` using the BashTool, to confirm the error
-3. Edit the sourcecode of the repo to integrate your reproduction script into the test framework
-4. Run the test framework and make sure your tests fail! Only submit FAILING tests! Never submit passing tests.
+2. Use the BashTool (e.g. `python -c '...'`) to confirm the buggy behavior. Do not commit a `reproduction.py` to the repo.
+3. Edit only existing test files inside the repository's test directory to add a test that exercises the bug.
+4. Run the test framework and make sure your new test fails! Only submit FAILING tests! Never submit passing tests.
+5. Before finishing, run `git diff --name-only` and confirm every changed path is a test file inside the project's test directory. Revert anything else.
+
 Your thinking should be thorough and so it's fine if it's very long.
