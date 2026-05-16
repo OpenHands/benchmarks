@@ -1,0 +1,176 @@
+You are working inside a sandboxed Linux container that contains a single
+compiled program plus its public-facing documentation. Your task is to
+**rebuild that program from scratch** so its observable behavior matches the
+original binary as closely as possible.
+
+Working directory: `{{ workspace_dir }}`
+Reference binary path: `{{ binary_path }}`
+Programming language hint: `{{ language }}`
+Repository origin (for naming/conventions only — do **not** fetch source from it): `{{ repository }}`
+
+## ⚠ Step 0 — DO THIS FIRST, BEFORE ANY OTHER COMMAND
+
+The cleanroom container ships the reference binary at
+`{{ workspace_dir }}/executable`. Your `compile.sh` is also required to
+produce its output at `{{ workspace_dir }}/executable` (see the build
+contract below), so **the moment you run `./compile.sh`, your build will
+overwrite the reference and you will lose the ability to compare**.
+
+To preserve the reference under a stable, tool-agnostic name, run this
+**before** you do anything else — before you `ls`, before you read the
+docs, before any shell command that might shadow the file:
+
+```bash
+[ -e {{ binary_path }} ] || mv {{ workspace_dir }}/executable {{ binary_path }}
+```
+
+After this, `{{ binary_path }}` is the reference for the rest of the
+run, and `{{ workspace_dir }}/executable` is reserved for your own build
+output. Every reference to `{{ binary_path }}` in the rest of these
+instructions assumes you have run Step 0. The Stop hook
+(`check_reference_diffs.sh`) also expects the reference at this exact
+path; if you skip Step 0, the hook silently no-ops and the hidden test
+suite becomes your only feedback signal.
+
+## Ground rules
+
+1. You have **no internet access**. All work must be local to this container.
+2. The compiled binary at `{{ binary_path }}` and any files under
+   `{{ workspace_dir }}` are your only sources of truth besides the
+   documentation that ships with the binary. Read the docs (e.g. `README*`,
+   `man` pages, `--help` output) carefully.
+3. You may execute the original binary to observe its behavior — diffing
+   outputs is the most reliable way to validate your reimplementation.
+4. Write your implementation directly under `{{ workspace_dir }}`. Use any
+   source layout that makes sense for the language (e.g. `src/`, `Cargo.toml`,
+   `Makefile`, `pyproject.toml` — pick whatever the chosen language and
+   build tool expects).
+
+## Build contract (required)
+
+The evaluation harness builds and runs your code with this exact sequence:
+
+```bash
+chmod +x ./compile.sh && ./compile.sh   # build step — must exit 0
+ls && cp ./executable /opt/programbench-gold-executable-do-not-modify
+```
+
+So your submission **must satisfy two hard requirements** for evaluation to
+work at all — without these, every test branch is marked as a compile error
+and you score 0:
+
+5. **Provide `./compile.sh` at the workspace root** (`{{ workspace_dir }}/compile.sh`).
+   It is a plain Bash script that the harness will `chmod +x` and run. It
+   must build your project end-to-end with no internet access and exit 0.
+   Anything else can live wherever you like — `compile.sh` is just a thin
+   wrapper that drives the real build (e.g. `cargo build --release && cp
+   target/release/foo ./executable` or `make && cp build/foo ./executable`).
+6. **`./compile.sh` must produce a binary at exactly `./executable`**
+   (i.e. `{{ workspace_dir }}/executable`). The harness copies that file
+   verbatim and runs it for every test, so the path and name are
+   non-negotiable. The binary must accept the same command-line arguments
+   and exit codes as the reference binary at `{{ binary_path }}`.
+
+## Recommended workflow
+
+Phase 1. **EXPLORE** — list the files in `{{ workspace_dir }}`, identify the
+reference binary, and read all available documentation. Try running the
+binary with `--help`, `--version`, and a few representative inputs.
+
+Phase 2. **CHARACTERIZE** — enumerate the binary's commands, flags,
+subcommands, exit codes, and output formats. Capture sample inputs and
+expected outputs to use as oracles. Specifically:
+
+- **Walk every subcommand's `--help` recursively.** Top-level `--help`
+  rarely lists hidden subcommands. Run `{{ binary_path }} <cmd> --help`
+  for every command you see, and for any sub-subcommands those reveal.
+  Common gotchas: `edit reload`, `edit increment`, `import --from <fmt>`
+  may all exist without being listed at the top level.
+- **Probe error paths systematically.** The hidden test suite checks
+  exit codes and stderr text on bad input as carefully as it checks
+  the happy path. For each command, try: invalid arg values, conflicting
+  flags, out-of-range numbers, missing files, permission errors, and
+  empty input. Record the exact exit code AND the exact stderr text.
+  A binary that exits 0 on garbage input where the reference exits 1
+  will fail dozens of tests.
+- **Capture exact byte-level fixtures, not summaries.** Use
+  `{{ binary_path }} --help > /tmp/ref-help.txt` and similar so you
+  can `diff` later. Eyeballing won't catch single-character drift.
+
+Phase 3. **DESIGN** — sketch the module structure for your reimplementation.
+Pick the simplest design that can plausibly cover the observed behavior.
+
+Phase 4. **IMPLEMENT** — write the code. Compile/build frequently and run
+your binary against the oracles you captured in Phase 2.
+
+**Do NOT add helpful output the reference doesn't print.** No progress
+banners, no `"Starting N workers..."`, no `"Targeting file '...'"`
+preamble lines, no friendly status messages. The hidden tests assert
+output character-for-character; any "improvement" you add to UX is a
+test failure. Match the reference in spirit AND in bytes — even when
+the reference is terser than you'd choose for a real product.
+
+Phase 5. **VERIFY** — before calling `finish`, run *all* of the
+following diffs and probes. Each must print **nothing** (or have
+matching rc and matching stderr/stdout):
+
+```bash
+# Top-level help banners
+diff <({{ binary_path }} --help) <({{ workspace_dir }}/executable --help)
+diff <({{ binary_path }} -h)     <({{ workspace_dir }}/executable -h)
+
+# Each subcommand's --help (parse names from the reference's top-level
+# `Commands:` section). Missing or drifted subcommand help is a HUGE
+# source of test failures because the help text is asserted byte-for-byte
+# AND the test suite uses help to discover what to exercise.
+for sub in $(your_binary's_subcommand_names_here); do
+    diff <({{ binary_path }} $sub --help) <({{ workspace_dir }}/executable $sub --help)
+done
+
+# Invalid-input handling. Every CLI framework rejects unknown flags;
+# many subcommands also reject obviously-invalid positional args.
+# The reference's rc and stderr text are part of the test contract.
+diff <({{ binary_path }} --__bogus_flag__         2>&1; echo rc=$?) \
+     <({{ workspace_dir }}/executable --__bogus_flag__ 2>&1; echo rc=$?)
+
+# Per-subcommand input validation: pass a path that obviously can't
+# satisfy the subcommand's contract (e.g. file when dir expected,
+# nonexistent path, malformed format) and verify rc + stderr match.
+for sub in $(your_binary's_subcommand_names_here); do
+    diff <({{ binary_path }} $sub /nonexistent_xyz   2>&1; echo rc=$?) \
+         <({{ workspace_dir }}/executable $sub /nonexistent_xyz 2>&1; echo rc=$?)
+done
+```
+
+(Skip `-h` if the reference doesn't accept it.) A non-empty diff means
+your output has drifted from the reference's — usually one of:
+
+* **Leading/trailing whitespace** — a single leading space in the
+  reference's help banner is a common source of failures.
+* **Hardcoded program name vs argv[0]** — clap's `Command::name("foo")`
+  hardcodes the name; the reference probably uses argv[0] (clap default).
+  Try the reference under different argv[0] values to see which it does;
+  match it.
+* **Banner / preamble lines you added but the reference doesn't print**
+  (e.g. `"Targeting file '...'"`, `"Starting N workers..."`,
+  `"Loading config from ..."`). Strip them.
+* **Subcommand validation gaps** — many subcommands MUST `rc=1` on bad
+  input. If your binary silently `rc=0`s where the reference rejects,
+  you'll see `ref=1 vs agent=0` in the diff.
+* **Case-insensitive enum values** — many flags accept any case for
+  their enum values (e.g. `-C RED` == `-C red`). Try uppercase, mixed
+  case, and lowercase against the reference; if all three succeed the
+  reference is case-insensitive and your parser must mirror that.
+* **Unknown-flag handling** — every CLI framework rejects unknown flags
+  with a non-zero rc. If your `--__bogus_flag__` probe shows
+  `ref=2 vs agent=0`, your argv parser is leaky.
+
+A Stop hook (`check_reference_diffs.sh`) enforces all of these
+automatically: it discovers your reference's subcommands, probes each
+one with `--help`, an invalid flag, and a nonexistent path, and blocks
+your `finish` call on any divergence. Treat the hook's feedback as
+non-negotiable; iterate until every probe matches.
+
+Stop when you have a buildable codebase whose behavior matches the reference
+binary on the inputs you've tested. Do **not** modify or move the reference
+binary itself (other than the Step 0 rename).

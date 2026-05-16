@@ -45,6 +45,11 @@ on:
         required: false
         default: ''
         type: string
+      extensions-ref:
+        description: 'Extensions repository branch/ref to use (for testing feature branches with skills/plugins). Leave blank to use main.'
+        required: false
+        default: 'main'
+        type: string
       benchmarks-commit:
         description: 'Benchmarks repository commit/ref to use. Leave blank to use the PR head or main branch. Useful for evaluating older SDK versions that are incompatible with current benchmarks code (e.g., SDK versions before the critic module was added in commit 79868ae5).'
         required: false
@@ -62,7 +67,7 @@ env:
   SPLIT: test
   LANGUAGE: java
   MAX_WORKERS: '12'
-  MAX_RETRIES: '5'
+  MAX_RETRIES: '2'
   N_LIMIT: '50'
   INSTANCE_IDS: ''
   SELECT_FILE: ''
@@ -241,6 +246,7 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
           BUILDKIT_RESET_ON_FAILURE: 1
           LANGUAGE: ${{ env.LANGUAGE }}
 

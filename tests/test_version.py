@@ -49,3 +49,39 @@ class TestImageTagPrefix:
         """IMAGE_TAG_PREFIX env var wins over deprecated SDK_SHORT_SHA."""
         mod = _reload_version(IMAGE_TAG_PREFIX="new-tag", SDK_SHORT_SHA="old-tag")
         assert mod.IMAGE_TAG_PREFIX == "new-tag"
+
+
+class TestPhasedImageTagPrefix:
+    def teardown_method(self):
+        """Restore version module to default state after each test."""
+        import benchmarks.utils.version as version_mod
+
+        for key in ("IMAGE_TAG_PREFIX", "SDK_SHORT_SHA"):
+            os.environ.pop(key, None)
+        importlib.reload(version_mod)
+
+    def test_default_includes_sdk_sha_and_content_hash(self):
+        """When no env vars are set, phased prefix is SDK_SHORT_SHA + content hash."""
+        mod = _reload_version()
+        prefix = mod.get_phased_image_tag_prefix()
+        assert prefix.startswith(mod.SDK_SHORT_SHA + "-")
+        # The suffix is the 7-char Dockerfile content hash
+        content_hash = prefix[len(mod.SDK_SHORT_SHA) + 1 :]
+        assert len(content_hash) == 7
+        assert content_hash.isalnum()
+
+    def test_env_override(self):
+        """IMAGE_TAG_PREFIX env var overrides phased prefix too."""
+        mod = _reload_version()
+        with patch.dict(os.environ, {"IMAGE_TAG_PREFIX": "custom-tag"}):
+            assert mod.get_phased_image_tag_prefix() == "custom-tag"
+
+    def test_deprecated_sdk_short_sha_does_not_bypass_content_hash(self):
+        """SDK_SHORT_SHA env var must NOT short-circuit the content hash."""
+        with pytest.warns(DeprecationWarning, match="SDK_SHORT_SHA"):
+            mod = _reload_version(SDK_SHORT_SHA="legacy-tag")
+        prefix = mod.get_phased_image_tag_prefix()
+        # Should still include content hash, not just "legacy-tag"
+        assert prefix.startswith(mod.SDK_SHORT_SHA + "-")
+        content_hash = prefix[len(mod.SDK_SHORT_SHA) + 1 :]
+        assert len(content_hash) == 7

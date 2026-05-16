@@ -114,7 +114,9 @@ def get_dataset(
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Check if dataset_name is a local file path
-    if os.path.isfile(dataset_name) and dataset_name.endswith(".jsonl"):
+    if os.path.isfile(dataset_name) and (
+        dataset_name.endswith(".jsonl") or dataset_name.endswith(".json")
+    ):
         # Load local JSONL file
         dataset = load_dataset("json", data_files=dataset_name, split="train")
         assert isinstance(dataset, Dataset)

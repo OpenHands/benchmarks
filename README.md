@@ -9,9 +9,11 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 | Benchmark | Description | Status |
 |-----------|-------------|--------|
 | [SWE-Bench](benchmarks/swebench/) | Software engineering tasks from GitHub issues | ✅ Active |
+| [SWE-Bench Pro](benchmarks/swebenchpro/) | Long-horizon software engineering tasks from GitHub issues | ✅ Active |
 | [GAIA](benchmarks/gaia/) | General AI assistant tasks requiring multi-step reasoning | ✅ Active |
 | [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
+| [ProgramBench](benchmarks/programbench/) | Rebuild a program from scratch given only its compiled binary and docs | ✅ Active |
 
 See the individual benchmark directories for detailed usage instructions.
 
@@ -114,6 +116,7 @@ uv run validate-cfg .llm_config/YOUR_CONFIG_PATH.json
 After setting up the environment and configuring your LLM, see the individual benchmark directories for specific usage instructions:
 
 - **[SWE-Bench](benchmarks/swebench/)**: Software engineering tasks from GitHub issues
+- **[SWE-Bench Pro](benchmarks/swebenchpro/)**: Long-horizon software engineering tasks from GitHub issues
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
 
@@ -135,41 +138,6 @@ OK patch=NONEMPTY msgs(a/u)=8/3 tool_calls=12 errors(agent/conv)=0/0 end=finish_
 ```
 
 File logging (`logs/instance_<id>.log`) is unaffected by this setting.
-
-## Triggering Cloud Evals from This Repo
-
-This repo exposes a manual GitHub Actions workflow that dispatches the `run-eval.yml` workflow in the Software Agent SDK. It is useful when you want to launch evals from the benchmarks repo without switching to the SDK repo.
-
-Requirements:
-- The `PAT_TOKEN` secret must be available in this repository with permission to dispatch workflows in `OpenHands/software-agent-sdk`.
-
-Run it with `gh`:
-
-```bash
-gh workflow run run-eval.yml --repo OpenHands/benchmarks --ref main \
-  -f benchmark=swebench \
-  -f sdk_ref=main \
-  -f eval_limit=50 \
-  -f model_ids=litellm_proxy/anthropic/claude-sonnet-4-20250514 \
-  -f reason="benchmarks-trigger" \
-  -f eval_branch=main \
-  -f benchmarks_branch=main \
-  -f instance_ids="" \
-  -f num_infer_workers="" \
-  -f num_eval_workers=""
-```
-
-Inputs (forwarded to the SDK `run-eval.yml` workflow):
-- `benchmark`: Benchmark suite to run. Choices: `gaia`, `swebench`, `swtbench`, `commit0`. Default: `swebench`.
-- `sdk_ref`: SDK commit, tag, or branch to evaluate. Default: `main`.
-- `eval_limit`: Number of instances to run (any positive integer). Default: `1`.
-- `model_ids`: Comma-separated model IDs (keys of `MODELS` in the SDK `.github/run-eval/resolve_model_config.py`). Empty uses the SDK default.
-- `reason`: Free-form reason for the manual trigger (shows up in logs/PR comments). Optional.
-- `eval_branch`: Branch of the evaluation repo to use (e.g., feature testing). Default: `main`.
-- `benchmarks_branch`: Benchmarks repo branch to evaluate (use your feature branch to test changes). Default: `main`.
-- `instance_ids`: Comma-separated instance IDs to run (overrides `eval_limit` for supported benchmarks). Optional.
-- `num_infer_workers`: Override inference worker count (blank uses benchmark default). Optional.
-- `num_eval_workers`: Override evaluation worker count (blank uses benchmark default). Optional.
 
 ## Workspace Types
 
@@ -205,9 +173,12 @@ Uses a [remote runtime API](https://openhands.dev/blog/evaluation-of-llms-as-cod
 
 1. **Pre-built Images**: Images must be built and pushed to a public registry
    - In this repository, add one of the following labels to a PR to trigger image builds:
-     - `build-swebench-50`: Build 50 images (quick testing)
-     - `build-swebench-200`: Build 200 images (medium testing)
-     - `build-swebench`: Build all images (full evaluation)
+     - `build-swebench-50`: Build 50 SWE-Bench images (quick testing)
+     - `build-swebench-200`: Build 200 SWE-Bench images (medium testing)
+     - `build-swebench`: Build all SWE-Bench images (full evaluation)
+     - `build-swebenchpro-50`: Build 50 SWE-Bench Pro images (quick testing)
+     - `build-swebenchpro-200`: Build 200 SWE-Bench Pro images (medium testing)
+     - `build-swebenchpro`: Build all SWE-Bench Pro images (full evaluation)
    - Images are tagged with the SDK SHA from the `vendor/software-agent-sdk` submodule
 
 2. **Runtime API Key**: Set the `RUNTIME_API_KEY` environment variable

@@ -21,6 +21,11 @@ uv run swebenchmultimodal-infer \
   --output-dir ./output
 ```
 
+By default, `swebenchmultimodal-infer` filters to the curated instance list in `benchmarks/swebenchmultimodal/resolved_instances.txt`. That file is derived from `ambiguity_annotations.json` and contains the instances marked `SOLVEABLE`.
+
+- To run a different subset, pass `--select /path/to/instances.txt`
+- To disable the default filter and run the full split, pass `--select ''`
+
 You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
 
 ### Running Evaluation
@@ -56,8 +61,11 @@ Pre-build all required docker images:
 uv run benchmarks/swebenchmultimodal/build_images.py \
   --dataset princeton-nlp/SWE-bench_Multimodal \
   --split test \
+  --select benchmarks/swebenchmultimodal/resolved_instances.txt \
   --image ghcr.io/openhands/eval-agent-server
 ```
+
+`build_images.py` does not yet inherit the inference default subset automatically, so pass `--select benchmarks/swebenchmultimodal/resolved_instances.txt` when you want image builds to match the default inference run.
 
 ## Configuration
 

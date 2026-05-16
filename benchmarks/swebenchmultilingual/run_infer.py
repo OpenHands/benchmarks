@@ -12,6 +12,7 @@ from benchmarks.swebenchmultilingual.build_images import (
     wrap_image,
 )
 from benchmarks.swebenchmultilingual.config import INFER_DEFAULTS
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -26,6 +27,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -49,7 +51,7 @@ def get_tools_for_preset(
     """Get the list of tools for the given preset.
 
     Args:
-        preset: The tool preset to use (default, gemini, or planning).
+        preset: The tool preset to use (default, gemini, gpt5, or planning).
         enable_browser: Whether to include browser tools.
 
     Returns:
@@ -59,6 +61,10 @@ def get_tools_for_preset(
         from openhands.tools.preset.gemini import get_gemini_tools
 
         return get_gemini_tools(enable_browser=enable_browser)
+    elif preset == "gpt5":
+        from openhands.tools.preset.gpt5 import get_gpt5_tools
+
+        return get_gpt5_tools(enable_browser=enable_browser)
     elif preset == "planning":
         from openhands.tools.preset.planning import get_planning_tools
 
@@ -249,10 +255,14 @@ class SWEBenchEvaluation(Evaluation):
         )
         if self.metadata.enable_delegation:
             tools.append(Tool(name=DelegateTool.name))
+        # Load public skills (respects EXTENSIONS_REF env var)
+        agent_context = create_agent_context()
+
         agent = Agent(
-            llm=self.metadata.llm,
+            llm=build_eval_llm(self.metadata.llm),
             tools=tools,
             system_prompt_kwargs={"cli_mode": True},
+            agent_context=agent_context,
             # TODO: we can enable condenser and security analyzer later
             # and have them configurable via EvalMetadata
             # condenser=get_default_condenser(

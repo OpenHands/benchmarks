@@ -110,9 +110,6 @@ def convert_to_swebench_format(input_file: str, output_file: str) -> None:
         f"{error_count} errors"
     )
 
-    if converted_count == 0:
-        raise ValueError("No valid entries were converted")
-
 
 def run_swebench_evaluation(
     predictions_file: str,

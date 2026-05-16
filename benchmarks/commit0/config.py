@@ -25,7 +25,17 @@ INFER_DEFAULTS = {
     **CONDENSER_DEFAULTS,
 }
 
+# Commit0 needs the source-mode runtime, but it cannot use the SDK's direct
+# source-minimal build path because the resulting venv points at a system Python
+# path that does not exist in the upstream commit0 base images.
+#
+# The benchmark-side fix is to keep using source-minimal while routing commit0
+# through the phased assembly path in benchmarks, which copies the runtime into
+# the final image with the wrapper Dockerfile.
+BUILD_TARGET = "source-minimal"
+
 # Build defaults (used by build_images.py)
 BUILD_DEFAULTS = {
     "max_workers": 16,
+    "target": BUILD_TARGET,
 }

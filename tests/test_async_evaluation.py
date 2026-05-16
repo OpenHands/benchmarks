@@ -5,6 +5,7 @@ with semaphore-based concurrency and asyncio.to_thread() for sync operations.
 """
 
 import asyncio
+import concurrent.futures
 import time
 
 import pytest
@@ -281,6 +282,204 @@ def test_evaluation_run_end_to_end(tmp_path):
     assert len(lines) == 4
 
 
+def test_evaluation_installs_explicit_thread_executor(tmp_path, monkeypatch):
+    """Evaluation should size asyncio.to_thread() from num_workers."""
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    captured: dict[str, object] = {}
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            raise AssertionError("prepare_workspace should not be called")
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("evaluate_instance should not be called")
+
+    real_executor = concurrent.futures.ThreadPoolExecutor
+
+    def recording_executor(*args, **kwargs):
+        captured["max_workers"] = kwargs["max_workers"]
+        captured["thread_name_prefix"] = kwargs.get("thread_name_prefix")
+        executor = real_executor(*args, **kwargs)
+        captured["executor"] = executor
+        return executor
+
+    monkeypatch.setattr(
+        "benchmarks.utils.evaluation.ThreadPoolExecutor",
+        recording_executor,
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=7)
+
+    with patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr:
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        mock_lmnr.get.return_value = svc
+
+        results = evaluator.run()
+
+    assert results == []
+    assert captured["max_workers"] == 7
+    assert captured["thread_name_prefix"] == "evaluation-worker"
+
+
+def test_evaluation_logs_effective_executor_capacity(tmp_path, monkeypatch):
+    """Startup logs should expose configured vs effective thread capacity."""
+    from typing import List
+    from unittest.mock import AsyncMock, Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation, logger
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return [EvalInstance(id="inst-1", data={})]
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            raise AssertionError("prepare_workspace should not be called")
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("evaluate_instance should not be called")
+
+    monkeypatch.setattr("benchmarks.utils.evaluation.os.cpu_count", lambda: 4)
+    monkeypatch.setattr(
+        "benchmarks.utils.evaluation._read_cgroup_cpu_max",
+        lambda: "400000 100000",
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(metadata=metadata, num_workers=30)
+
+    with (
+        patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,
+        patch.object(logger, "info") as mock_info,
+    ):
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        mock_lmnr.get.return_value = svc
+        evaluator._run_attempt_async = AsyncMock(return_value=[])
+        evaluator.run()
+
+    assert any(
+        call.args
+        and call.args[0]
+        == "[executor] configured_workers=%d executor_cap=%d effective_max_workers=%d default_max_workers=%d os_cpu_count=%s cpu.max=%s"
+        and call.args[1:] == (30, 20, 20, 8, 4, "400000 100000")
+        for call in mock_info.call_args_list
+    )
+
+
+def test_evaluation_caps_thread_executor_workers(tmp_path, monkeypatch):
+    """Evaluation should cap asyncio.to_thread() workers to a configured maximum."""
+    from typing import List
+    from unittest.mock import Mock, patch
+
+    from benchmarks.utils.evaluation import Evaluation, logger
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    captured: dict[str, object] = {}
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            raise AssertionError("prepare_workspace should not be called")
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("evaluate_instance should not be called")
+
+    real_executor = concurrent.futures.ThreadPoolExecutor
+
+    def recording_executor(*args, **kwargs):
+        captured["max_workers"] = kwargs["max_workers"]
+        return real_executor(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "benchmarks.utils.evaluation.ThreadPoolExecutor",
+        recording_executor,
+    )
+
+    llm = LLM(model="test-model")
+    metadata = EvalMetadata(
+        llm=llm,
+        dataset="test",
+        dataset_split="test",
+        max_iterations=10,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+
+    evaluator = TestEvaluation(
+        metadata=metadata,
+        num_workers=1000,
+        max_asyncio_thread_workers=20,
+    )
+
+    with (
+        patch("benchmarks.utils.evaluation.LaminarService") as mock_lmnr,
+        patch.object(logger, "warning") as mock_warning,
+    ):
+        svc = Mock()
+        svc.create_evaluation.return_value = None
+        mock_lmnr.get.return_value = svc
+        results = evaluator.run()
+
+    assert results == []
+    assert captured["max_workers"] == 20
+    assert any(
+        call.args
+        and call.args[0]
+        == "[executor] capping configured_workers=%d to executor_cap=%d"
+        and call.args[1:] == (1000, 20)
+        for call in mock_warning.call_args_list
+    )
+
+
 def test_evaluation_timeout_cancels_instance(tmp_path):
     """Integration test: verify that per-instance timeouts cancel instances."""
     from typing import List
@@ -350,6 +549,200 @@ def test_evaluation_timeout_cancels_instance(tmp_path):
     slow_result = [r for r in results if r.instance_id == "slow"][0]
     assert slow_result.error is not None
     assert "timeout" in slow_result.error.lower()
+
+
+def test_metadata_json_records_openhands_sdk_version(tmp_path):
+    """model_post_init() must stamp openhands_sdk_version onto metadata.json.
+
+    The downstream push-to-index workflow reads this field to populate the
+    index repo's agent_version for default-agent runs without requiring the
+    operator to type a workflow input. If this regresses, push-to-index will
+    silently fall back to demanding agent_version on the command line.
+    """
+    import json
+    from typing import List
+    from unittest.mock import Mock
+
+    from benchmarks.utils.evaluation import (
+        Evaluation,
+        openhands_sdk_version,
+    )
+    from benchmarks.utils.models import EvalInstance, EvalMetadata
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    metadata = EvalMetadata(
+        llm=LLM(model="test-model"),
+        dataset="test",
+        dataset_split="test",
+        max_iterations=1,
+        eval_output_dir=str(tmp_path),
+        details={},
+        eval_limit=0,
+        n_critic_runs=1,
+        max_retries=0,
+        critic=PassCritic(),
+    )
+    evaluator = TestEvaluation(metadata=metadata, num_workers=1)
+
+    # In-memory state must be set from openhands.sdk.__version__ (the
+    # ground truth from importlib.metadata).
+    assert evaluator.metadata.openhands_sdk_version == openhands_sdk_version
+    assert evaluator.metadata.openhands_sdk_version  # non-empty
+
+    # On-disk metadata.json must contain it too — that's the contract the
+    # push-to-index workflow consumes.
+    metadata_file = tmp_path / "metadata.json"
+    assert metadata_file.exists()
+    on_disk = json.loads(metadata_file.read_text())
+    assert on_disk["openhands_sdk_version"] == openhands_sdk_version
+    # ACP fields should be absent (None) for a non-ACP run.
+    assert on_disk["acp_agent_name"] is None
+    assert on_disk["acp_agent_version"] is None
+
+
+def test_stamp_acp_metadata_from_outputs(tmp_path, caplog):
+    """End-of-run pass back-writes ACP fields and warns when none surfaced."""
+    import json
+    import logging
+    from typing import List, Literal
+    from unittest.mock import Mock
+
+    from benchmarks.utils.evaluation import Evaluation
+    from benchmarks.utils.models import (
+        EvalInstance,
+        EvalMetadata,
+        EvalOutput,
+    )
+    from openhands.sdk import LLM
+    from openhands.sdk.critic import PassCritic
+
+    class TestEvaluation(Evaluation):
+        def prepare_instances(self) -> List[EvalInstance]:
+            return []
+
+        def prepare_workspace(self, instance, resource_factor=1, forward_env=None):
+            return Mock()
+
+        def evaluate_instance(self, instance, workspace):
+            raise AssertionError("not used")
+
+    def make_eval(
+        agent_type: Literal["default", "acp-claude", "acp-codex", "acp-gemini"],
+        subdir: str,
+    ) -> "TestEvaluation":
+        meta = EvalMetadata(
+            llm=LLM(model="test-model"),
+            dataset="test",
+            dataset_split="test",
+            max_iterations=1,
+            eval_output_dir=str(tmp_path / subdir),
+            details={},
+            eval_limit=0,
+            n_critic_runs=1,
+            max_retries=0,
+            critic=PassCritic(),
+            agent_type=agent_type,
+        )
+        return TestEvaluation(metadata=meta, num_workers=1)
+
+    def make_out(instance_id: str, **test_result: str) -> EvalOutput:
+        return EvalOutput(
+            instance_id=instance_id,
+            test_result=dict(test_result),
+            instruction=None,
+            history=[],
+            instance={},
+        )
+
+    handshake_name = "@agentclientprotocol/claude-agent-acp"
+    handshake_version = "0.25.0"
+    warn_msg = "none surfaced acp_agent_name+acp_agent_version"
+
+    # ACP run, first instance carries handshake fields → stamped from that one.
+    acp = make_eval("acp-claude", "acp")
+    assert acp.metadata.acp_agent_name is None
+    assert acp.metadata.acp_agent_version is None
+    outputs = [
+        make_out(
+            "i1",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+        make_out("i2", acp_agent_name="different", acp_agent_version="9.9.9"),
+    ]
+    acp._stamp_acp_metadata_from_outputs(outputs)
+    assert acp.metadata.acp_agent_name == handshake_name
+    assert acp.metadata.acp_agent_version == handshake_version
+    on_disk = json.loads((tmp_path / "acp" / "metadata.json").read_text())
+    assert on_disk["acp_agent_name"] == handshake_name
+    assert on_disk["acp_agent_version"] == handshake_version
+
+    # ACP run where the first non-empty fields appear on a later instance.
+    acp_late = make_eval("acp-claude", "acp_late")
+    outputs = [
+        make_out("i1"),
+        make_out(
+            "i2",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+    ]
+    acp_late._stamp_acp_metadata_from_outputs(outputs)
+    assert acp_late.metadata.acp_agent_version == handshake_version
+
+    # ACP run where the first instance has only one of the two fields → skip
+    # it and stamp from the next instance that has both.
+    acp_partial = make_eval("acp-claude", "acp_partial")
+    outputs = [
+        make_out("i1", acp_agent_name="partial-only-name"),
+        make_out(
+            "i2",
+            acp_agent_name=handshake_name,
+            acp_agent_version=handshake_version,
+        ),
+    ]
+    acp_partial._stamp_acp_metadata_from_outputs(outputs)
+    assert acp_partial.metadata.acp_agent_name == handshake_name
+    assert acp_partial.metadata.acp_agent_version == handshake_version
+
+    # ACP run, no instance surfaced handshake fields → warning, no stamp.
+    caplog.clear()
+    acp_unstamped = make_eval("acp-claude", "acp_unstamped")
+    with caplog.at_level(logging.WARNING):
+        acp_unstamped._stamp_acp_metadata_from_outputs([make_out("i1"), make_out("i2")])
+    assert acp_unstamped.metadata.acp_agent_version is None
+    assert any(warn_msg in r.message for r in caplog.records)
+
+    # Non-ACP run → no-op even with populated test_result, no warning either.
+    caplog.clear()
+    default_eval = make_eval("default", "default")
+    with caplog.at_level(logging.WARNING):
+        default_eval._stamp_acp_metadata_from_outputs(
+            [
+                make_out(
+                    "i1",
+                    acp_agent_name=handshake_name,
+                    acp_agent_version=handshake_version,
+                )
+            ]
+        )
+    assert default_eval.metadata.acp_agent_name is None
+    assert default_eval.metadata.acp_agent_version is None
+    assert not any(warn_msg in r.message for r in caplog.records)
+    on_disk_default = json.loads((tmp_path / "default" / "metadata.json").read_text())
+    assert on_disk_default["acp_agent_name"] is None
+    assert on_disk_default["acp_agent_version"] is None
 
 
 if __name__ == "__main__":

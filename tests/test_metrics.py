@@ -12,6 +12,7 @@ import importlib
 import inspect
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -70,6 +71,31 @@ def discover_benchmarks() -> list[tuple[str, type[Evaluation]]]:
 
 # Discover all benchmarks at module level so they can be used as test parameters
 BENCHMARKS = discover_benchmarks()
+
+
+def _pick_zero_cost_benchmark() -> tuple[str, type[Evaluation]]:
+    """Pick a stable benchmark for the zero-cost smoke test.
+
+    Some benchmarks need extra dataset- or repo-specific fixtures that this
+    generic smoke test does not provide. Prefer a stable benchmark that already
+    works with the lightweight shared mocks.
+    """
+    preferred = [
+        "gaia",
+        "openagentsafety",
+        "commit0",
+        "swtbench",
+        "swebench",
+        "swebenchmultilingual",
+    ]
+    by_name = {name: cls for name, cls in BENCHMARKS}
+    for name in preferred:
+        if name in by_name:
+            return name, by_name[name]
+    for name, cls in BENCHMARKS:
+        if name != "swesmith":
+            return name, cls
+    return BENCHMARKS[0]
 
 
 @pytest.fixture
@@ -188,7 +214,7 @@ def test_eval_output_with_no_metrics():
 
 def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
     """Create a test instance appropriate for the given benchmark."""
-    if benchmark_name == "swebench":
+    if benchmark_name in {"swebench", "swebenchpro"}:
         return EvalInstance(
             id="test__instance-1",
             data={
@@ -298,6 +324,54 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "problem_statement": "Test problem for swefficiency",
             },
         )
+    elif benchmark_name.startswith("hybridgym_"):
+        data: dict[str, Any] = {
+            "instance_id": "test-instance-1",
+            "repo": "test/repo",
+            "base_commit": "abc123",
+            "module_name": "test_func",
+            "module_type": "function",
+            "function_description": "A test function",
+            "module_line_start": 10,
+            "module_line_end": 20,
+            "docstring_line_start": -1,
+            "docstring_line_end": -1,
+            # depsearch fields
+            "target_function_name": "test_func",
+            "target_function_file": "test.py",
+            "target_function_line_start": 10,
+            # funcgen fields
+            "file_path": "test.py",
+            "func_name": "test_func",
+            "func_docstring_raw": "A test function",
+            # issuelocalize fields
+            "problem_statement": "Test issue",
+            "version": "1.0",
+        }
+        return EvalInstance(id="test-instance-1", data=data)
+    elif benchmark_name == "swesmith":
+        return EvalInstance(
+            id="test__instance.abc123.lm_modify__def456",
+            data={
+                "repo": "test/repo",
+                "instance_id": "test__instance.abc123.lm_modify__def456",
+                "image_name": "test-image:latest",
+                "base_commit": "abc123",
+                "problem_statement": "Test problem for swesmith",
+            },
+        )
+    elif benchmark_name == "programbench":
+        return EvalInstance(
+            id="testowner__testrepo.deadbee",
+            data={
+                "instance_id": "testowner__testrepo.deadbee",
+                "repository": "testowner/testrepo",
+                "commit": "deadbeefcafebabedeadbeefcafebabedeadbeef",
+                "language": "c",
+                "difficulty": "easy",
+                "task_image": "programbench/testowner_1776_testrepo.deadbee:task_cleanroom",
+            },
+        )
     else:
         # Generic instance for unknown benchmarks
         return EvalInstance(
@@ -311,7 +385,7 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
 
 def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadata:
     """Create metadata appropriate for the given benchmark."""
-    if benchmark_name == "swebench":
+    if benchmark_name in {"swebench", "swebenchpro"}:
         return EvalMetadata(
             llm=llm,
             max_iterations=5,
@@ -441,6 +515,64 @@ def _create_metadata_for_benchmark(benchmark_name: str, llm: LLM) -> EvalMetadat
             prompt_path=prompt_path,
             critic=PassCritic(),
         )
+    elif benchmark_name.startswith("hybridgym_"):
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / benchmark_name
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset=f"hybrid-gym/{benchmark_name}",
+            dataset_split="train",
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "swesmith":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "swesmith"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="SWE-bench/SWE-smith-py",
+            dataset_split="train",
+            details={},
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
+    elif benchmark_name == "programbench":
+        prompt_path = str(
+            Path(__file__).parent.parent
+            / "benchmarks"
+            / "programbench"
+            / "prompts"
+            / "default.j2"
+        )
+        return EvalMetadata(
+            llm=llm,
+            max_iterations=5,
+            eval_output_dir="/tmp/eval_output",
+            dataset="programbench/ProgramBench",
+            dataset_split="test",
+            details={
+                "task_image_tag": "task_cleanroom",
+                "build_target": "source-minimal",
+                "workspace_dir": "/workspace",
+                "offline_inference": True,
+            },
+            prompt_path=prompt_path,
+            critic=PassCritic(),
+        )
     else:
         # Generic metadata for unknown benchmarks
         return EvalMetadata(
@@ -483,6 +615,11 @@ def _setup_mocks_for_benchmark(benchmark_name: str, metrics: Metrics):
     return mock_conversation
 
 
+def _get_evaluation_module_name(evaluation_class: type[Evaluation]) -> str:
+    """Return the module that defines the evaluation implementation."""
+    return evaluation_class.evaluate_instance.__module__
+
+
 @pytest.mark.parametrize("benchmark_name,evaluation_class", BENCHMARKS)
 def test_benchmark_metrics_collection(
     benchmark_name: str,
@@ -517,27 +654,71 @@ def test_benchmark_metrics_collection(
     # Setup benchmark-specific mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, expected_metrics)
 
-    # Mock common dependencies to avoid actual LLM calls
-    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
+    # Mock common dependencies to avoid actual LLM calls.
+    evaluation_module_name = _get_evaluation_module_name(evaluation_class)
     tools_mock_target = (
-        f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name in ("swebench", "swebenchmultilingual")
-        else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
+        f"{evaluation_module_name}.get_tools_for_preset"
+        if evaluation_module_name
+        in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }
+        else f"{evaluation_module_name}.get_default_tools"
     )
     with (
         patch(
-            f"benchmarks.{benchmark_name}.run_infer.Conversation",
+            f"{evaluation_module_name}.Conversation",
             return_value=mock_conversation,
         ),
-        patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
+        patch(f"{evaluation_module_name}.Agent"),
         patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
         # Add benchmark-specific patches
-        if benchmark_name in ("swebench", "swebenchmultilingual"):
+        if evaluation_module_name in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }:
             with patch(
-                f"benchmarks.{benchmark_name}.run_infer.get_instruction",
+                f"{evaluation_module_name}.get_instruction",
                 return_value="Test instruction",
+            ):
+                result = evaluation.evaluate_instance(instance, mock_workspace)
+        elif benchmark_name == "swesmith":
+            mock_profile = MagicMock()
+            mock_profile.mirror_url = "https://github.com/swesmith/test__repo.abc12345"
+            with (
+                patch(
+                    "benchmarks.swesmith.run_infer.run_conversation_with_fake_user_response",
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer.build_event_persistence_callback",
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer._find_ssh_key",
+                    return_value=None,
+                ),
+                patch(
+                    "benchmarks.swesmith.run_infer.registry.get_from_inst",
+                    return_value=mock_profile,
+                ),
+            ):
+                result = evaluation.evaluate_instance(instance, mock_workspace)
+        elif benchmark_name == "programbench":
+            # ProgramBench's evaluate_instance also tars up /workspace into a
+            # submission archive; we stub that out — collecting a real archive
+            # from a MagicMock workspace isn't meaningful and isn't what this
+            # test exercises.
+            with (
+                patch(
+                    "benchmarks.programbench.run_infer.ProgramBenchEvaluation._collect_submission",
+                    return_value=Path("/tmp/eval_output/run/test/submission.tar.gz"),
+                ),
+                patch(
+                    "pathlib.Path.stat",
+                    return_value=MagicMock(st_size=42),
+                ),
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)
         else:
@@ -577,6 +758,51 @@ def test_benchmark_metrics_collection(
     )
 
 
+def test_openagentsafety_error_path_uses_conversation_metrics(
+    mock_llm_with_metrics,
+    mock_workspace,
+):
+    """OpenAgentSafety should preserve conversation metrics on error."""
+    from benchmarks.openagentsafety.run_infer import OpenAgentSafetyEvaluation
+
+    instance = _get_test_instance_for_benchmark("openagentsafety")
+    metadata = _create_metadata_for_benchmark("openagentsafety", mock_llm_with_metrics)
+    evaluation = OpenAgentSafetyEvaluation(metadata=metadata)
+
+    expected_metrics = Metrics(
+        model_name="test-model",
+        accumulated_cost=2.5,
+        accumulated_token_usage=TokenUsage(
+            model="test-model",
+            prompt_tokens=120,
+            completion_tokens=60,
+        ),
+    )
+    mock_conversation = _setup_mocks_for_benchmark("openagentsafety", expected_metrics)
+
+    with (
+        patch(
+            "benchmarks.openagentsafety.run_infer.Conversation",
+            return_value=mock_conversation,
+        ),
+        patch("benchmarks.openagentsafety.run_infer.Agent"),
+        patch("benchmarks.openagentsafety.run_infer.get_default_tools"),
+        patch(
+            "benchmarks.openagentsafety.run_infer.generate_instruction",
+            return_value="Test instruction",
+        ),
+        patch(
+            "benchmarks.openagentsafety.run_infer.run_conversation_with_fake_user_response",
+            side_effect=RuntimeError("conversation failed"),
+        ),
+    ):
+        result = evaluation.evaluate_instance(instance, mock_workspace)
+
+    assert result.error == "conversation failed"
+    assert result.test_result == {"error": "conversation failed"}
+    assert result.metrics is expected_metrics
+
+
 def test_metrics_with_zero_cost(mock_workspace):
     """Test that metrics are collected even when cost is zero.
 
@@ -585,7 +811,7 @@ def test_metrics_with_zero_cost(mock_workspace):
     if not BENCHMARKS:
         pytest.skip("No benchmarks discovered")
 
-    benchmark_name, evaluation_class = BENCHMARKS[0]
+    benchmark_name, evaluation_class = _pick_zero_cost_benchmark()
 
     # Create LLM with default metrics (cost = 0)
     llm = LLM(model="test-model")
@@ -605,24 +831,31 @@ def test_metrics_with_zero_cost(mock_workspace):
     # Setup mocks
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
-    # swebench and swebenchmultilingual use get_tools_for_preset instead of get_default_tools
+    evaluation_module_name = _get_evaluation_module_name(evaluation_class)
     tools_mock_target = (
-        f"benchmarks.{benchmark_name}.run_infer.get_tools_for_preset"
-        if benchmark_name in ("swebench", "swebenchmultilingual")
-        else f"benchmarks.{benchmark_name}.run_infer.get_default_tools"
+        f"{evaluation_module_name}.get_tools_for_preset"
+        if evaluation_module_name
+        in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }
+        else f"{evaluation_module_name}.get_default_tools"
     )
     with (
         patch(
-            f"benchmarks.{benchmark_name}.run_infer.Conversation",
+            f"{evaluation_module_name}.Conversation",
             return_value=mock_conversation,
         ),
-        patch(f"benchmarks.{benchmark_name}.run_infer.Agent"),
+        patch(f"{evaluation_module_name}.Agent"),
         patch(tools_mock_target),
         patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}),
     ):
-        if benchmark_name in ("swebench", "swebenchmultilingual"):
+        if evaluation_module_name in {
+            "benchmarks.swebench.run_infer",
+            "benchmarks.swebenchmultilingual.run_infer",
+        }:
             with patch(
-                f"benchmarks.{benchmark_name}.run_infer.get_instruction",
+                f"{evaluation_module_name}.get_instruction",
                 return_value="Test instruction",
             ):
                 result = evaluation.evaluate_instance(instance, mock_workspace)

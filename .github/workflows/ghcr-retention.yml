@@ -1,0 +1,50 @@
+name: GHCR retention - eval-agent-server
+
+# Nightly garbage collection of ghcr.io/openhands/eval-agent-server.
+# Context: see issue #684 — the package had 133k+ tags with no retention,
+# fanning out per SDK sha (97.9% of tags). This job deletes versions older
+# than the cut-off, keeping a safety buffer of the most recent versions.
+#
+# The workflow runs against the public package but still requires a PAT
+# with `delete:packages` + `read:packages` because the default GITHUB_TOKEN
+# cannot delete org-level package versions.
+
+on:
+  schedule:
+    # Daily at 03:17 UTC. Odd minute to avoid the top-of-hour stampede on GH-hosted runners.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Dry run only (list deletions without performing them)"
+        type: boolean
+        default: true
+      cut-off:
+        description: "Age threshold (e.g. 2mo, 30d, 2w)"
+        type: string
+        default: "2mo"
+      keep-n-most-recent:
+        description: "Always keep this many most-recent versions regardless of cut-off"
+        type: string
+        default: "100"
+
+concurrency:
+  group: ghcr-retention-eval-agent-server
+  cancel-in-progress: false
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 720  # 12h — first real run may delete tens of thousands of versions
+    steps:
+      - name: Delete old eval-agent-server versions
+        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03  # v3.0.0
+        with:
+          account: OpenHands
+          token: ${{ secrets.GHCR_CLEANUP_PAT }}
+          image-names: eval-agent-server
+          image-tags: "!v1.0.0*"  # preserve legacy v1.0.0* tags — audit before removing this guard
+          cut-off: ${{ inputs.cut-off || '2mo' }}
+          keep-n-most-recent: ${{ inputs.keep-n-most-recent || '100' }}
+          tag-selection: both  # delete both tagged and untagged versions
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}

@@ -40,9 +40,9 @@ def _get_image_tag_prefix() -> str:
     otherwise fall back to environment variables for the Modal function image.
     """
     try:
-        from benchmarks.utils.version import IMAGE_TAG_PREFIX
+        from benchmarks.utils.version import get_phased_image_tag_prefix
 
-        return IMAGE_TAG_PREFIX
+        return get_phased_image_tag_prefix()
     except Exception:
         return os.getenv("IMAGE_TAG_PREFIX", "").strip() or "unknown"
 

@@ -20,6 +20,7 @@ from benchmarks.utils.acp import (
     setup_acp_workspace,
     workspace_keepalive,
 )
+from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
@@ -34,6 +35,7 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
@@ -41,13 +43,13 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
-from benchmarks.utils.version import IMAGE_TAG_PREFIX
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
-from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
+from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWorkspace
 
 
 logger = get_logger(__name__)
@@ -59,7 +61,7 @@ def get_tools_for_preset(
     """Get the list of tools for the given preset.
 
     Args:
-        preset: The tool preset to use (default, gemini, or planning).
+        preset: The tool preset to use (default, gemini, gpt5, or planning).
         enable_browser: Whether to include browser tools.
 
     Returns:
@@ -69,6 +71,10 @@ def get_tools_for_preset(
         from openhands.tools.preset.gemini import get_gemini_tools
 
         return get_gemini_tools(enable_browser=enable_browser)
+    elif preset == "gpt5":
+        from openhands.tools.preset.gpt5 import get_gpt5_tools
+
+        return get_gpt5_tools(enable_browser=enable_browser)
     elif preset == "planning":
         from openhands.tools.preset.planning import get_planning_tools
 
@@ -121,6 +127,18 @@ class SWEBenchEvaluation(Evaluation):
       - evaluate_instance(instance, workspace)
     """
 
+    def get_official_docker_image(self, instance: EvalInstance) -> str:
+        return get_official_docker_image(instance.id)
+
+    def extract_custom_tag(self, official_docker_image: str) -> str:
+        return extract_custom_tag(official_docker_image)
+
+    def should_wrap_instance(self, instance: EvalInstance) -> bool:
+        return should_wrap_instance_id(instance.id)
+
+    def get_source_repo_path(self, instance: EvalInstance) -> str:
+        return "/testbed"
+
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
 
@@ -149,8 +167,6 @@ class SWEBenchEvaluation(Evaluation):
         """
         Use DockerWorkspace by default.
 
-        For ACPAgent, the provider API key is forwarded to the container.
-
         Args:
             instance: The evaluation instance to prepare workspace for.
             resource_factor: Resource factor for runtime allocation (default: 1).
@@ -159,17 +175,15 @@ class SWEBenchEvaluation(Evaluation):
         """
         forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
 
-        official_docker_image = get_official_docker_image(instance.id)
+        official_docker_image = self.get_official_docker_image(instance)
         build_target = constants.DEFAULT_BUILD_TARGET
-        custom_tag = extract_custom_tag(official_docker_image)
+        custom_tag = self.extract_custom_tag(official_docker_image)
         # For non-binary targets, append target suffix
         suffix = (
             f"-{build_target}" if build_target != constants.BUILD_TARGET_BINARY else ""
         )
-        base_agent_image = (
-            f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-        )
-        wrap_needed = should_wrap_instance_id(instance.id)
+        base_agent_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
+        wrap_needed = self.should_wrap_instance(instance)
         agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
@@ -197,6 +211,28 @@ class SWEBenchEvaluation(Evaluation):
                 working_dir="/workspace",
                 forward_env=forward_env or [],
             )
+        elif self.metadata.workspace_type == "apptainer":
+            if not remote_image_exists(agent_server_image):
+                raise RuntimeError(
+                    f"Agent server image {agent_server_image} does not exist in container registry, "
+                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
+                )
+
+            logger.info(
+                f"Using apptainer workspace with pre-built image {agent_server_image} "
+                f"(tag prefix: {get_phased_image_tag_prefix()})"
+            )
+            if wrap_needed:
+                logger.info(
+                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                )
+
+            workspace = ApptainerWorkspace(
+                server_image=agent_server_image,
+                working_dir="/workspace",
+                forward_env=forward_env or [],
+                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+            )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:
@@ -204,9 +240,7 @@ class SWEBenchEvaluation(Evaluation):
                     "RUNTIME_API_KEY environment variable is not set for remote workspace"
                 )
 
-            agent_server_image = (
-                f"{EVAL_AGENT_SERVER_IMAGE}:{IMAGE_TAG_PREFIX}-{custom_tag}{suffix}"
-            )
+            agent_server_image = f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-{custom_tag}{suffix}"
             if not remote_image_exists(agent_server_image):
                 raise RuntimeError(
                     f"Agent server image {agent_server_image} does not exist in container registry, "
@@ -214,7 +248,7 @@ class SWEBenchEvaluation(Evaluation):
                 )
             logger.info(
                 f"Using remote workspace with image {agent_server_image} "
-                f"(tag prefix: {IMAGE_TAG_PREFIX}, resource_factor: {resource_factor})"
+                f"(tag prefix: {get_phased_image_tag_prefix()}, resource_factor: {resource_factor})"
             )
             startup_timeout = float(
                 os.getenv(
@@ -259,6 +293,7 @@ class SWEBenchEvaluation(Evaluation):
         if is_acp_agent(self.metadata.agent_type):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
+            agent_llm = build_eval_llm(self.metadata.llm)
             tools = get_tools_for_preset(
                 preset=self.metadata.tool_preset,
                 # Disable browser tools in CLI mode
@@ -269,15 +304,19 @@ class SWEBenchEvaluation(Evaluation):
             condenser = None
             if self.metadata.enable_condenser:
                 condenser = LLMSummarizingCondenser(
-                    llm=self.metadata.llm.model_copy(update={"usage_id": "condenser"}),
+                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
+            # Load public skills (respects EXTENSIONS_REF env var)
+            agent_context = create_agent_context()
+
             agent = Agent(
-                llm=self.metadata.llm,
+                llm=agent_llm,
                 tools=tools,
                 system_prompt_kwargs={"cli_mode": True},
                 condenser=condenser,
+                agent_context=agent_context,
                 # TODO: we can enable security analyzer later
                 # security_analyzer=LLMSecurityAnalyzer(),
             )
@@ -304,11 +343,12 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         logger.info("repo_path: %s", repo_path)
-        cp_testebed_repo = workspace.execute_command(
-            (f"mkdir -p {repo_path} ; cp -r /testbed/. {repo_path}")
+        source_repo_path = self.get_source_repo_path(instance)
+        cp_testbed_repo = workspace.execute_command(
+            f"mkdir -p {repo_path} ; cp -r {source_repo_path}/. {repo_path}"
         )
-        assert cp_testebed_repo.exit_code == 0, (
-            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
+        assert cp_testbed_repo.exit_code == 0, (
+            f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"
         )
 
         # git reset
