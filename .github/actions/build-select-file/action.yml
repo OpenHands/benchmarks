@@ -14,10 +14,12 @@ runs:
   steps:
     - name: Build selected instances file
       shell: bash
+      env:
+        INPUTS_INSTANCE_IDS: ${{ inputs.instance-ids }}
       run: |
         set -euo pipefail
 
-        if [ -z "${{ inputs.instance-ids }}" ]; then
+        if [ -z "$INPUTS_INSTANCE_IDS" ]; then
           echo "No instance IDs provided; skipping select file creation."
           exit 0
         fi
@@ -25,7 +27,7 @@ runs:
         SELECT_FILE="${RUNNER_TEMP}/selected-instances.txt"
         echo "Creating selected instances file at ${SELECT_FILE}"
 
-        echo "${{ inputs.instance-ids }}" \
+        echo "$INPUTS_INSTANCE_IDS" \
           | tr ',' '\n' \
           | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
           | sed '/^$/d' > "${SELECT_FILE}"

@@ -127,13 +127,16 @@ jobs:
     steps:
       - name: Determine checkout ref
         id: checkout-ref
+        env:
+          INPUTS_BENCHMARKS_REF: ${{ inputs.benchmarks-ref }}
+          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
-            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
-            echo "Using benchmarks-ref: ${{ inputs.benchmarks-ref }}"
-          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
-            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          if [ -n "$INPUTS_BENCHMARKS_REF" ]; then
+            echo "ref=$INPUTS_BENCHMARKS_REF" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-ref: $INPUTS_BENCHMARKS_REF"
+          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
+            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: $GITHUB_EVENT_PULL_REQUEST_HEAD_SHA"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
@@ -152,14 +155,16 @@ jobs:
 
       - name: Update SDK submodule
         if: ${{ inputs.sdk-commit != '' }}
+        env:
+          INPUTS_SDK_COMMIT: ${{ inputs.sdk-commit }}
         run: |
           cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
+          git fetch origin "$INPUTS_SDK_COMMIT"
           git checkout FETCH_HEAD
           SDK_SHA=$(git rev-parse HEAD)
           cd ../..
           git add vendor/software-agent-sdk
-          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+          echo "Updated SDK submodule to $SDK_SHA (from $INPUTS_SDK_COMMIT)"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -181,11 +186,14 @@ jobs:
           make build
 
       - name: Build and push SWT-Bench images
+        env:
+          INPUTS_MAX_RETRIES: ${{ inputs.max-retries || '3' }}
+          INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
         run: |
           set -euo pipefail
 
-          MAX_RETRIES="${{ inputs.max-retries || '3' }}"
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+          MAX_RETRIES="$INPUTS_MAX_RETRIES"
+          FORCE_BUILD="$INPUTS_FORCE_BUILD"
 
           CMD="uv run benchmarks/swebench/build_images.py \
             --dataset '${DATASET}' \
@@ -214,6 +222,17 @@ jobs:
 
       - name: Build prebaked eval env images
         if: ${{ inputs.build-eval-env == 'true' }}
+        env:
+          INPUTS_DATASET: ${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}
+          INPUTS_SPLIT: ${{ inputs.split || 'test' }}
+          INPUTS_N_LIMIT: ${{ inputs.n-limit || '0' }}
+          INPUTS_INSTANCE_IDS: ${{ inputs.instance-ids }}
+          INPUTS_EVAL_IMAGE_PREFIX: ${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}
+          INPUTS_MAX_WORKERS: ${{ inputs.max-workers || '4' }}
+          INPUTS_BUILD_MODE: ${{ inputs.build-mode || 'cli' }}
+          INPUTS_MAX_RETRIES: ${{ inputs.max-retries || '2' }}
+          INPUTS_EVAL_ENV_BUILD_BATCH_SIZE: ${{ inputs.eval-env-build-batch-size || '10' }}
+          INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
         run: |
           set -euo pipefail
 
@@ -223,16 +242,16 @@ jobs:
           docker system df || true
           docker info || true
 
-          DATASET="${{ inputs.dataset || 'eth-sri/SWT-bench_Verified_bm25_27k_zsp' }}"
-          SPLIT="${{ inputs.split || 'test' }}"
-          N_LIMIT="${{ inputs.n-limit || '0' }}"
-          INSTANCE_IDS="${{ inputs.instance-ids }}"
-          IMAGE_PREFIX="${{ inputs.eval-image-prefix || 'ghcr.io/openhands/swtbench-eval' }}"
-          MAX_WORKERS="${{ inputs.max-workers || '4' }}"
-          BUILD_MODE="${{ inputs.build-mode || 'cli' }}"
-          MAX_RETRIES="${{ inputs.max-retries || '2' }}"
-          BUILD_BATCH_SIZE="${{ inputs.eval-env-build-batch-size || '10' }}"
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+          DATASET="$INPUTS_DATASET"
+          SPLIT="$INPUTS_SPLIT"
+          N_LIMIT="$INPUTS_N_LIMIT"
+          INSTANCE_IDS="$INPUTS_INSTANCE_IDS"
+          IMAGE_PREFIX="$INPUTS_EVAL_IMAGE_PREFIX"
+          MAX_WORKERS="$INPUTS_MAX_WORKERS"
+          BUILD_MODE="$INPUTS_BUILD_MODE"
+          MAX_RETRIES="$INPUTS_MAX_RETRIES"
+          BUILD_BATCH_SIZE="$INPUTS_EVAL_ENV_BUILD_BATCH_SIZE"
+          FORCE_BUILD="$INPUTS_FORCE_BUILD"
 
           echo "N_LIMIT=${N_LIMIT}" >> "$GITHUB_ENV"
           echo "MAX_RETRIES=${MAX_RETRIES}" >> "$GITHUB_ENV"
@@ -319,6 +338,10 @@ jobs:
 
       - name: Comment on tracker issue
         if: success()
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
         run: |
           # Get SDK version
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
@@ -336,12 +359,12 @@ jobs:
           SUCCESS_COUNT=$(grep -c '"error":null' "$MANIFEST_FILE" || echo 0)
 
           # Determine trigger source
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            TRIGGER="Pull request [#$GITHUB_EVENT_PULL_REQUEST_NUMBER]($GITHUB_EVENT_PULL_REQUEST_HTML_URL)"
           else
-            TRIGGER="${{ github.event_name }}"
+            TRIGGER="$GITHUB_EVENT_NAME"
           fi
 
           # Post comment using jq to properly handle multi-line content

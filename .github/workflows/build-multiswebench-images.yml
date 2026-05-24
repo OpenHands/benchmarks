@@ -102,13 +102,17 @@ jobs:
     steps:
       - name: Determine checkout ref
         id: checkout-ref
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          INPUTS_BENCHMARKS_COMMIT: ${{ inputs.benchmarks-commit }}
+          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.benchmarks-commit }}" ]; then
-            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
-            echo "Using benchmarks-commit from workflow_dispatch: ${{ inputs.benchmarks-commit }}"
-          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
-            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUTS_BENCHMARKS_COMMIT" ]; then
+            echo "ref=$INPUTS_BENCHMARKS_COMMIT" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-commit from workflow_dispatch: $INPUTS_BENCHMARKS_COMMIT"
+          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
+            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: $GITHUB_EVENT_PULL_REQUEST_HEAD_SHA"
           else
             # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
             echo "ref=" >> "$GITHUB_OUTPUT"
@@ -124,21 +128,31 @@ jobs:
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUTS_DATASET: ${{ inputs.dataset }}
+          INPUTS_SPLIT: ${{ inputs.split }}
+          INPUTS_LANGUAGE: ${{ inputs.language }}
+          INPUTS_MAX_WORKERS: ${{ inputs.max-workers }}
+          INPUTS_MAX_RETRIES: ${{ inputs.max-retries }}
+          INPUTS_N_LIMIT: ${{ inputs.n-limit }}
+          INPUTS_INSTANCE_IDS: ${{ inputs.instance-ids }}
         run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.language }}" ]; then echo "LANGUAGE=${{ inputs.language }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_DATASET" ]; then echo "DATASET=$INPUTS_DATASET" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_SPLIT" ]; then echo "SPLIT=$INPUTS_SPLIT" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_LANGUAGE" ]; then echo "LANGUAGE=$INPUTS_LANGUAGE" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_MAX_WORKERS" ]; then echo "MAX_WORKERS=$INPUTS_MAX_WORKERS" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_MAX_RETRIES" ]; then echo "MAX_RETRIES=$INPUTS_MAX_RETRIES" >> "$GITHUB_ENV"; fi
           # Empty string means "no limit"
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_N_LIMIT" ]; then echo "N_LIMIT=$INPUTS_N_LIMIT" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_INSTANCE_IDS" ]; then echo "INSTANCE_IDS=$INPUTS_INSTANCE_IDS" >> "$GITHUB_ENV"; fi
 
       # Set N_LIMIT based on the label that triggered the workflow
       - name: Set N_LIMIT based on label
         if: ${{ github.event_name == 'pull_request_target' }}
+        env:
+          GITHUB_EVENT_LABEL_NAME: ${{ github.event.label.name }}
         run: |
-          LABEL_NAME="${{ github.event.label.name }}"
+          LABEL_NAME="$GITHUB_EVENT_LABEL_NAME"
           if [ "$LABEL_NAME" = "build-multiswebench-50" ]; then
             echo "N_LIMIT=50" >> "$GITHUB_ENV"
             echo "Building 50 images based on label: build-multiswebench-50"
@@ -158,15 +172,17 @@ jobs:
       # Must run BEFORE install dependencies so git submodule update works correctly
       - name: Update SDK submodule
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk-commit != '' }}
+        env:
+          INPUTS_SDK_COMMIT: ${{ inputs.sdk-commit }}
         run: |
           cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
+          git fetch origin "$INPUTS_SDK_COMMIT"
           git checkout FETCH_HEAD
           SDK_SHA=$(git rev-parse HEAD)
           cd ../..
           # Stage the submodule reference update so make build uses it
           git add vendor/software-agent-sdk
-          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+          echo "Updated SDK submodule to $SDK_SHA (from $INPUTS_SDK_COMMIT)"
 
       - name: Set up Docker Buildx with Blacksmith
         uses: useblacksmith/setup-docker-builder@v1
@@ -218,9 +234,11 @@ jobs:
           fi
 
       - name: Build and push Multi-SWE-Bench images
+        env:
+          INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
         run: |
           set -euo pipefail
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+          FORCE_BUILD="$INPUTS_FORCE_BUILD"
 
           CMD="uv run benchmarks/multiswebench/build_images.py \
             --dataset '${DATASET}' \
@@ -279,6 +297,10 @@ jobs:
 
       - name: Comment on tracker issue
         if: success()
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
         run: |
           # Get SDK version from submodule
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
@@ -313,12 +335,12 @@ jobs:
           ")
           
           # Determine how the workflow was triggered
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            TRIGGER="Pull request [#$GITHUB_EVENT_PULL_REQUEST_NUMBER]($GITHUB_EVENT_PULL_REQUEST_HTML_URL)"
           else
-            TRIGGER="${{ github.event_name }}"
+            TRIGGER="$GITHUB_EVENT_NAME"
           fi
           
           # Create the comment body

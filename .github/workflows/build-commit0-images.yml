@@ -113,16 +113,20 @@ jobs:
     steps:
       - name: Determine checkout ref
         id: checkout-ref
+        env:
+          INPUTS_BENCHMARKS_REF: ${{ inputs.benchmarks-ref }}
+          INPUTS_BENCHMARKS_COMMIT: ${{ inputs.benchmarks-commit }}
+          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
-            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
-            echo "Using benchmarks-ref: ${{ inputs.benchmarks-ref }}"
-          elif [ -n "${{ inputs.benchmarks-commit }}" ]; then
-            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
-            echo "Using benchmarks-commit: ${{ inputs.benchmarks-commit }}"
-          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
-            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          if [ -n "$INPUTS_BENCHMARKS_REF" ]; then
+            echo "ref=$INPUTS_BENCHMARKS_REF" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-ref: $INPUTS_BENCHMARKS_REF"
+          elif [ -n "$INPUTS_BENCHMARKS_COMMIT" ]; then
+            echo "ref=$INPUTS_BENCHMARKS_COMMIT" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-commit: $INPUTS_BENCHMARKS_COMMIT"
+          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
+            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: $GITHUB_EVENT_PULL_REQUEST_HEAD_SHA"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using triggering ref (default)"
@@ -137,14 +141,22 @@ jobs:
 
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUTS_DATASET: ${{ inputs.dataset }}
+          INPUTS_SPLIT: ${{ inputs.split }}
+          INPUTS_REPO_SPLIT: ${{ inputs.repo-split }}
+          INPUTS_MAX_WORKERS: ${{ inputs.max-workers }}
+          INPUTS_N_LIMIT: ${{ inputs.n-limit }}
+          INPUTS_INSTANCE_IDS: ${{ inputs.instance-ids }}
+          INPUTS_SDK_COMMIT: ${{ inputs.sdk-commit }}
         run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.repo-split }}" ]; then echo "REPO_SPLIT=${{ inputs.repo-split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.sdk-commit }}" ]; then echo "SDK_COMMIT=${{ inputs.sdk-commit }}" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_DATASET" ]; then echo "DATASET=$INPUTS_DATASET" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_SPLIT" ]; then echo "SPLIT=$INPUTS_SPLIT" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_REPO_SPLIT" ]; then echo "REPO_SPLIT=$INPUTS_REPO_SPLIT" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_MAX_WORKERS" ]; then echo "MAX_WORKERS=$INPUTS_MAX_WORKERS" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_N_LIMIT" ]; then echo "N_LIMIT=$INPUTS_N_LIMIT" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_INSTANCE_IDS" ]; then echo "INSTANCE_IDS=$INPUTS_INSTANCE_IDS" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_SDK_COMMIT" ]; then echo "SDK_COMMIT=$INPUTS_SDK_COMMIT" >> "$GITHUB_ENV"; fi
 
       - uses: ./.github/actions/build-select-file
         with:
@@ -152,14 +164,16 @@ jobs:
 
       - name: Update SDK submodule
         if: ${{ inputs.sdk-commit != '' }}
+        env:
+          INPUTS_SDK_COMMIT: ${{ inputs.sdk-commit }}
         run: |
           cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
+          git fetch origin "$INPUTS_SDK_COMMIT"
           git checkout FETCH_HEAD
           SDK_SHA=$(git rev-parse HEAD)
           cd ../..
           git add vendor/software-agent-sdk
-          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+          echo "Updated SDK submodule to $SDK_SHA (from $INPUTS_SDK_COMMIT)"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -199,9 +213,11 @@ jobs:
           docker system df || true
 
       - name: Build and push Commit0 images
+        env:
+          INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
         run: |
           set -euo pipefail
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+          FORCE_BUILD="$INPUTS_FORCE_BUILD"
 
           CMD="uv run benchmarks/commit0/build_images.py \
             --dataset '${DATASET}' \

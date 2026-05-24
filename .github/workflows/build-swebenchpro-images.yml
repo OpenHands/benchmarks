@@ -128,13 +128,17 @@ jobs:
     steps:
       - name: Determine checkout ref
         id: checkout-ref
+        env:
+          INPUTS_BENCHMARKS_REF: ${{ inputs.benchmarks-ref }}
+          INPUTS_BENCHMARKS_COMMIT: ${{ inputs.benchmarks-commit }}
+          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
-            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ inputs.benchmarks-commit }}" ]; then
-            echo "ref=${{ inputs.benchmarks-commit }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
-            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUTS_BENCHMARKS_REF" ]; then
+            echo "ref=$INPUTS_BENCHMARKS_REF" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INPUTS_BENCHMARKS_COMMIT" ]; then
+            echo "ref=$INPUTS_BENCHMARKS_COMMIT" >> "$GITHUB_OUTPUT"
+          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
+            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
           fi
@@ -148,18 +152,27 @@ jobs:
 
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUTS_DATASET: ${{ inputs.dataset }}
+          INPUTS_SPLIT: ${{ inputs.split }}
+          INPUTS_MAX_WORKERS: ${{ inputs.max-workers }}
+          INPUTS_MAX_RETRIES: ${{ inputs.max-retries }}
+          INPUTS_N_LIMIT: ${{ inputs.n-limit }}
+          INPUTS_INSTANCE_IDS: ${{ inputs.instance-ids }}
         run: |
-          if [ -n "${{ inputs.dataset }}" ]; then echo "DATASET=${{ inputs.dataset }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.split }}" ]; then echo "SPLIT=${{ inputs.split }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-workers }}" ]; then echo "MAX_WORKERS=${{ inputs.max-workers }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.max-retries }}" ]; then echo "MAX_RETRIES=${{ inputs.max-retries }}" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.n-limit }}" ]; then echo "N_LIMIT=${{ inputs.n-limit }}" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
-          if [ -n "${{ inputs.instance-ids }}" ]; then echo "INSTANCE_IDS=${{ inputs.instance-ids }}" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_DATASET" ]; then echo "DATASET=$INPUTS_DATASET" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_SPLIT" ]; then echo "SPLIT=$INPUTS_SPLIT" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_MAX_WORKERS" ]; then echo "MAX_WORKERS=$INPUTS_MAX_WORKERS" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_MAX_RETRIES" ]; then echo "MAX_RETRIES=$INPUTS_MAX_RETRIES" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_N_LIMIT" ]; then echo "N_LIMIT=$INPUTS_N_LIMIT" >> "$GITHUB_ENV"; else echo "N_LIMIT=" >> "$GITHUB_ENV"; fi
+          if [ -n "$INPUTS_INSTANCE_IDS" ]; then echo "INSTANCE_IDS=$INPUTS_INSTANCE_IDS" >> "$GITHUB_ENV"; fi
 
       - name: Set N_LIMIT based on label
         if: ${{ github.event_name == 'pull_request_target' }}
+        env:
+          GITHUB_EVENT_LABEL_NAME: ${{ github.event.label.name }}
         run: |
-          LABEL_NAME="${{ github.event.label.name }}"
+          LABEL_NAME="$GITHUB_EVENT_LABEL_NAME"
           if [ "$LABEL_NAME" = "build-swebenchpro-50" ]; then
             echo "N_LIMIT=50" >> "$GITHUB_ENV"
           elif [ "$LABEL_NAME" = "build-swebenchpro-200" ]; then
@@ -174,9 +187,11 @@ jobs:
 
       - name: Update SDK submodule
         if: ${{ inputs.sdk-commit != '' }}
+        env:
+          INPUTS_SDK_COMMIT: ${{ inputs.sdk-commit }}
         run: |
           cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
+          git fetch origin "$INPUTS_SDK_COMMIT"
           git checkout FETCH_HEAD
           cd ../..
           git add vendor/software-agent-sdk
@@ -200,9 +215,11 @@ jobs:
         run: make build
 
       - name: Build and push SWE-Bench Pro images
+        env:
+          INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
         run: |
           set -euo pipefail
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+          FORCE_BUILD="$INPUTS_FORCE_BUILD"
 
           CMD="uv run benchmarks/swebenchpro/build_images.py \
             --dataset '${DATASET}' \

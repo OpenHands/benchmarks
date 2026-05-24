@@ -59,13 +59,16 @@ jobs:
     steps:
       - name: Determine checkout ref
         id: checkout-ref
+        env:
+          INPUTS_BENCHMARKS_REF: ${{ inputs.benchmarks-ref }}
+          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -n "${{ inputs.benchmarks-ref }}" ]; then
-            echo "ref=${{ inputs.benchmarks-ref }}" >> "$GITHUB_OUTPUT"
-            echo "Using benchmarks-ref: ${{ inputs.benchmarks-ref }}"
-          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
-            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
+          if [ -n "$INPUTS_BENCHMARKS_REF" ]; then
+            echo "ref=$INPUTS_BENCHMARKS_REF" >> "$GITHUB_OUTPUT"
+            echo "Using benchmarks-ref: $INPUTS_BENCHMARKS_REF"
+          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
+            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: $GITHUB_EVENT_PULL_REQUEST_HEAD_SHA"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
@@ -80,14 +83,16 @@ jobs:
 
       - name: Update SDK submodule
         if: ${{ inputs.sdk-commit != '' }}
+        env:
+          INPUTS_SDK_COMMIT: ${{ inputs.sdk-commit }}
         run: |
           cd vendor/software-agent-sdk
-          git fetch origin ${{ inputs.sdk-commit }}
+          git fetch origin "$INPUTS_SDK_COMMIT"
           git checkout FETCH_HEAD
           SDK_SHA=$(git rev-parse HEAD)
           cd ../..
           git add vendor/software-agent-sdk
-          echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
+          echo "Updated SDK submodule to $SDK_SHA (from $INPUTS_SDK_COMMIT)"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -109,9 +114,11 @@ jobs:
           make build
 
       - name: Build and push GAIA image with MCP layer
+        env:
+          INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
         run: |
           set -euo pipefail
-          FORCE_BUILD="${{ inputs.force-build || 'false' }}"
+          FORCE_BUILD="$INPUTS_FORCE_BUILD"
 
           # GAIA requires 'binary' target to include Chromium for browser operations
           TARGET="binary"
@@ -162,6 +169,10 @@ jobs:
 
       - name: Comment on tracker issue
         if: success()
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
         run: |
           # Get SDK version
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
@@ -184,12 +195,12 @@ jobs:
           fi
 
           # Determine trigger source
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            TRIGGER="Pull request [#$GITHUB_EVENT_PULL_REQUEST_NUMBER]($GITHUB_EVENT_PULL_REQUEST_HTML_URL)"
           else
-            TRIGGER="${{ github.event_name }}"
+            TRIGGER="$GITHUB_EVENT_NAME"
           fi
 
           # Post comment using jq to properly handle multi-line content
