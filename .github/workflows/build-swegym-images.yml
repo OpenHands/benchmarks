@@ -228,6 +228,11 @@ jobs:
       - name: Build and push SWE-Gym images
         env:
           INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
+          BUILDKIT_RESET_ON_FAILURE: 1
+
         run: |
           set -euo pipefail
           FORCE_BUILD="$INPUTS_FORCE_BUILD"
@@ -253,12 +258,6 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
-          BUILDKIT_RESET_ON_FAILURE: 1
-
       - name: Archive build logs
         if: always()
         run: |
@@ -292,6 +291,7 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Get SDK version from submodule
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
@@ -360,5 +360,3 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments" \
             -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

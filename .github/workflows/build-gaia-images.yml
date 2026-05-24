@@ -116,6 +116,10 @@ jobs:
       - name: Build and push GAIA image with MCP layer
         env:
           INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
+
         run: |
           set -euo pipefail
           FORCE_BUILD="$INPUTS_FORCE_BUILD"
@@ -136,11 +140,6 @@ jobs:
           eval "$CMD"
 
           echo "✅ GAIA image with MCP layer built and pushed successfully"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
-
       - name: Archive build logs
         if: always()
         run: |
@@ -173,6 +172,7 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Get SDK version
           SDK_SHA=$(git submodule status vendor/software-agent-sdk | awk '{print $1}' | sed 's/^[+-]//')
@@ -220,5 +220,3 @@ jobs:
             -H "Content-Type: application/json" \
             "${{ github.api_url }}/repos/${{ github.repository }}/issues/81/comments" \
             -d @-
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

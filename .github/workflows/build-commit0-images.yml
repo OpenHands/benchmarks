@@ -215,6 +215,10 @@ jobs:
       - name: Build and push Commit0 images
         env:
           INPUTS_FORCE_BUILD: ${{ inputs.force-build || 'false' }}
+          DOCKER_BUILDKIT: 1
+          BUILDKIT_PROGRESS: plain
+          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
+
         run: |
           set -euo pipefail
           FORCE_BUILD="$INPUTS_FORCE_BUILD"
@@ -239,11 +243,6 @@ jobs:
 
           echo "Running: $CMD"
           eval "$CMD"
-        env:
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_PROGRESS: plain
-          EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
-
       - name: Archive build logs
         if: always()
         run: |
