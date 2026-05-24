@@ -99,7 +99,7 @@ jobs:
         env:
           INPUTS_BENCHMARKS_COMMIT: ${{ inputs.benchmarks-commit }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUTS_BENCHMARKS_COMMIT" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$INPUTS_BENCHMARKS_COMMIT" ]; then
             echo "ref=$INPUTS_BENCHMARKS_COMMIT" >> "$GITHUB_OUTPUT"
             echo "Using benchmarks-commit from workflow_dispatch: $INPUTS_BENCHMARKS_COMMIT"
           elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
@@ -319,12 +319,12 @@ jobs:
           ")
           
           # Determine how the workflow was triggered
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
-          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
             TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
           else
-            TRIGGER="$GITHUB_EVENT_NAME"
+            TRIGGER="${{ github.event_name }}"
           fi
           
           # Create the comment body

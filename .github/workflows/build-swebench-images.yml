@@ -343,12 +343,12 @@ jobs:
           ")
           
           # Determine how the workflow was triggered
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
-          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
             TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
           else
-            TRIGGER="$GITHUB_EVENT_NAME"
+            TRIGGER="${{ github.event_name }}"
           fi
           
           # Create the comment body
