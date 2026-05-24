@@ -103,16 +103,14 @@ jobs:
       - name: Determine checkout ref
         id: checkout-ref
         env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
           INPUTS_BENCHMARKS_COMMIT: ${{ inputs.benchmarks-commit }}
-          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUTS_BENCHMARKS_COMMIT" ]; then
             echo "ref=$INPUTS_BENCHMARKS_COMMIT" >> "$GITHUB_OUTPUT"
             echo "Using benchmarks-commit from workflow_dispatch: $INPUTS_BENCHMARKS_COMMIT"
-          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
-            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
-            echo "Using PR head SHA: $GITHUB_EVENT_PULL_REQUEST_HEAD_SHA"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
             # Empty ref means checkout the ref that triggered the workflow (e.g., main branch for workflow_dispatch)
             echo "ref=" >> "$GITHUB_OUTPUT"
@@ -149,10 +147,8 @@ jobs:
       # Set N_LIMIT based on the label that triggered the workflow
       - name: Set N_LIMIT based on label
         if: ${{ github.event_name == 'pull_request_target' }}
-        env:
-          GITHUB_EVENT_LABEL_NAME: ${{ github.event.label.name }}
         run: |
-          LABEL_NAME="$GITHUB_EVENT_LABEL_NAME"
+          LABEL_NAME="${{ github.event.label.name }}"
           if [ "$LABEL_NAME" = "build-multiswebench-50" ]; then
             echo "N_LIMIT=50" >> "$GITHUB_ENV"
             echo "Building 50 images based on label: build-multiswebench-50"
@@ -297,9 +293,6 @@ jobs:
       - name: Comment on tracker issue
         if: success()
         env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Get SDK version from submodule
@@ -338,7 +331,7 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
           elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            TRIGGER="Pull request [#$GITHUB_EVENT_PULL_REQUEST_NUMBER]($GITHUB_EVENT_PULL_REQUEST_HTML_URL)"
+            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
           else
             TRIGGER="$GITHUB_EVENT_NAME"
           fi

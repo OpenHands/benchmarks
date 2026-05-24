@@ -116,7 +116,6 @@ jobs:
         env:
           INPUTS_BENCHMARKS_REF: ${{ inputs.benchmarks-ref }}
           INPUTS_BENCHMARKS_COMMIT: ${{ inputs.benchmarks-commit }}
-          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ -n "$INPUTS_BENCHMARKS_REF" ]; then
             echo "ref=$INPUTS_BENCHMARKS_REF" >> "$GITHUB_OUTPUT"
@@ -124,9 +123,9 @@ jobs:
           elif [ -n "$INPUTS_BENCHMARKS_COMMIT" ]; then
             echo "ref=$INPUTS_BENCHMARKS_COMMIT" >> "$GITHUB_OUTPUT"
             echo "Using benchmarks-commit: $INPUTS_BENCHMARKS_COMMIT"
-          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
-            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
-            echo "Using PR head SHA: $GITHUB_EVENT_PULL_REQUEST_HEAD_SHA"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using triggering ref (default)"

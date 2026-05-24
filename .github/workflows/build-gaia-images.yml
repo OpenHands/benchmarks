@@ -61,14 +61,13 @@ jobs:
         id: checkout-ref
         env:
           INPUTS_BENCHMARKS_REF: ${{ inputs.benchmarks-ref }}
-          GITHUB_EVENT_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ -n "$INPUTS_BENCHMARKS_REF" ]; then
             echo "ref=$INPUTS_BENCHMARKS_REF" >> "$GITHUB_OUTPUT"
             echo "Using benchmarks-ref: $INPUTS_BENCHMARKS_REF"
-          elif [ -n "$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" ]; then
-            echo "ref=$GITHUB_EVENT_PULL_REQUEST_HEAD_SHA" >> "$GITHUB_OUTPUT"
-            echo "Using PR head SHA: $GITHUB_EVENT_PULL_REQUEST_HEAD_SHA"
+          elif [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Using PR head SHA: ${{ github.event.pull_request.head.sha }}"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
             echo "Using default ref (the commit that triggered this workflow)"
@@ -169,9 +168,6 @@ jobs:
       - name: Comment on tracker issue
         if: success()
         env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Get SDK version
@@ -198,7 +194,7 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             TRIGGER="Manual trigger (workflow_dispatch)"
           elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            TRIGGER="Pull request [#$GITHUB_EVENT_PULL_REQUEST_NUMBER]($GITHUB_EVENT_PULL_REQUEST_HTML_URL)"
+            TRIGGER="Pull request [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
           else
             TRIGGER="$GITHUB_EVENT_NAME"
           fi
