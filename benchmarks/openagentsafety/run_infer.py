@@ -31,8 +31,8 @@ from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.task import TaskToolSet
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.task import TaskToolSet
 from openhands.workspace import DockerWorkspace
 
 

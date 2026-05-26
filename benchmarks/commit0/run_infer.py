@@ -46,8 +46,8 @@ from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.task import TaskToolSet
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace
 
 

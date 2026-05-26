@@ -71,8 +71,8 @@ from openhands.sdk.hooks import (
     HookType,
 )
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.task import TaskToolSet
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.task import TaskToolSet
 from openhands.workspace import DockerDevWorkspace
 
 
