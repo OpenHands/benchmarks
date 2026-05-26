@@ -57,7 +57,7 @@ from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.event import ActionEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
+from openhands.tools.task import TaskToolSet
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace
 
@@ -328,7 +328,7 @@ class GAIAEvaluation(Evaluation):
             agent_llm = build_eval_llm(self.metadata.llm)
             tools = get_default_tools(enable_browser=True)
             if self.metadata.enable_delegation:
-                tools.append(Tool(name=DelegateTool.name))
+                tools.append(Tool(name=TaskToolSet.name))
             tavily_api_key = os.getenv("TAVILY_API_KEY", "")
             assert tavily_api_key, "TAVILY_API_KEY environment variable is not set"
             condenser = None
