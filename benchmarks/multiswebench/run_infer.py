@@ -38,8 +38,8 @@ from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
 
@@ -284,7 +284,7 @@ class MultiSWEBenchEvaluation(Evaluation):
             enable_browser=False,
         )
         if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
+            tools.append(Tool(name=TaskToolSet.name))
 
         # Create condenser if enabled
         agent_llm = build_eval_llm(self.metadata.llm)

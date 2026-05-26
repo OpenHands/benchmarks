@@ -71,8 +71,8 @@ from openhands.sdk.hooks import (
     HookType,
 )
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.task import TaskToolSet
 from openhands.workspace import DockerDevWorkspace
 
 
@@ -268,7 +268,7 @@ class ProgramBenchEvaluation(Evaluation):
             agent_llm = build_eval_llm(self.metadata.llm)
             tools = get_default_tools(enable_browser=False)
             if self.metadata.enable_delegation:
-                tools.append(Tool(name=DelegateTool.name))
+                tools.append(Tool(name=TaskToolSet.name))
             condenser = None
             if self.metadata.enable_condenser:
                 condenser = LLMSummarizingCondenser(
