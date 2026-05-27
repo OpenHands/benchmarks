@@ -48,7 +48,9 @@ def extract_accumulated_cost(jsonl_data: List[Optional[Dict]]) -> float:
         if entry is None:
             continue
         metrics = entry.get("metrics") or {}
-        accumulated_cost = metrics.get("accumulated_cost")
+        accumulated_cost = metrics.get("accumulated_cost") or metrics.get(
+            "total_cost_usd"
+        )
         if accumulated_cost is not None:
             total_cost += float(accumulated_cost)
 

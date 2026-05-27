@@ -66,6 +66,22 @@ def test_infer_defaults_use_existing_resolved_instances_file():
     assert DEFAULT_RESOLVED_INSTANCES_FILE.is_file()
 
 
+def test_resolved_instances_file_is_non_empty():
+    """Guard against an accidentally truncated curated subset file.
+
+    The build/inference defaults silently fall back to this file, so an empty
+    file would result in zero instances being processed without a clear error.
+    """
+    instances = [
+        line.strip()
+        for line in DEFAULT_RESOLVED_INSTANCES_FILE.read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(instances) > 0, (
+        f"Curated instance file {DEFAULT_RESOLVED_INSTANCES_FILE} is empty"
+    )
+
+
 def test_resolved_instances_file_matches_solveable_annotations():
     annotations_path = DEFAULT_RESOLVED_INSTANCES_FILE.with_name(
         "ambiguity_annotations.json"

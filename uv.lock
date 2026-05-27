@@ -1783,6 +1783,15 @@ wheels = [
 ]
 
 [[package]]
+name = "junitparser"
+version = "5.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/26/61/1685f940545177c553683c10114f5bb5bc093996fe651b29b8bee07f63e9/junitparser-5.0.0.tar.gz", hash = "sha256:f15e292877258d7c5755d672ce86f82c3622c7ea4c2f44f55de44ed7518484d3", size = 26259, upload-time = "2026-03-29T01:59:15.864Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/e6/54c543336cc49aadc50fea1b66835903afbdcff9eeb8a9d26a475b2d9c47/junitparser-5.0.0-py3-none-any.whl", hash = "sha256:9e279f2214dc74b6a86b22db757abda2e8e66e819fe882dad5b392d57024cd26", size = 14801, upload-time = "2026-03-29T01:59:14.613Z" },
+]
+
+[[package]]
 name = "jws"
 version = "0.1.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2459,6 +2468,7 @@ dependencies = [
     { name = "openhands-workspace" },
     { name = "pandas" },
     { name = "pillow" },
+    { name = "programbench", marker = "sys_platform != 'darwin'" },
     { name = "pydantic" },
     { name = "pyright", extra = ["nodejs"] },
     { name = "pytest-json-report" },
@@ -2514,6 +2524,7 @@ requires-dist = [
     { name = "openhands-workspace", editable = "vendor/software-agent-sdk/openhands-workspace" },
     { name = "pandas" },
     { name = "pillow" },
+    { name = "programbench", marker = "sys_platform != 'darwin'", specifier = ">=1.0,<2.0" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pyright", extras = ["nodejs"], specifier = ">=1.1.405" },
     { name = "pytest-json-report" },
@@ -3026,6 +3037,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/29/7cf5bbc236333876e4b41f56e06857a87937ce4bf91e117a6991a2dbb02a/pre_commit-4.3.0.tar.gz", hash = "sha256:499fe450cc9d42e9d58e606262795ecb64dd05438943c62b66f6a8673da30b16", size = 193792, upload-time = "2025-08-09T18:56:14.651Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5b/a5/987a405322d78a73b66e39e4a90e4ef156fd7141bf71df987e50717c321b/pre_commit-4.3.0-py2.py3-none-any.whl", hash = "sha256:2b0747ad7e6e967169136edffee14c16e148a778a54e4f967921aa1ebf2308d8", size = 220965, upload-time = "2025-08-09T18:56:13.192Z" },
+]
+
+[[package]]
+name = "programbench"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "jinja2" },
+    { name = "junitparser" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "tqdm" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/db/cb/49105629c3902993a8264ffe18aed9241404c47e8e696cd4493969ec20ef/programbench-1.0.0.tar.gz", hash = "sha256:7cb3fadaf81008abf7bb8f9f033054105f01366ffce879265669cb1b9a001116", size = 3251267, upload-time = "2026-05-05T14:31:51.219Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/da/4fb04e77bce98229db72795ae2c39193ca2f4a565e39bbf30ec35d405467/programbench-1.0.0-py3-none-any.whl", hash = "sha256:c556bc483175a7997699357248f44aaf5bd437b7cf3a117019e3a79a88630ce4", size = 3399236, upload-time = "2026-05-05T14:31:49.404Z" },
 ]
 
 [[package]]

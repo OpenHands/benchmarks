@@ -103,7 +103,7 @@ jobs:
 
     timeout-minutes: 600  # 10h — matches the old orchestrate_eval.py polling bound in the evaluation repo
 
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest-8core
 
     permissions:
       contents: read
@@ -133,7 +133,7 @@ jobs:
           repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       - name: Apply workflow_dispatch overrides (if any)
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -165,7 +165,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -179,6 +179,24 @@ jobs:
       - name: Install dependencies
         run: |
           make build
+
+      - name: "Preflight: prune cache and verify disk"
+        run: |
+          set -euo pipefail
+          echo "=== Pre-prune disk ==="
+          df -h
+          free -h
+          docker system df || true
+          KEEP_GB=30
+          echo "Pruning BuildKit cache to ${KEEP_GB} GiB..."
+          if ! docker buildx prune --all --force --max-storage ${KEEP_GB}g 2>/dev/null; then
+            docker buildx prune --all --force --keep-storage ${KEEP_GB}g || true
+          fi
+          docker builder prune -af --keep-storage ${KEEP_GB}g || true
+          docker system prune -f || true
+          echo "=== Post-prune disk ==="
+          df -h
+          docker system df || true
 
       - name: Build and push Commit0 images
         run: |
@@ -222,7 +240,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: build-logs-${{ github.run_id }}
           path: build-logs.tar.gz

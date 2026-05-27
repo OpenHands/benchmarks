@@ -89,10 +89,11 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         "--tool-preset",
         type=str,
         default="default",
-        choices=["default", "gemini", "planning"],
+        choices=["default", "gemini", "gpt5", "planning"],
         help=(
             "Tool preset for file editing. 'default' uses FileEditorTool, "
-            "'gemini' uses read_file/write_file/edit/list_directory (default: default)"
+            "'gemini' uses read_file/write_file/edit/list_directory, "
+            "'gpt5' uses apply_patch tool (default: default)"
         ),
     )
     parser.add_argument(

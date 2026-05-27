@@ -46,6 +46,10 @@ dependencies = [
     "swt-bench @ git+https://github.com/logic-star-ai/swt-bench.git@5fdcd446ff05e248ecfffc19d560a210699f71f8",
     # See https://github.com/OpenHands/benchmarks/issues/449
     "hf-xet>=1.1.10,<2.0",
+    # ProgramBench upstream harness — provides the `programbench` CLI used
+    # by `programbench-eval`, plus task metadata loaders we use during
+    # inference. Pinned by minor version while the upstream API stabilises.
+    "programbench>=1.0,<2.0; sys_platform != 'darwin'",
 ]
 
 [project.scripts]
@@ -53,6 +57,8 @@ validate-cfg = "benchmarks.scripts.validate_cfg:main"
 swebench-infer = "benchmarks.swebench.run_infer:main"
 swtbench-infer = "benchmarks.swtbench.run_infer:main"
 swebench-eval = "benchmarks.swebench.eval_infer:main"
+swebenchpro-infer = "benchmarks.swebenchpro.run_infer:main"
+swebenchpro-eval = "benchmarks.swebenchpro.eval_infer:main"
 swtbench-eval = "benchmarks.swtbench.eval_infer:main"
 swtbench-list-images = "benchmarks.swtbench.image_utils:main"
 swtbench-build-eval-images = "benchmarks.swtbench.build_eval_env_images:main"
@@ -71,6 +77,8 @@ swebenchmultilingual-eval = "benchmarks.swebenchmultilingual.eval_infer:main"
 swefficiency-infer = "benchmarks.swefficiency.run_infer:main"
 terminalbench-infer = "benchmarks.terminalbench.run_infer:main"
 terminalbench-eval = "benchmarks.terminalbench.eval_infer:main"
+skillsbench-infer = "benchmarks.skillsbench.run_infer:main"
+skillsbench-eval = "benchmarks.skillsbench.eval_infer:main"
 hybridgym-funclocalize-infer = "benchmarks.hybridgym_funclocalize.run_infer:main"
 hybridgym-funclocalize-eval = "benchmarks.hybridgym_funclocalize.eval_infer:main"
 hybridgym-depsearch-infer = "benchmarks.hybridgym_depsearch.run_infer:main"
@@ -81,6 +89,8 @@ hybridgym-issuelocalize-infer = "benchmarks.hybridgym_issuelocalize.run_infer:ma
 hybridgym-issuelocalize-eval = "benchmarks.hybridgym_issuelocalize.eval_infer:main"
 swesmith-infer = "benchmarks.swesmith.run_infer:main"
 swesmith-eval = "benchmarks.swesmith.eval_infer:main"
+programbench-infer = "benchmarks.programbench.run_infer:main"
+programbench-eval = "benchmarks.programbench.eval_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

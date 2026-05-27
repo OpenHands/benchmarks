@@ -75,7 +75,7 @@ def create_virtual_key(
         resp = httpx.post(
             f"{base_url}/key/generate",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"metadata": metadata, "max_budget": max_budget},
+            json={"metadata": metadata, "max_budget": max_budget, "duration": "6h"},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()

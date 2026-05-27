@@ -22,11 +22,6 @@ on:
         required: false
         type: string
         default: ''
-      agent-type:
-        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
-        required: false
-        type: string
-        default: 'default'
       benchmarks-ref:
         description: 'Benchmarks repo ref to checkout (for cross-repo calls)'
         required: false
@@ -54,7 +49,7 @@ on:
       max-retries:
         description: 'Retries per image build'
         required: false
-        default: '2'
+        default: '5'
         type: string
       n-limit:
         description: 'Limit number of images to build (for testing). Leave blank for no limit.'
@@ -85,11 +80,6 @@ on:
         description: 'Rebuild images even if matching remote tags already exist'
         required: false
         default: 'false'
-        type: string
-      agent-type:
-        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
-        required: false
-        default: 'default'
         type: string
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
@@ -148,7 +138,7 @@ jobs:
           repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       # If this was a manual dispatch, override defaults with provided inputs.
       - name: Apply workflow_dispatch overrides (if any)
@@ -200,7 +190,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -267,14 +257,12 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
-          CMD="$CMD --agent-type ${AGENT_TYPE}"
 
           echo "Running: $CMD"
           eval "$CMD"
         env:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
-          AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
           EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
 
       - name: Archive build logs
@@ -290,7 +278,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: build-logs-${{ github.run_id }}
           path: build-logs.tar.gz

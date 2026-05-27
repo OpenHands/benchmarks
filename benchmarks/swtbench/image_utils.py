@@ -15,6 +15,132 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
+_GRADING_PATCH_MARKER = "# openhands-benchmarks: defensive coverage-marker split"
+_REPORT_ISOLATION_MARKER = "# openhands-benchmarks: per-instance report isolation"
+
+
+def _patch_grading_get_logs_eval(swt_bench_dir: Path) -> None:
+    """
+    Make upstream ``src/grading.py::get_logs_eval`` defensive against missing
+    coverage-trace markers.
+
+    Upstream code:
+
+        if "trace.py --count -C coverage.cover" in raw_content:
+            content = re.split(
+                r"\\n\\+ python3 [^\\n]*trace.py --count -C coverage.cover [^\\n]*\\n",
+                raw_content,
+                flags=re.MULTILINE,
+            )[1]
+
+    The substring guard is weaker than the regex (different line prefix,
+    truncated logs, etc.), so ``re.split(...)`` can return a single-element
+    list and ``[1]`` raises ``IndexError``. A single bad instance log then
+    aborts ``make_run_report`` for the entire run.
+
+    This patch falls back to the full ``raw_content`` when the marker line
+    is not present, matching the ``else`` branch's behavior. Idempotent.
+    """
+    grading_py = swt_bench_dir / "src" / "grading.py"
+    if not grading_py.exists():
+        logger.warning(
+            "Cannot patch swt-bench grading.py: %s does not exist", grading_py
+        )
+        return
+
+    text = grading_py.read_text(encoding="utf-8")
+    if _GRADING_PATCH_MARKER in text:
+        return
+
+    old = (
+        '        content = re.split(r"\\n\\+ python3 [^\\n]*trace.py --count -C '
+        'coverage.cover [^\\n]*\\n", raw_content, flags=re.MULTILINE)[1]\n'
+    )
+    new = (
+        f"        {_GRADING_PATCH_MARKER}\n"
+        '        _parts = re.split(r"\\n\\+ python3 [^\\n]*trace.py --count -C '
+        'coverage.cover [^\\n]*\\n", raw_content, flags=re.MULTILINE)\n'
+        "        content = _parts[1] if len(_parts) > 1 else raw_content\n"
+    )
+
+    if old not in text:
+        logger.warning(
+            "Could not find expected get_logs_eval snippet to patch in %s; "
+            "upstream may have changed",
+            grading_py,
+        )
+        return
+
+    grading_py.write_text(text.replace(old, new), encoding="utf-8")
+    logger.info("Patched %s to guard against missing coverage marker", grading_py)
+
+
+def _patch_grading_report_results_isolation(swt_bench_dir: Path) -> None:
+    """
+    Isolate per-instance failures inside upstream ``src/grading.py::report_results``.
+
+    Upstream calls ``report_results`` once per instance from ``make_run_report``.
+    If grading raises for any one instance, the exception propagates out of the
+    loop, ``make_run_report`` aborts, ``report.json`` is never written, and the
+    whole benchmark run is lost.
+
+    This patch wraps ``report_results`` so any uncaught exception is logged and
+    the instance is reported as unresolved (with ``coverage_pred=None`` so the
+    aggregator skips it), letting the run finish and produce a final report.
+    Idempotent.
+    """
+    grading_py = swt_bench_dir / "src" / "grading.py"
+    if not grading_py.exists():
+        logger.warning(
+            "Cannot patch swt-bench grading.py: %s does not exist", grading_py
+        )
+        return
+
+    text = grading_py.read_text(encoding="utf-8")
+    if _REPORT_ISOLATION_MARKER in text:
+        return
+
+    old = "def report_results(\n"
+    if text.count(old) != 1:
+        logger.warning(
+            "Could not find unique `def report_results(` in %s; upstream may "
+            "have changed",
+            grading_py,
+        )
+        return
+
+    wrapper = (
+        f"{_REPORT_ISOLATION_MARKER}\n"
+        "def report_results(*args, **kwargs):\n"
+        "    try:\n"
+        "        return _openhands_unsafe_report_results(*args, **kwargs)\n"
+        "    except Exception as _exc:\n"
+        "        import sys, traceback\n"
+        '        _iid = kwargs.get("instance_id")\n'
+        "        if _iid is None and len(args) > 4:\n"
+        "            _iid = args[4]\n"
+        "        if _iid is None:\n"
+        '            _iid = "unknown"\n'
+        "        sys.stderr.write(\n"
+        '            f"[openhands-benchmarks] report_results failed for "\n'
+        '            f"{_iid}: {_exc!r}; marking as unresolved and continuing\\n"\n'
+        "        )\n"
+        "        traceback.print_exc(file=sys.stderr)\n"
+        "        return {_iid: {\n"
+        '            "resolved": False,\n'
+        '            "coverage_pred": None,\n'
+        '            "coverage_delta_pred": 0,\n'
+        '            "added_f2p": [],\n'
+        "        }}\n"
+        "\n"
+        "\n"
+        "def _openhands_unsafe_report_results(\n"
+    )
+
+    grading_py.write_text(text.replace(old, wrapper), encoding="utf-8")
+    logger.info("Patched %s to isolate per-instance report failures", grading_py)
+
+
 def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
     """
     Ensure the SWT-bench sources are available locally.
@@ -24,24 +150,27 @@ def ensure_swt_bench_repo(cache_dir: Path | None = None) -> Path:
     cache_dir = cache_dir or Path.home() / ".cache" / "openhands" / "swt-bench"
     swt_bench_dir = cache_dir / "swt-bench"
 
-    if swt_bench_dir.exists():
-        return swt_bench_dir
+    if not swt_bench_dir.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Cloning SWT-Bench repository into %s", swt_bench_dir)
+        result = subprocess.run(
+            [
+                "git",
+                "clone",
+                "https://github.com/logic-star-ai/swt-bench.git",
+                str(swt_bench_dir),
+            ],
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            logger.error("Failed to clone swt-bench: %s", result.stderr)
+            raise RuntimeError("Unable to clone swt-bench repository")
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Cloning SWT-Bench repository into %s", swt_bench_dir)
-    result = subprocess.run(
-        [
-            "git",
-            "clone",
-            "https://github.com/logic-star-ai/swt-bench.git",
-            str(swt_bench_dir),
-        ],
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        logger.error("Failed to clone swt-bench: %s", result.stderr)
-        raise RuntimeError("Unable to clone swt-bench repository")
+    # Always (re)apply local patches — idempotent — so cached clones from
+    # earlier runs also pick up the fix.
+    _patch_grading_get_logs_eval(swt_bench_dir)
+    _patch_grading_report_results_isolation(swt_bench_dir)
 
     return swt_bench_dir
 

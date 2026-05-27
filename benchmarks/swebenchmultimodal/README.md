@@ -64,7 +64,7 @@ uv run benchmarks/swebenchmultimodal/build_images.py \
   --image ghcr.io/openhands/eval-agent-server
 ```
 
-By default, `build_images.py` filters to the curated instance list in `benchmarks/swebenchmultimodal/resolved_instances.txt` (the same subset used for inference). To build for the full dataset, pass `--select ''`.
+By default, `build_images.py` builds only the 68 curated instances from `benchmarks/swebenchmultimodal/resolved_instances.txt` (the same subset used for inference). To build for the full dataset, pass `--select ''`.
 
 ## Configuration
 

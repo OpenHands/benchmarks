@@ -278,7 +278,7 @@ class TestMultimodalPhasedOrchestration:
 class TestMultimodalParser:
     def test_defaults(self):
         from benchmarks.swebenchmultimodal.build_images import get_parser
-        from benchmarks.swebenchmultimodal.config import DEFAULT_RESOLVED_INSTANCES_FILE
+        from benchmarks.swebenchmultimodal.config import BUILD_DEFAULTS
 
         parser = get_parser()
         args = parser.parse_args([])
@@ -288,7 +288,7 @@ class TestMultimodalParser:
         assert args.push is False
         assert args.force_build is False
         assert args.n_limit == 0
-        assert args.select == str(DEFAULT_RESOLVED_INSTANCES_FILE)
+        assert args.select == BUILD_DEFAULTS["select"]
 
     def test_select_empty_overrides_default(self):
         from benchmarks.swebenchmultimodal.build_images import get_parser

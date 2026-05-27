@@ -22,11 +22,6 @@ on:
         required: false
         type: string
         default: ''
-      agent-type:
-        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
-        required: false
-        type: string
-        default: 'default'
       benchmarks-ref:
         description: 'Benchmarks repo ref to checkout (for cross-repo calls)'
         required: false
@@ -83,7 +78,7 @@ on:
       max-retries:
         description: 'Retries per batch for eval env builds'
         required: false
-        default: '2'
+        default: '5'
         type: string
       eval-env-build-batch-size:
         description: 'Env images per batch for eval env builds'
@@ -94,11 +89,6 @@ on:
         description: 'Rebuild images even if matching remote tags already exist'
         required: false
         default: 'false'
-        type: string
-      agent-type:
-        description: 'Agent type: default (skip ACP), acp-claude, acp-codex (keep ACP)'
-        required: false
-        default: 'default'
         type: string
 
 concurrency:
@@ -154,7 +144,7 @@ jobs:
           repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}
           submodules: recursive
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       - uses: ./.github/actions/build-select-file
         with:
@@ -175,7 +165,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -214,7 +204,6 @@ jobs:
           if [ "${FORCE_BUILD}" = "true" ]; then
             CMD="$CMD --force-build"
           fi
-          CMD="$CMD --agent-type ${AGENT_TYPE}"
 
           echo "Running: $CMD"
           eval "$CMD"
@@ -222,7 +211,6 @@ jobs:
           DOCKER_BUILDKIT: 1
           BUILDKIT_PROGRESS: plain
           EXTENSIONS_REF: ${{ inputs.extensions-ref || 'main' }}
-          AGENT_TYPE: ${{ inputs.agent-type || 'default' }}
 
       - name: Build prebaked eval env images
         if: ${{ inputs.build-eval-env == 'true' }}
@@ -298,7 +286,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: build-logs-${{ github.run_id }}
           path: build-logs.tar.gz

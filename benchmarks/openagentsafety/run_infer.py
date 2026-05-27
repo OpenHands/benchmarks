@@ -31,8 +31,8 @@ from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.task import TaskToolSet
 from openhands.workspace import DockerWorkspace
 
 
@@ -454,7 +454,7 @@ class OpenAgentSafetyEvaluation(Evaluation):
         )
 
         if self.metadata.enable_delegation:
-            tools.append(Tool(name=DelegateTool.name))
+            tools.append(Tool(name=TaskToolSet.name))
 
         # Load public skills (respects EXTENSIONS_REF env var)
         agent_context = create_agent_context()
