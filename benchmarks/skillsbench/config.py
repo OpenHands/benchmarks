@@ -1,8 +1,11 @@
 """SkillsBench configuration defaults."""
 
+from benchmarks.utils.harbor_compat import get_harbor_dataset
+
+
 # Default inference settings (only include values actually used by argparse)
 INFER_DEFAULTS = {
-    "dataset": "benchflow/skillsbench",
+    "dataset": get_harbor_dataset("skillsbench"),
     "output_dir": "./evaluation_outputs",
     "num_workers": 1,
 }

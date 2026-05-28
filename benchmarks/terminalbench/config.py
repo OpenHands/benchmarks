@@ -1,8 +1,11 @@
 """Terminal-Bench configuration defaults."""
 
+from benchmarks.utils.harbor_compat import get_harbor_dataset
+
+
 # Default inference settings (only include values actually used by argparse)
 INFER_DEFAULTS = {
-    "dataset": "terminal-bench@2.0",
+    "dataset": get_harbor_dataset("terminalbench"),
     "output_dir": "./evaluation_outputs",
     "num_workers": 1,
 }
