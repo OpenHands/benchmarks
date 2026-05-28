@@ -11,7 +11,6 @@ Usage:
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -19,10 +18,16 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import SecretStr
-
 from benchmarks.skillsbench.config import HARBOR_DEFAULTS, INFER_DEFAULTS
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.harbor import (
+    HarborCredentialMode,
+    check_harbor_installed as _check_harbor_installed,
+    convert_harbor_to_eval_output as _convert_harbor_to_eval_output,
+    get_supported_agent_name as _get_harbor_supported_agent_name,
+    get_supported_task_filter_flag as _get_harbor_supported_task_filter_flag,
+    run_harbor_evaluation as _run_harbor_evaluation,
+)
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import LLM, get_logger
 
@@ -62,17 +67,7 @@ COPY skills /root/.agents/skills
 
 def check_harbor_installed() -> bool:
     """Check if harbor CLI is installed and available."""
-    harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
-    try:
-        result = subprocess.run(
-            [harbor_exe, "--help"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    return _check_harbor_installed(HARBOR_DEFAULTS["harbor_executable"])
 
 
 def _run_command(cmd: list[str], error_message: str) -> str:
@@ -90,42 +85,15 @@ def _run_command(cmd: list[str], error_message: str) -> str:
 
 def _get_supported_task_filter_flag(harbor_exe: str) -> str:
     """Detect whether Harbor expects --task-name or --include-task-name."""
-    try:
-        result = subprocess.run(
-            [harbor_exe, "run", "--help"],
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        return "--include-task-name"
-
-    help_text = f"{result.stdout}\n{result.stderr}"
-    supported_flags = set(re.findall(r"(?<![\w-])--[a-z0-9-]+", help_text))
-    if "--include-task-name" in supported_flags:
-        return "--include-task-name"
-    if "--task-name" in supported_flags:
-        return "--task-name"
-    return "--include-task-name"
+    return _get_harbor_supported_task_filter_flag(harbor_exe)
 
 
 def _get_supported_agent_name(harbor_exe: str) -> str:
     """Detect whether Harbor exposes the OpenHands agent as openhands or openhands-sdk."""
-    try:
-        result = subprocess.run(
-            [harbor_exe, "run", "--help"],
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        return HARBOR_DEFAULTS["agent_name"]
-
-    help_text = f"{result.stdout}\n{result.stderr}"
-    compact_help_text = re.sub(r"[^a-z0-9-]+", "", help_text.lower())
-    if "openhands-sdk" in compact_help_text:
-        return "openhands-sdk"
-    if "openhands" in compact_help_text:
-        return "openhands"
-    return HARBOR_DEFAULTS["agent_name"]
+    return _get_harbor_supported_agent_name(
+        harbor_exe,
+        default_agent_name=HARBOR_DEFAULTS["agent_name"],
+    )
 
 
 def get_skillsbench_main_commit(
@@ -405,122 +373,29 @@ def run_harbor_evaluation(
     Returns:
         Path to the harbor output directory.
     """
-    harbor_output_dir = Path(output_dir) / "harbor_output"
-    harbor_output_dir.mkdir(parents=True, exist_ok=True)
     harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
     agent_name = _get_supported_agent_name(harbor_exe)
     task_filter_flag = _get_supported_task_filter_flag(harbor_exe)
 
-    # Build harbor command using harbor CLI flags.
-    # Use absolute path for --jobs-dir to avoid CWD-relative path issues.
-    cmd = [
-        harbor_exe,
-        "run",
-        "--path" if dataset_is_path else "-d",
-        dataset,
-        "-a",
-        agent_name,
-        "-m",
-        llm.model,
-        "--jobs-dir",
-        str(harbor_output_dir.resolve()),
-        "--n-concurrent",
-        str(num_workers),
-    ]
-
-    # Add specific task names if provided
-    if task_ids:
-        for task_id in task_ids:
-            cmd.extend(
-                [
-                    task_filter_flag,
-                    _normalize_task_filter_value(
-                        task_id, dataset_is_path=dataset_is_path
-                    ),
-                ]
-            )
-
-    if n_limit is not None:
-        cmd.extend(["--n-tasks", str(n_limit)])
-
-    logger.info(f"Running harbor command: {' '.join(cmd)}")
-    logger.info(f"Output directory: {harbor_output_dir}")
-
-    # harbor's openhands-sdk agent reads LLM credentials from the host process
-    # environment (os.environ), not from --ae flags which go to the sandbox.
-    env = os.environ.copy()
-    if llm.api_key:
-        api_key = (
-            llm.api_key.get_secret_value()
-            if isinstance(llm.api_key, SecretStr)
-            else llm.api_key
-        )
-        env["LLM_API_KEY"] = api_key
-    if llm.base_url:
-        env["LLM_BASE_URL"] = llm.base_url
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
-        if result.returncode != 0:
-            if (
-                task_ids
-                and task_filter_flag == "--task-name"
-                and "No such option: --task-name" in result.stderr
-            ):
-                fallback_cmd = [
-                    "--include-task-name" if part == "--task-name" else part
-                    for part in cmd
-                ]
-                logger.warning(
-                    "Harbor does not support --task-name; retrying with "
-                    "--include-task-name"
-                )
-                result = subprocess.run(
-                    fallback_cmd,
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                )
-
-            if result.returncode != 0:
-                logger.error(f"Harbor command failed with code {result.returncode}")
-                logger.error(f"stdout: {result.stdout}")
-                logger.error(f"stderr: {result.stderr}")
-                raise RuntimeError(f"Harbor evaluation failed: {result.stderr}")
-
-        logger.info("Harbor evaluation completed successfully")
-        logger.info(f"stdout: {result.stdout}")
-
-    except FileNotFoundError:
-        raise RuntimeError(
-            "Harbor CLI not found. Please install harbor: pip install harbor"
-        )
-
-    return harbor_output_dir
-
-
-def _find_job_dir(harbor_output_dir: Path) -> Path:
-    """Find the harbor job directory (timestamp-named) inside the output dir."""
-    # Harbor creates a timestamp-named subdirectory (e.g., 2026-03-07__16-08-47)
-    # containing result.json and trial subdirectories
-    candidates = [
-        d
-        for d in harbor_output_dir.iterdir()
-        if d.is_dir() and (d / "result.json").exists()
-    ]
-    if not candidates:
-        raise RuntimeError(
-            f"No harbor job directory found in {harbor_output_dir}. "
-            f"Expected a timestamp-named directory containing result.json."
-        )
-    # Use the most recent job directory if multiple exist
-    return sorted(candidates)[-1]
+    return _run_harbor_evaluation(
+        llm=llm,
+        dataset=dataset,
+        output_dir=output_dir,
+        harbor_executable=harbor_exe,
+        agent_name=agent_name,
+        dataset_is_path=dataset_is_path,
+        num_workers=num_workers,
+        task_ids=task_ids,
+        n_limit=n_limit,
+        task_filter_flag=task_filter_flag,
+        normalize_task_id=lambda task_id: _normalize_task_filter_value(
+            task_id,
+            dataset_is_path=dataset_is_path,
+        ),
+        credential_mode=HarborCredentialMode.PROCESS_ENV,
+        retry_legacy_task_flag=True,
+        subprocess_run=subprocess.run,
+    )
 
 
 def convert_harbor_to_eval_output(
@@ -539,108 +414,10 @@ def convert_harbor_to_eval_output(
         harbor_output_dir: Path to harbor output directory.
         eval_output_path: Path to write the converted output.jsonl.
     """
-    logger.info(f"Converting harbor output from {harbor_output_dir}")
-
-    job_dir = _find_job_dir(harbor_output_dir)
-    logger.info(f"Using harbor job directory: {job_dir}")
-
-    # Find trial result files (each trial dir has a result.json)
-    result_files = list(job_dir.glob("*/result.json"))
-    # Exclude the job-level result.json
-    result_files = [f for f in result_files if f.parent != job_dir]
-
-    if not result_files:
-        raise RuntimeError(
-            f"No trial result files found in {job_dir}. "
-            f"Expected result.json files in trial subdirectories."
-        )
-
-    logger.info(f"Found {len(result_files)} trial results in {job_dir}")
-
-    results: list[dict] = []
-    errors: list[dict] = []
-
-    for result_file in result_files:
-        try:
-            with open(result_file) as f:
-                trial = json.load(f)
-
-            instance_id = _canonicalize_instance_id(
-                trial.get("task_name", result_file.parent.name)
-            )
-
-            # Check for exceptions
-            if trial.get("exception_info"):
-                errors.append(
-                    {
-                        "instance_id": instance_id,
-                        "error": str(trial["exception_info"]),
-                        "test_result": {},
-                    }
-                )
-                continue
-
-            # Extract verifier results
-            verifier_result = trial.get("verifier_result", {})
-            rewards = verifier_result.get("rewards", {})
-            passed = rewards.get("reward", 0.0) > 0
-
-            # Extract agent metrics
-            agent_result = trial.get("agent_result", {})
-
-            eval_entry = {
-                "instance_id": instance_id,
-                "test_result": {
-                    "trial_name": trial.get("trial_name"),
-                    "trial_uri": trial.get("trial_uri"),
-                    "rewards": rewards,
-                    "passed": passed,
-                },
-                "instruction": "",
-                "error": None,
-                "history": [],
-                "metrics": {
-                    "total_prompt_tokens": agent_result.get("n_input_tokens") or 0,
-                    "total_completion_tokens": (
-                        agent_result.get("n_output_tokens") or 0
-                    ),
-                    "total_cost_usd": agent_result.get("cost_usd") or 0.0,
-                },
-            }
-            results.append(eval_entry)
-            logger.info(
-                f"Processed trial {instance_id}: reward={rewards.get('reward', 'N/A')}"
-            )
-
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"Failed to process result file {result_file}: {e}")
-            errors.append(
-                {
-                    "instance_id": _canonicalize_instance_id(result_file.parent.name),
-                    "error": str(e),
-                    "test_result": {},
-                }
-            )
-
-    if not results and not errors:
-        raise RuntimeError(f"No trials processed from {harbor_output_dir}")
-
-    if not results:
-        logger.warning(
-            f"All {len(errors)} trials failed in {harbor_output_dir}; "
-            "writing error entries for downstream reporting"
-        )
-
-    # Write results to output.jsonl
-    with open(eval_output_path, "w") as f:
-        for entry in results:
-            f.write(json.dumps(entry) + "\n")
-        for entry in errors:
-            f.write(json.dumps(entry) + "\n")
-
-    logger.info(
-        f"Wrote {len(results)} successful + {len(errors)} failed entries "
-        f"to {eval_output_path}"
+    _convert_harbor_to_eval_output(
+        harbor_output_dir,
+        eval_output_path,
+        canonicalize_instance_id=_canonicalize_instance_id,
     )
 
 
