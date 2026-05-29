@@ -272,6 +272,24 @@ def run_swebench_multimodal_evaluation(
     # Default for run_id if not provided
     run_id = run_id or predictions_path.stem
 
+    # If the predictions file has no entries (e.g. every inference attempt
+    # failed and produced no patches), the SWE-Bench harness prints
+    # "No instances to run." and exits successfully without writing a
+    # report file. Detect this up-front and short-circuit so we surface a
+    # clear log message instead of a misleading
+    # "SWE-Bench harness output naming may have changed" FileNotFoundError.
+    num_predictions = sum(
+        1 for line in predictions_path.read_text().splitlines() if line.strip()
+    )
+    if num_predictions == 0:
+        logger.warning(
+            f"No predictions found in {predictions_file}; "
+            "skipping SWE-Bench Multimodal evaluation. "
+            "This usually means every inference attempt failed "
+            "(e.g. LLM errors) and no patches were produced."
+        )
+        return None
+
     # The key difference from regular SWE-Bench is the --modal true flag
     cmd = [
         "uv",
