@@ -188,7 +188,7 @@ def run_harbor_evaluation(
     return harbor_output_dir
 
 
-def find_job_dir(harbor_output_dir: Path) -> Path:
+def _find_job_dir(harbor_output_dir: Path) -> Path:
     """Find the latest Harbor job directory inside an output directory."""
     candidates = [
         d
@@ -213,7 +213,7 @@ def convert_harbor_to_eval_output(
     logger.info(f"Converting harbor output from {harbor_output_dir}")
 
     canonicalize = canonicalize_instance_id or (lambda instance_id: instance_id)
-    job_dir = find_job_dir(harbor_output_dir)
+    job_dir = _find_job_dir(harbor_output_dir)
     logger.info(f"Using harbor job directory: {job_dir}")
 
     result_files = [f for f in job_dir.glob("*/result.json") if f.parent != job_dir]
