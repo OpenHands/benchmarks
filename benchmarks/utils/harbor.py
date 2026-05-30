@@ -8,7 +8,7 @@ import re
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 from openhands.sdk import LLM, get_logger
 
@@ -40,18 +40,22 @@ def check_harbor_installed(
         return False
 
 
-def get_supported_task_filter_flag(harbor_executable: str) -> str:
-    """Detect whether Harbor expects --task-name or --include-task-name."""
+def _probe_harbor_run_help(harbor_executable: str) -> str:
+    """Run harbor run --help and return combined stdout+stderr, or empty string if not found."""
     try:
         result = subprocess.run(
             [harbor_executable, "run", "--help"],
             capture_output=True,
             text=True,
         )
+        return f"{result.stdout}\n{result.stderr}"
     except FileNotFoundError:
-        return "--include-task-name"
+        return ""
 
-    help_text = f"{result.stdout}\n{result.stderr}"
+
+def get_supported_task_filter_flag(harbor_executable: str) -> str:
+    """Detect whether Harbor expects --task-name or --include-task-name."""
+    help_text = _probe_harbor_run_help(harbor_executable)
     supported_flags = set(re.findall(r"(?<![\w-])--[a-z0-9-]+", help_text))
     if "--include-task-name" in supported_flags:
         return "--include-task-name"
@@ -65,16 +69,7 @@ def get_supported_agent_name(
     default_agent_name: str = "openhands-sdk",
 ) -> str:
     """Detect whether Harbor exposes the OpenHands agent as openhands or openhands-sdk."""
-    try:
-        result = subprocess.run(
-            [harbor_executable, "run", "--help"],
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        return default_agent_name
-
-    help_text = f"{result.stdout}\n{result.stderr}"
+    help_text = _probe_harbor_run_help(harbor_executable)
     compact_help_text = re.sub(r"[^a-z0-9-]+", "", help_text.lower())
     if "openhands-sdk" in compact_help_text:
         return "openhands-sdk"
@@ -104,12 +99,15 @@ def run_harbor_evaluation(
     normalize_task_id: Callable[[str], str] | None = None,
     credential_mode: HarborCredentialMode = HarborCredentialMode.AGENT_ENV_FLAGS,
     retry_legacy_task_flag: bool = False,
-    subprocess_run: Callable[..., Any] | None = None,
+    subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
-    """Run Harbor and return the directory containing Harbor job outputs."""
+    """Run Harbor and return the directory containing Harbor job outputs.
+
+    The ``subprocess_run`` parameter is a testing seam; pass a fake callable
+    in tests rather than patching the subprocess module.
+    """
     harbor_output_dir = Path(output_dir) / "harbor_output"
     harbor_output_dir.mkdir(parents=True, exist_ok=True)
-    run = subprocess_run or subprocess.run
 
     cmd = [
         harbor_executable,
@@ -147,20 +145,15 @@ def run_harbor_evaluation(
     if n_limit is not None:
         cmd.extend(["--n-tasks", str(n_limit)])
 
-    logger.info(f"Running harbor command: {' '.join(cmd)}")
+    safe_cmd = [
+        "***" if prev == "--ae" and part.startswith("LLM_") else part
+        for prev, part in zip([""] + cmd, cmd)
+    ]
+    logger.info(f"Running harbor command: {' '.join(safe_cmd)}")
     logger.info(f"Output directory: {harbor_output_dir}")
 
     try:
-        if env is None:
-            result = cast(
-                subprocess.CompletedProcess[str],
-                run(cmd, capture_output=True, text=True),
-            )
-        else:
-            result = cast(
-                subprocess.CompletedProcess[str],
-                run(cmd, capture_output=True, text=True, env=env),
-            )
+        result = subprocess_run(cmd, capture_output=True, text=True, env=env)
 
         if (
             result.returncode != 0
@@ -175,16 +168,9 @@ def run_harbor_evaluation(
             logger.warning(
                 "Harbor does not support --task-name; retrying with --include-task-name"
             )
-            if env is None:
-                result = cast(
-                    subprocess.CompletedProcess[str],
-                    run(fallback_cmd, capture_output=True, text=True),
-                )
-            else:
-                result = cast(
-                    subprocess.CompletedProcess[str],
-                    run(fallback_cmd, capture_output=True, text=True, env=env),
-                )
+            result = subprocess_run(
+                fallback_cmd, capture_output=True, text=True, env=env
+            )
 
         if result.returncode != 0:
             logger.error(f"Harbor command failed with code {result.returncode}")

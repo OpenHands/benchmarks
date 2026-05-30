@@ -224,7 +224,7 @@ class TestRunHarborEvaluation:
         """Test Harbor command includes task filters and n-limit for CI runs."""
         captured: dict[str, list[str]] = {}
 
-        def fake_run(cmd: list[str], capture_output: bool, text: bool):
+        def fake_run(cmd: list[str], capture_output: bool, text: bool, env=None):
             captured["cmd"] = cmd
             return type(
                 "Completed",
