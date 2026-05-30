@@ -88,7 +88,7 @@ def _is_test_path(path: str) -> bool:
         return True
     base = parts[-1]
     return (
-        base.startswith("test_") or base.endswith("_test.py") or base == "conftest.py"
+        (base.startswith("test_") and base.endswith(".py")) or base.endswith("_test.py") or base == "conftest.py"
     )
 
 
