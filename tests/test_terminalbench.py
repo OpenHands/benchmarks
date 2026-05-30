@@ -224,7 +224,15 @@ class TestRunHarborEvaluation:
         """Test Harbor command includes task filters and n-limit for CI runs."""
         captured: dict[str, list[str]] = {}
 
-        def fake_run(cmd: list[str], capture_output: bool, text: bool, env=None):
+        def fake_run(
+            cmd: list[str], capture_output: bool, text: bool, env=None, timeout=None
+        ):
+            if cmd == ["harbor", "run", "--help"]:
+                return type(
+                    "Completed",
+                    (),
+                    {"returncode": 0, "stdout": "--include-task-name", "stderr": ""},
+                )()
             captured["cmd"] = cmd
             return type(
                 "Completed",
@@ -265,7 +273,7 @@ class TestRunHarborEvaluation:
         ]
         assert "--jobs-dir" in cmd
         assert str(expected_output_dir.resolve()) in cmd
-        assert cmd.count("--task-name") == 2
+        assert cmd.count("--include-task-name") == 2
         assert "task-a" in cmd
         assert "task-b" in cmd
         assert cmd[cmd.index("--n-concurrent") + 1] == "3"

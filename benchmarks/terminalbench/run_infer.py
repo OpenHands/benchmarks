@@ -22,6 +22,7 @@ from benchmarks.utils.harbor import (
     HarborCredentialMode,
     check_harbor_installed as _check_harbor_installed,
     convert_harbor_to_eval_output,
+    get_supported_task_filter_flag,
     run_harbor_evaluation as _run_harbor_evaluation,
 )
 from benchmarks.utils.report_costs import generate_cost_report
@@ -72,7 +73,9 @@ def run_harbor_evaluation(
         num_workers=num_workers,
         task_ids=task_ids,
         n_limit=n_limit,
-        task_filter_flag="--task-name",
+        task_filter_flag=get_supported_task_filter_flag(
+            HARBOR_DEFAULTS["harbor_executable"]
+        ),
         credential_mode=HarborCredentialMode.AGENT_ENV_FLAGS,
         subprocess_run=subprocess.run,
     )
