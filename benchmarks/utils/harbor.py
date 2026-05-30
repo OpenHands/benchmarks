@@ -47,9 +47,10 @@ def _probe_harbor_run_help(harbor_executable: str) -> str:
             [harbor_executable, "run", "--help"],
             capture_output=True,
             text=True,
+            timeout=10,
         )
         return f"{result.stdout}\n{result.stderr}"
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return ""
 
 
