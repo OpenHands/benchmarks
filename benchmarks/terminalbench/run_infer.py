@@ -16,10 +16,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import SecretStr
-
 from benchmarks.terminalbench.config import HARBOR_DEFAULTS, INFER_DEFAULTS
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
+from benchmarks.utils.harbor import (
+    HarborCredentialMode,
+    check_harbor_installed as _check_harbor_installed,
+    convert_harbor_to_eval_output,
+    get_supported_task_filter_flag,
+    run_harbor_evaluation as _run_harbor_evaluation,
+)
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import LLM, get_logger
 
@@ -32,17 +37,10 @@ OUTPUT_FILENAME = "output.jsonl"
 
 def check_harbor_installed() -> bool:
     """Check if harbor CLI is installed and available."""
-    harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
-    try:
-        result = subprocess.run(
-            [harbor_exe, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    return _check_harbor_installed(
+        HARBOR_DEFAULTS["harbor_executable"],
+        probe_arg="--version",
+    )
 
 
 def run_harbor_evaluation(
@@ -66,207 +64,20 @@ def run_harbor_evaluation(
     Returns:
         Path to the harbor output directory.
     """
-    harbor_output_dir = Path(output_dir) / "harbor_output"
-    harbor_output_dir.mkdir(parents=True, exist_ok=True)
-    harbor_exe = HARBOR_DEFAULTS["harbor_executable"]
-
-    # Build harbor command using harbor CLI flags.
-    # Use absolute path for --jobs-dir to avoid CWD-relative path issues.
-    cmd = [
-        harbor_exe,
-        "run",
-        "-d",
-        dataset,
-        "-a",
-        HARBOR_DEFAULTS["agent_name"],
-        "-m",
-        llm.model,
-        "--jobs-dir",
-        str(harbor_output_dir.resolve()),
-        "--n-concurrent",
-        str(num_workers),
-    ]
-
-    # Pass LLM credentials as agent environment variables
-    if llm.api_key:
-        api_key = (
-            llm.api_key.get_secret_value()
-            if isinstance(llm.api_key, SecretStr)
-            else llm.api_key
-        )
-        cmd.extend(["--ae", f"LLM_API_KEY={api_key}"])
-    if llm.base_url:
-        cmd.extend(["--ae", f"LLM_BASE_URL={llm.base_url}"])
-
-    # Add specific task names if provided
-    if task_ids:
-        for task_id in task_ids:
-            cmd.extend(["--task-name", task_id])
-
-    if n_limit is not None:
-        cmd.extend(["--n-tasks", str(n_limit)])
-
-    logger.info(f"Running harbor command: {' '.join(cmd)}")
-    logger.info(f"Output directory: {harbor_output_dir}")
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            logger.error(f"Harbor command failed with code {result.returncode}")
-            logger.error(f"stdout: {result.stdout}")
-            logger.error(f"stderr: {result.stderr}")
-            raise RuntimeError(f"Harbor evaluation failed: {result.stderr}")
-
-        logger.info("Harbor evaluation completed successfully")
-        logger.info(f"stdout: {result.stdout}")
-
-    except FileNotFoundError:
-        raise RuntimeError(
-            "Harbor CLI not found. Please install harbor: pip install harbor"
-        )
-
-    return harbor_output_dir
-
-
-def _find_job_dir(harbor_output_dir: Path) -> Path:
-    """Find the harbor job directory (timestamp-named) inside the output dir."""
-    # Harbor creates a timestamp-named subdirectory (e.g., 2026-03-07__16-08-47)
-    # containing result.json and trial subdirectories
-    candidates = [
-        d
-        for d in harbor_output_dir.iterdir()
-        if d.is_dir() and (d / "result.json").exists()
-    ]
-    if not candidates:
-        raise RuntimeError(
-            f"No harbor job directory found in {harbor_output_dir}. "
-            f"Expected a timestamp-named directory containing result.json."
-        )
-    # Use the most recent job directory if multiple exist
-    return sorted(candidates)[-1]
-
-
-def convert_harbor_to_eval_output(
-    harbor_output_dir: Path,
-    eval_output_path: Path,
-) -> None:
-    """Convert harbor output to evaluation output format.
-
-    Harbor stores trial results in a job directory structured as:
-        harbor_output/TIMESTAMP/TRIAL_NAME/result.json
-
-    Each trial's result.json contains task_name, verifier_result, agent_result,
-    timing info, and exception details.
-
-    Args:
-        harbor_output_dir: Path to harbor output directory.
-        eval_output_path: Path to write the converted output.jsonl.
-    """
-    logger.info(f"Converting harbor output from {harbor_output_dir}")
-
-    job_dir = _find_job_dir(harbor_output_dir)
-    logger.info(f"Using harbor job directory: {job_dir}")
-
-    # Find trial result files (each trial dir has a result.json)
-    result_files = list(job_dir.glob("*/result.json"))
-    # Exclude the job-level result.json
-    result_files = [f for f in result_files if f.parent != job_dir]
-
-    if not result_files:
-        raise RuntimeError(
-            f"No trial result files found in {job_dir}. "
-            f"Expected result.json files in trial subdirectories."
-        )
-
-    logger.info(f"Found {len(result_files)} trial results in {job_dir}")
-
-    results: list[dict] = []
-    errors: list[dict] = []
-
-    for result_file in result_files:
-        try:
-            with open(result_file) as f:
-                trial = json.load(f)
-
-            instance_id = trial.get("task_name", result_file.parent.name)
-
-            # Check for exceptions
-            if trial.get("exception_info"):
-                errors.append(
-                    {
-                        "instance_id": instance_id,
-                        "error": str(trial["exception_info"]),
-                        "test_result": {},
-                    }
-                )
-                continue
-
-            # Extract verifier results
-            verifier_result = trial.get("verifier_result", {})
-            rewards = verifier_result.get("rewards", {})
-            passed = rewards.get("reward", 0.0) > 0
-
-            # Extract agent metrics
-            agent_result = trial.get("agent_result", {})
-
-            eval_entry = {
-                "instance_id": instance_id,
-                "test_result": {
-                    "trial_name": trial.get("trial_name"),
-                    "trial_uri": trial.get("trial_uri"),
-                    "rewards": rewards,
-                    "passed": passed,
-                },
-                "instruction": "",
-                "error": None,
-                "history": [],
-                "metrics": {
-                    "total_prompt_tokens": agent_result.get("n_input_tokens") or 0,
-                    "total_completion_tokens": (
-                        agent_result.get("n_output_tokens") or 0
-                    ),
-                    "total_cost_usd": agent_result.get("cost_usd") or 0.0,
-                },
-            }
-            results.append(eval_entry)
-            logger.info(
-                f"Processed trial {instance_id}: reward={rewards.get('reward', 'N/A')}"
-            )
-
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error(f"Failed to process result file {result_file}: {e}")
-            errors.append(
-                {
-                    "instance_id": result_file.parent.name,
-                    "error": str(e),
-                    "test_result": {},
-                }
-            )
-
-    if not results and not errors:
-        raise RuntimeError(f"No trials processed from {harbor_output_dir}")
-
-    if not results:
-        logger.warning(
-            f"All {len(errors)} trials failed in {harbor_output_dir}; "
-            "writing error entries for downstream reporting"
-        )
-
-    # Write results to output.jsonl
-    with open(eval_output_path, "w") as f:
-        for entry in results:
-            f.write(json.dumps(entry) + "\n")
-        for entry in errors:
-            f.write(json.dumps(entry) + "\n")
-
-    logger.info(
-        f"Wrote {len(results)} successful + {len(errors)} failed entries "
-        f"to {eval_output_path}"
+    return _run_harbor_evaluation(
+        llm=llm,
+        dataset=dataset,
+        output_dir=output_dir,
+        harbor_executable=HARBOR_DEFAULTS["harbor_executable"],
+        agent_name=HARBOR_DEFAULTS["agent_name"],
+        num_workers=num_workers,
+        task_ids=task_ids,
+        n_limit=n_limit,
+        task_filter_flag=get_supported_task_filter_flag(
+            HARBOR_DEFAULTS["harbor_executable"]
+        ),
+        credential_mode=HarborCredentialMode.AGENT_ENV_FLAGS,
+        subprocess_run=subprocess.run,
     )
 
 
