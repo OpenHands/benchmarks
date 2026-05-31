@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 
-HARBOR_DATASET_BY_BENCHMARK: dict[str, str] = {
-    "gaia": "gaia",
-    "multiswebench": "multi-swe-bench",
-    "skillsbench": "benchflow/skillsbench",
-    "swebench": "swebench-verified",
-    "swebenchmultilingual": "swebench_multilingual",
-    "swebenchpro": "swebenchpro",
-    "swesmith": "swesmith",
-    "swtbench": "swtbench-verified",
-    "swegym": "swegym",
-    "terminalbench": "terminal-bench@2.0",
-}
+
+HARBOR_DATASET_BY_BENCHMARK: Mapping[str, str] = MappingProxyType(
+    {
+        "gaia": "gaia",
+        "multiswebench": "multi-swe-bench",
+        "skillsbench": "benchflow/skillsbench",
+        "swebench": "swebench-verified",
+        "swebenchmultilingual": "swebench_multilingual",
+        "swebenchpro": "swebenchpro",
+        "swesmith": "swesmith",
+        "swtbench": "swtbench-verified",
+        "swegym": "swegym",
+        "terminalbench": "terminal-bench@2.0",
+    }
+)
 
 
 def normalize_benchmark_name(benchmark_name: str) -> str:

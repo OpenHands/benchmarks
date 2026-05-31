@@ -1,5 +1,8 @@
 """Tests for Harbor benchmark compatibility mappings."""
 
+import operator
+from typing import Any, cast
+
 import pytest
 
 from benchmarks.skillsbench.config import INFER_DEFAULTS as SKILLS_DEFAULTS
@@ -24,6 +27,13 @@ def test_known_harbor_dataset_mappings() -> None:
     assert get_harbor_dataset("skillsbench") == "benchflow/skillsbench"
     assert get_harbor_dataset("terminalbench") == "terminal-bench@2.0"
     assert get_harbor_dataset("swegym") == "swegym"
+
+
+def test_harbor_dataset_mapping_is_read_only() -> None:
+    """Test callers cannot mutate the shared Harbor dataset registry."""
+    mapping_as_any = cast(Any, HARBOR_DATASET_BY_BENCHMARK)
+    with pytest.raises(TypeError):
+        operator.setitem(mapping_as_any, "commit0", "commit0")
 
 
 def test_name_normalization_accepts_cli_style_names() -> None:
