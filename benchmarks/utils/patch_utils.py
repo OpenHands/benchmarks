@@ -88,7 +88,9 @@ def _is_test_path(path: str) -> bool:
         return True
     base = parts[-1]
     return (
-        (base.startswith("test_") and base.endswith(".py")) or base.endswith("_test.py") or base == "conftest.py"
+        (base.startswith("test_") and base.endswith(".py"))
+        or base.endswith("_test.py")
+        or base == "conftest.py"
     )
 
 
@@ -101,6 +103,14 @@ def keep_only_test_files(git_patch: str) -> str:
 
     The implementation mirrors :func:`remove_files_from_patch` so the two
     helpers behave consistently.
+
+    Note: a more precise alternative would be to intersect with the gold
+    ``test_patch`` file set per instance. That data is in the upstream SWT
+    dataset, not in ``output.jsonl``, so wiring it into ``eval_infer.py``
+    would mean re-loading the dataset on the post-processing path. The
+    path-based heuristic here is intentionally local to the patch text and
+    good enough in practice; tightening to ground truth is tracked
+    separately.
     """
     if not git_patch:
         return git_patch

@@ -206,6 +206,9 @@ def convert_to_swtbench_format(input_file: str, output_file: str) -> None:
                     git_patch = ""
 
                 # postprocess git_patch
+                # NOTE: this setup-files strip is now belt-and-suspenders --
+                # ``keep_only_test_files`` below would drop these files anyway
+                # since they aren't tests. Kept for explicit intent.
                 setup_files = ["pyproject.toml", "tox.ini", "setup.py"]
                 git_patch = remove_files_from_patch(git_patch, setup_files)
                 # SWT-bench only scores diffs to existing test files. Strip

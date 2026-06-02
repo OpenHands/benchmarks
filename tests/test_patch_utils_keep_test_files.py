@@ -5,12 +5,7 @@ from benchmarks.utils.patch_utils import keep_only_test_files
 
 def _diff(path: str, body: str = "@@ -1 +1 @@\n-old\n+new\n") -> str:
     """Build a minimal ``diff --git`` block for ``path``."""
-    return (
-        f"diff --git a/{path} b/{path}\n"
-        f"--- a/{path}\n"
-        f"+++ b/{path}\n"
-        f"{body}"
-    )
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n{body}"
 
 
 class TestKeepOnlyTestFiles:
@@ -30,6 +25,12 @@ class TestKeepOnlyTestFiles:
     def test_keeps_files_under_testing_dir(self):
         patch = _diff("django/testing/helpers.py")
         assert "django/testing/helpers.py" in keep_only_test_files(patch)
+
+    def test_keeps_files_under_singular_test_dir(self):
+        # ``test/`` (singular) at a non-root level is a valid test layout
+        # too (used by e.g. requests, pytest itself); document that it's kept.
+        patch = _diff("test/unit/helpers.py")
+        assert "test/unit/helpers.py" in keep_only_test_files(patch)
 
     def test_keeps_conftest(self):
         patch = _diff("pkg/conftest.py")
@@ -57,6 +58,16 @@ class TestKeepOnlyTestFiles:
         assert "test_repro.py" not in out
         assert "FIX_SUMMARY.md" not in out
         assert "tests/test_real.py" in out
+
+    def test_drops_root_level_conftest(self):
+        # A root-level ``conftest.py`` is treated as agent scratch (the SWT
+        # repos we evaluate keep conftest under a package), not as a real
+        # test file. This test pins that trade-off so a future loosening of
+        # the root-exclusion guard is intentional, not accidental.
+        patch = _diff("conftest.py") + _diff("tests/conftest.py")
+        out = keep_only_test_files(patch)
+        assert "diff --git a/conftest.py b/conftest.py" not in out
+        assert "tests/conftest.py" in out
 
     def test_drops_build_and_docs(self):
         patch = (
