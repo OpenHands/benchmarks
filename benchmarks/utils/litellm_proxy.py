@@ -14,7 +14,7 @@ Thread-safety:
     The virtual key for the current instance is stored in a ``threading.local``
     so that concurrent worker threads (asyncio.to_thread) each track their own
     key without global state mutation. ``build_acp_agent`` in ``acp.py`` reads
-    this thread-local to inject the key via ``acp_env``.
+    this thread-local to inject the key via ``agent_context.secrets``.
 """
 
 import os
@@ -148,7 +148,7 @@ def set_current_virtual_key(key: str | None) -> None:
 
     Called by the evaluation orchestrator before ``evaluate_instance()``.
     ``build_acp_agent()`` in ``acp.py`` reads this to inject the key into
-    the ACP subprocess environment via ``acp_env``.
+    the ACP subprocess environment via ``agent_context.secrets``.
     """
     _thread_local.virtual_key = key
 
