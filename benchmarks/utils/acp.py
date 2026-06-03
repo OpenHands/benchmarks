@@ -68,6 +68,40 @@ def get_acp_command(agent_type: str) -> list[str]:
         )
 
 
+def _codex_provider_args(agent_type: str, provider_env: dict[str, str]) -> list[str]:
+    """Extra ``codex-acp`` CLI args pinning the model provider's base URL.
+
+    codex 0.15.0 (codex-core) **ignores the ``OPENAI_BASE_URL`` env var**: its
+    built-in ``openai`` provider always targets ``https://api.openai.com``, so
+    eval traffic would hit the real OpenAI API with the LiteLLM proxy key and
+    fail ``401 invalid_api_key`` (surfaced as ACP ``-32603 Internal error``).
+    Routing through the proxy requires a custom ``model_provider`` whose
+    ``base_url`` is the proxy; ``env_key`` keeps codex reading the key (incl.
+    per-instance virtual keys) from ``OPENAI_API_KEY`` in the subprocess env.
+
+    The base URL is passed bare (no ``/v1``): codex appends ``/responses`` and
+    the eval proxy serves that path. Returns ``[]`` for non-codex agents or
+    when no base URL is configured.
+    """
+    if agent_type != "acp-codex":
+        return []
+    base_url = provider_env.get("OPENAI_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+    if not base_url:
+        return []
+    return [
+        "-c",
+        'model_provider="litellm"',
+        "-c",
+        'model_providers.litellm.name="litellm"',
+        "-c",
+        f'model_providers.litellm.base_url="{base_url}"',
+        "-c",
+        'model_providers.litellm.env_key="OPENAI_API_KEY"',
+        "-c",
+        'model_providers.litellm.wire_api="responses"',
+    ]
+
+
 def get_acp_forward_env(
     agent_type: str, forward_env: list[str] | None = None
 ) -> list[str] | None:
@@ -177,8 +211,14 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
         }
     )
 
+    # codex ignores OPENAI_BASE_URL, so route it through the proxy via a custom
+    # model_provider passed as CLI overrides (see _codex_provider_args).
+    acp_command = get_acp_command(agent_type) + _codex_provider_args(
+        agent_type, provider_env
+    )
+
     return cast(Any, ACPAgent)(
-        acp_command=get_acp_command(agent_type),
+        acp_command=acp_command,
         acp_model=extract_acp_model_hint(llm_model),
         acp_prompt_timeout=prompt_timeout,
         agent_context=agent_context,

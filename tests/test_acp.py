@@ -8,6 +8,7 @@ import pytest
 from benchmarks.utils.acp import (
     _ACP_PROMPT_TIMEOUT_OVERRIDES,
     ACP_PROMPT_TIMEOUT,
+    _codex_provider_args,
     _get_acp_env,
     add_acp_agent_metadata,
     build_acp_agent,
@@ -236,6 +237,50 @@ def test_build_acp_agent_claude_uses_default_timeout():
     """acp-claude should use the default prompt timeout."""
     agent = build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
     assert agent.acp_prompt_timeout == ACP_PROMPT_TIMEOUT
+
+
+# ---- _codex_provider_args (codex base-URL routing, #736) --------------------
+
+
+def test_codex_provider_args_non_codex_returns_empty():
+    assert _codex_provider_args("acp-claude", {"ANTHROPIC_BASE_URL": "https://p"}) == []
+
+
+def test_codex_provider_args_no_base_url_returns_empty():
+    with patch.dict(os.environ, {}, clear=True):
+        assert _codex_provider_args("acp-codex", {"OPENAI_API_KEY": "sk"}) == []
+
+
+def test_codex_provider_args_pins_base_url():
+    """codex ignores OPENAI_BASE_URL, so it must be pinned via a model_provider."""
+    args = _codex_provider_args(
+        "acp-codex", {"OPENAI_BASE_URL": "https://llm-proxy.example"}
+    )
+    assert 'model_provider="litellm"' in args
+    assert 'model_providers.litellm.base_url="https://llm-proxy.example"' in args
+    assert 'model_providers.litellm.env_key="OPENAI_API_KEY"' in args
+    assert 'model_providers.litellm.wire_api="responses"' in args
+    # Every override is introduced by a -c flag.
+    assert args.count("-c") == sum(1 for a in args if a != "-c")
+
+
+@patch.dict(
+    os.environ, {"OPENAI_API_KEY": "sk-oai", "OPENAI_BASE_URL": "https://proxy.example"}
+)
+def test_build_acp_agent_codex_routes_through_proxy():
+    """acp-codex must pin the proxy via a custom model_provider (#736)."""
+    agent = build_acp_agent("acp-codex", "litellm_proxy/gpt-5.2-codex")
+    cmd = agent.acp_command
+    assert cmd[0] == "codex-acp"
+    assert 'model_providers.litellm.base_url="https://proxy.example"' in cmd
+
+
+@patch.dict(
+    os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"}
+)
+def test_build_acp_agent_claude_has_no_provider_overrides():
+    agent = build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
+    assert agent.acp_command == ["claude-agent-acp"]
 
 
 # ---- setup_acp_workspace ----------------------------------------------------
