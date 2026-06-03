@@ -69,6 +69,72 @@ def remove_files_from_patch(git_patch, files):
     return result
 
 
+def _is_test_path(path: str) -> bool:
+    """Heuristic: does ``path`` look like a project test file?
+
+    A path counts as a test if it lives under a ``tests``/``test``/``testing``
+    directory anywhere in its tree, or if its basename matches the standard
+    pytest/unittest discovery patterns (``test_*.py``, ``*_test.py``,
+    ``conftest.py``).
+
+    Files at the repository root are *not* considered tests even when they
+    match the naming pattern (e.g. ``test_repro.py``), because in SWT-bench
+    those are agent-authored scratch files that the harness ignores.
+    """
+    if "/" not in path:
+        return False
+    parts = path.split("/")
+    if any(seg in ("tests", "test", "testing") for seg in parts[:-1]):
+        return True
+    base = parts[-1]
+    return (
+        (base.startswith("test_") and base.endswith(".py"))
+        or base.endswith("_test.py")
+        or base == "conftest.py"
+    )
+
+
+def keep_only_test_files(git_patch: str) -> str:
+    """Return ``git_patch`` with every non-test file diff removed.
+
+    Useful for benchmarks that only score test-file changes (e.g. SWT-bench).
+    A file is kept iff :func:`_is_test_path` returns ``True`` for either the
+    pre- or post-image path in its ``diff --git`` header.
+
+    The implementation mirrors :func:`remove_files_from_patch` so the two
+    helpers behave consistently.
+
+    Note: a more precise alternative would be to intersect with the gold
+    ``test_patch`` file set per instance. That data is in the upstream SWT
+    dataset, not in ``output.jsonl``, so wiring it into ``eval_infer.py``
+    would mean re-loading the dataset on the post-processing path. The
+    path-based heuristic here is intentionally local to the patch text and
+    good enough in practice; tightening to ground truth is tracked
+    separately.
+    """
+    if not git_patch:
+        return git_patch
+
+    diff_pattern = r"diff --git [^\n]*\n"
+    diff_matches = list(re.finditer(diff_pattern, git_patch))
+    if not diff_matches:
+        return git_patch
+
+    kept = []
+    for i, match in enumerate(diff_matches):
+        start = match.start()
+        end = (
+            diff_matches[i + 1].start() if i + 1 < len(diff_matches) else len(git_patch)
+        )
+        diff = git_patch[start:end]
+        header = diff.split("\n", 1)[0]
+        m = re.match(r"diff --git a/(.+) b/(.+)", header)
+        if m and (_is_test_path(m.group(1)) or _is_test_path(m.group(2))):
+            kept.append(diff)
+
+    return "".join(kept)
+
+
 def remove_binary_diffs(patch_text):
     """
     Remove binary file diffs from a git patch.
