@@ -279,7 +279,7 @@ def run_swebench_multimodal_evaluation(
     # clear log message instead of a misleading
     # "SWE-Bench harness output naming may have changed" FileNotFoundError.
     num_predictions = sum(
-        1 for line in predictions_path.read_text().splitlines() if line.strip()
+        1 for line in predictions_path.open(encoding="utf-8") if line.strip()
     )
     if num_predictions == 0:
         logger.warning(
