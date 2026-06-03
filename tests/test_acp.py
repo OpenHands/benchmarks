@@ -16,6 +16,7 @@ from benchmarks.utils.acp import (
     is_acp_agent,
     setup_acp_workspace,
 )
+from openhands.sdk.secret import StaticSecret
 
 
 # ---- is_acp_agent -----------------------------------------------------------
@@ -191,13 +192,25 @@ def test_get_acp_env_default_returns_empty():
 @patch.dict(
     os.environ, {"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_BASE_URL": "https://proxy"}
 )
-def test_build_acp_agent_passes_acp_env():
-    """build_acp_agent should set acp_env with provider credentials."""
+def test_build_acp_agent_passes_provider_creds_via_agent_context():
+    """build_acp_agent routes provider creds through agent_context.secrets.
+
+    Credentials must ride the cipher-protected secrets channel, not the
+    deprecated acp_env channel (software-agent-sdk #3464).
+    """
     agent = build_acp_agent("acp-claude", "litellm_proxy/anthropic/claude-opus-4-6")
-    assert agent.acp_env == {
-        "ANTHROPIC_API_KEY": "sk-test",
-        "ANTHROPIC_BASE_URL": "https://proxy",
-    }
+    # Not on the deprecated acp_env channel.
+    assert agent.acp_env == {}
+    # Delivered via agent_context.secrets, keyed by provider env-var names.
+    assert agent.agent_context is not None
+    secrets = agent.agent_context.secrets
+    assert secrets is not None
+    api_key = secrets["ANTHROPIC_API_KEY"]
+    base_url = secrets["ANTHROPIC_BASE_URL"]
+    assert isinstance(api_key, StaticSecret) and api_key.get_value() == "sk-test"
+    assert (
+        isinstance(base_url, StaticSecret) and base_url.get_value() == "https://proxy"
+    )
 
 
 @patch.dict(os.environ, {}, clear=True)

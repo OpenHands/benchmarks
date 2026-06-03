@@ -7,9 +7,12 @@ import threading
 from contextlib import contextmanager
 from typing import Any, cast
 
+from pydantic import SecretStr
+
 from benchmarks.utils.laminar import LMNR_ENV_VARS
-from openhands.sdk import get_logger
+from openhands.sdk import AgentContext, get_logger
 from openhands.sdk.agent import ACPAgent
+from openhands.sdk.secret import StaticSecret
 from openhands.sdk.workspace import RemoteWorkspace
 
 
@@ -76,8 +79,8 @@ def get_acp_forward_env(
     For ACP agent types, LMNR_ENV_VARS are included in forward_env to enable
     Laminar tracing within the workspace.  Provider credentials (API keys,
     base URLs) are **not** forwarded here — they are passed via
-    ``ACPAgent.acp_env`` in :func:`build_acp_agent` to avoid leaking them
-    into logged workspace payloads.
+    ``ACPAgent.agent_context.secrets`` in :func:`build_acp_agent` to avoid
+    leaking them into logged workspace payloads.
     """
     if agent_type not in _ACP_ENV_VARS:
         return forward_env
@@ -116,31 +119,37 @@ def extract_acp_model_hint(llm_model: str) -> str | None:
 
 
 def _get_acp_env(agent_type: str) -> dict[str, str]:
-    """Build the ``acp_env`` dict for the given ACP *agent_type*.
+    """Build the provider env-var dict for the given ACP *agent_type*.
 
-    Reads the provider credentials from the current process environment and
-    returns them as a dict suitable for ``ACPAgent.acp_env``.  This keeps
-    credentials out of the workspace ``forward_env`` (which is logged) and
-    instead passes them directly to the ACP subprocess.
+    Reads the provider credentials (API key + base URL) from the current
+    process environment and returns them as an ``{ENV_VAR: value}`` dict.
+    They are delivered to the ACP subprocess via ``agent_context.secrets``
+    (see :func:`build_acp_agent`), which keeps them out of the workspace
+    ``forward_env`` (which is logged) and off the deprecated ``acp_env``
+    credential channel (software-agent-sdk #3464).
 
     Raises ``ValueError`` if the required API key is not set.
     """
     env_var_names = _ACP_ENV_VARS.get(agent_type, [])
-    acp_env: dict[str, str] = {}
+    provider_env: dict[str, str] = {}
     for var in env_var_names:
         value = os.getenv(var)
         if value:
-            acp_env[var] = value
+            provider_env[var] = value
         elif "API_KEY" in var:
             raise ValueError(f"{var} not found in environment")
-    return acp_env
+    return provider_env
 
 
 def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
-    """Create an ACPAgent while remaining compatible with older type stubs.
+    """Create an ACPAgent with provider credentials on ``agent_context.secrets``.
 
-    Provider credentials are passed via ``acp_env`` so they reach the ACP
-    subprocess without being included in the workspace ``forward_env``.
+    Provider credentials (API key + base URL) are delivered to the ACP
+    subprocess through ``agent_context.secrets`` — the cipher-protected
+    channel that rides the encrypted ``request.secrets`` boundary and is
+    gap-filled into the subprocess env by the SDK at launch — instead of the
+    deprecated ``acp_env`` channel (software-agent-sdk #3464). This also keeps
+    the credentials out of the workspace ``forward_env`` (which is logged).
 
     If a per-instance LiteLLM virtual key is active (set via
     ``litellm_proxy.set_current_virtual_key``), it overrides the API key
@@ -149,7 +158,7 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
     """
     from benchmarks.utils.litellm_proxy import get_current_virtual_key
 
-    acp_env = _get_acp_env(agent_type)
+    provider_env = _get_acp_env(agent_type)
 
     virtual_key = get_current_virtual_key()
     if virtual_key is not None:
@@ -157,15 +166,22 @@ def build_acp_agent(agent_type: str, llm_model: str) -> ACPAgent:
         # proxy tracks spend independently for this instance.
         for var in _ACP_ENV_VARS.get(agent_type, []):
             if var.endswith("API_KEY"):
-                acp_env[var] = virtual_key
+                provider_env[var] = virtual_key
 
     prompt_timeout = _ACP_PROMPT_TIMEOUT_OVERRIDES.get(agent_type, ACP_PROMPT_TIMEOUT)
+
+    agent_context = AgentContext(
+        secrets={
+            name: StaticSecret(value=SecretStr(value))
+            for name, value in provider_env.items()
+        }
+    )
 
     return cast(Any, ACPAgent)(
         acp_command=get_acp_command(agent_type),
         acp_model=extract_acp_model_hint(llm_model),
         acp_prompt_timeout=prompt_timeout,
-        acp_env=acp_env,
+        agent_context=agent_context,
     )
 
 
