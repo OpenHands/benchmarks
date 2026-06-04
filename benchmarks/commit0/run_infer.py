@@ -42,11 +42,11 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.tool_presets import get_tools_for_preset
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
 from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace
 
@@ -386,7 +386,9 @@ class Commit0Evaluation(Evaluation):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
             agent_llm = build_eval_llm(self.metadata.llm)
-            tools = get_default_tools(enable_browser=False)
+            tools = get_tools_for_preset(
+                self.metadata.tool_preset, enable_browser=False
+            )
             if self.metadata.enable_delegation:
                 tools.append(Tool(name=TaskToolSet.name))
             condenser = None
@@ -650,6 +652,10 @@ def main() -> None:
         eval_note=args.note,
     )
 
+    critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
+    logger.info(f"Using tool preset: {args.tool_preset}")
+
     metadata = EvalMetadata(
         llm=llm,
         dataset=args.dataset,
@@ -661,10 +667,11 @@ def main() -> None:
         eval_limit=args.n_limit,
         env_setup_commands=None,
         n_critic_runs=args.n_critic_runs,
-        critic=create_critic(args),
+        critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
         agent_type=args.agent_type,
     )

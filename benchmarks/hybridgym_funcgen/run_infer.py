@@ -35,11 +35,11 @@ from benchmarks.utils.models import (
     EvalOutput,
     ToolPresetType,
 )
+from benchmarks.utils.tool_presets import get_tools_for_preset
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
 from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace
 
@@ -362,20 +362,7 @@ class FuncGenEvaluation(Evaluation):
 
     def _get_tools(self, preset: ToolPresetType = "default") -> list[Tool]:
         """Get tools for the given preset."""
-        if preset == "gemini":
-            from openhands.tools.preset.gemini import get_gemini_tools
-
-            return get_gemini_tools(enable_browser=False)
-        elif preset == "gpt5":
-            from openhands.tools.preset.gpt5 import get_gpt5_tools
-
-            return get_gpt5_tools(enable_browser=False)
-        elif preset == "planning":
-            from openhands.tools.preset.planning import get_planning_tools
-
-            return get_planning_tools()
-        else:
-            return get_default_tools(enable_browser=False)
+        return get_tools_for_preset(preset, enable_browser=False)
 
 
 def main() -> None:

@@ -29,9 +29,9 @@ from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.tool_presets import get_tools_for_preset
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
 from openhands.tools.task import TaskToolSet
 from openhands.workspace import DockerWorkspace
 
@@ -449,7 +449,8 @@ class OpenAgentSafetyEvaluation(Evaluation):
         from pydantic import ValidationError
 
         # Setup tools
-        tools = get_default_tools(
+        tools = get_tools_for_preset(
+            self.metadata.tool_preset,
             enable_browser=False,
         )
 
@@ -668,6 +669,8 @@ def main() -> None:
 
     # Create critic instance from parsed arguments
     critic = create_critic(args)
+    logger.info(f"Using critic: {type(critic).__name__}")
+    logger.info(f"Using tool preset: {args.tool_preset}")
 
     # Create metadata
     metadata = EvalMetadata(
@@ -685,6 +688,7 @@ def main() -> None:
         critic=critic,
         selected_instances_file=args.select,
         max_retries=args.max_retries,
+        tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
     )
 

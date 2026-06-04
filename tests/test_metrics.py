@@ -620,6 +620,14 @@ def _get_evaluation_module_name(evaluation_class: type[Evaluation]) -> str:
     return evaluation_class.evaluate_instance.__module__
 
 
+def _tools_mock_target(evaluation_module_name: str) -> str:
+    """Return the tool factory symbol used by an evaluation module."""
+    module = importlib.import_module(evaluation_module_name)
+    if hasattr(module, "get_tools_for_preset"):
+        return f"{evaluation_module_name}.get_tools_for_preset"
+    return f"{evaluation_module_name}.get_default_tools"
+
+
 @pytest.mark.parametrize("benchmark_name,evaluation_class", BENCHMARKS)
 def test_benchmark_metrics_collection(
     benchmark_name: str,
@@ -656,15 +664,7 @@ def test_benchmark_metrics_collection(
 
     # Mock common dependencies to avoid actual LLM calls.
     evaluation_module_name = _get_evaluation_module_name(evaluation_class)
-    tools_mock_target = (
-        f"{evaluation_module_name}.get_tools_for_preset"
-        if evaluation_module_name
-        in {
-            "benchmarks.swebench.run_infer",
-            "benchmarks.swebenchmultilingual.run_infer",
-        }
-        else f"{evaluation_module_name}.get_default_tools"
-    )
+    tools_mock_target = _tools_mock_target(evaluation_module_name)
     with (
         patch(
             f"{evaluation_module_name}.Conversation",
@@ -786,7 +786,7 @@ def test_openagentsafety_error_path_uses_conversation_metrics(
             return_value=mock_conversation,
         ),
         patch("benchmarks.openagentsafety.run_infer.Agent"),
-        patch("benchmarks.openagentsafety.run_infer.get_default_tools"),
+        patch("benchmarks.openagentsafety.run_infer.get_tools_for_preset"),
         patch(
             "benchmarks.openagentsafety.run_infer.generate_instruction",
             return_value="Test instruction",
@@ -832,15 +832,7 @@ def test_metrics_with_zero_cost(mock_workspace):
     mock_conversation = _setup_mocks_for_benchmark(benchmark_name, zero_metrics)
 
     evaluation_module_name = _get_evaluation_module_name(evaluation_class)
-    tools_mock_target = (
-        f"{evaluation_module_name}.get_tools_for_preset"
-        if evaluation_module_name
-        in {
-            "benchmarks.swebench.run_infer",
-            "benchmarks.swebenchmultilingual.run_infer",
-        }
-        else f"{evaluation_module_name}.get_default_tools"
-    )
+    tools_mock_target = _tools_mock_target(evaluation_module_name)
     with (
         patch(
             f"{evaluation_module_name}.Conversation",
