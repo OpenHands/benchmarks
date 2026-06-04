@@ -236,3 +236,106 @@ class TestAggregateResults:
         with open(final_output_file, "r") as f:
             lines = f.readlines()
         assert len(lines) == 0
+
+    def test_preserves_entries_with_unknown_history_kinds(self, temp_output_dir):
+        """
+        Resumed runs may carry over critic-attempt entries whose ``history``
+        references discriminated-union ``kind``s not registered in the current
+        process (e.g. browser tools when the resume pod loads only the default
+        toolset). Pydantic validation of those entries raises, and prior to
+        this fix every such entry was silently dropped — emptying out
+        ``output.jsonl`` and causing the eval phase to see zero instances.
+
+        Verify that all non-error entries are preserved as-is, that error
+        entries are still dropped, and that fully-parseable entries from a
+        later attempt can still win the rank tie-break.
+        """
+        critic = PassCritic()
+        attempt_1_file = os.path.join(temp_output_dir, "output.critic_attempt_1.jsonl")
+
+        # Two carried-over rows whose history contains an unregistered action
+        # kind, plus one carried-over row marked as an error.
+        unparseable_ok_row = {
+            "instance_id": "instance_ok",
+            "instruction": "carried over",
+            "instance": {"test": "data"},
+            "test_result": {"git_patch": "carried patch"},
+            "error": None,
+            "history": [{"kind": "ThisActionKindIsNotRegisteredAnywhere"}],
+        }
+        unparseable_error_row = {
+            "instance_id": "instance_err",
+            "instruction": "carried over",
+            "instance": {"test": "data"},
+            "test_result": None,
+            "error": "Timed out",
+            "history": [{"kind": "ThisActionKindIsNotRegisteredAnywhere"}],
+        }
+        # And one cleanly parseable row from the resumed run's new attempt.
+        clean_row = create_output("instance_new", error=None)
+
+        with open(attempt_1_file, "w") as f:
+            f.write(json.dumps(unparseable_ok_row) + "\n")
+            f.write(json.dumps(unparseable_error_row) + "\n")
+            f.write(clean_row.model_dump_json() + "\n")
+
+        aggregate_results(temp_output_dir, n_critic_runs=3, critic=critic)
+
+        final_output_file = os.path.join(temp_output_dir, "output.jsonl")
+        with open(final_output_file, "r") as f:
+            written = [json.loads(line) for line in f if line.strip()]
+
+        written_ids = {row["instance_id"] for row in written}
+        # The non-error unparseable carry-over MUST be preserved (regression
+        # for the empty-output.jsonl bug observed on resumed gaia runs).
+        assert "instance_ok" in written_ids
+        # The cleanly parseable new attempt is included.
+        assert "instance_new" in written_ids
+        # The errored carry-over is still filtered out.
+        assert "instance_err" not in written_ids
+        assert len(written) == 2
+
+        # Round-tripped carry-over must preserve the history (i.e. raw line
+        # is written verbatim, not re-serialised through EvalOutput which
+        # would silently drop the unknown kind).
+        ok_row = next(row for row in written if row["instance_id"] == "instance_ok")
+        assert ok_row["history"] == unparseable_ok_row["history"]
+
+    def test_parseable_critic_success_beats_unparseable_carryover(
+        self, temp_output_dir
+    ):
+        """
+        A fully-parseable, critic-successful attempt for the same instance
+        must out-rank the unparseable raw-line fallback so the freshest result
+        wins, mirroring the pre-existing rank semantics for parseable rows.
+        """
+        critic = PassCritic()
+
+        # Attempt 1: carried-over, unparseable, non-error → falls back to rank 1.
+        attempt_1_file = os.path.join(temp_output_dir, "output.critic_attempt_1.jsonl")
+        carryover = {
+            "instance_id": "instance_1",
+            "instruction": "carried",
+            "instance": {"test": "data"},
+            "test_result": {"git_patch": "old patch"},
+            "error": None,
+            "history": [{"kind": "ThisActionKindIsNotRegisteredAnywhere"}],
+        }
+        with open(attempt_1_file, "w") as f:
+            f.write(json.dumps(carryover) + "\n")
+
+        # Attempt 2: cleanly parseable, critic-successful (PassCritic) → rank 2.
+        attempt_2_file = os.path.join(temp_output_dir, "output.critic_attempt_2.jsonl")
+        fresh = create_output("instance_1", error=None)
+        with open(attempt_2_file, "w") as f:
+            f.write(fresh.model_dump_json() + "\n")
+
+        aggregate_results(temp_output_dir, n_critic_runs=3, critic=critic)
+
+        final_output_file = os.path.join(temp_output_dir, "output.jsonl")
+        with open(final_output_file, "r") as f:
+            written = [json.loads(line) for line in f if line.strip()]
+
+        assert len(written) == 1
+        # Fresh, critic-successful row wins → its test_result is kept.
+        assert written[0]["test_result"] == {"git_patch": "mock patch"}
