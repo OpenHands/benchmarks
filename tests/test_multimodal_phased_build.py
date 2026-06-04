@@ -290,11 +290,11 @@ class TestMultimodalParser:
         assert args.n_limit == 0
         assert args.select == BUILD_DEFAULTS["select"]
 
-    def test_select_empty_overrides_default(self):
+    def test_select_empty_string_builds_full_dataset(self):
+        """Passing ``--select ''`` clears the curated default and builds the full dataset."""
         from benchmarks.swebenchmultimodal.build_images import get_parser
 
         parser = get_parser()
-        # Empty string overrides the default (builds full dataset)
         args = parser.parse_args(["--select", ""])
         assert args.select == ""
 
