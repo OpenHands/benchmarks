@@ -33,6 +33,15 @@ class _AggregatedEntry:
     output: EvalOutput | None
     raw_line: str | None
 
+    def beats(self, other: "_AggregatedEntry") -> bool:
+        """Return True if this entry should replace ``other`` for its instance.
+
+        Mirrors the pre-existing "highest rank wins" tie-break used by
+        ``aggregate_results`` before this refactor, and centralises it so both
+        the parseable and raw-line fallback paths use identical semantics.
+        """
+        return self.rank > other.rank
+
     def serialize(self) -> str:
         """Return the JSONL representation to write to the final output file."""
         if self.output is not None:
@@ -190,13 +199,17 @@ def aggregate_results(
                         # rank 2.
                         has_error = bool(data.get("error"))
                         fallback_count += 1
+                        # Log only the exception type at debug level — a single
+                        # pydantic ``ValidationError`` can carry dozens of
+                        # sub-errors each containing the offending ``input_value``
+                        # and would blow up log size in high-volume aggregations.
                         logger.debug(
                             "Falling back to raw-line preservation for line "
                             "%d in %s (instance %s): %s",
                             line_num,
                             attempt_file,
                             instance_id,
-                            e,
+                            type(e).__name__,
                         )
                         entry = _AggregatedEntry(
                             instance_id=instance_id,
@@ -207,7 +220,7 @@ def aggregate_results(
                         )
 
                     current = best_results.get(instance_id)
-                    if current is None or entry.rank > current.rank:
+                    if current is None or entry.beats(current):
                         best_results[instance_id] = entry
 
         except Exception as e:
