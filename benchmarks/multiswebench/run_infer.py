@@ -34,11 +34,11 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.tool_presets import get_tools_for_preset
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
 from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
@@ -279,7 +279,8 @@ class MultiSWEBenchEvaluation(Evaluation):
         Create conversation, run agent, collect history and git patch.
         Do not write files here; just return EvalOutput.
         """
-        tools = get_default_tools(
+        tools = get_tools_for_preset(
+            self.metadata.tool_preset,
             # Disable browser tools in CLI mode
             enable_browser=False,
         )
@@ -448,6 +449,7 @@ def main() -> None:
     # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
+    logger.info(f"Using tool preset: {args.tool_preset}")
 
     # Handle condenser configuration
     # --disable-condenser takes precedence over --enable-condenser and defaults
@@ -471,6 +473,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
         enable_condenser=enable_condenser,
         condenser_max_size=args.condenser_max_size,

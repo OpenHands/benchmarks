@@ -40,6 +40,7 @@ from benchmarks.utils.models import (
     EvalMetadata,
     EvalOutput,
 )
+from benchmarks.utils.tool_presets import get_tools_for_preset
 from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import (
     Agent,
@@ -53,7 +54,6 @@ from openhands.sdk import (
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
 from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
 
@@ -243,7 +243,8 @@ class SWEBenchEvaluation(Evaluation):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
             agent_llm = build_eval_llm(self.metadata.llm)
-            tools = get_default_tools(
+            tools = get_tools_for_preset(
+                self.metadata.tool_preset,
                 # Enable browser tools for frontend development tasks
                 enable_browser=True,
             )
@@ -457,6 +458,7 @@ def main() -> None:
     # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
+    logger.info(f"Using tool preset: {args.tool_preset}")
 
     # Handle condenser configuration
     # --disable-condenser takes precedence over --enable-condenser and defaults
@@ -479,6 +481,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
         agent_type=args.agent_type,
         enable_condenser=enable_condenser,

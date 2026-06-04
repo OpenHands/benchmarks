@@ -40,6 +40,7 @@ from benchmarks.utils.image_utils import create_docker_workspace, remote_image_e
 from benchmarks.utils.litellm_proxy import build_eval_llm
 from benchmarks.utils.llm_config import load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
+from benchmarks.utils.tool_presets import get_tools_for_preset
 from benchmarks.utils.version import IMAGE_TAG_PREFIX
 from openhands.sdk import (
     Agent,
@@ -57,7 +58,6 @@ from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.event import ActionEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
 from openhands.sdk.workspace import RemoteWorkspace
-from openhands.tools.preset.default import get_default_tools
 from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace
 
@@ -326,7 +326,7 @@ class GAIAEvaluation(Evaluation):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
             agent_llm = build_eval_llm(self.metadata.llm)
-            tools = get_default_tools(enable_browser=True)
+            tools = get_tools_for_preset(self.metadata.tool_preset, enable_browser=True)
             if self.metadata.enable_delegation:
                 tools.append(Tool(name=TaskToolSet.name))
             tavily_api_key = os.getenv("TAVILY_API_KEY", "")
@@ -611,6 +611,7 @@ def main() -> None:
     # Create critic instance from parsed arguments
     critic = create_critic(args)
     logger.info(f"Using critic: {type(critic).__name__}")
+    logger.info(f"Using tool preset: {args.tool_preset}")
 
     # Validate arguments
     if args.n_critic_runs < 1:
@@ -645,6 +646,7 @@ def main() -> None:
         selected_instances_file=args.select,
         max_retries=args.max_retries,
         workspace_type=args.workspace,
+        tool_preset=args.tool_preset,
         enable_delegation=args.enable_delegation,
         agent_type=args.agent_type,
     )
