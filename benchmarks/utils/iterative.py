@@ -7,6 +7,7 @@ using SDK critics to determine if an instance succeeded.
 
 import json
 import os
+from dataclasses import dataclass
 from typing import Set
 
 from benchmarks.utils.critics import CriticBase, evaluate_output
@@ -15,6 +16,41 @@ from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class _AggregatedEntry:
+    """Internal representation of a per-instance candidate during aggregation.
+
+    Holds either a fully-parsed ``EvalOutput`` (preferred) or, when pydantic
+    validation fails for a line we still want to preserve, the raw JSONL line
+    plus enough metadata to rank and filter it.
+    """
+
+    instance_id: EvalInstanceID
+    rank: int
+    error: bool
+    output: EvalOutput | None
+    raw_line: str | None
+
+    def beats(self, other: "_AggregatedEntry") -> bool:
+        """Return True if this entry should replace ``other`` for its instance.
+
+        Mirrors the pre-existing "highest rank wins" tie-break used by
+        ``aggregate_results`` before this refactor, and centralises it so both
+        the parseable and raw-line fallback paths use identical semantics.
+        """
+        return self.rank > other.rank
+
+    def serialize(self) -> str:
+        """Return the JSONL representation to write to the final output file."""
+        if self.output is not None:
+            return self.output.model_dump_json() + "\n"
+        # Fallback: write the original line verbatim (already includes content
+        # that may not round-trip cleanly through the current EvalOutput model,
+        # e.g. tool kinds from plugins not registered in this process).
+        assert self.raw_line is not None
+        return self.raw_line if self.raw_line.endswith("\n") else self.raw_line + "\n"
 
 
 def _get_output_rank(critic: CriticBase, output: EvalOutput) -> int:
@@ -99,8 +135,13 @@ def aggregate_results(
     """
     logger.info(f"Aggregating results from {n_critic_runs} critic runs")
 
-    # Dictionary to store the best result for each instance
-    best_results: dict[EvalInstanceID, EvalOutput] = {}
+    # Dictionary to store the best candidate for each instance
+    best_results: dict[EvalInstanceID, _AggregatedEntry] = {}
+    # Track how many entries fell back to raw-line preservation because
+    # full EvalOutput validation failed (e.g. resumed runs where the carried
+    # over history references discriminated-union "kind"s not registered in
+    # this process). Reported in a single summary log to avoid log spam.
+    fallback_count = 0
 
     # Work backwards from the last attempt to the first
     for attempt in range(n_critic_runs, 0, -1):
@@ -119,32 +160,79 @@ def aggregate_results(
                 for line_num, line in enumerate(f, 1):
                     try:
                         data = json.loads(line.strip())
-                        output = EvalOutput.model_validate(data)
-
-                        instance_id = output.instance_id
-                        output_rank = _get_output_rank(critic, output)
-
-                        if instance_id not in best_results:
-                            # First time seeing this instance
-                            best_results[instance_id] = output
-                        else:
-                            # Replace if this output has a higher rank
-                            current_best = best_results[instance_id]
-                            current_rank = _get_output_rank(critic, current_best)
-                            if output_rank > current_rank:
-                                best_results[instance_id] = output
-
                     except json.JSONDecodeError as e:
                         logger.warning(
                             f"Invalid JSON on line {line_num} in {attempt_file}: {e}"
                         )
-                    except Exception as e:
+                        continue
+
+                    instance_id = data.get("instance_id")
+                    if not instance_id:
                         logger.warning(
-                            f"Error processing line {line_num} in {attempt_file}: {e}"
+                            f"Missing instance_id on line {line_num} in "
+                            f"{attempt_file}; skipping"
                         )
+                        continue
+
+                    # Prefer full pydantic validation so the critic can rank
+                    # parseable rows accurately. If that fails, fall back to a
+                    # minimal-parse path that preserves the entry as a raw line
+                    # so downstream consumers still see the carried-over data.
+                    entry: _AggregatedEntry
+                    try:
+                        output = EvalOutput.model_validate(data)
+                        entry = _AggregatedEntry(
+                            instance_id=output.instance_id,
+                            rank=_get_output_rank(critic, output),
+                            error=bool(output.error),
+                            output=output,
+                            raw_line=None,
+                        )
+                    except Exception as e:
+                        # Most common cause is a discriminated-union kind in
+                        # ``history`` that is not registered in this process
+                        # (e.g. browser tools after a resume on a pod that does
+                        # not load the browser plugin). Conservative rank: 0 if
+                        # the row recorded an error, otherwise 1 (non-error,
+                        # non-critic-successful). A fully-parseable row for the
+                        # same instance from another attempt can still win with
+                        # rank 2.
+                        has_error = bool(data.get("error"))
+                        fallback_count += 1
+                        # Log only the exception type at debug level — a single
+                        # pydantic ``ValidationError`` can carry dozens of
+                        # sub-errors each containing the offending ``input_value``
+                        # and would blow up log size in high-volume aggregations.
+                        logger.debug(
+                            "Falling back to raw-line preservation for line "
+                            "%d in %s (instance %s): %s",
+                            line_num,
+                            attempt_file,
+                            instance_id,
+                            type(e).__name__,
+                        )
+                        entry = _AggregatedEntry(
+                            instance_id=instance_id,
+                            rank=0 if has_error else 1,
+                            error=has_error,
+                            output=None,
+                            raw_line=line,
+                        )
+
+                    current = best_results.get(instance_id)
+                    if current is None or entry.beats(current):
+                        best_results[instance_id] = entry
 
         except Exception as e:
             logger.error(f"Error reading attempt file {attempt_file}: {e}")
+
+    if fallback_count:
+        logger.warning(
+            "Preserved %d entries via raw-line fallback (pydantic validation "
+            "failed, likely due to history kinds not registered in this "
+            "process — e.g. plugin tools from a different run).",
+            fallback_count,
+        )
 
     # Write the aggregated results
     final_path = os.path.join(output_dir, final_output_file)
@@ -155,10 +243,11 @@ def aggregate_results(
     try:
         successful_count = 0
         with open(final_path, "w", encoding="utf-8") as f:
-            for output in best_results.values():
-                if not output.error:  # Skip outputs with errors
-                    f.write(output.model_dump_json() + "\n")
-                    successful_count += 1
+            for entry in best_results.values():
+                if entry.error:  # Skip outputs with errors
+                    continue
+                f.write(entry.serialize())
+                successful_count += 1
 
         logger.info(
             f"Successfully wrote {successful_count} successful results to {final_path}"
