@@ -289,3 +289,18 @@ class TestMultimodalParser:
         assert args.force_build is False
         assert args.n_limit == 0
         assert args.select == BUILD_DEFAULTS["select"]
+
+    def test_select_empty_string_builds_full_dataset(self):
+        """Passing ``--select ''`` clears the curated default and builds the full dataset."""
+        from benchmarks.swebenchmultimodal.build_images import get_parser
+
+        parser = get_parser()
+        args = parser.parse_args(["--select", ""])
+        assert args.select == ""
+
+    def test_select_custom_file(self):
+        from benchmarks.swebenchmultimodal.build_images import get_parser
+
+        parser = get_parser()
+        args = parser.parse_args(["--select", "/custom/path/instances.txt"])
+        assert args.select == "/custom/path/instances.txt"

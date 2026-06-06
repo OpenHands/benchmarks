@@ -83,6 +83,17 @@ on:
         type: string
 
 # Defaults for automatic runs; keep INSTANCE_IDS/SELECT_FILE initialized so set -euo pipefail won't fail on unset vars.
+#
+# NOTE (behavior change introduced alongside curated-subset inference defaults):
+# SELECT_FILE now defaults to `resolved_instances.txt`, so by default this
+# workflow only builds the curated 68-instance subset (the same subset used by
+# `swebenchmultimodal-infer`). This matches the inference default and avoids
+# burning CI time on instances we never evaluate.
+#
+# To build the FULL dataset, manually trigger the workflow and either:
+#   * provide explicit `instance-ids`, or
+#   * clear SELECT_FILE in your fork (e.g. set this env to '').
+# Without one of those overrides, only the 68 curated instances will be built.
 env:
   DATASET: princeton-nlp/SWE-bench_Multimodal
   SPLIT: dev
@@ -90,7 +101,7 @@ env:
   MAX_RETRIES: '2'
   N_LIMIT: '500'
   INSTANCE_IDS: ''
-  SELECT_FILE: ''
+  SELECT_FILE: ${{ github.workspace }}/benchmarks/swebenchmultimodal/resolved_instances.txt
 
 concurrency:
   group: build-swe-bench-multimodal-${{ inputs.sdk-commit || github.ref }}
@@ -233,6 +244,16 @@ jobs:
             fi
           else
             echo "Warning: /var/lib/buildkit not found; skipping disk check"
+          fi
+
+      - name: Validate SELECT_FILE exists
+        if: env.SELECT_FILE != ''
+        run: |
+          set -euo pipefail
+          if [ ! -f "${SELECT_FILE}" ]; then
+            echo "::error::SELECT_FILE not found: ${SELECT_FILE}"
+            echo "::error::Either commit the curated instances file or clear SELECT_FILE to build the full dataset."
+            exit 1
           fi
 
       - name: Build and push SWE-Bench Multimodal images (three-phase pipeline)
