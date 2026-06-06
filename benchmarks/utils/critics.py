@@ -150,11 +150,12 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     Get all instance IDs present in output file
     (completed, regardless of success/failure).
 
-    Args:
-        output_file: Path to the JSONL output file
-
-    Returns:
-        Set of instance IDs that were completed (processed)
+    Reads ``instance_id`` directly from each JSON line WITHOUT validating the
+    full ``EvalOutput`` model. Resume must recognise prior completion across
+    schema drift — e.g. archives written with an older SDK whose
+    tool/observation events no longer match current pydantic models — so a
+    stale archive still causes completed instances to be skipped instead of
+    silently being re-run from scratch.
     """
     completed_instances: Set[EvalInstanceID] = set()
 
@@ -164,19 +165,26 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     try:
         with open(output_file, "r", encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
+                stripped = line.strip()
+                if not stripped:
+                    continue
                 try:
-                    data = json.loads(line.strip())
-                    output = EvalOutput.model_validate(data)
-                    completed_instances.add(output.instance_id)
-
+                    data = json.loads(stripped)
                 except json.JSONDecodeError as e:
                     logger.warning(
                         f"Invalid JSON on line {line_num} in {output_file}: {e}"
                     )
-                except Exception as e:
+                    continue
+
+                instance_id = (
+                    data.get("instance_id") if isinstance(data, dict) else None
+                )
+                if not instance_id:
                     logger.warning(
-                        f"Error processing line {line_num} in {output_file}: {e}"
+                        f"Missing 'instance_id' on line {line_num} in {output_file}"
                     )
+                    continue
+                completed_instances.add(instance_id)
 
     except Exception as e:
         logger.warning(f"Error reading output file {output_file}: {e}")

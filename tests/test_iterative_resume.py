@@ -443,3 +443,67 @@ def test_passed_instances_not_retried_in_later_attempts():
         assert result_ids == {"D"}, (
             f"Expected to retry only D (failed in attempt 2), but got: {result_ids}"
         )
+
+
+def test_get_completed_instances_tolerates_stale_archive_schema():
+    """
+    Resume must skip instances that were completed by an older SDK whose
+    EvalOutput schema has since drifted (e.g. browser tool/observation
+    events whose pydantic discriminators no longer match current models).
+
+    Reading instance_id from raw JSON avoids treating those rows as
+    "never completed" and re-running them from scratch. Regression test
+    for evaluation#515.
+    """
+    from benchmarks.utils.critics import get_completed_instances
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "output.critic_attempt_1.jsonl")
+        with open(path, "w") as f:
+            # 1) Stale row: has instance_id but a history event with a
+            #    discriminator value the current SDK no longer knows about.
+            #    EvalOutput.model_validate would raise on this; raw JSON
+            #    parsing must not.
+            stale = {
+                "instance_id": "instance_stale",
+                "instruction": "old instruction",
+                "instance": {"x": 1},
+                "test_result": {"git_patch": "old patch"},
+                "error": None,
+                "history": [
+                    {
+                        "kind": "BrowserNavigateTool",
+                        "tool_name": "browser",
+                        "args": {"url": "https://example.com"},
+                    }
+                ],
+            }
+            f.write(json.dumps(stale) + "\n")
+
+            # 2) Fresh row written via current EvalOutput model. Must also
+            #    still be detected.
+            fresh = EvalOutput(
+                instance_id="instance_fresh",
+                test_result={"git_patch": "p"},
+                instruction="i",
+                error=None,
+                history=[],
+                instance={"x": 2},
+            )
+            f.write(fresh.model_dump_json() + "\n")
+
+            # 3) Blank line: must be tolerated, not counted.
+            f.write("\n")
+
+            # 4) Malformed JSON: must be skipped with a warning, not raise.
+            f.write("{not valid json}\n")
+
+            # 5) JSON object missing instance_id: must be skipped.
+            f.write(json.dumps({"foo": "bar"}) + "\n")
+
+        completed = get_completed_instances(path)
+
+        assert completed == {"instance_stale", "instance_fresh"}, (
+            f"Expected both stale-schema and fresh rows to be recognised as "
+            f"completed, got: {completed}"
+        )
