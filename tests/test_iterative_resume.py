@@ -507,4 +507,3 @@ def test_get_completed_instances_tolerates_stale_archive_schema():
             f"Expected both stale-schema and fresh rows to be recognised as "
             f"completed, got: {completed}"
         )
-
