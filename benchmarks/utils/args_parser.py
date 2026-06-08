@@ -129,6 +129,16 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         type=int,
         help="Number of initial events to always keep when condensing",
     )
+    parser.add_argument(
+        "--max-cost-per-instance",
+        type=float,
+        default=None,
+        help=(
+            "Optional per-instance accumulated cost cap in USD. When set "
+            "(must be > 0), the conversation is paused as soon as "
+            "accumulated_cost exceeds this value. Defaults to no cap."
+        ),
+    )
     return parser
 
 

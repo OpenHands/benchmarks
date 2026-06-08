@@ -26,6 +26,7 @@ from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
+from benchmarks.utils.cost_cap import build_cost_cap_callback
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.evaluation import Evaluation
@@ -302,14 +303,30 @@ class SWEBenchEvaluation(Evaluation):
             instance_id=instance.id,
             attempt=self.current_attempt,
         )
+        callbacks: list = [persist_callback]
+
+        # Optional per-instance cost cap (defence-in-depth against runaway
+        # cost on hard instances). Constructed before the Conversation so it
+        # is part of the composed callback chain from the first event, then
+        # bound to the conversation right after construction so it can call
+        # ``conversation.pause()`` and read accumulated cost.
+        cost_cap_callback = None
+        if self.metadata.max_cost_per_instance is not None:
+            cost_cap_callback = build_cost_cap_callback(
+                max_cost_per_instance=self.metadata.max_cost_per_instance,
+                instance_id=instance.id,
+            )
+            callbacks.append(cost_cap_callback)
 
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[persist_callback],
+            callbacks=callbacks,
             max_iteration_per_run=self.metadata.max_iterations,
             delete_on_close=True,
         )
+        if cost_cap_callback is not None:
+            cost_cap_callback.bind(conversation)
 
         logger.info("repo_path: %s", repo_path)
         source_repo_path = self.get_source_repo_path(instance)
@@ -441,6 +458,7 @@ def main() -> None:
         enable_condenser=enable_condenser,
         condenser_max_size=args.condenser_max_size,
         condenser_keep_first=args.condenser_keep_first,
+        max_cost_per_instance=args.max_cost_per_instance,
     )
 
     # Run orchestrator with a simple JSONL writer

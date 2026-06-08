@@ -92,6 +92,18 @@ class EvalMetadata(BaseModel):
         ge=0,
         description="Number of initial events to always keep when condensing",
     )
+    max_cost_per_instance: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Optional per-instance accumulated cost cap in USD. When set, "
+            "the conversation is paused as soon as accumulated_cost exceeds "
+            "this value, mirroring the behaviour of max_iterations. None "
+            "(the default) disables the cap. This is a defence-in-depth "
+            "measure against runaway-cost instances and does not affect "
+            "behaviour when the cap is not reached."
+        ),
+    )
     lmnr: LaminarEvalMetadata | None = Field(
         default=None,
         description="Laminar evaluation metadata",
