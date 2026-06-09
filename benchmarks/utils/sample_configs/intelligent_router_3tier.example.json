@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Sample intelligent-router-v0 config for testing per-instance model routing.",
+    "Pass to any benchmark's run_infer.py via --llm-config-path.",
+    "Classifier = minimax-m2.7. Tier mapping = Frontend -> kimi, Issue Resolution",
+    "(other) -> minimax, all other categories -> gpt-5.5. Vision-capable tiers",
+    "are kimi-k2.6 and gpt-5.5; image-bearing instances classified into the",
+    "minimax tier are auto-rerouted to the vision-capable fallback (gpt-5.5).",
+    "Fill in api_key/base_url before use; these are intentionally blank."
+  ],
+  "kind": "intelligent-router-v0",
+  "classifier_model_id": "minimax-m2.7",
+  "fallback_model_id": "gpt-5.5",
+  "tiers": {
+    "kimi-k2.6": {
+      "model": "litellm_proxy/moonshot/kimi-k2.6",
+      "base_url": "",
+      "api_key": "",
+      "temperature": 1.0,
+      "inline_image_urls": true
+    },
+    "minimax-m2.7": {
+      "model": "litellm_proxy/minimax/MiniMax-M2.7",
+      "base_url": "",
+      "api_key": "",
+      "temperature": 1.0,
+      "top_p": 0.95
+    },
+    "gpt-5.5": {
+      "model": "litellm_proxy/openai/gpt-5.5",
+      "base_url": "",
+      "api_key": "",
+      "reasoning_effort": "high"
+    }
+  },
+  "routing": {
+    "Frontend": "kimi-k2.6",
+    "Issue Resolution (other)": "minimax-m2.7",
+    "Greenfield": "gpt-5.5",
+    "Testing": "gpt-5.5",
+    "Information Gathering": "gpt-5.5"
+  },
+  "vision_capable_model_ids": ["kimi-k2.6", "gpt-5.5"]
+}

@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from benchmarks.utils.intelligent_routing import RouterSpec
 from benchmarks.utils.laminar import LaminarEvalMetadata
 from openhands.sdk import LLM, Event, get_logger
 from openhands.sdk.critic import CriticBase
@@ -19,6 +20,16 @@ ToolPresetType = Literal["default", "gemini", "gpt5", "planning"]
 
 class EvalMetadata(BaseModel):
     llm: LLM
+    routing: RouterSpec | None = Field(
+        default=None,
+        description=(
+            "Optional intelligent-routing spec. When set and agent_type is "
+            "'default', the evaluator classifies each instance via the "
+            "router's classifier LLM and routes the agent conversation to "
+            "the matching tier LLM. 'llm' is still used as the fallback "
+            "(e.g. for ACP agents, condensers, or when classification fails)."
+        ),
+    )
     dataset: str
     dataset_split: str = Field(default="test")
     max_iterations: int
