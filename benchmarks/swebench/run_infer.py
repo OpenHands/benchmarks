@@ -5,6 +5,7 @@ from typing import Any, List
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.apptainer_build import ensure_apptainer_agent_image
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
@@ -181,27 +182,44 @@ class SWEBenchEvaluation(Evaluation):
                 forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "apptainer":
-            if not remote_image_exists(agent_server_image):
-                raise RuntimeError(
-                    f"Agent server image {agent_server_image} does not exist in container registry, "
-                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
-                )
-
-            logger.info(
-                f"Using apptainer workspace with pre-built image {agent_server_image} "
-                f"(tag prefix: {get_phased_image_tag_prefix()})"
-            )
-            if wrap_needed:
+            force_local_build = os.getenv(
+                "OPENHANDS_APPTAINER_FORCE_BUILD", ""
+            ).lower() in {"1", "true", "yes"}
+            if not force_local_build and remote_image_exists(agent_server_image):
                 logger.info(
-                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                    f"Using apptainer workspace with pre-built image {agent_server_image} "
+                    f"(tag prefix: {get_phased_image_tag_prefix()})"
                 )
+                if wrap_needed:
+                    logger.info(
+                        "Using pre-built wrapped apptainer image for wrapped repo"
+                    )
 
-            workspace = ApptainerWorkspace(
-                server_image=agent_server_image,
-                working_dir="/workspace",
-                forward_env=forward_env or [],
-                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
-            )
+                workspace = ApptainerWorkspace(
+                    server_image=agent_server_image,
+                    working_dir="/workspace",
+                    forward_env=forward_env or [],
+                    cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+                )
+            else:
+                logger.info(
+                    "Agent server image %s is not available in the registry; "
+                    "building a local Apptainer sandbox from %s",
+                    agent_server_image,
+                    official_docker_image,
+                )
+                local_agent_image = ensure_apptainer_agent_image(
+                    base_image=official_docker_image,
+                    custom_tag=custom_tag,
+                    target=build_target,
+                    wrap_swebench_deps=wrap_needed,
+                )
+                workspace = ApptainerWorkspace(
+                    sif_file=str(local_agent_image),
+                    working_dir="/workspace",
+                    forward_env=forward_env or [],
+                    cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+                )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:

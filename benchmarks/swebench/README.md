@@ -186,7 +186,7 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
 
 ### Apptainer Workspace for HPC Clusters
 
-#### Step 1: Build and push images using a separate machine with Docker support
+#### Option 1: Pre-build and push images using a separate machine with Docker support
 
 ```bash
 uv run python -m benchmarks.swebench.build_images \
@@ -199,7 +199,20 @@ uv run python -m benchmarks.swebench.build_images \
 
 The wrapper layer (`docutils<0.21`, `roman`) is applied in-place for allowlisted repos during this build pipeline (currently `sphinx-doc`).
 
-#### Step 2: Run on HPC with Apptainer
+#### Option 2: Build local Apptainer sandboxes on the HPC machine
+
+If a pre-built agent-server image is missing from the registry, Apptainer mode
+falls back to building a local sandbox from the official SWE-Bench image and the
+checked-out OpenHands SDK submodule. This does not require a Docker daemon.
+
+```bash
+export OPENHANDS_APPTAINER_BUILD_ROOT=/scratch/$USER/swebench-apptainer-agent-images
+```
+
+Set `OPENHANDS_APPTAINER_FORCE_BUILD=1` to rebuild a local sandbox even when a
+matching registry image exists.
+
+#### Run on HPC with Apptainer
 
 **Optionally**, you can override the default location where Apptainer cache is saved using the below environment variables:
 
@@ -215,7 +228,9 @@ uv run swebench-infer path/to/llm_config.json \
     --workspace apptainer
 ```
 
-In `apptainer` mode, SWE-Bench uses pre-built registry images as-is and does not run local Docker builds.
+In `apptainer` mode, SWE-Bench first tries to use pre-built registry images. If
+the expected registry tag is unavailable, it builds a local Apptainer sandbox
+instead.
 
 ## Evaluation
 
