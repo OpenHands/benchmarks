@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from benchmarks.swebench import apptainer_build, run_infer as swebench_run_infer
 from benchmarks.utils.models import EvalInstance
@@ -10,7 +11,7 @@ from benchmarks.utils.models import EvalInstance
 class FakeApptainerWorkspace:
     """Capture ApptainerWorkspace constructor arguments."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
 
 
@@ -65,6 +66,7 @@ def test_apptainer_workspace_uses_registry_image_when_available(monkeypatch):
         EvalInstance(id="django__django-12345", data={})
     )
 
+    assert isinstance(workspace, FakeApptainerWorkspace)
     assert "server_image" in workspace.kwargs
     assert "sif_file" not in workspace.kwargs
     assert workspace.kwargs["extra_bind_mounts"] == []
@@ -87,6 +89,7 @@ def test_apptainer_workspace_binds_existing_custom_tokenizer(monkeypatch, tmp_pa
         EvalInstance(id="django__django-12345", data={})
     )
 
+    assert isinstance(workspace, FakeApptainerWorkspace)
     assert workspace.kwargs["extra_bind_mounts"] == [
         f"{tokenizer_dir}:{tokenizer_dir}:ro"
     ]
@@ -117,6 +120,7 @@ def test_apptainer_workspace_builds_local_sandbox_when_registry_image_missing(
         EvalInstance(id="django__django-12345", data={})
     )
 
+    assert isinstance(workspace, FakeApptainerWorkspace)
     assert workspace.kwargs["sif_file"] == "/tmp/local-agent.sandbox"
     assert "server_image" not in workspace.kwargs
     assert workspace.kwargs["extra_bind_mounts"] == []
