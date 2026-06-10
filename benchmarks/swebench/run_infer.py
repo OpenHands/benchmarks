@@ -109,6 +109,22 @@ class SWEBenchEvaluation(Evaluation):
     def get_source_repo_path(self, instance: EvalInstance) -> str:
         return "/testbed"
 
+    def get_apptainer_extra_bind_mounts(self) -> list[str]:
+        """Return host paths that must be visible inside Apptainer agent servers."""
+        bind_mounts: list[str] = []
+        custom_tokenizer = self.metadata.llm.custom_tokenizer
+        if custom_tokenizer:
+            tokenizer_path = os.path.abspath(os.path.expanduser(custom_tokenizer))
+            if os.path.exists(tokenizer_path):
+                bind_mounts.append(f"{tokenizer_path}:{tokenizer_path}:ro")
+            else:
+                logger.warning(
+                    "custom_tokenizer path %s does not exist on host; "
+                    "not adding an Apptainer bind mount",
+                    custom_tokenizer,
+                )
+        return bind_mounts
+
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
 
@@ -199,6 +215,7 @@ class SWEBenchEvaluation(Evaluation):
                     server_image=agent_server_image,
                     working_dir="/workspace",
                     forward_env=forward_env or [],
+                    extra_bind_mounts=self.get_apptainer_extra_bind_mounts(),
                     cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
                 )
             else:
@@ -218,6 +235,7 @@ class SWEBenchEvaluation(Evaluation):
                     sif_file=str(local_agent_image),
                     working_dir="/workspace",
                     forward_env=forward_env or [],
+                    extra_bind_mounts=self.get_apptainer_extra_bind_mounts(),
                     cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
                 )
         elif self.metadata.workspace_type == "remote":
@@ -290,9 +308,23 @@ class SWEBenchEvaluation(Evaluation):
                 tools.append(Tool(name=TaskToolSet.name))
             condenser = None
             if self.metadata.enable_condenser:
+                condenser_llm = build_eval_llm(
+                    self.metadata.llm,
+                    usage_id="condenser",
+                )
+                if self.metadata.condenser_max_output_tokens is not None:
+                    condenser_llm = condenser_llm.model_copy(
+                        deep=True,
+                        update={
+                            "max_output_tokens": (
+                                self.metadata.condenser_max_output_tokens
+                            ),
+                        },
+                    )
                 condenser = LLMSummarizingCondenser(
-                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
+                    llm=condenser_llm,
                     max_size=self.metadata.condenser_max_size,
+                    max_tokens=self.metadata.condenser_max_tokens,
                     keep_first=self.metadata.condenser_keep_first,
                 )
             # Load public skills (respects EXTENSIONS_REF env var)
@@ -458,6 +490,8 @@ def main() -> None:
         agent_type=args.agent_type,
         enable_condenser=enable_condenser,
         condenser_max_size=args.condenser_max_size,
+        condenser_max_tokens=args.condenser_max_tokens,
+        condenser_max_output_tokens=args.condenser_max_output_tokens,
         condenser_keep_first=args.condenser_keep_first,
     )
 

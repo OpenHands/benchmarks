@@ -170,6 +170,7 @@ From: {base_image}
         uv python install 3.13 && \\
         uv venv --python-preference only-managed --python 3.13 .venv && \\
         uv sync --frozen --no-editable --managed-python --extra boto3 && \\
+        uv pip install --python /agent-server/.venv/bin/python "transformers>=4.56.0,<5" && \\
         readlink -f .venv/bin/python | grep -q "^/agent-server/uv-managed-python/"'
 
     {wrap_script}

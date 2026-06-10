@@ -19,6 +19,7 @@ def _evaluation():
         workspace_type="apptainer",
         agent_type="default",
         env_setup_commands=[],
+        llm=SimpleNamespace(custom_tokenizer=None),
     )
     evaluation = object.__new__(swebench_run_infer.SWEBenchEvaluation)
     object.__setattr__(evaluation, "metadata", metadata)
@@ -37,6 +38,21 @@ def test_unsupported_apptainer_build_target_returns_error():
     assert "source-minimal" in output.error
 
 
+def test_apptainer_definition_installs_transformers_for_token_counting():
+    definition = apptainer_build._definition_file_content(
+        base_image="docker.io/swebench/example:latest",
+        git_sha="abc123",
+        git_ref="main",
+        wrap_swebench_deps=False,
+        uv_path=Path("/usr/local/bin/uv"),
+        uvx_path=None,
+    )
+
+    assert 'uv pip install --python /agent-server/.venv/bin/python "transformers' in (
+        definition
+    )
+
+
 def test_apptainer_workspace_uses_registry_image_when_available(monkeypatch):
     monkeypatch.setattr(swebench_run_infer, "remote_image_exists", lambda image: True)
     monkeypatch.setattr(
@@ -51,6 +67,29 @@ def test_apptainer_workspace_uses_registry_image_when_available(monkeypatch):
 
     assert "server_image" in workspace.kwargs
     assert "sif_file" not in workspace.kwargs
+    assert workspace.kwargs["extra_bind_mounts"] == []
+
+
+def test_apptainer_workspace_binds_existing_custom_tokenizer(monkeypatch, tmp_path):
+    tokenizer_dir = tmp_path / "tokenizer"
+    tokenizer_dir.mkdir()
+    evaluation = _evaluation()
+    evaluation.metadata.llm.custom_tokenizer = str(tokenizer_dir)
+
+    monkeypatch.setattr(swebench_run_infer, "remote_image_exists", lambda image: True)
+    monkeypatch.setattr(
+        swebench_run_infer,
+        "ApptainerWorkspace",
+        FakeApptainerWorkspace,
+    )
+
+    workspace = evaluation.prepare_workspace(
+        EvalInstance(id="django__django-12345", data={})
+    )
+
+    assert workspace.kwargs["extra_bind_mounts"] == [
+        f"{tokenizer_dir}:{tokenizer_dir}:ro"
+    ]
 
 
 def test_apptainer_workspace_builds_local_sandbox_when_registry_image_missing(
@@ -80,6 +119,7 @@ def test_apptainer_workspace_builds_local_sandbox_when_registry_image_missing(
 
     assert workspace.kwargs["sif_file"] == "/tmp/local-agent.sandbox"
     assert "server_image" not in workspace.kwargs
+    assert workspace.kwargs["extra_bind_mounts"] == []
     assert built["base_image"].startswith("docker.io/swebench/")
     assert built["custom_tag"] == "sweb.eval.x86_64.django_1776_django-12345"
     assert built["target"] == "source-minimal"
