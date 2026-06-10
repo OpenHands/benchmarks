@@ -1,10 +1,12 @@
 from types import SimpleNamespace
+from typing import cast
 
 from benchmarks.swebench.run_infer import SWEBenchEvaluation
 from benchmarks.utils.critics import PassCritic
 from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.models import EvalInstance, EvalMetadata
 from openhands.sdk import LLM
+from openhands.sdk.workspace import RemoteWorkspace
 
 
 class DummyEvaluation(Evaluation):
@@ -76,7 +78,7 @@ def test_swebench_collect_failure_test_result_gets_git_patch(tmp_path):
 
     result = evaluation.collect_failure_test_result(
         instance,
-        workspace,
+        cast(RemoteWorkspace, workspace),
         RuntimeError("Remote conversation got stuck"),
     )
 
