@@ -6,8 +6,9 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from openhands.sdk import get_logger
 
@@ -18,6 +19,8 @@ logger = get_logger(__name__)
 DEFAULT_APPTAINER_SANDBOX_ROOT = (
     Path.home() / ".cache" / "openhands" / "swebench-apptainer"
 )
+# Allow Apptainer teardown and artifact writes to finish after SWE-bench timeout.
+APPTAINER_EXEC_TIMEOUT_BUFFER_SECONDS = 300
 
 
 def _run(
@@ -59,7 +62,7 @@ def image_uri(instance: dict[str, Any]) -> str:
     """Return the official SWE-bench instance image URI."""
     from swebench.harness.test_spec.test_spec import make_test_spec
 
-    spec = make_test_spec(instance, namespace="swebench")
+    spec = make_test_spec(cast(Any, instance), namespace="swebench")
     return "docker://" + spec.instance_image_key
 
 
@@ -190,7 +193,7 @@ def score_instance(
         report_path.write_text(json.dumps(report, indent=2))
         return report
 
-    test_spec = make_test_spec(instance)
+    test_spec = make_test_spec(cast(Any, instance))
     sandbox = ensure_sandbox(instance, score_dir, sandbox_root, apptainer_cache)
     (work_dir / "patch.diff").write_text(patch)
     (work_dir / "eval.sh").write_text(test_spec.eval_script)
@@ -231,7 +234,7 @@ exit 0
     proc = _run(
         apptainer_base_cmd(sandbox, work_dir) + [shell],
         work_dir / "apptainer_exec.log",
-        timeout=timeout_seconds + 300,
+        timeout=timeout_seconds + APPTAINER_EXEC_TIMEOUT_BUFFER_SECONDS,
         apptainer_cache=apptainer_cache,
     )
     if proc.returncode != 0:
@@ -280,7 +283,9 @@ def run_swebench_evaluation_apptainer(
 
     instances = [
         instance
-        for instance in load_dataset(dataset, split=split)
+        for instance in cast(
+            Iterable[dict[str, Any]], load_dataset(dataset, split=split)
+        )
         if instance[KEY_INSTANCE_ID] in wanted
     ]
 
