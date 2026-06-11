@@ -4,7 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from benchmarks.swebench import apptainer_build, run_infer as swebench_run_infer
+from benchmarks.swebench import (
+    apptainer_build,
+    build_images,
+    run_infer as swebench_run_infer,
+)
 from benchmarks.utils.models import EvalInstance
 
 
@@ -95,14 +99,14 @@ def test_apptainer_workspace_binds_existing_custom_tokenizer(monkeypatch, tmp_pa
     ]
 
 
-def test_apptainer_workspace_builds_local_sandbox_when_registry_image_missing(
+def test_apptainer_workspace_builds_local_sif_when_registry_image_missing(
     monkeypatch,
 ):
     built = {}
 
     def fake_build(**kwargs):
         built.update(kwargs)
-        return Path("/tmp/local-agent.sandbox")
+        return Path("/tmp/local-agent.sif")
 
     monkeypatch.setattr(swebench_run_infer, "remote_image_exists", lambda image: False)
     monkeypatch.setattr(
@@ -121,9 +125,22 @@ def test_apptainer_workspace_builds_local_sandbox_when_registry_image_missing(
     )
 
     assert isinstance(workspace, FakeApptainerWorkspace)
-    assert workspace.kwargs["sif_file"] == "/tmp/local-agent.sandbox"
+    assert workspace.kwargs["sif_file"] == "/tmp/local-agent.sif"
     assert "server_image" not in workspace.kwargs
     assert workspace.kwargs["extra_bind_mounts"] == []
     assert built["base_image"].startswith("docker.io/swebench/")
     assert built["custom_tag"] == "sweb.eval.x86_64.django_1776_django-12345"
     assert built["target"] == "source-minimal"
+
+
+def test_swebench_image_template_overrides_official_image(monkeypatch):
+    monkeypatch.setenv(
+        "OPENHANDS_SWEBENCH_IMAGE_TEMPLATE",
+        "ghcr.io/epoch-research/swe-bench.eval.{arch}.{instance_id}:latest",
+    )
+
+    assert (
+        build_images.get_official_docker_image("astropy__astropy-12907")
+        == "ghcr.io/epoch-research/"
+        "swe-bench.eval.x86_64.astropy__astropy-12907:latest"
+    )

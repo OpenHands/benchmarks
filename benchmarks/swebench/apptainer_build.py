@@ -51,12 +51,19 @@ def apptainer_agent_image_path(
     custom_tag: str,
     target: constants.TargetType = constants.DEFAULT_BUILD_TARGET,
 ) -> Path:
-    """Return the local Apptainer sandbox path for a SWE-bench agent image."""
+    """Return the local Apptainer SIF path for a SWE-bench agent image."""
     _, git_sha, _ = _get_sdk_submodule_info()
     sdk_short_sha = git_sha[:7] if git_sha != "unknown" else "unknown"
     content_hash = dockerfile_content_hash()
     name = _sanitize_filename(f"{sdk_short_sha}-{content_hash}-{custom_tag}-{target}")
-    return _build_root() / f"{name}.sandbox"
+    return _build_root() / f"{name}.sif"
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+    elif path.exists():
+        path.unlink()
 
 
 def _package_install_script() -> str:
@@ -131,6 +138,13 @@ def _definition_file_content(
     sdk_root = _sdk_root()
     wrap_script = _wrap_swebench_deps_script() if wrap_swebench_deps else ""
     uvx_files = f"    {uvx_path} /usr/local/bin/uvx\n" if uvx_path else ""
+    uv_concurrent_downloads = os.getenv(
+        "OPENHANDS_APPTAINER_UV_CONCURRENT_DOWNLOADS", "4"
+    )
+    uv_concurrent_builds = os.getenv("OPENHANDS_APPTAINER_UV_CONCURRENT_BUILDS", "1")
+    uv_concurrent_installs = os.getenv(
+        "OPENHANDS_APPTAINER_UV_CONCURRENT_INSTALLS", "1"
+    )
     return f"""Bootstrap: docker
 From: {base_image}
 
@@ -165,6 +179,9 @@ From: {base_image}
 
     su "${{USERNAME}}" -s /bin/bash -c 'cd /agent-server && \\
         export HOME=/home/openhands && \\
+        export UV_CONCURRENT_DOWNLOADS={uv_concurrent_downloads} && \\
+        export UV_CONCURRENT_BUILDS={uv_concurrent_builds} && \\
+        export UV_CONCURRENT_INSTALLS={uv_concurrent_installs} && \\
         export UV_PROJECT_ENVIRONMENT=/agent-server/.venv && \\
         export UV_PYTHON_INSTALL_DIR=/agent-server/uv-managed-python && \\
         uv python install 3.13 && \\
@@ -200,7 +217,7 @@ def build_apptainer_agent_image(
     target: constants.TargetType = constants.DEFAULT_BUILD_TARGET,
     wrap_swebench_deps: bool = False,
 ) -> BuildOutput:
-    """Build a local Apptainer agent-server sandbox from a SWE-bench base image."""
+    """Build a local Apptainer agent-server SIF from a SWE-bench base image."""
     if target not in SUPPORTED_APPTAINER_TARGETS:
         return BuildOutput(
             base_image=base_image,
@@ -226,24 +243,22 @@ def build_apptainer_agent_image(
         )
     uvx_bin = shutil.which("uvx")
 
-    sandbox = apptainer_agent_image_path(custom_tag, target)
-    if sandbox.exists() and not _force_build_enabled():
-        logger.info("Using existing Apptainer agent sandbox %s", sandbox)
-        return BuildOutput(base_image=base_image, tags=[str(sandbox)], error=None)
+    image_path = apptainer_agent_image_path(custom_tag, target)
+    if image_path.exists() and not _force_build_enabled():
+        logger.info("Using existing Apptainer agent SIF %s", image_path)
+        return BuildOutput(base_image=base_image, tags=[str(image_path)], error=None)
 
     build_root = _build_root()
     log_dir = build_root / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     build_root.mkdir(parents=True, exist_ok=True)
 
-    tmp_sandbox = sandbox.with_suffix(".tmp")
-    if tmp_sandbox.exists():
-        shutil.rmtree(tmp_sandbox)
-    if sandbox.exists():
-        shutil.rmtree(sandbox)
+    tmp_image = image_path.with_suffix(".tmp.sif")
+    _remove_path(tmp_image)
+    _remove_path(image_path)
 
     git_ref, git_sha, _ = _get_sdk_submodule_info()
-    definition = build_root / f"{sandbox.name}.def"
+    definition = build_root / f"{image_path.name}.def"
     definition.write_text(
         _definition_file_content(
             base_image=base_image,
@@ -255,9 +270,9 @@ def build_apptainer_agent_image(
         )
     )
 
-    log_path = log_dir / f"{sandbox.name}.log"
-    cmd = ["apptainer", "build", "--sandbox", str(tmp_sandbox), str(definition)]
-    logger.info("Building Apptainer agent sandbox: %s", " ".join(cmd))
+    log_path = log_dir / f"{image_path.name}.log"
+    cmd = ["apptainer", "build", str(tmp_image), str(definition)]
+    logger.info("Building Apptainer agent SIF: %s", " ".join(cmd))
     env = os.environ.copy()
     if "APPTAINER_CACHEDIR" not in env:
         env["APPTAINER_CACHEDIR"] = str(build_root / "cache")
@@ -273,7 +288,7 @@ def build_apptainer_agent_image(
     )
     log_path.write_text(proc.stdout)
     if proc.returncode != 0:
-        shutil.rmtree(tmp_sandbox, ignore_errors=True)
+        _remove_path(tmp_image)
         return BuildOutput(
             base_image=base_image,
             tags=[],
@@ -281,11 +296,11 @@ def build_apptainer_agent_image(
             log_path=str(log_path),
         )
 
-    tmp_sandbox.rename(sandbox)
-    logger.info("Built Apptainer agent sandbox %s", sandbox)
+    tmp_image.rename(image_path)
+    logger.info("Built Apptainer agent SIF %s", image_path)
     return BuildOutput(
         base_image=base_image,
-        tags=[str(sandbox)],
+        tags=[str(image_path)],
         error=None,
         log_path=str(log_path),
     )
@@ -297,7 +312,7 @@ def ensure_apptainer_agent_image(
     target: constants.TargetType = constants.DEFAULT_BUILD_TARGET,
     wrap_swebench_deps: bool = False,
 ) -> Path:
-    """Build or reuse a local Apptainer agent-server sandbox."""
+    """Build or reuse a local Apptainer agent-server SIF."""
     output = build_apptainer_agent_image(
         base_image=base_image,
         custom_tag=custom_tag,

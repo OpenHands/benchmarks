@@ -221,7 +221,7 @@ class SWEBenchEvaluation(Evaluation):
             else:
                 logger.info(
                     "Agent server image %s is not available in the registry; "
-                    "building a local Apptainer sandbox from %s",
+                    "building a local Apptainer SIF from %s",
                     agent_server_image,
                     official_docker_image,
                 )
