@@ -60,7 +60,19 @@ def load_predictions(predictions_file: Path) -> dict[str, dict[str, Any]]:
 
 def image_uri(instance: dict[str, Any]) -> str:
     """Return the official SWE-bench instance image URI."""
+    from swebench.harness.constants import KEY_INSTANCE_ID
     from swebench.harness.test_spec.test_spec import make_test_spec
+
+    image_template = os.getenv("OPENHANDS_SWEBENCH_IMAGE_TEMPLATE")
+    if image_template:
+        instance_id = instance[KEY_INSTANCE_ID]
+        repo, name = instance_id.split("__")
+        return "docker://" + image_template.format(
+            instance_id=instance_id,
+            repo=repo,
+            name=name,
+            arch="x86_64",
+        )
 
     spec = make_test_spec(cast(Any, instance), namespace="swebench")
     return "docker://" + spec.instance_image_key

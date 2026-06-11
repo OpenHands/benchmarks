@@ -68,6 +68,19 @@ class TestConvertToSwebenchFormat:
 class TestApptainerEvaluation:
     """Tests for Apptainer SWE-bench evaluation helpers."""
 
+    def test_image_uri_uses_swebench_template(self, monkeypatch):
+        """Apptainer scoring can use non-Docker-Hub benchmark image mirrors."""
+        monkeypatch.setenv(
+            "OPENHANDS_SWEBENCH_IMAGE_TEMPLATE",
+            "ghcr.io/epoch-research/swe-bench.eval.{arch}.{instance_id}:latest",
+        )
+
+        assert (
+            apptainer_eval.image_uri({KEY_INSTANCE_ID: "astropy__astropy-12907"})
+            == "docker://ghcr.io/epoch-research/"
+            "swe-bench.eval.x86_64.astropy__astropy-12907:latest"
+        )
+
     def test_score_instance_empty_patch_writes_unresolved_report(self, tmp_path):
         """Empty model patches should be marked unresolved without Apptainer."""
         instance = {KEY_INSTANCE_ID: "django__django-12345"}
