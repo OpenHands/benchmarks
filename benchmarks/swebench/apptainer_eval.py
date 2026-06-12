@@ -92,6 +92,9 @@ def ensure_sandbox(
     if sandbox.exists():
         return sandbox
 
+    if shutil.which("apptainer") is None:
+        raise RuntimeError("Apptainer is not available on PATH")
+
     tmp = sandbox.with_suffix(".tmp")
     if tmp.exists():
         shutil.rmtree(tmp)

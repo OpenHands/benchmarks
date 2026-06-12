@@ -3,6 +3,7 @@
 import json
 import tempfile
 
+import pytest
 from swebench.harness.constants import KEY_INSTANCE_ID, KEY_PREDICTION
 
 from benchmarks.swebench import apptainer_eval
@@ -80,6 +81,18 @@ class TestApptainerEvaluation:
             == "docker://ghcr.io/epoch-research/"
             "swe-bench.eval.x86_64.astropy__astropy-12907:latest"
         )
+
+    def test_ensure_sandbox_reports_missing_apptainer(self, monkeypatch, tmp_path):
+        """Missing Apptainer should produce an actionable setup error."""
+        monkeypatch.setattr(apptainer_eval.shutil, "which", lambda command: None)
+
+        with pytest.raises(RuntimeError, match="Apptainer is not available"):
+            apptainer_eval.ensure_sandbox(
+                instance={KEY_INSTANCE_ID: "django__django-12345"},
+                score_dir=tmp_path / "score",
+                sandbox_root=tmp_path / "sandboxes",
+                apptainer_cache=None,
+            )
 
     def test_score_instance_empty_patch_writes_unresolved_report(self, tmp_path):
         """Empty model patches should be marked unresolved without Apptainer."""
