@@ -255,7 +255,6 @@ def build_apptainer_agent_image(
 
     tmp_image = image_path.with_suffix(".tmp.sif")
     _remove_path(tmp_image)
-    _remove_path(image_path)
 
     git_ref, git_sha, _ = _get_sdk_submodule_info()
     definition = build_root / f"{image_path.name}.def"
@@ -296,7 +295,7 @@ def build_apptainer_agent_image(
             log_path=str(log_path),
         )
 
-    tmp_image.rename(image_path)
+    tmp_image.replace(image_path)
     logger.info("Built Apptainer agent SIF %s", image_path)
     return BuildOutput(
         base_image=base_image,

@@ -58,6 +58,39 @@ def test_apptainer_definition_installs_transformers_for_token_counting():
     )
 
 
+def test_failed_forced_apptainer_rebuild_keeps_existing_sif(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENHANDS_APPTAINER_BUILD_ROOT", str(tmp_path))
+    monkeypatch.setenv("OPENHANDS_APPTAINER_FORCE_BUILD", "1")
+    monkeypatch.setattr(
+        apptainer_build,
+        "_get_sdk_submodule_info",
+        lambda: ("main", "abcdef123456", ""),
+    )
+    monkeypatch.setattr(apptainer_build, "dockerfile_content_hash", lambda: "hash")
+    monkeypatch.setattr(
+        apptainer_build.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"apptainer", "uv", "uvx"} else None,
+    )
+    monkeypatch.setattr(
+        apptainer_build.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=42, stdout="build failed"),
+    )
+
+    existing_image = apptainer_build.apptainer_agent_image_path("tag")
+    existing_image.parent.mkdir(parents=True, exist_ok=True)
+    existing_image.write_text("old working image")
+
+    output = apptainer_build.build_apptainer_agent_image(
+        base_image="docker.io/swebench/example:latest",
+        custom_tag="tag",
+    )
+
+    assert output.error == "Apptainer build failed with exit code 42"
+    assert existing_image.read_text() == "old working image"
+
+
 def test_apptainer_workspace_uses_registry_image_when_available(monkeypatch):
     monkeypatch.setattr(swebench_run_infer, "remote_image_exists", lambda image: True)
     monkeypatch.setattr(
