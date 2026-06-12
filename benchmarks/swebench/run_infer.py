@@ -134,10 +134,7 @@ class SWEBenchEvaluation(Evaluation):
         repo_path = self.get_repo_path(instance)
         base_commit = instance.data["base_commit"]
         git_patch_result = workspace.execute_command(
-            (
-                f"cd {repo_path} ; "
-                f"git --no-pager diff --no-color --cached {base_commit}"
-            )
+            (f"cd {repo_path} ; git --no-pager diff --no-color --cached {base_commit}")
         )
         assert git_patch_result.exit_code == 0, (
             f"git diff failed: {git_patch_result.stderr}"
