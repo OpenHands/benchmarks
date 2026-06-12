@@ -126,6 +126,24 @@ class SWEBenchEvaluation(Evaluation):
         )
         return git_patch_result.stdout
 
+    def get_staged_git_patch(
+        self,
+        instance: EvalInstance,
+        workspace: RemoteWorkspace,
+    ) -> str:
+        repo_path = self.get_repo_path(instance)
+        base_commit = instance.data["base_commit"]
+        git_patch_result = workspace.execute_command(
+            (
+                f"cd {repo_path} ; "
+                f"git --no-pager diff --no-color --cached {base_commit}"
+            )
+        )
+        assert git_patch_result.exit_code == 0, (
+            f"git diff failed: {git_patch_result.stderr}"
+        )
+        return git_patch_result.stdout
+
     def collect_failure_test_result(
         self,
         instance: EvalInstance,
@@ -146,7 +164,7 @@ class SWEBenchEvaluation(Evaluation):
             )
 
         try:
-            git_patch = self.get_git_patch(instance, workspace)
+            git_patch = self.get_staged_git_patch(instance, workspace)
         except Exception as patch_error:
             logger.warning(
                 "Failed to collect failure patch for %s after %s: %s",

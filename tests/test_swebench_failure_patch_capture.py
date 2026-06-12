@@ -31,12 +31,14 @@ class FakeWorkspace:
 
     def execute_command(self, command, *args, **kwargs):
         self.commands.append(command)
-        if "git --no-pager diff" in command:
+        if "git --no-pager diff --no-color --cached abc123" in command:
             return SimpleNamespace(
                 exit_code=0,
                 stdout="diff --git a/file.py b/file.py\n",
                 stderr="",
             )
+        if "git --no-pager diff --no-color abc123 HEAD" in command:
+            return SimpleNamespace(exit_code=0, stdout="", stderr="")
         return SimpleNamespace(exit_code=0, stdout="", stderr="")
 
 
@@ -88,5 +90,5 @@ def test_swebench_collect_failure_test_result_gets_git_patch(tmp_path):
     }
     assert workspace.commands == [
         "cd /workspace/django/ ; git add -A",
-        "cd /workspace/django/ ; git --no-pager diff --no-color abc123 HEAD",
+        "cd /workspace/django/ ; git --no-pager diff --no-color --cached abc123",
     ]
