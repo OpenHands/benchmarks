@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 from swebench.harness.constants import KEY_INSTANCE_ID, KEY_PREDICTION
@@ -93,6 +94,38 @@ class TestApptainerEvaluation:
                 sandbox_root=tmp_path / "sandboxes",
                 apptainer_cache=None,
             )
+
+    def test_ensure_sandbox_reports_image_build_failure(self, monkeypatch, tmp_path):
+        """Image pull/build failures should include the per-instance build log path."""
+        score_dir = tmp_path / "score"
+        score_dir.mkdir()
+        monkeypatch.setattr(
+            apptainer_eval.shutil,
+            "which",
+            lambda command: "/usr/bin/apptainer",
+        )
+        monkeypatch.setattr(
+            apptainer_eval,
+            "image_uri",
+            lambda instance: "docker://swebench/example:latest",
+        )
+
+        def fake_run(cmd, log_path, timeout, apptainer_cache):
+            log_path.write_text("pull failed")
+            return SimpleNamespace(returncode=1)
+
+        monkeypatch.setattr(apptainer_eval, "_run", fake_run)
+
+        with pytest.raises(RuntimeError, match="apptainer build failed"):
+            apptainer_eval.ensure_sandbox(
+                instance={KEY_INSTANCE_ID: "django__django-12345"},
+                score_dir=score_dir,
+                sandbox_root=tmp_path / "sandboxes",
+                apptainer_cache=None,
+            )
+        assert (score_dir / "django__django-12345.build.log").read_text() == (
+            "pull failed"
+        )
 
     def test_score_instance_empty_patch_writes_unresolved_report(self, tmp_path):
         """Empty model patches should be marked unresolved without Apptainer."""
