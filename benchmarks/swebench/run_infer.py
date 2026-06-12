@@ -1,5 +1,7 @@
 import json
 import os
+import tempfile
+import uuid
 from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
@@ -125,6 +127,23 @@ class SWEBenchEvaluation(Evaluation):
                 )
         return bind_mounts
 
+    def get_apptainer_mount_dir(self, instance: EvalInstance) -> str:
+        """Return a writable host directory to bind onto /workspace."""
+        workspace_root = os.getenv("OPENHANDS_APPTAINER_WORKSPACE_ROOT")
+        if not workspace_root:
+            workspace_root = os.path.join(
+                tempfile.gettempdir(),
+                f"openhands-apptainer-workspaces-{os.getuid()}",
+            )
+        safe_instance_id = instance.id.replace("/", "__")
+        current_attempt = getattr(self, "current_attempt", 1)
+        mount_dir = os.path.join(
+            workspace_root,
+            f"{safe_instance_id}-attempt{current_attempt}-{uuid.uuid4().hex[:8]}",
+        )
+        os.makedirs(mount_dir, mode=0o700, exist_ok=False)
+        return mount_dir
+
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
 
@@ -214,6 +233,7 @@ class SWEBenchEvaluation(Evaluation):
                 workspace = ApptainerWorkspace(
                     server_image=agent_server_image,
                     working_dir="/workspace",
+                    mount_dir=self.get_apptainer_mount_dir(instance),
                     forward_env=forward_env or [],
                     extra_bind_mounts=self.get_apptainer_extra_bind_mounts(),
                     cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
@@ -234,6 +254,7 @@ class SWEBenchEvaluation(Evaluation):
                 workspace = ApptainerWorkspace(
                     sif_file=str(local_agent_image),
                     working_dir="/workspace",
+                    mount_dir=self.get_apptainer_mount_dir(instance),
                     forward_env=forward_env or [],
                     extra_bind_mounts=self.get_apptainer_extra_bind_mounts(),
                     cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
