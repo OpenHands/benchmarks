@@ -168,6 +168,46 @@ def verify_sandbox(
         )
 
 
+def score_shell(
+    timeout_seconds: int,
+    apply_patch_fail: str,
+    tests_timeout: str,
+) -> str:
+    """Return the shell script that applies a patch and runs SWE-bench tests."""
+    return f"""
+set -uo pipefail
+cd /testbed
+git config --global --add safe.directory /testbed || true
+git reset --hard HEAD
+git clean -fd
+applied=0
+apply_output=/mnt/apply_patch.log
+: > "$apply_output"
+for cmd in "git apply --verbose /mnt/patch.diff" "git apply --verbose --reject /mnt/patch.diff" "patch --batch --fuzz=5 -p1 -i /mnt/patch.diff"; do
+  echo "$cmd" >> "$apply_output"
+  if bash -lc "$cmd" >> "$apply_output" 2>&1; then
+    applied=1
+    break
+  fi
+done
+if [ "$applied" != "1" ]; then
+  {{
+    echo "{apply_patch_fail}"
+    cat "$apply_output"
+  }} > /mnt/test_output.txt
+  exit 0
+fi
+git -c core.fileMode=false diff > /mnt/git_diff_before.diff 2>&1 || true
+timeout {timeout_seconds} /bin/bash /mnt/eval.sh > /mnt/test_output.txt 2>&1
+status=$?
+git -c core.fileMode=false diff > /mnt/git_diff_after.diff 2>&1 || true
+if [ "$status" = "124" ]; then
+  echo "{tests_timeout}" >> /mnt/test_output.txt
+fi
+exit 0
+"""
+
+
 def score_instance(
     instance: dict[str, Any],
     prediction: dict[str, Any],
@@ -214,38 +254,11 @@ def score_instance(
     (work_dir / "eval.sh").write_text(test_spec.eval_script)
     verify_sandbox(instance, sandbox, work_dir, apptainer_cache)
 
-    shell = f"""
-set -uo pipefail
-cd /testbed
-git config --global --add safe.directory /testbed || true
-git reset --hard HEAD
-git clean -fd
-applied=0
-apply_output=/mnt/apply_patch.log
-: > "$apply_output"
-for cmd in "git apply --verbose /mnt/patch.diff" "git apply --verbose --reject /mnt/patch.diff" "patch --batch --fuzz=5 -p1 -i /mnt/patch.diff"; do
-  echo "$cmd" >> "$apply_output"
-  if bash -lc "$cmd" >> "$apply_output" 2>&1; then
-    applied=1
-    break
-  fi
-done
-if [ "$applied" != "1" ]; then
-  {{
-    echo "{APPLY_PATCH_FAIL}"
-    cat "$apply_output"
-  }} > /mnt/test_output.txt
-  exit 0
-fi
-git -c core.fileMode=false diff > /mnt/git_diff_before.diff 2>&1 || true
-timeout {timeout_seconds} /bin/bash /mnt/eval.sh > /mnt/test_output.txt 2>&1
-status=$?
-git -c core.fileMode=false diff > /mnt/git_diff_after.diff 2>&1 || true
-if [ "$status" = "124" ]; then
-  echo "{TESTS_TIMEOUT}" >> /mnt/test_output.txt
-fi
-exit 0
-"""
+    shell = score_shell(
+        timeout_seconds=timeout_seconds,
+        apply_patch_fail=APPLY_PATCH_FAIL,
+        tests_timeout=TESTS_TIMEOUT,
+    )
     proc = _run(
         apptainer_base_cmd(sandbox, work_dir) + [shell],
         work_dir / "apptainer_exec.log",

@@ -5,7 +5,12 @@ import tempfile
 from types import SimpleNamespace
 
 import pytest
-from swebench.harness.constants import KEY_INSTANCE_ID, KEY_PREDICTION
+from swebench.harness.constants import (
+    APPLY_PATCH_FAIL,
+    KEY_INSTANCE_ID,
+    KEY_PREDICTION,
+    TESTS_TIMEOUT,
+)
 
 from benchmarks.swebench import apptainer_eval
 from benchmarks.swebench.eval_infer import convert_to_swebench_format
@@ -126,6 +131,20 @@ class TestApptainerEvaluation:
         assert (score_dir / "django__django-12345.build.log").read_text() == (
             "pull failed"
         )
+
+    def test_score_shell_uses_swebench_sentinel_values(self):
+        """Patch and timeout failures must emit SWE-bench grading constants."""
+        shell = apptainer_eval.score_shell(
+            timeout_seconds=123,
+            apply_patch_fail=APPLY_PATCH_FAIL,
+            tests_timeout=TESTS_TIMEOUT,
+        )
+
+        assert f'echo "{APPLY_PATCH_FAIL}"' in shell
+        assert f'echo "{TESTS_TIMEOUT}"' in shell
+        assert "timeout 123 /bin/bash /mnt/eval.sh" in shell
+        assert "{APPLY_PATCH_FAIL}" not in shell
+        assert "{TESTS_TIMEOUT}" not in shell
 
     def test_score_instance_empty_patch_writes_unresolved_report(self, tmp_path):
         """Empty model patches should be marked unresolved without Apptainer."""
