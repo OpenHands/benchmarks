@@ -33,8 +33,9 @@ from benchmarks.utils.evaluation_utils import (
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.intelligent_routing import classify_and_route
 from benchmarks.utils.litellm_proxy import build_eval_llm
-from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.llm_config import load_llm_config, maybe_load_router_spec
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -242,7 +243,24 @@ class SWEBenchEvaluation(Evaluation):
         if is_acp_agent(self.metadata.agent_type):
             agent = build_acp_agent(self.metadata.agent_type, self.metadata.llm.model)
         else:
-            agent_llm = build_eval_llm(self.metadata.llm)
+            primary_llm = self.metadata.llm
+            if self.metadata.routing is not None:
+                decision = classify_and_route(
+                    benchmark="swebenchmultimodal",
+                    instance_data=instance.data,
+                    router=self.metadata.routing,
+                )
+                logger.info(
+                    "intelligent-routing instance=%s category=%s model=%s "
+                    "vision_fallback=%s raw=%r",
+                    instance.id,
+                    decision.category,
+                    decision.chosen_model_id,
+                    decision.forced_vision_fallback,
+                    decision.raw_classifier_output[:120],
+                )
+                primary_llm = decision.chosen_llm
+            agent_llm = build_eval_llm(primary_llm)
             tools = get_tools_for_preset(
                 self.metadata.tool_preset,
                 # Enable browser tools for frontend development tasks
@@ -253,7 +271,7 @@ class SWEBenchEvaluation(Evaluation):
             condenser = None
             if self.metadata.enable_condenser:
                 condenser = LLMSummarizingCondenser(
-                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
+                    llm=build_eval_llm(primary_llm, usage_id="condenser"),
                     max_size=self.metadata.condenser_max_size,
                     keep_first=self.metadata.condenser_keep_first,
                 )
@@ -441,6 +459,14 @@ def main() -> None:
         raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
 
     llm = load_llm_config(args.llm_config_path)
+    routing_spec = maybe_load_router_spec(args.llm_config_path)
+    if routing_spec is not None:
+        logger.info(
+            "Using intelligent routing: classifier=%s tiers=%s fallback=%s",
+            routing_spec.classifier_llm.model,
+            sorted(routing_spec.tiers.keys()),
+            routing_spec.fallback_model_id,
+        )
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -468,6 +494,7 @@ def main() -> None:
 
     metadata = EvalMetadata(
         llm=llm,
+        routing=routing_spec,
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
