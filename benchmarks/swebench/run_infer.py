@@ -136,10 +136,9 @@ class SWEBenchEvaluation(Evaluation):
                 f"openhands-apptainer-workspaces-{os.getuid()}",
             )
         safe_instance_id = instance.id.replace("/", "__")
-        current_attempt = getattr(self, "current_attempt", 1)
         mount_dir = os.path.join(
             workspace_root,
-            f"{safe_instance_id}-attempt{current_attempt}-{uuid.uuid4().hex[:8]}",
+            f"{safe_instance_id}-attempt{self.current_attempt}-{uuid.uuid4().hex[:8]}",
         )
         os.makedirs(mount_dir, mode=0o700, exist_ok=False)
         return mount_dir

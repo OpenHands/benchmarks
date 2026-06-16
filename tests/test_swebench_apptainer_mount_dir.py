@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from benchmarks.swebench.run_infer import SWEBenchEvaluation
-from benchmarks.utils.models import EvalInstance
+from benchmarks.utils.models import EvalInstance, EvalMetadata
+from openhands.sdk import LLM
+from openhands.sdk.critic import PassCritic
 
 
 def test_apptainer_mount_dir_uses_writable_env_root(monkeypatch, tmp_path):
@@ -18,4 +20,32 @@ def test_apptainer_mount_dir_uses_writable_env_root(monkeypatch, tmp_path):
 
     assert mount_dir.parent == tmp_path
     assert mount_dir.name.startswith("django__django-12345-attempt2-")
+    assert mount_dir.is_dir()
+
+
+def test_apptainer_mount_dir_uses_default_current_attempt(monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        "OPENHANDS_APPTAINER_WORKSPACE_ROOT", str(tmp_path / "workspaces")
+    )
+
+    evaluation = SWEBenchEvaluation(
+        metadata=EvalMetadata(
+            llm=LLM(model="test-model"),
+            dataset="test",
+            max_iterations=1,
+            eval_output_dir=str(tmp_path / "output"),
+            details={},
+            critic=PassCritic(),
+        )
+    )
+
+    mount_dir = Path(
+        evaluation.get_apptainer_mount_dir(
+            EvalInstance(id="django__django-12345", data={})
+        )
+    )
+
+    assert evaluation.current_attempt == 1
+    assert mount_dir.parent == tmp_path / "workspaces"
+    assert mount_dir.name.startswith("django__django-12345-attempt1-")
     assert mount_dir.is_dir()
