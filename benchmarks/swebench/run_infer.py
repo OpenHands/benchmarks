@@ -136,12 +136,19 @@ class SWEBenchEvaluation(Evaluation):
                 f"openhands-apptainer-workspaces-{os.getuid()}",
             )
         safe_instance_id = instance.id.replace("/", "__")
-        mount_dir = os.path.join(
-            workspace_root,
-            f"{safe_instance_id}-attempt{self.current_attempt}-{uuid.uuid4().hex[:8]}",
+        for _ in range(3):
+            mount_dir = os.path.join(
+                workspace_root,
+                f"{safe_instance_id}-attempt{self.current_attempt}-{uuid.uuid4().hex[:8]}",
+            )
+            try:
+                os.makedirs(mount_dir, mode=0o700, exist_ok=False)
+                return mount_dir
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"Could not create a unique Apptainer workspace under {workspace_root}"
         )
-        os.makedirs(mount_dir, mode=0o700, exist_ok=False)
-        return mount_dir
 
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
