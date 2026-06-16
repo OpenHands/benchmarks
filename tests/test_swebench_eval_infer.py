@@ -2,7 +2,17 @@
 
 import json
 import tempfile
+from types import SimpleNamespace
 
+import pytest
+from swebench.harness.constants import (
+    APPLY_PATCH_FAIL,
+    KEY_INSTANCE_ID,
+    KEY_PREDICTION,
+    TESTS_TIMEOUT,
+)
+
+from benchmarks.swebench import apptainer_eval
 from benchmarks.swebench.eval_infer import convert_to_swebench_format
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 
@@ -60,3 +70,166 @@ class TestConvertToSwebenchFormat:
             result = json.loads(f.readline())
 
         assert result["model_name_or_path"] == MODEL_NAME_OR_PATH
+
+
+class TestApptainerEvaluation:
+    """Tests for Apptainer SWE-bench evaluation helpers."""
+
+    def test_image_uri_uses_swebench_template(self, monkeypatch):
+        """Apptainer scoring can use non-Docker-Hub benchmark image mirrors."""
+        monkeypatch.setenv(
+            "OPENHANDS_SWEBENCH_IMAGE_TEMPLATE",
+            "ghcr.io/epoch-research/swe-bench.eval.{arch}.{instance_id}:latest",
+        )
+
+        assert (
+            apptainer_eval.image_uri({KEY_INSTANCE_ID: "astropy__astropy-12907"})
+            == "docker://ghcr.io/epoch-research/"
+            "swe-bench.eval.x86_64.astropy__astropy-12907:latest"
+        )
+
+    def test_ensure_sandbox_reports_missing_apptainer(self, monkeypatch, tmp_path):
+        """Missing Apptainer should produce an actionable setup error."""
+        monkeypatch.setattr(apptainer_eval.shutil, "which", lambda command: None)
+
+        with pytest.raises(RuntimeError, match="Apptainer is not available"):
+            apptainer_eval.ensure_sandbox(
+                instance={KEY_INSTANCE_ID: "django__django-12345"},
+                score_dir=tmp_path / "score",
+                sandbox_root=tmp_path / "sandboxes",
+                apptainer_cache=None,
+            )
+
+    def test_ensure_sandbox_reports_image_build_failure(self, monkeypatch, tmp_path):
+        """Image pull/build failures should include the per-instance build log path."""
+        score_dir = tmp_path / "score"
+        score_dir.mkdir()
+        monkeypatch.setattr(
+            apptainer_eval.shutil,
+            "which",
+            lambda command: "/usr/bin/apptainer",
+        )
+        monkeypatch.setattr(
+            apptainer_eval,
+            "image_uri",
+            lambda instance: "docker://swebench/example:latest",
+        )
+
+        def fake_run(cmd, log_path, timeout, apptainer_cache):
+            log_path.write_text("pull failed")
+            return SimpleNamespace(returncode=1)
+
+        monkeypatch.setattr(apptainer_eval, "_run", fake_run)
+
+        with pytest.raises(RuntimeError, match="apptainer build failed"):
+            apptainer_eval.ensure_sandbox(
+                instance={KEY_INSTANCE_ID: "django__django-12345"},
+                score_dir=score_dir,
+                sandbox_root=tmp_path / "sandboxes",
+                apptainer_cache=None,
+            )
+        assert (score_dir / "django__django-12345.build.log").read_text() == (
+            "pull failed"
+        )
+
+    def test_score_shell_uses_swebench_sentinel_values(self):
+        """Patch and timeout failures must emit SWE-bench grading constants."""
+        shell = apptainer_eval.score_shell(
+            timeout_seconds=123,
+            apply_patch_fail=APPLY_PATCH_FAIL,
+            tests_timeout=TESTS_TIMEOUT,
+        )
+
+        assert f'echo "{APPLY_PATCH_FAIL}"' in shell
+        assert f'echo "{TESTS_TIMEOUT}"' in shell
+        assert "timeout 123 /bin/bash /mnt/eval.sh" in shell
+        assert "{APPLY_PATCH_FAIL}" not in shell
+        assert "{TESTS_TIMEOUT}" not in shell
+
+    def test_score_instance_empty_patch_writes_unresolved_report(self, tmp_path):
+        """Empty model patches should be marked unresolved without Apptainer."""
+        instance = {KEY_INSTANCE_ID: "django__django-12345"}
+        prediction = {
+            KEY_INSTANCE_ID: "django__django-12345",
+            KEY_PREDICTION: "",
+        }
+
+        report = apptainer_eval.score_instance(
+            instance=instance,
+            prediction=prediction,
+            score_dir=tmp_path / "score",
+            sandbox_root=tmp_path / "sandboxes",
+            timeout_seconds=10,
+            apptainer_cache=None,
+        )
+
+        instance_report = report["django__django-12345"]
+        assert instance_report["resolved"] is False
+        assert instance_report["patch_exists"] is False
+        assert instance_report["skipped_empty_patch"] is True
+        assert (tmp_path / "score" / "django__django-12345" / "report.json").exists()
+
+    def test_run_swebench_evaluation_apptainer_writes_summary_report(
+        self, tmp_path, monkeypatch
+    ):
+        """The Apptainer entry point should write resolved_ids for callers."""
+        predictions = {
+            "django__django-1": {
+                KEY_INSTANCE_ID: "django__django-1",
+                KEY_PREDICTION: "diff --git a/a.py b/a.py",
+            },
+            "django__django-2": {
+                KEY_INSTANCE_ID: "django__django-2",
+                KEY_PREDICTION: "",
+            },
+        }
+
+        monkeypatch.setattr(
+            apptainer_eval,
+            "load_predictions",
+            lambda predictions_file: predictions,
+        )
+        monkeypatch.setattr(
+            "datasets.load_dataset",
+            lambda dataset, split: [
+                {KEY_INSTANCE_ID: "django__django-1"},
+                {KEY_INSTANCE_ID: "django__django-2"},
+            ],
+        )
+
+        def fake_score_instance(
+            instance,
+            prediction,
+            score_dir,
+            sandbox_root,
+            timeout_seconds,
+            apptainer_cache,
+        ):
+            instance_id = instance[KEY_INSTANCE_ID]
+            return {
+                instance_id: {
+                    "resolved": instance_id == "django__django-1",
+                    "patch_successfully_applied": bool(prediction.get(KEY_PREDICTION)),
+                }
+            }
+
+        monkeypatch.setattr(apptainer_eval, "score_instance", fake_score_instance)
+
+        report_file = tmp_path / "output.report.json"
+        apptainer_eval.run_swebench_evaluation_apptainer(
+            predictions_file=tmp_path / "output.swebench.jsonl",
+            report_file=report_file,
+            dataset="princeton-nlp/SWE-bench_Verified",
+            split="test",
+            timeout_seconds=10,
+            workers=2,
+            score_dir=tmp_path / "score",
+            sandbox_root=tmp_path / "sandboxes",
+            apptainer_cache=None,
+        )
+
+        report = json.loads(report_file.read_text())
+        assert report["total"] == 2
+        assert report["resolved"] == 1
+        assert report["resolved_ids"] == ["django__django-1"]
+        assert report["unresolved_ids"] == ["django__django-2"]

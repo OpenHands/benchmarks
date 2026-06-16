@@ -239,9 +239,26 @@ uv run swebench-eval output.jsonl \
 uv run swebench-eval output.jsonl --skip-evaluation
 ```
 
+**Local Apptainer evaluation:**
+
+```bash
+uv run swebench-eval output.jsonl \
+  --run-id my_eval \
+  --apptainer \
+  --apptainer-sandbox-root ~/.cache/openhands/swebench-apptainer
+```
+
+The Apptainer evaluator pulls the official SWE-bench instance images, converts
+them to reusable writable sandboxes, applies each model patch, runs the
+SWE-bench eval script, and grades the resulting test log locally. This is useful
+on hosts where Docker is unavailable and Modal is not configured. Apptainer
+evaluation currently runs sequentially; `--workers` is accepted for CLI
+compatibility but ignored.
+
 The evaluation script will:
 1. Convert OpenHands output format to SWE-Bench prediction format
-2. Run the official SWE-Bench evaluation harness (unless `--skip-evaluation` is used)
+2. Run the official SWE-Bench evaluation harness, or local Apptainer evaluation
+   when `--apptainer` is used, unless `--skip-evaluation` is set
 3. Report pass/fail results for each instance
 
 ## References

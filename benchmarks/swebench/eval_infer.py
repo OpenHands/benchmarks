@@ -17,6 +17,10 @@ import sys
 from pathlib import Path
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.apptainer_eval import (
+    DEFAULT_APPTAINER_SANDBOX_ROOT,
+    run_swebench_evaluation_apptainer,
+)
 from benchmarks.swebench.config import EVAL_DEFAULTS
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
@@ -257,6 +261,37 @@ Examples:
         help="Timeout in seconds for evaluation",
     )
 
+    parser.add_argument(
+        "--apptainer",
+        action="store_true",
+        help="Use local Apptainer sandboxes for SWE-bench evaluation",
+    )
+
+    parser.add_argument(
+        "--apptainer-score-dir",
+        type=Path,
+        help=(
+            "Directory for Apptainer scoring logs and per-instance artifacts "
+            "(default: <predictions_dir>/apptainer_eval)"
+        ),
+    )
+
+    parser.add_argument(
+        "--apptainer-sandbox-root",
+        type=Path,
+        default=DEFAULT_APPTAINER_SANDBOX_ROOT,
+        help=(
+            "Directory for reusable Apptainer sandboxes "
+            f"(default: {DEFAULT_APPTAINER_SANDBOX_ROOT})"
+        ),
+    )
+
+    parser.add_argument(
+        "--apptainer-cache",
+        type=Path,
+        help="Optional APPTAINER_CACHEDIR value for image pulls/builds",
+    )
+
     # Apply EVAL_DEFAULTS from config (for dataset, split, workers, modal, timeout)
     parser.set_defaults(**EVAL_DEFAULTS)
 
@@ -288,25 +323,39 @@ Examples:
         convert_to_swebench_format(str(input_file), str(output_file))
 
         if not args.skip_evaluation:
-            # Run evaluation
-            run_swebench_evaluation(
-                str(output_file),
-                args.run_id,
-                args.dataset,
-                args.workers,
-                split=args.split,
-                modal=args.modal,
-                timeout=args.timeout,
-            )
-
-            # Move report file to input file directory with .report.json extension
-            # SWE-Bench creates: {MODEL_NAME_OR_PATH}.{run_id}.json
-            report_filename = f"{MODEL_NAME_OR_PATH}.{args.run_id}.json"
-            report_path = output_file.parent / report_filename
             dest_report_path = input_file.with_suffix(".report.json")
 
-            shutil.move(str(report_path), str(dest_report_path))
-            logger.info(f"Moved report file to: {dest_report_path}")
+            if args.apptainer:
+                run_swebench_evaluation_apptainer(
+                    predictions_file=output_file,
+                    report_file=dest_report_path,
+                    dataset=args.dataset,
+                    split=args.split,
+                    timeout_seconds=args.timeout,
+                    workers=args.workers,
+                    score_dir=args.apptainer_score_dir,
+                    sandbox_root=args.apptainer_sandbox_root,
+                    apptainer_cache=args.apptainer_cache,
+                )
+            else:
+                # Run evaluation
+                run_swebench_evaluation(
+                    str(output_file),
+                    args.run_id,
+                    args.dataset,
+                    args.workers,
+                    split=args.split,
+                    modal=args.modal,
+                    timeout=args.timeout,
+                )
+
+                # Move report file to input file directory with .report.json extension
+                # SWE-Bench creates: {MODEL_NAME_OR_PATH}.{run_id}.json
+                report_filename = f"{MODEL_NAME_OR_PATH}.{args.run_id}.json"
+                report_path = output_file.parent / report_filename
+
+                shutil.move(str(report_path), str(dest_report_path))
+                logger.info(f"Moved report file to: {dest_report_path}")
 
             # Update Laminar datapoints with evaluation scores
             LaminarService.get().update_evaluation_scores(
