@@ -28,6 +28,7 @@ def _evaluation():
     )
     evaluation = object.__new__(swebench_run_infer.SWEBenchEvaluation)
     object.__setattr__(evaluation, "metadata", metadata)
+    object.__setattr__(evaluation, "current_attempt", 1)
     return evaluation
 
 
