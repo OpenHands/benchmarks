@@ -87,6 +87,16 @@ class EvalMetadata(BaseModel):
         ge=1,
         description="Maximum number of events before the condenser activates",
     )
+    condenser_max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description="Maximum number of prompt tokens before the condenser activates",
+    )
+    condenser_max_output_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description="Maximum output tokens for LLM-generated condenser summaries",
+    )
     condenser_keep_first: int = Field(
         default=2,
         ge=0,

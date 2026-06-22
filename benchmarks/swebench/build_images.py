@@ -14,6 +14,7 @@ Example:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -37,6 +38,16 @@ def get_official_docker_image(
     instance_id: str,
     docker_image_prefix: str = constants.DOCKER_IMAGE_PREFIX,
 ) -> str:
+    image_template = os.getenv("OPENHANDS_SWEBENCH_IMAGE_TEMPLATE")
+    if image_template:
+        repo, name = instance_id.split("__")
+        return image_template.format(
+            instance_id=instance_id,
+            repo=repo,
+            name=name,
+            arch="x86_64",
+        )
+
     # Official SWE-Bench image
     # swebench/sweb.eval.x86_64.django_1776_django-11333:v1
     repo, name = instance_id.split("__")

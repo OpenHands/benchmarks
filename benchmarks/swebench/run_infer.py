@@ -1,10 +1,13 @@
 import json
 import os
+import tempfile
+import uuid
 from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.apptainer_build import ensure_apptainer_agent_image
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
@@ -108,6 +111,45 @@ class SWEBenchEvaluation(Evaluation):
     def get_source_repo_path(self, instance: EvalInstance) -> str:
         return "/testbed"
 
+    def get_apptainer_extra_bind_mounts(self) -> list[str]:
+        """Return host paths that must be visible inside Apptainer agent servers."""
+        bind_mounts: list[str] = []
+        custom_tokenizer = self.metadata.llm.custom_tokenizer
+        if custom_tokenizer:
+            tokenizer_path = os.path.abspath(os.path.expanduser(custom_tokenizer))
+            if os.path.exists(tokenizer_path):
+                bind_mounts.append(f"{tokenizer_path}:{tokenizer_path}:ro")
+            else:
+                logger.warning(
+                    "custom_tokenizer path %s does not exist on host; "
+                    "not adding an Apptainer bind mount",
+                    custom_tokenizer,
+                )
+        return bind_mounts
+
+    def get_apptainer_mount_dir(self, instance: EvalInstance) -> str:
+        """Return a writable host directory to bind onto /workspace."""
+        workspace_root = os.getenv("OPENHANDS_APPTAINER_WORKSPACE_ROOT")
+        if not workspace_root:
+            workspace_root = os.path.join(
+                tempfile.gettempdir(),
+                f"openhands-apptainer-workspaces-{os.getuid()}",
+            )
+        safe_instance_id = instance.id.replace("/", "__")
+        for _ in range(3):
+            mount_dir = os.path.join(
+                workspace_root,
+                f"{safe_instance_id}-attempt{self.current_attempt}-{uuid.uuid4().hex[:8]}",
+            )
+            try:
+                os.makedirs(mount_dir, mode=0o700, exist_ok=False)
+                return mount_dir
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"Could not create a unique Apptainer workspace under {workspace_root}"
+        )
+
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
 
@@ -181,27 +223,48 @@ class SWEBenchEvaluation(Evaluation):
                 forward_env=forward_env or [],
             )
         elif self.metadata.workspace_type == "apptainer":
-            if not remote_image_exists(agent_server_image):
-                raise RuntimeError(
-                    f"Agent server image {agent_server_image} does not exist in container registry, "
-                    "make sure to build, push it, and make it public accessible before using apptainer workspace."
-                )
-
-            logger.info(
-                f"Using apptainer workspace with pre-built image {agent_server_image} "
-                f"(tag prefix: {get_phased_image_tag_prefix()})"
-            )
-            if wrap_needed:
+            force_local_build = os.getenv(
+                "OPENHANDS_APPTAINER_FORCE_BUILD", ""
+            ).lower() in {"1", "true", "yes"}
+            if not force_local_build and remote_image_exists(agent_server_image):
                 logger.info(
-                    "Skipping local wrap for apptainer workspace; expecting image to be pre-wrapped in registry"
+                    f"Using apptainer workspace with pre-built image {agent_server_image} "
+                    f"(tag prefix: {get_phased_image_tag_prefix()})"
                 )
+                if wrap_needed:
+                    logger.info(
+                        "Using pre-built wrapped apptainer image for wrapped repo"
+                    )
 
-            workspace = ApptainerWorkspace(
-                server_image=agent_server_image,
-                working_dir="/workspace",
-                forward_env=forward_env or [],
-                cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
-            )
+                workspace = ApptainerWorkspace(
+                    server_image=agent_server_image,
+                    working_dir="/workspace",
+                    mount_dir=self.get_apptainer_mount_dir(instance),
+                    forward_env=forward_env or [],
+                    extra_bind_mounts=self.get_apptainer_extra_bind_mounts(),
+                    cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+                )
+            else:
+                logger.info(
+                    "Agent server image %s is not available in the registry; "
+                    "building a local Apptainer SIF from %s",
+                    agent_server_image,
+                    official_docker_image,
+                )
+                local_agent_image = ensure_apptainer_agent_image(
+                    base_image=official_docker_image,
+                    custom_tag=custom_tag,
+                    target=build_target,
+                    wrap_swebench_deps=wrap_needed,
+                )
+                workspace = ApptainerWorkspace(
+                    sif_file=str(local_agent_image),
+                    working_dir="/workspace",
+                    mount_dir=self.get_apptainer_mount_dir(instance),
+                    forward_env=forward_env or [],
+                    extra_bind_mounts=self.get_apptainer_extra_bind_mounts(),
+                    cache_dir=os.getenv("APPTAINER_CACHEDIR", None),
+                )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
             if not runtime_api_key:
@@ -272,9 +335,23 @@ class SWEBenchEvaluation(Evaluation):
                 tools.append(Tool(name=TaskToolSet.name))
             condenser = None
             if self.metadata.enable_condenser:
+                condenser_llm = build_eval_llm(
+                    self.metadata.llm,
+                    usage_id="condenser",
+                )
+                if self.metadata.condenser_max_output_tokens is not None:
+                    condenser_llm = condenser_llm.model_copy(
+                        deep=True,
+                        update={
+                            "max_output_tokens": (
+                                self.metadata.condenser_max_output_tokens
+                            ),
+                        },
+                    )
                 condenser = LLMSummarizingCondenser(
-                    llm=build_eval_llm(self.metadata.llm, usage_id="condenser"),
+                    llm=condenser_llm,
                     max_size=self.metadata.condenser_max_size,
+                    max_tokens=self.metadata.condenser_max_tokens,
                     keep_first=self.metadata.condenser_keep_first,
                 )
             # Load public skills (respects EXTENSIONS_REF env var)
@@ -440,6 +517,8 @@ def main() -> None:
         agent_type=args.agent_type,
         enable_condenser=enable_condenser,
         condenser_max_size=args.condenser_max_size,
+        condenser_max_tokens=args.condenser_max_tokens,
+        condenser_max_output_tokens=args.condenser_max_output_tokens,
         condenser_keep_first=args.condenser_keep_first,
     )
 
