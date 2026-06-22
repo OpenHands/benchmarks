@@ -143,16 +143,14 @@ def main() -> None:
         else input_file.with_suffix(".report.json")
     )
     try:
-        report = process_harbor_results(str(input_file), str(output_file))
+        process_harbor_results(str(input_file), str(output_file))
         generate_cost_report(str(input_file))
     except Exception as exc:
         logger.error("Harbor evaluation failed: %s", exc)
         sys.exit(1)
 
     try:
-        LaminarService.get().update_evaluation_scores(
-            str(input_file), str(output_file)
-        )
+        LaminarService.get().update_evaluation_scores(str(input_file), str(output_file))
     except Exception as exc:
         logger.warning("Laminar telemetry reporting failed (non-fatal): %s", exc)
 
