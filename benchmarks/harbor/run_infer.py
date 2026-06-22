@@ -16,6 +16,7 @@ from pathlib import Path
 
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
 from benchmarks.utils.harbor import (
+    _secret_value,
     check_harbor_installed,
     convert_harbor_to_eval_output,
 )
@@ -36,12 +37,6 @@ def _load_task_ids(filepath: str) -> list[str]:
             if value and not value.startswith("#"):
                 task_ids.append(value)
     return task_ids
-
-
-def _secret_value(value: object) -> str:
-    if hasattr(value, "get_secret_value"):
-        return value.get_secret_value()  # type: ignore[no-any-return, attr-defined]
-    return str(value)
 
 
 def _checkout_adapter(repo: str, ref: str | None) -> Path:
@@ -129,8 +124,14 @@ def _split_json_values(raw: str | None) -> list[str]:
     raise ValueError("Expected a JSON object or list of KEY=VALUE strings")
 
 
-def run_harbor(args: argparse.Namespace, llm: LLM, output_dir: str) -> Path:
-    target, target_type, checkout_dir = _resolve_target(args)
+def run_harbor(
+    args: argparse.Namespace,
+    llm: LLM,
+    output_dir: str,
+    target: str,
+    target_type: str,
+    checkout_dir: str | None = None,
+) -> Path:
     harbor_output_dir = Path(output_dir) / "harbor_output"
     harbor_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -255,6 +256,7 @@ def main() -> None:
         base_dir=args.output_dir,
         dataset_name=args.benchmark_slug,
         model_name=llm.model,
+        # Standard iteration cap used by all benchmark runners in this repo
         max_iterations=100,
         eval_note=args.note,
     )
@@ -284,7 +286,9 @@ def main() -> None:
         harbor_output_dir = (
             Path(structured_output_dir) / "harbor_output"
             if args.skip_harbor
-            else run_harbor(args, llm, structured_output_dir)
+            else run_harbor(
+                args, llm, structured_output_dir, target, target_type, checkout_dir
+            )
         )
         convert_harbor_to_eval_output(
             harbor_output_dir=harbor_output_dir, eval_output_path=output_path
@@ -292,6 +296,9 @@ def main() -> None:
     except Exception as exc:
         logger.error("Harbor inference failed: %s", exc)
         sys.exit(1)
+    finally:
+        if checkout_dir:
+            shutil.rmtree(checkout_dir, ignore_errors=True)
 
     if output_path.exists():
         generate_cost_report(str(output_path))
