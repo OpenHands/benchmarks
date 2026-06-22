@@ -67,14 +67,14 @@ def test_split_json_values_invalid() -> None:
 
 
 def _make_args(**kwargs: object) -> argparse.Namespace:
-    defaults = dict(
+    defaults: dict[str, object] = dict(
         harbor_target=None,
         harbor_target_type="auto",
         harbor_adapter_repo=None,
         harbor_adapter_ref=None,
         harbor_adapter_path=None,
     )
-    defaults.update(kwargs)
+    defaults.update(kwargs.items())
     return argparse.Namespace(**defaults)
 
 
