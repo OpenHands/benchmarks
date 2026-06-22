@@ -138,7 +138,9 @@ def main() -> None:
         sys.exit(1)
 
     output_file = (
-        Path(args.output_file) if args.output_file else input_file.with_suffix(".report.json")
+        Path(args.output_file)
+        if args.output_file
+        else input_file.with_suffix(".report.json")
     )
     try:
         report = process_harbor_results(str(input_file), str(output_file))
@@ -148,7 +150,9 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        LaminarService.update_evaluation_scores(report, str(input_file))
+        LaminarService.get().update_evaluation_scores(
+            str(input_file), str(output_file)
+        )
     except Exception as exc:
         logger.warning("Laminar telemetry reporting failed (non-fatal): %s", exc)
 

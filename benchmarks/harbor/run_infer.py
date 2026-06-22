@@ -13,10 +13,12 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from benchmarks.utils.evaluation_utils import construct_eval_output_dir
-from benchmarks.utils.harbor import check_harbor_installed, convert_harbor_to_eval_output
+from benchmarks.utils.harbor import (
+    check_harbor_installed,
+    convert_harbor_to_eval_output,
+)
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import LLM, get_logger
 
@@ -216,7 +218,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--agent-kwarg", action="append", default=[], help="KEY=VALUE passed as --ak"
     )
-    parser.add_argument("--agent-kwarg-json", help="JSON object passed as repeated --ak")
+    parser.add_argument(
+        "--agent-kwarg-json", help="JSON object passed as repeated --ak"
+    )
     parser.add_argument(
         "--harbor-arg", action="append", default=[], help="Additional raw Harbor args"
     )
@@ -270,7 +274,9 @@ def main() -> None:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "note": args.note,
     }
-    with open(Path(structured_output_dir) / "metadata.json", "w", encoding="utf-8") as f:
+    with open(
+        Path(structured_output_dir) / "metadata.json", "w", encoding="utf-8"
+    ) as f:
         json.dump(metadata, f, indent=2)
 
     output_path = Path(structured_output_dir) / OUTPUT_FILENAME
