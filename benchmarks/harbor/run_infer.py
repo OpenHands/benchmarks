@@ -39,7 +39,17 @@ def _load_task_ids(filepath: str) -> list[str]:
     return task_ids
 
 
-def _checkout_adapter(repo: str, ref: str | None) -> Path:
+def _checkout_adapter(repo: str, ref: str | None) -> tuple[Path, str]:
+    """Clone the adapter repo and return (checkout_dir, resolved_commit_sha).
+
+    The resolved SHA is captured so metadata can record exactly which commit
+    was evaluated, making runs reproducible even when ``ref`` is unset.
+    """
+    if not ref:
+        logger.warning(
+            "Cloning adapter repo without a pinned ref; results may not be "
+            "reproducible. Pass --harbor-adapter-ref to pin a tag/SHA/branch."
+        )
     checkout_dir = Path(tempfile.mkdtemp(prefix="harbor-adapter-"))
     cmd = ["git", "clone", "--depth", "1"]
     if ref:
@@ -62,17 +72,26 @@ def _checkout_adapter(repo: str, ref: str | None) -> Path:
             )
     if result.returncode != 0:
         raise RuntimeError(f"Failed to checkout Harbor adapter repo: {result.stderr}")
-    return checkout_dir
+    sha_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=checkout_dir, capture_output=True, text=True
+    )
+    resolved_sha = (
+        sha_result.stdout.strip() if sha_result.returncode == 0 else "unknown"
+    )
+    return checkout_dir, resolved_sha
 
 
-def _resolve_target(args: argparse.Namespace) -> tuple[str, str, str | None]:
+def _resolve_target(
+    args: argparse.Namespace,
+) -> tuple[str, str, str | None, str | None]:
     checkout_dir: Path | None = None
+    adapter_sha: str | None = None
     target = args.harbor_target
     target_type = args.harbor_target_type
 
     if args.harbor_adapter_repo or args.harbor_adapter_path:
         repo = args.harbor_adapter_repo or DEFAULT_ADAPTER_REPO
-        checkout_dir = _checkout_adapter(repo, args.harbor_adapter_ref)
+        checkout_dir, adapter_sha = _checkout_adapter(repo, args.harbor_adapter_ref)
         if args.harbor_adapter_path:
             target_path = checkout_dir / args.harbor_adapter_path
             if not target_path.exists():
@@ -93,7 +112,23 @@ def _resolve_target(args: argparse.Namespace) -> tuple[str, str, str | None]:
         else:
             target_type = "dataset"
 
-    return target, target_type, str(checkout_dir) if checkout_dir else None
+    return (
+        target,
+        target_type,
+        str(checkout_dir) if checkout_dir else None,
+        adapter_sha,
+    )
+
+
+SECRET_KEY_PATTERNS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "PASSPHRASE")
+
+
+def _is_sensitive_env_value(prev: str, part: str) -> bool:
+    """Return True if ``part`` is a value following ``--ae`` whose key looks secret."""
+    if prev != "--ae":
+        return False
+    key = part.split("=", 1)[0].upper()
+    return any(pat in key for pat in SECRET_KEY_PATTERNS)
 
 
 def _target_args(target: str, target_type: str) -> list[str]:
@@ -131,6 +166,7 @@ def run_harbor(
     target: str,
     target_type: str,
     checkout_dir: str | None = None,
+    adapter_sha: str | None = None,
 ) -> Path:
     harbor_output_dir = Path(output_dir) / "harbor_output"
     harbor_output_dir.mkdir(parents=True, exist_ok=True)
@@ -170,7 +206,7 @@ def run_harbor(
         cmd.extend(shlex.split(extra_arg))
 
     safe_cmd = [
-        "***" if prev == "--ae" and part.split("=", 1)[0].endswith("KEY") else part
+        "***" if _is_sensitive_env_value(prev, part) else part
         for prev, part in zip([""] + cmd, cmd)
     ]
     logger.info("Running Harbor command: %s", " ".join(safe_cmd))
@@ -262,7 +298,7 @@ def main() -> None:
     )
     os.makedirs(structured_output_dir, exist_ok=True)
 
-    target, target_type, checkout_dir = _resolve_target(args)
+    target, target_type, checkout_dir, adapter_sha = _resolve_target(args)
     metadata = {
         "llm": llm.model_dump_json(),
         "benchmark": args.benchmark_slug,
@@ -270,6 +306,7 @@ def main() -> None:
         "harbor_target_type": target_type,
         "harbor_adapter_repo": args.harbor_adapter_repo,
         "harbor_adapter_ref": args.harbor_adapter_ref,
+        "harbor_adapter_resolved_sha": adapter_sha,
         "harbor_adapter_path": args.harbor_adapter_path,
         "harbor_adapter_checkout": checkout_dir,
         "harbor_agent": args.harbor_agent,
@@ -287,7 +324,13 @@ def main() -> None:
             Path(structured_output_dir) / "harbor_output"
             if args.skip_harbor
             else run_harbor(
-                args, llm, structured_output_dir, target, target_type, checkout_dir
+                args,
+                llm,
+                structured_output_dir,
+                target,
+                target_type,
+                checkout_dir,
+                adapter_sha,
             )
         )
         convert_harbor_to_eval_output(

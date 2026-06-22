@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from benchmarks.harbor.run_infer import (
+    _is_sensitive_env_value,
     _load_task_ids,
     _parse_key_value,
     _resolve_target,
@@ -87,39 +88,47 @@ def test_resolve_target_requires_target() -> None:
 
 def test_resolve_target_dataset_auto() -> None:
     # When target doesn't exist on disk and type is auto, defaults to dataset
-    target, target_type, checkout = _resolve_target(
+    target, target_type, checkout, sha = _resolve_target(
         _make_args(harbor_target="my-dataset")
     )
     assert target == "my-dataset"
     assert target_type == "dataset"
     assert checkout is None
+    assert sha is None
 
 
 def test_resolve_target_config_auto(tmp_path: Path) -> None:
     cfg = tmp_path / "config.yaml"
     cfg.write_text("foo: bar", encoding="utf-8")
-    target, target_type, checkout = _resolve_target(_make_args(harbor_target=str(cfg)))
+    target, target_type, checkout, sha = _resolve_target(
+        _make_args(harbor_target=str(cfg))
+    )
     assert target == str(cfg)
     assert target_type == "config"
     assert checkout is None
+    assert sha is None
 
 
 def test_resolve_target_path_auto(tmp_path: Path) -> None:
     p = tmp_path / "some_dir"
     p.mkdir()
-    target, target_type, checkout = _resolve_target(_make_args(harbor_target=str(p)))
+    target, target_type, checkout, sha = _resolve_target(
+        _make_args(harbor_target=str(p))
+    )
     assert target == str(p)
     assert target_type == "path"
     assert checkout is None
+    assert sha is None
 
 
 def test_resolve_target_explicit_type() -> None:
-    target, target_type, checkout = _resolve_target(
+    target, target_type, checkout, sha = _resolve_target(
         _make_args(harbor_target="ds", harbor_target_type="dataset")
     )
     assert target == "ds"
     assert target_type == "dataset"
     assert checkout is None
+    assert sha is None
 
 
 def test_resolve_target_adapter_path(tmp_path: Path) -> None:
@@ -131,9 +140,9 @@ def test_resolve_target_adapter_path(tmp_path: Path) -> None:
 
     with patch(
         "benchmarks.harbor.run_infer._checkout_adapter",
-        return_value=fake_checkout,
+        return_value=(fake_checkout, "abc123def456"),
     ):
-        target, target_type, checkout = _resolve_target(
+        target, target_type, checkout, sha = _resolve_target(
             _make_args(
                 harbor_adapter_repo="https://example.com/repo.git",
                 harbor_adapter_path="adapter.yaml",
@@ -143,3 +152,35 @@ def test_resolve_target_adapter_path(tmp_path: Path) -> None:
     assert target == str(cfg_inside)
     assert target_type == "config"
     assert checkout == str(fake_checkout)
+    assert sha == "abc123def456"
+
+
+# --- Secret masking tests ---
+
+
+def test_is_sensitive_env_value_key_suffix() -> None:
+    assert _is_sensitive_env_value("--ae", "LLM_API_KEY=secret123")
+
+
+def test_is_sensitive_env_value_token() -> None:
+    assert _is_sensitive_env_value("--ae", "GITHUB_TOKEN=ghp_xxx")
+
+
+def test_is_sensitive_env_value_secret() -> None:
+    assert _is_sensitive_env_value("--ae", "HF_SECRET=hf_xxx")
+
+
+def test_is_sensitive_env_value_password() -> None:
+    assert _is_sensitive_env_value("--ae", "DB_PASSWORD=p455w0rd")
+
+
+def test_is_sensitive_env_value_not_ae() -> None:
+    assert not _is_sensitive_env_value("--ak", "GITHUB_TOKEN=ghp_xxx")
+
+
+def test_is_sensitive_env_value_non_secret() -> None:
+    assert not _is_sensitive_env_value("--ae", "LLM_BASE_URL=https://api.example.com")
+
+
+def test_is_sensitive_env_value_non_secret_env() -> None:
+    assert not _is_sensitive_env_value("--ae", "MAX_ITERATIONS=100")
