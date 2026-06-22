@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from benchmarks.harbor.run_infer import (
-    _is_sensitive_env_value,
+    _is_sensitive_value,
     _load_task_ids,
     _parse_key_value,
     _resolve_target,
@@ -158,29 +158,42 @@ def test_resolve_target_adapter_path(tmp_path: Path) -> None:
 # --- Secret masking tests ---
 
 
-def test_is_sensitive_env_value_key_suffix() -> None:
-    assert _is_sensitive_env_value("--ae", "LLM_API_KEY=secret123")
+def test_is_sensitive_value_key_suffix() -> None:
+    assert _is_sensitive_value("--ae", "LLM_API_KEY=secret123")
 
 
-def test_is_sensitive_env_value_token() -> None:
-    assert _is_sensitive_env_value("--ae", "GITHUB_TOKEN=ghp_xxx")
+def test_is_sensitive_value_token() -> None:
+    assert _is_sensitive_value("--ae", "GITHUB_TOKEN=ghp_xxx")
 
 
-def test_is_sensitive_env_value_secret() -> None:
-    assert _is_sensitive_env_value("--ae", "HF_SECRET=hf_xxx")
+def test_is_sensitive_value_secret() -> None:
+    assert _is_sensitive_value("--ae", "HF_SECRET=hf_xxx")
 
 
-def test_is_sensitive_env_value_password() -> None:
-    assert _is_sensitive_env_value("--ae", "DB_PASSWORD=p455w0rd")
+def test_is_sensitive_value_password() -> None:
+    assert _is_sensitive_value("--ae", "DB_PASSWORD=p455w0rd")
 
 
-def test_is_sensitive_env_value_not_ae() -> None:
-    assert not _is_sensitive_env_value("--ak", "GITHUB_TOKEN=ghp_xxx")
+def test_is_sensitive_value_ak_token() -> None:
+    """--ak values with secret-like keys must also be masked (regression test)."""
+    assert _is_sensitive_value("--ak", "GITHUB_TOKEN=ghp_xxx")
 
 
-def test_is_sensitive_env_value_non_secret() -> None:
-    assert not _is_sensitive_env_value("--ae", "LLM_BASE_URL=https://api.example.com")
+def test_is_sensitive_value_ak_key_suffix() -> None:
+    assert _is_sensitive_value("--ak", "API_KEY=secret123")
 
 
-def test_is_sensitive_env_value_non_secret_env() -> None:
-    assert not _is_sensitive_env_value("--ae", "MAX_ITERATIONS=100")
+def test_is_sensitive_value_ak_non_secret() -> None:
+    assert not _is_sensitive_value("--ak", "MAX_ITERATIONS=100")
+
+
+def test_is_sensitive_value_unknown_flag() -> None:
+    assert not _is_sensitive_value("--foo", "GITHUB_TOKEN=ghp_xxx")
+
+
+def test_is_sensitive_value_non_secret() -> None:
+    assert not _is_sensitive_value("--ae", "LLM_BASE_URL=https://api.example.com")
+
+
+def test_is_sensitive_value_non_secret_env() -> None:
+    assert not _is_sensitive_value("--ae", "MAX_ITERATIONS=100")

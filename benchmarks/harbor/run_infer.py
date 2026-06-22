@@ -121,11 +121,12 @@ def _resolve_target(
 
 
 SECRET_KEY_PATTERNS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "PASSPHRASE")
+SENSITIVE_VALUE_FLAGS = ("--ae", "--ak")
 
 
-def _is_sensitive_env_value(prev: str, part: str) -> bool:
-    """Return True if ``part`` is a value following ``--ae`` whose key looks secret."""
-    if prev != "--ae":
+def _is_sensitive_value(prev: str, part: str) -> bool:
+    """Return True if ``part`` is a value following ``--ae``/``--ak`` whose key looks secret."""
+    if prev not in SENSITIVE_VALUE_FLAGS:
         return False
     key = part.split("=", 1)[0].upper()
     return any(pat in key for pat in SECRET_KEY_PATTERNS)
@@ -206,7 +207,7 @@ def run_harbor(
         cmd.extend(shlex.split(extra_arg))
 
     safe_cmd = [
-        "***" if _is_sensitive_env_value(prev, part) else part
+        "***" if _is_sensitive_value(prev, part) else part
         for prev, part in zip([""] + cmd, cmd)
     ]
     logger.info("Running Harbor command: %s", " ".join(safe_cmd))
