@@ -186,7 +186,7 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
 
 ### Apptainer Workspace for HPC Clusters
 
-#### Step 1: Build and push images using a separate machine with Docker support
+#### Option 1: Pre-build and push images using a separate machine with Docker support
 
 ```bash
 uv run python -m benchmarks.swebench.build_images \
@@ -199,7 +199,20 @@ uv run python -m benchmarks.swebench.build_images \
 
 The wrapper layer (`docutils<0.21`, `roman`) is applied in-place for allowlisted repos during this build pipeline (currently `sphinx-doc`).
 
-#### Step 2: Run on HPC with Apptainer
+#### Option 2: Build local Apptainer SIFs on the HPC machine
+
+If a pre-built agent-server image is missing from the registry, Apptainer mode
+falls back to building a local SIF from the official SWE-Bench image and the
+checked-out OpenHands SDK submodule. This does not require a Docker daemon.
+
+```bash
+export OPENHANDS_APPTAINER_BUILD_ROOT=/scratch/$USER/swebench-apptainer-agent-images
+```
+
+Set `OPENHANDS_APPTAINER_FORCE_BUILD=1` to rebuild a local SIF even when a
+matching registry image exists.
+
+#### Run on HPC with Apptainer
 
 **Optionally**, you can override the default location where Apptainer cache is saved using the below environment variables:
 
@@ -215,7 +228,9 @@ uv run swebench-infer path/to/llm_config.json \
     --workspace apptainer
 ```
 
-In `apptainer` mode, SWE-Bench uses pre-built registry images as-is and does not run local Docker builds.
+In `apptainer` mode, SWE-Bench first tries to use pre-built registry images. If
+the expected registry tag is unavailable, it builds a local Apptainer SIF
+instead.
 
 ## Evaluation
 
@@ -239,9 +254,26 @@ uv run swebench-eval output.jsonl \
 uv run swebench-eval output.jsonl --skip-evaluation
 ```
 
+**Local Apptainer evaluation:**
+
+```bash
+uv run swebench-eval output.jsonl \
+  --run-id my_eval \
+  --apptainer \
+  --apptainer-sandbox-root ~/.cache/openhands/swebench-apptainer
+```
+
+The Apptainer evaluator pulls the official SWE-bench instance images, converts
+them to reusable writable sandboxes, applies each model patch, runs the
+SWE-bench eval script, and grades the resulting test log locally. This is useful
+on hosts where Docker is unavailable and Modal is not configured. Apptainer
+evaluation currently runs sequentially; `--workers` is accepted for CLI
+compatibility but ignored.
+
 The evaluation script will:
 1. Convert OpenHands output format to SWE-Bench prediction format
-2. Run the official SWE-Bench evaluation harness (unless `--skip-evaluation` is used)
+2. Run the official SWE-Bench evaluation harness, or local Apptainer evaluation
+   when `--apptainer` is used, unless `--skip-evaluation` is set
 3. Report pass/fail results for each instance
 
 ## References

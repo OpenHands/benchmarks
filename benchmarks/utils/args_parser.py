@@ -125,6 +125,16 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Maximum number of events before the condenser activates",
     )
     parser.add_argument(
+        "--condenser-max-tokens",
+        type=int,
+        help="Maximum number of prompt tokens before the condenser activates",
+    )
+    parser.add_argument(
+        "--condenser-max-output-tokens",
+        type=int,
+        help="Maximum output tokens for LLM-generated condenser summaries",
+    )
+    parser.add_argument(
         "--condenser-keep-first",
         type=int,
         help="Number of initial events to always keep when condensing",

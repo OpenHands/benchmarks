@@ -112,10 +112,14 @@ def test_eval_metadata_accepts_condenser_params():
         critic=PassCritic(),
         enable_condenser=True,
         condenser_max_size=100,
+        condenser_max_tokens=12345,
+        condenser_max_output_tokens=512,
         condenser_keep_first=5,
     )
     assert metadata.enable_condenser is True
     assert metadata.condenser_max_size == 100
+    assert metadata.condenser_max_tokens == 12345
+    assert metadata.condenser_max_output_tokens == 512
     assert metadata.condenser_keep_first == 5
 
 
@@ -132,6 +136,8 @@ def test_eval_metadata_condenser_defaults():
     # Should use default values defined in EvalMetadata
     assert metadata.enable_condenser is True
     assert metadata.condenser_max_size == 240
+    assert metadata.condenser_max_tokens is None
+    assert metadata.condenser_max_output_tokens is None
     assert metadata.condenser_keep_first == 2
 
 
@@ -143,6 +149,8 @@ def test_args_parser_has_condenser_args():
     assert hasattr(args, "enable_condenser")
     assert hasattr(args, "disable_condenser")
     assert hasattr(args, "condenser_max_size")
+    assert hasattr(args, "condenser_max_tokens")
+    assert hasattr(args, "condenser_max_output_tokens")
     assert hasattr(args, "condenser_keep_first")
 
 
@@ -168,7 +176,18 @@ def test_condenser_size_args():
     """Test that condenser size arguments can be set."""
     parser = get_parser(add_llm_config=False)
     args = parser.parse_args(
-        ["--condenser-max-size", "120", "--condenser-keep-first", "10"]
+        [
+            "--condenser-max-size",
+            "120",
+            "--condenser-max-tokens",
+            "28000",
+            "--condenser-max-output-tokens",
+            "1024",
+            "--condenser-keep-first",
+            "10",
+        ]
     )
     assert args.condenser_max_size == 120
+    assert args.condenser_max_tokens == 28000
+    assert args.condenser_max_output_tokens == 1024
     assert args.condenser_keep_first == 10
