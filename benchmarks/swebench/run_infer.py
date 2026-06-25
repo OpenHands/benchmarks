@@ -111,6 +111,79 @@ class SWEBenchEvaluation(Evaluation):
     def get_source_repo_path(self, instance: EvalInstance) -> str:
         return "/testbed"
 
+    def get_repo_path(self, instance: EvalInstance) -> str:
+        return f"/workspace/{instance.data['repo'].split('/')[-1]}/"
+
+    def get_git_patch(
+        self,
+        instance: EvalInstance,
+        workspace: RemoteWorkspace,
+    ) -> str:
+        repo_path = self.get_repo_path(instance)
+        base_commit = instance.data["base_commit"]
+        git_patch_result = workspace.execute_command(
+            (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
+        )
+        assert git_patch_result.exit_code == 0, (
+            f"git diff failed: {git_patch_result.stderr}"
+        )
+        return git_patch_result.stdout
+
+    def get_staged_git_patch(
+        self,
+        instance: EvalInstance,
+        workspace: RemoteWorkspace,
+    ) -> str:
+        repo_path = self.get_repo_path(instance)
+        base_commit = instance.data["base_commit"]
+        git_patch_result = workspace.execute_command(
+            (f"cd {repo_path} ; git --no-pager diff --no-color --cached {base_commit}")
+        )
+        assert git_patch_result.exit_code == 0, (
+            f"git diff failed: {git_patch_result.stderr}"
+        )
+        return git_patch_result.stdout
+
+    def collect_failure_test_result(
+        self,
+        instance: EvalInstance,
+        workspace: RemoteWorkspace,
+        error: Exception,
+    ) -> dict[str, Any]:
+        repo_path = self.get_repo_path(instance)
+
+        # Include newly-created files in the recovered diff. This intentionally
+        # avoids committing so the failed workspace remains close to its final
+        # agent-visible state.
+        git_add = workspace.execute_command(f"cd {repo_path} ; git add -A")
+        if git_add.exit_code != 0:
+            logger.warning(
+                "Failed to stage changes while collecting failure patch for %s: %s",
+                instance.id,
+                git_add.stderr,
+            )
+
+        try:
+            git_patch = self.get_staged_git_patch(instance, workspace)
+        except Exception as patch_error:
+            logger.warning(
+                "Failed to collect failure patch for %s after %s: %s",
+                instance.id,
+                type(error).__name__,
+                patch_error,
+            )
+            return {}
+
+        logger.info(
+            "Collected failure patch for %s: %d chars",
+            instance.id,
+            len(git_patch),
+        )
+        return {
+            "git_patch": git_patch,
+            "git_patch_captured_on_error": True,
+        }
+
     def get_apptainer_extra_bind_mounts(self) -> list[str]:
         """Return host paths that must be visible inside Apptainer agent servers."""
         bind_mounts: list[str] = []
@@ -371,7 +444,7 @@ class SWEBenchEvaluation(Evaluation):
 
         setup_acp_workspace(self.metadata.agent_type, workspace)
 
-        repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
+        repo_path = self.get_repo_path(instance)
         instance.data["repo_path"] = repo_path
 
         persist_callback = build_event_persistence_callback(
@@ -424,14 +497,7 @@ class SWEBenchEvaluation(Evaluation):
         )
 
         # Get git patch
-        base_commit = instance.data["base_commit"]
-        git_patch_result = workspace.execute_command(
-            (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
-        )
-        assert git_patch_result.exit_code == 0, (
-            f"git diff failed: {git_patch_result.stderr}"
-        )
-        git_patch = git_patch_result.stdout
+        git_patch = self.get_git_patch(instance, workspace)
 
         # Log instance summary
         summarize_instance(

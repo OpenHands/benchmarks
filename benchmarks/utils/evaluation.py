@@ -340,9 +340,10 @@ class Evaluation(ABC, BaseModel):
         retry_count: int,
         metrics: Metrics | None = None,
         proxy_cost: float | None = None,
+        test_result: dict[str, Any] | None = None,
     ) -> EvalOutput:
         """Create an EvalOutput object for a failed instance."""
-        test_result: dict[str, Any] = {}
+        test_result = dict(test_result or {})
         if proxy_cost is not None:
             test_result["proxy_cost"] = proxy_cost
 
@@ -357,6 +358,20 @@ class Evaluation(ABC, BaseModel):
             metrics=metrics,
             instance=_to_serializable(instance.data),
         )
+
+    def collect_failure_test_result(
+        self,
+        instance: EvalInstance,
+        workspace: RemoteWorkspace,
+        error: Exception,
+    ) -> dict[str, Any]:
+        """Collect benchmark-specific result artifacts after a failed run.
+
+        Called while the workspace is still alive, before cleanup. Benchmarks
+        that can recover partial outputs, such as a git diff, should override
+        this hook and return fields to include in the error row's test_result.
+        """
+        return {}
 
     def _capture_conversation_archive(
         self,
@@ -1160,12 +1175,28 @@ class Evaluation(ABC, BaseModel):
                     exc_info=True,
                 )
                 if workspace is not None:
+                    try:
+                        failure_test_result = self.collect_failure_test_result(
+                            instance,
+                            workspace,
+                            e,
+                        )
+                    except Exception as capture_error:
+                        logger.warning(
+                            "[worker] Failed to collect failure test_result for %s: %s",
+                            instance.id,
+                            capture_error,
+                        )
+                        failure_test_result = {}
+
                     # Capture the archive before teardown so failure telemetry
                     # survives even when cleanup later skips duplicate capture.
                     conversation_archive_path = self._capture_conversation_archive(
                         workspace,
                         instance,
                     )
+                else:
+                    failure_test_result = {}
                 recovered_metrics = self._load_metrics_from_conversation_archive(
                     conversation_archive_path
                 )
@@ -1176,6 +1207,7 @@ class Evaluation(ABC, BaseModel):
                     max_retries,
                     metrics=recovered_metrics,
                     proxy_cost=proxy_cost,
+                    test_result=failure_test_result,
                 )
                 if runtime_runs:
                     error_output.runtime_runs = runtime_runs
