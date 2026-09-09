@@ -133,7 +133,7 @@ jobs:
             echo "Using default ref (the commit that triggered this workflow)"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: OpenHands/benchmarks
           ref: ${{ steps.checkout-ref.outputs.ref }}

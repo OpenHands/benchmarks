@@ -109,7 +109,7 @@ jobs:
             echo "Using default ref (the commit that triggered this workflow)"
           fi
       
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # When ref is empty, actions/checkout uses the commit that triggered the workflow
           ref: ${{ steps.checkout-ref.outputs.ref }}
@@ -162,7 +162,7 @@ jobs:
           echo "Updated SDK submodule to $SDK_SHA (from ${{ inputs.sdk-commit }})"
 
       - name: Set up Docker Buildx with Blacksmith
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v2
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
