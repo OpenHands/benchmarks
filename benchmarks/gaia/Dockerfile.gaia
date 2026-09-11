@@ -1,7 +1,7 @@
 # Dockerfile for GAIA evaluation with MCP server pre-installed
 # Extends the base SDK image to pre-cache mcp-server-fetch and eliminate startup delays
 
-ARG SDK_IMAGE=ghcr.io/openhands/eval-agent-server:f715937-gaia-binary-minimal
+ARG SDK_IMAGE=ghcr.io/openhands/eval-agent-server:f715937-gaia-binary
 FROM ${SDK_IMAGE}
 
 # Switch to root to install packages
