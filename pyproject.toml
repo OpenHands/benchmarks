@@ -158,4 +158,5 @@ members = [
 ]
 
 [tool.uv]
+required-version = ">=0.9.20"
 exclude-newer = "7 days"
