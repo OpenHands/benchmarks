@@ -21,6 +21,8 @@ See the individual benchmark directories for detailed usage instructions.
 
 ### Prerequisites
 
+Use uv >= 0.9.20 so the seven-day dependency release-age cutoff is enforced.
+
 Before running any benchmarks, you need to set up the environment and ensure the local Agent SDK submodule is initialized.
 
 ```bash

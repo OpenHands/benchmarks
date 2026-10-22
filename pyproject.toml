@@ -156,3 +156,7 @@ members = [
   "vendor/software-agent-sdk/openhands-workspace",
   "vendor/software-agent-sdk/openhands-agent-server",
 ]
+
+[tool.uv]
+required-version = ">=0.9.20"
+exclude-newer = "7 days"
