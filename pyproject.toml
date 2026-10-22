@@ -156,3 +156,6 @@ members = [
   "vendor/software-agent-sdk/openhands-workspace",
   "vendor/software-agent-sdk/openhands-agent-server",
 ]
+
+[tool.uv]
+exclude-newer = "7 days"
