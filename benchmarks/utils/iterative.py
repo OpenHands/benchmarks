@@ -7,6 +7,7 @@ using SDK critics to determine if an instance succeeded.
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Set
 
@@ -53,6 +54,21 @@ class _AggregatedEntry:
         return self.raw_line if self.raw_line.endswith("\n") else self.raw_line + "\n"
 
 
+_AGENT_ERROR_PATTERNS = re.compile(
+    r"Remote conversation got stuck"
+    r"|MaxIterationsReached"
+    r"|maximum iterations",
+    re.IGNORECASE,
+)
+
+
+def _is_agent_error(error_str: str) -> bool:
+    """Return True if the error is an agent-side failure that should not be retried
+    (stuck in a loop, hit max iteration limit). Everything else — 404, 503, image
+    pull failures, connection resets — is treated as an infra error worth retrying."""
+    return bool(_AGENT_ERROR_PATTERNS.search(error_str))
+
+
 def _get_output_rank(critic: CriticBase, output: EvalOutput) -> int:
     """
     Get the rank of an output for aggregation purposes.
@@ -74,12 +90,18 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
     """
     Get the set of failed instance IDs from an output file.
 
+    Only instances that failed due to infrastructure/environment errors are
+    returned (i.e. output.error is set).  Agent-side failures — empty patch,
+    max-iteration limit reached, or the agent getting stuck — are NOT retried
+    because a retry with the same model and prompt is unlikely to help.
+
     Args:
         output_file: Path to the JSONL output file
-        critic: SDK critic to use for evaluation
+        critic: SDK critic to use for evaluation (unused for retry decisions;
+                kept for API compatibility and used by aggregate_results)
 
     Returns:
-        Set of instance IDs that failed
+        Set of instance IDs that failed due to infra/environment errors
     """
 
     failed_instances: Set[EvalInstanceID] = set()
@@ -95,8 +117,10 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
                     data = json.loads(line.strip())
                     output = EvalOutput.model_validate(data)
 
-                    # Evaluate using the critic
-                    if not evaluate_output(critic, output):
+                    # Only retry infra/environment failures.
+                    # Agent failures (empty patch, max iterations, stuck) are
+                    # the model's fault — retrying won't help.
+                    if output.error and not _is_agent_error(output.error):
                         failed_instances.add(output.instance_id)
 
                 except json.JSONDecodeError as e:
@@ -111,7 +135,9 @@ def get_failed_instances(output_file: str, critic: CriticBase) -> Set[EvalInstan
     except Exception as e:
         logger.error(f"Error reading output file {output_file}: {e}")
 
-    logger.info(f"Found {len(failed_instances)} failed instances in {output_file}")
+    logger.info(
+        f"Found {len(failed_instances)} infra-failed instances to retry in {output_file}"
+    )
     return failed_instances
 
 
