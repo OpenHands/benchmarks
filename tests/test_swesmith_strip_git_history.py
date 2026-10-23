@@ -1,11 +1,17 @@
-"""The SWE-smith workspace must not expose the task's bug patch through git."""
+"""The SWE-smith sandbox must not expose the task's bug patch or clean code."""
 
+import filecmp
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from benchmarks.swesmith.run_infer import strip_git_history_command
+from benchmarks.swesmith import build_images
+from benchmarks.swesmith.run_infer import (
+    replace_testbed_command,
+    strip_git_history_command,
+)
+from benchmarks.utils.build_utils import BuildOutput
 
 
 TASK = "owner__repo.abc123.combine_file__task1"
@@ -45,6 +51,9 @@ def task_workspace(tmp_path: Path) -> tuple[Path, str]:
         git(mirror, "rm", "-q", "test_lib.py")
         git(mirror, "commit", "-q", "-m", "Remove F2P Tests")
     git(mirror, "checkout", "-q", "main")
+
+    # /testbed in the image: a full clone of the mirror, left on clean main.
+    git(tmp_path, "clone", "-q", str(mirror), str(tmp_path / "testbed"))
 
     workspace = tmp_path / "workspace"
     git(tmp_path, "clone", "-q", str(mirror), str(workspace))
@@ -91,3 +100,45 @@ def test_strip_git_history_patch_against_new_base_is_unchanged(task_workspace):
 
     assert patch.startswith("diff --git a/lib.py b/lib.py")
     assert "-    return a - b\n+    return a + b" in patch
+
+
+def test_replace_testbed_leaves_only_the_stripped_task_tree(task_workspace):
+    workspace, bug_commit = task_workspace
+    testbed = workspace.parent / "testbed"
+    assert "a + b" in (testbed / "lib.py").read_text()  # clean code before
+
+    subprocess.run(
+        ["bash", "-c", strip_git_history_command(str(workspace))], check=True
+    )
+    subprocess.run(
+        ["bash", "-c", replace_testbed_command(str(workspace), str(testbed))],
+        check=True,
+    )
+
+    assert "a - b" in (testbed / "lib.py").read_text()
+    assert not (testbed / "test_lib.py").exists()
+    assert git(testbed, "rev-list", "--all") == git(workspace, "rev-parse", "HEAD")
+    assert git(testbed, "remote") == ""
+    cmp = filecmp.dircmp(testbed, workspace, ignore=[])
+    assert not (cmp.left_only or cmp.right_only or cmp.diff_files)
+
+
+def test_built_images_get_the_testbed_access_layer(monkeypatch):
+    calls = []
+
+    def fake_layer(**kwargs):
+        calls.append(kwargs)
+        return BuildOutput(base_image="x", tags=kwargs["tags"])
+
+    monkeypatch.setattr(build_images, "run_docker_build_layer", fake_layer)
+    image = "ghcr.io/openhands/eval-agent-server:abc-swesmith.x86_64.r-source-minimal"
+    built = BuildOutput(base_image="docker.io/swesmith.x86_64.r", tags=[image])
+
+    assert build_images.wrap_testbed_access(built, push=True) is built
+    assert calls[0]["dockerfile"] == build_images.TESTBED_ACCESS_DOCKERFILE
+    assert calls[0]["tags"] == [image]
+    assert calls[0]["build_args"] == {"SDK_IMAGE": image}
+    assert calls[0]["push"] is True
+    dockerfile = build_images.TESTBED_ACCESS_DOCKERFILE.read_text()
+    assert "find /testbed -type d -exec chown openhands:openhands {} +" in dockerfile
+    assert dockerfile.rstrip().endswith("USER openhands")

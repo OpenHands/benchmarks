@@ -11,6 +11,7 @@ from benchmarks.swesmith import constants
 from benchmarks.swesmith.build_images import (
     extract_custom_tag,
     get_official_docker_image,
+    wrap_image,
 )
 from benchmarks.swesmith.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
@@ -99,6 +100,19 @@ def strip_git_history_command(repo_path: str) -> str:
         "git reflog expire --expire=now --all && "
         "git gc -q --prune=now"
     )
+
+
+def replace_testbed_command(repo_path: str, testbed: str = "/testbed") -> str:
+    """Shell command that replaces ``testbed`` with the stripped task tree.
+
+    The image's /testbed keeps the clean, pre-bug tree and the mirror clone
+    with every task branch, and the repo is installed in editable mode from
+    it. Replacing its contents with the prepared workspace closes that copy of
+    the answer and points the editable install at the task code. Needs the
+    directory ownership granted by Dockerfile.testbed-access.
+    """
+    src = repo_path.rstrip("/")
+    return f"find {testbed} -mindepth 1 -delete && cp -a {src}/. {testbed}/"
 
 
 def get_instruction(
@@ -238,6 +252,8 @@ class SWESmithEvaluation(Evaluation):
                         f"Built image tags {output.tags} do not include expected tag "
                         f"{base_agent_image}"
                     )
+                wrapped = wrap_image(base_agent_image, push=False)
+                assert wrapped.error is None, f"Image wrap failed: {wrapped.error}"
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
@@ -384,6 +400,11 @@ class SWESmithEvaluation(Evaluation):
         strip_history = workspace.execute_command(strip_git_history_command(repo_path))
         assert strip_history.exit_code == 0, (
             f"stripping git history failed: {strip_history.stderr}"
+        )
+        replace_testbed = workspace.execute_command(replace_testbed_command(repo_path))
+        assert replace_testbed.exit_code == 0, (
+            "replacing /testbed failed; rebuild the SWE-smith images so they "
+            f"include Dockerfile.testbed-access: {replace_testbed.stderr}"
         )
 
         # Capture HEAD after checkout so base_commit reflects the bug branch
