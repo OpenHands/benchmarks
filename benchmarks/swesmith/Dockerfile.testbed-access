@@ -1,0 +1,13 @@
+ARG SDK_IMAGE
+FROM ${SDK_IMAGE}
+
+USER root
+
+# /testbed is the image's clone of the SWE-smith mirror: its tree is the clean,
+# pre-bug code and its .git holds every task branch. run_infer.py replaces it
+# with the stripped task tree before the agent starts, which the non-root agent
+# user can only do if it owns the directories. Directories only: unlinking a
+# file needs write access to its directory, and this keeps the layer tiny.
+RUN find /testbed -type d -exec chown openhands:openhands {} +
+
+USER openhands

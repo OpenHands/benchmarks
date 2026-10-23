@@ -11,6 +11,7 @@ from benchmarks.swesmith import constants
 from benchmarks.swesmith.build_images import (
     extract_custom_tag,
     get_official_docker_image,
+    wrap_image,
 )
 from benchmarks.swesmith.config import INFER_DEFAULTS
 from benchmarks.utils.args_parser import get_parser
@@ -70,6 +71,48 @@ def _find_ssh_key() -> Path | None:
             return key_file
 
     return None
+
+
+_TASK_BRANCH = "swesmith-task"
+
+
+def strip_git_history_command(repo_path: str) -> str:
+    """Shell command that leaves ``repo_path`` with a single root commit.
+
+    A SWE-smith task branch records the injected bug ("Bug Patch") and the
+    removed tests ("Remove F2P Tests") as commits, and the image's clone of
+    the mirror holds every task branch as a remote ref. Without this, the
+    agent can recover the fix with ``git log -p`` or ``git show``. The current
+    tree is kept as one orphan commit; every other ref, the remotes and the
+    reflog are dropped and the unreachable objects are pruned.
+    """
+    return (
+        f"cd {repo_path} && "
+        f"git checkout -q --orphan {_TASK_BRANCH} && "
+        f"git -c user.name='{constants.GIT_USER_NAME}' "
+        f"-c user.email='{constants.GIT_USER_EMAIL}' -c commit.gpgsign=false "
+        "commit -q --no-verify -m 'SWE-smith task' && "
+        "git for-each-ref --format='delete %(refname)' "
+        f"| {{ grep -vx 'delete refs/heads/{_TASK_BRANCH}' || true; }} "
+        "| git update-ref --no-deref --stdin && "
+        'for r in $(git remote); do git remote remove "$r"; done && '
+        "rm -f .git/FETCH_HEAD .git/ORIG_HEAD && "
+        "git reflog expire --expire=now --all && "
+        "git gc -q --prune=now"
+    )
+
+
+def replace_testbed_command(repo_path: str, testbed: str = "/testbed") -> str:
+    """Shell command that replaces ``testbed`` with the stripped task tree.
+
+    The image's /testbed keeps the clean, pre-bug tree and the mirror clone
+    with every task branch, and the repo is installed in editable mode from
+    it. Replacing its contents with the prepared workspace closes that copy of
+    the answer and points the editable install at the task code. Needs the
+    directory ownership granted by Dockerfile.testbed-access.
+    """
+    src = repo_path.rstrip("/")
+    return f"find {testbed} -mindepth 1 -delete && cp -a {src}/. {testbed}/"
 
 
 def get_instruction(
@@ -209,6 +252,8 @@ class SWESmithEvaluation(Evaluation):
                         f"Built image tags {output.tags} do not include expected tag "
                         f"{base_agent_image}"
                     )
+                wrapped = wrap_image(base_agent_image, push=False)
+                assert wrapped.error is None, f"Image wrap failed: {wrapped.error}"
 
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
@@ -350,6 +395,17 @@ class SWESmithEvaluation(Evaluation):
 
         # Remove untracked files (respects .gitignore, so installed deps are preserved)
         workspace.execute_command(f"cd {repo_path} ; git clean -fdq")
+
+        # Drop the history that holds the bug patch and the removed tests.
+        strip_history = workspace.execute_command(strip_git_history_command(repo_path))
+        assert strip_history.exit_code == 0, (
+            f"stripping git history failed: {strip_history.stderr}"
+        )
+        replace_testbed = workspace.execute_command(replace_testbed_command(repo_path))
+        assert replace_testbed.exit_code == 0, (
+            "replacing /testbed failed; rebuild the SWE-smith images so they "
+            f"include Dockerfile.testbed-access: {replace_testbed.stderr}"
+        )
 
         # Capture HEAD after checkout so base_commit reflects the bug branch
         head_result = workspace.execute_command(f"cd {repo_path} ; git rev-parse HEAD")

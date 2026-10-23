@@ -9,17 +9,22 @@ Example:
 """
 
 import sys
+from pathlib import Path
 
 from benchmarks.utils.build_utils import (
+    BuildOutput,
     build_all_images,
     default_build_output_dir,
     get_build_parser,
+    run_docker_build_layer,
 )
 from benchmarks.utils.dataset import get_dataset
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
+
+TESTBED_ACCESS_DOCKERFILE = Path(__file__).with_name("Dockerfile.testbed-access")
 
 
 def get_official_docker_image(
@@ -44,6 +49,33 @@ def extract_custom_tag(base_image: str) -> str:
     name_tag = base_image.split("/")[-1]
     name = name_tag.split(":")[0]
     return name
+
+
+def wrap_image(agent_image: str, push: bool = False) -> BuildOutput:
+    """Add the layer that lets the agent user replace /testbed, in place."""
+    return run_docker_build_layer(
+        dockerfile=TESTBED_ACCESS_DOCKERFILE,
+        context=TESTBED_ACCESS_DOCKERFILE.parent,
+        tags=[agent_image],
+        build_args={"SDK_IMAGE": agent_image},
+        push=push,
+        platform="linux/amd64",
+        load=not push,
+    )
+
+
+def wrap_testbed_access(result: BuildOutput, push: bool) -> BuildOutput:
+    """post_build_fn for build_all_images: wrap every built agent-server image."""
+    if result.error or not result.tags:
+        return result
+    wrapped = wrap_image(result.tags[0], push)
+    if wrapped.error:
+        return BuildOutput(
+            base_image=result.base_image,
+            tags=result.tags,
+            error=f"Wrapping failed: {wrapped.error}",
+        )
+    return result
 
 
 def collect_unique_base_images(
@@ -89,7 +121,7 @@ def main(argv: list[str]) -> int:
         force_build=args.force_build,
         max_retries=args.max_retries,
         base_image_to_custom_tag_fn=extract_custom_tag,
-        post_build_fn=None,
+        post_build_fn=wrap_testbed_access,
     )
 
 
