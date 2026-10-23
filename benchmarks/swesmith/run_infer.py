@@ -72,6 +72,35 @@ def _find_ssh_key() -> Path | None:
     return None
 
 
+_TASK_BRANCH = "swesmith-task"
+
+
+def strip_git_history_command(repo_path: str) -> str:
+    """Shell command that leaves ``repo_path`` with a single root commit.
+
+    A SWE-smith task branch records the injected bug ("Bug Patch") and the
+    removed tests ("Remove F2P Tests") as commits, and the image's clone of
+    the mirror holds every task branch as a remote ref. Without this, the
+    agent can recover the fix with ``git log -p`` or ``git show``. The current
+    tree is kept as one orphan commit; every other ref, the remotes and the
+    reflog are dropped and the unreachable objects are pruned.
+    """
+    return (
+        f"cd {repo_path} && "
+        f"git checkout -q --orphan {_TASK_BRANCH} && "
+        f"git -c user.name='{constants.GIT_USER_NAME}' "
+        f"-c user.email='{constants.GIT_USER_EMAIL}' -c commit.gpgsign=false "
+        "commit -q --no-verify -m 'SWE-smith task' && "
+        "git for-each-ref --format='delete %(refname)' "
+        f"| {{ grep -vx 'delete refs/heads/{_TASK_BRANCH}' || true; }} "
+        "| git update-ref --no-deref --stdin && "
+        'for r in $(git remote); do git remote remove "$r"; done && '
+        "rm -f .git/FETCH_HEAD .git/ORIG_HEAD && "
+        "git reflog expire --expire=now --all && "
+        "git gc -q --prune=now"
+    )
+
+
 def get_instruction(
     instance: dict,
     metadata: EvalMetadata,
@@ -350,6 +379,12 @@ class SWESmithEvaluation(Evaluation):
 
         # Remove untracked files (respects .gitignore, so installed deps are preserved)
         workspace.execute_command(f"cd {repo_path} ; git clean -fdq")
+
+        # Drop the history that holds the bug patch and the removed tests.
+        strip_history = workspace.execute_command(strip_git_history_command(repo_path))
+        assert strip_history.exit_code == 0, (
+            f"stripping git history failed: {strip_history.stderr}"
+        )
 
         # Capture HEAD after checkout so base_commit reflects the bug branch
         head_result = workspace.execute_command(f"cd {repo_path} ; git rev-parse HEAD")
