@@ -10,12 +10,16 @@ images, then assemble final images locally.
 import argparse
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+import tempfile
+from collections.abc import Callable, Iterator
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from contextlib import contextmanager
 from pathlib import Path
 from threading import Lock
+from typing import Final
 
 from tqdm.auto import tqdm
 
@@ -52,6 +56,16 @@ PHASED_BUILD_HEARTBEAT_SECONDS = max(
 )
 AGENT_LAYER_DOCKERFILE = (
     Path(__file__).parent.parent / "utils" / "Dockerfile.agent-layer"
+)
+
+# Path (relative to the vendored SDK root) of the dependency-free ACP install
+# catalog the SDK Dockerfile's `acp-providers` stage COPYs into its own image.
+# That stage is pulled into `base-image-minimal` via `COPY --from=acp-providers`,
+# so this file must be present in the build context even though the target is
+# otherwise context-free. Mirrors
+# openhands.agent_server.docker.build._ACP_INSTALL_CATALOG_RELPATH; keep in sync.
+_ACP_INSTALL_CATALOG_RELPATH: Final[Path] = Path(
+    "openhands-sdk/openhands/sdk/settings/acp_install_catalog.py"
 )
 
 
@@ -197,6 +211,44 @@ def _yield_completed_futures(
             yield fut
 
 
+@contextmanager
+def _base_image_build_context(dockerfile: Path) -> Iterator[Path]:
+    """Stage a build context for the SDK's ``base-image-minimal`` target.
+
+    The target is *nearly* context-free, but the Dockerfile's ``acp-providers``
+    stage (which ``base-image-minimal`` pulls in via ``COPY --from=``) does
+    ``COPY openhands-sdk/.../acp_install_catalog.py``, resolved relative to the
+    build context. Passing the Dockerfile's own directory therefore fails with
+    ``failed to calculate checksum ... not found``.
+
+    Stage the Dockerfile plus that one dependency-free catalog file, mirroring
+    the empty-context fast path in ``openhands.agent_server.docker.build``, so
+    the same COPY instruction resolves without pulling in the whole SDK tree.
+    """
+    sdk_root = _get_repo_root() / "vendor" / "software-agent-sdk"
+    ctx = Path(tempfile.mkdtemp(prefix="bench-base-ctx-"))
+    try:
+        shutil.copy2(dockerfile, ctx / "Dockerfile")
+
+        catalog_src = sdk_root / _ACP_INSTALL_CATALOG_RELPATH
+        if catalog_src.exists():
+            catalog_dst = ctx / _ACP_INSTALL_CATALOG_RELPATH
+            catalog_dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(catalog_src, catalog_dst)
+        else:
+            # SDK revisions predating the acp-providers stage have no catalog;
+            # their Dockerfile has no COPY for it, so an empty context is fine.
+            logger.debug(
+                "ACP install catalog not found at %s; the vendored SDK revision "
+                "likely predates the acp-providers stage.",
+                catalog_src,
+            )
+
+        yield ctx
+    finally:
+        shutil.rmtree(ctx, ignore_errors=True)
+
+
 def build_base_image(
     base_image: str,
     custom_tag: str,
@@ -239,11 +291,14 @@ def build_base_image(
     else:
         cmd.append("--load")
 
-    # Use the Dockerfile's parent as context (minimal, just needs the Dockerfile)
-    cmd.append(str(dockerfile.parent))
+    # base-image-minimal needs a staged context: the acp-providers stage it
+    # pulls in via COPY --from= COPYs acp_install_catalog.py relative to the
+    # context, so the bare Dockerfile directory is not a valid context.
+    with _base_image_build_context(dockerfile) as ctx:
+        cmd.append(str(ctx))
 
-    logger.info("Building base image: %s", " ".join(cmd))
-    proc, timeout_error = _run_docker_command(cmd)
+        logger.info("Building base image: %s", " ".join(cmd))
+        proc, timeout_error = _run_docker_command(cmd)
     if timeout_error:
         return BuildOutput(base_image=base_image, tags=[], error=timeout_error)
     assert proc is not None

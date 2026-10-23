@@ -4,6 +4,8 @@ import json
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from benchmarks.utils.build_utils import BuildOutput
@@ -23,6 +25,19 @@ def _ok_proc(stdout="", stderr=""):
     return subprocess.CompletedProcess(
         args=[], returncode=0, stdout=stdout, stderr=stderr
     )
+
+
+def _stub_build_context(ctx: Path):
+    """Replacement for _base_image_build_context that yields *ctx* verbatim.
+
+    Lets command-construction tests avoid staging a real context on disk.
+    """
+
+    @contextmanager
+    def _ctx(_dockerfile):
+        yield ctx
+
+    return _ctx
 
 
 def _fail_proc(stderr="build error", code=1):
@@ -143,16 +158,24 @@ class TestBuildBaseImage:
         "benchmarks.swebench.build_base_images.remote_image_exists",
         return_value=False,
     )
-    def test_success(self, _exists, _dockerfile, mock_run):
+    def test_success(self, _exists, _dockerfile, mock_run, tmp_path):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image(
-            "ubuntu:22.04", "custom-tag", push=True, content_hash="abc1234"
-        )
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        with patch(
+            "benchmarks.swebench.build_base_images._base_image_build_context",
+            _stub_build_context(ctx),
+        ):
+            result = build_base_image(
+                "ubuntu:22.04", "custom-tag", push=True, content_hash="abc1234"
+            )
         assert result.error is None
         assert len(result.tags) == 1
         cmd = mock_run.call_args[0][0]
         assert "--push" in cmd
+        # The staged context dir must be passed, not the Dockerfile's parent.
+        assert cmd[-1] == str(ctx)
 
     @patch(
         "benchmarks.swebench.build_base_images.subprocess.run",
@@ -166,10 +189,18 @@ class TestBuildBaseImage:
         "benchmarks.swebench.build_base_images.remote_image_exists",
         return_value=False,
     )
-    def test_failure_returns_error(self, _exists, _dockerfile, _run):
+    def test_failure_returns_error(self, _exists, _dockerfile, _run, tmp_path):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        with patch(
+            "benchmarks.swebench.build_base_images._base_image_build_context",
+            _stub_build_context(ctx),
+        ):
+            result = build_base_image(
+                "ubuntu:22.04", "custom-tag", content_hash="abc1234"
+            )
         assert result.error is not None
         assert result.tags == []
 
@@ -185,10 +216,18 @@ class TestBuildBaseImage:
         "benchmarks.swebench.build_base_images.remote_image_exists",
         return_value=False,
     )
-    def test_timeout_returns_error(self, _exists, _dockerfile, _run):
+    def test_timeout_returns_error(self, _exists, _dockerfile, _run, tmp_path):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image("ubuntu:22.04", "custom-tag", content_hash="abc1234")
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        with patch(
+            "benchmarks.swebench.build_base_images._base_image_build_context",
+            _stub_build_context(ctx),
+        ):
+            result = build_base_image(
+                "ubuntu:22.04", "custom-tag", content_hash="abc1234"
+            )
         assert result.tags == []
         assert result.error is not None
         assert "timed out" in result.error
@@ -204,18 +243,119 @@ class TestBuildBaseImage:
         "benchmarks.swebench.build_base_images.remote_image_exists",
         return_value=True,
     )
-    def test_force_build_bypasses_remote_exists(self, _exists, _dockerfile, mock_run):
+    def test_force_build_bypasses_remote_exists(
+        self, _exists, _dockerfile, mock_run, tmp_path
+    ):
         from benchmarks.swebench.build_base_images import build_base_image
 
-        result = build_base_image(
-            "ubuntu:22.04",
-            "custom-tag",
-            force_build=True,
-            content_hash="abc1234",
-        )
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        with patch(
+            "benchmarks.swebench.build_base_images._base_image_build_context",
+            _stub_build_context(ctx),
+        ):
+            result = build_base_image(
+                "ubuntu:22.04",
+                "custom-tag",
+                force_build=True,
+                content_hash="abc1234",
+            )
         assert result.error is None
         assert len(result.tags) == 1
         mock_run.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _base_image_build_context: staged context for base-image-minimal
+# ---------------------------------------------------------------------------
+
+
+class TestBaseImageBuildContext:
+    """The acp-providers stage COPYs acp_install_catalog.py from the context."""
+
+    def _sdk_tree(self, tmp_path: Path, *, with_catalog: bool = True) -> Path:
+        """Create a fake repo root with a vendored SDK tree."""
+        repo_root = tmp_path / "repo"
+        docker_dir = (
+            repo_root
+            / "vendor"
+            / "software-agent-sdk"
+            / "openhands-agent-server"
+            / "openhands"
+            / "agent_server"
+            / "docker"
+        )
+        docker_dir.mkdir(parents=True)
+        dockerfile = docker_dir / "Dockerfile"
+        dockerfile.write_text("FROM python:3.13-bookworm AS acp-providers\n")
+
+        if with_catalog:
+            catalog = (
+                repo_root
+                / "vendor"
+                / "software-agent-sdk"
+                / "openhands-sdk"
+                / "openhands"
+                / "sdk"
+                / "settings"
+                / "acp_install_catalog.py"
+            )
+            catalog.parent.mkdir(parents=True)
+            catalog.write_text("# catalog\n")
+        return dockerfile
+
+    def test_stages_dockerfile_and_catalog(self, tmp_path):
+        from benchmarks.swebench.build_base_images import _base_image_build_context
+
+        dockerfile = self._sdk_tree(tmp_path)
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images._get_repo_root",
+                return_value=tmp_path / "repo",
+            ),
+            _base_image_build_context(dockerfile) as ctx,
+        ):
+            assert (ctx / "Dockerfile").exists()
+            staged = (
+                ctx
+                / "openhands-sdk"
+                / "openhands"
+                / "sdk"
+                / "settings"
+                / "acp_install_catalog.py"
+            )
+            assert staged.exists(), (
+                "catalog must be staged at the path the Dockerfile COPY expects"
+            )
+
+    def test_context_is_cleaned_up(self, tmp_path):
+        from benchmarks.swebench.build_base_images import _base_image_build_context
+
+        dockerfile = self._sdk_tree(tmp_path)
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images._get_repo_root",
+                return_value=tmp_path / "repo",
+            ),
+            _base_image_build_context(dockerfile) as ctx,
+        ):
+            assert ctx.exists()
+        assert not ctx.exists()
+
+    def test_missing_catalog_is_tolerated(self, tmp_path):
+        """Older SDK revisions have no acp-providers stage; don't hard-fail."""
+        from benchmarks.swebench.build_base_images import _base_image_build_context
+
+        dockerfile = self._sdk_tree(tmp_path, with_catalog=False)
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images._get_repo_root",
+                return_value=tmp_path / "repo",
+            ),
+            _base_image_build_context(dockerfile) as ctx,
+        ):
+            assert (ctx / "Dockerfile").exists()
+            assert not (ctx / "openhands-sdk").exists()
 
 
 # ---------------------------------------------------------------------------
