@@ -302,3 +302,41 @@ class TestApptainerEvaluation:
         assert report["resolved"] == 1
         assert report["resolved_ids"] == ["django__django-1"]
         assert report["unresolved_ids"] == ["django__django-2"]
+
+
+@pytest.mark.parametrize("has_aggregate", [False, True])
+def test_modal_error_report_cannot_count_as_completed(tmp_path, has_aggregate):
+    predictions_file = tmp_path / "output.swebench.jsonl"
+    predictions_file.write_text(
+        json.dumps(
+            {
+                "instance_id": "django__django-1",
+                "model_name_or_path": MODEL_NAME_OR_PATH,
+                "model_patch": "a nonempty patch",
+            }
+        )
+        + "\n"
+    )
+    report_dir = tmp_path / "logs/run_evaluation/modal-run/OpenHands/django__django-1"
+    report_dir.mkdir(parents=True)
+    (report_dir / "report.json").write_text(
+        json.dumps(
+            {
+                "django__django-1": {
+                    "resolved": False,
+                    "error": "Modal filesystem unavailable",
+                }
+            }
+        )
+    )
+    if has_aggregate:
+        (tmp_path / "OpenHands.modal-run.json").write_text('{"error_instances": 0}')
+
+    with pytest.raises(RuntimeError, match="Modal filesystem unavailable"):
+        swebench_reports.ensure_swebench_run_report(
+            predictions_file,
+            dataset="unused",
+            split="test",
+            run_id="modal-run",
+            modal=True,
+        )

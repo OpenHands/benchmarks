@@ -121,46 +121,17 @@ def _patch_modal_sklearn_install_flag() -> None:
     return
 
 
-def _patch_modal_sandbox_cgroup_retry() -> None:
-    """Retry cgroup writes to avoid transient Modal filesystem errors."""
+def _patch_modal_sandbox_filesystem() -> None:
+    """Use the supported path-based API instead of removed Sandbox.open()."""
     try:
         from swebench.harness.modal_eval import run_evaluation_modal as mod
-    except Exception:
+    except ImportError:
         return
 
-    runtime_cls = getattr(mod, "ModalSandboxRuntime", None)
-    if runtime_cls is None:
-        return
+    def write_file(self, file_path: str, content: str):
+        self.sandbox.filesystem.write_text(content, file_path)
 
-    original_write_file = runtime_cls.write_file
-    if getattr(original_write_file, "_benchmarks_retry_patch", False):
-        return
-
-    try:
-        from modal.exception import FilesystemExecutionError
-    except Exception:
-        FilesystemExecutionError = Exception
-
-    def write_file_with_retry(self, file_path: str, content: str):
-        target_path = "/sys/fs/cgroup/cpu/cpu.shares"
-        attempts = 5
-        delay = 1.0
-        path_str = str(file_path)
-        for attempt in range(1, attempts + 1):
-            try:
-                return original_write_file(self, file_path, content)
-            except Exception as exc:
-                if path_str != target_path or not isinstance(
-                    exc, FilesystemExecutionError
-                ):
-                    raise
-                if attempt == attempts:
-                    raise
-                time.sleep(delay)
-                delay = min(delay * 2, 10.0)
-
-    setattr(write_file_with_retry, "_benchmarks_retry_patch", True)
-    runtime_cls.write_file = write_file_with_retry
+    mod.ModalSandboxRuntime.write_file = write_file
 
 
 def _patch_modal_prebuilt_images(
@@ -483,6 +454,8 @@ def _inject_modal_sitecustomize() -> None:
             copy=True,
         )
 
+    # The upstream image installs unpinned dependencies independently of uv.lock.
+    image = image.pip_install("swebench==4.1.0", "modal==1.5.3")
     patched_image = image.add_local_file(
         patch_path,
         "/root/sitecustomize.py",
@@ -759,7 +732,7 @@ def _patch_run_instances_modal_logging() -> None:
 
 def apply_host_patches() -> None:
     _patch_modal_sklearn_install_flag()
-    _patch_modal_sandbox_cgroup_retry()
+    _patch_modal_sandbox_filesystem()
     _patch_modal_prebuilt_images()
     # Inject sitecustomize before re-registering the Modal function so the
     # patched image (with env + sitecustomize) is baked into the function spec.
@@ -772,6 +745,7 @@ def apply_host_patches() -> None:
 
 def apply_image_patches() -> None:
     _log("[benchmarks] modal sitecustomize imported")
+    _patch_modal_sandbox_filesystem()
     _patch_modal_prebuilt_images(log_errors=True, stderr=True)
     _patch_modal_sandbox_timing(log_errors=True, stderr=True)
     _patch_modal_runtime_debug(log_errors=True, stderr=True)

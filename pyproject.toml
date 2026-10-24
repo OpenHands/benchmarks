@@ -17,7 +17,7 @@ dependencies = [
     "unidiff>=0.7.5,<0.8.0",
     "openhands-agent-server",
     "openhands-workspace",
-    "modal>=1.1.4",
+    "modal==1.5.3",
     "swebench==4.1.0",
     "swesmith>=0.0.9",
     "commit0",
