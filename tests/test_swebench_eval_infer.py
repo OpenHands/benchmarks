@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +15,7 @@ from swebench.harness.constants import (
 
 from benchmarks.swebench import apptainer_eval
 from benchmarks.swebench.eval_infer import convert_to_swebench_format
+from benchmarks.utils import swebench_reports
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 
 
@@ -70,6 +72,73 @@ class TestConvertToSwebenchFormat:
             result = json.loads(f.readline())
 
         assert result["model_name_or_path"] == MODEL_NAME_OR_PATH
+
+
+def test_modal_report_is_built_when_upstream_does_not_write_one(tmp_path, monkeypatch):
+    predictions_file = tmp_path / "output.swebench.jsonl"
+    predictions_file.write_text("{}\n")
+    prediction_rows = [
+        {
+            "instance_id": "django__django-1",
+            "model_name_or_path": MODEL_NAME_OR_PATH,
+        }
+    ]
+    predictions = {"django__django-1": prediction_rows[0]}
+    dataset = [{"instance_id": "django__django-1"}]
+    original_cwd = Path.cwd()
+
+    monkeypatch.setattr(
+        swebench_reports,
+        "get_predictions_from_file",
+        lambda predictions_path, dataset_name, split: prediction_rows,
+    )
+    monkeypatch.setattr(
+        swebench_reports,
+        "load_swebench_dataset",
+        lambda dataset_name, split: dataset,
+    )
+
+    def fake_make_run_report(actual_predictions, full_dataset, run_id):
+        assert actual_predictions == predictions
+        assert full_dataset == dataset
+        assert run_id == "modal-run"
+        assert Path.cwd() == tmp_path
+        report_path = Path(f"{MODEL_NAME_OR_PATH}.{run_id}.json")
+        report_path.write_text("{}")
+        return report_path
+
+    monkeypatch.setattr(swebench_reports, "make_run_report", fake_make_run_report)
+
+    report_path = swebench_reports.ensure_swebench_run_report(
+        predictions_file,
+        dataset="princeton-nlp/SWE-bench_Verified",
+        split="test",
+        run_id="modal-run",
+        modal=True,
+    )
+
+    assert report_path == tmp_path / "OpenHands.modal-run.json"
+    assert report_path.read_text() == "{}"
+    assert Path.cwd() == original_cwd
+
+
+def test_non_modal_report_keeps_the_upstream_output_path(tmp_path, monkeypatch):
+    predictions_file = tmp_path / "output.swebench.jsonl"
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("non-Modal runs should use the upstream report")
+
+    monkeypatch.setattr(swebench_reports, "make_run_report", fail_if_called)
+
+    report_path = swebench_reports.ensure_swebench_run_report(
+        predictions_file,
+        dataset="princeton-nlp/SWE-bench_Verified",
+        split="test",
+        run_id="docker-run",
+        modal=False,
+    )
+
+    assert report_path == tmp_path / "OpenHands.docker-run.json"
 
 
 class TestApptainerEvaluation:
@@ -233,3 +302,41 @@ class TestApptainerEvaluation:
         assert report["resolved"] == 1
         assert report["resolved_ids"] == ["django__django-1"]
         assert report["unresolved_ids"] == ["django__django-2"]
+
+
+@pytest.mark.parametrize("has_aggregate", [False, True])
+def test_modal_error_report_cannot_count_as_completed(tmp_path, has_aggregate):
+    predictions_file = tmp_path / "output.swebench.jsonl"
+    predictions_file.write_text(
+        json.dumps(
+            {
+                "instance_id": "django__django-1",
+                "model_name_or_path": MODEL_NAME_OR_PATH,
+                "model_patch": "a nonempty patch",
+            }
+        )
+        + "\n"
+    )
+    report_dir = tmp_path / "logs/run_evaluation/modal-run/OpenHands/django__django-1"
+    report_dir.mkdir(parents=True)
+    (report_dir / "report.json").write_text(
+        json.dumps(
+            {
+                "django__django-1": {
+                    "resolved": False,
+                    "error": "Modal filesystem unavailable",
+                }
+            }
+        )
+    )
+    if has_aggregate:
+        (tmp_path / "OpenHands.modal-run.json").write_text('{"error_instances": 0}')
+
+    with pytest.raises(RuntimeError, match="Modal filesystem unavailable"):
+        swebench_reports.ensure_swebench_run_report(
+            predictions_file,
+            dataset="unused",
+            split="test",
+            run_id="modal-run",
+            modal=True,
+        )
