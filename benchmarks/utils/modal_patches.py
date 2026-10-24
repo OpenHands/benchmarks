@@ -129,6 +129,18 @@ def _patch_modal_sandbox_filesystem() -> None:
         return
 
     def write_file(self, file_path: str, content: str):
+        if file_path == "/sys/fs/cgroup/cpu/cpu.shares":
+            # Modal's filesystem service disallows /sys; write this kernel knob
+            # inside the sandbox, preserving the upstream pylint workaround.
+            process = self.sandbox.exec(
+                "sh", "-c", 'printf %s "$1" > "$2"', "sh", content, file_path
+            )
+            process.wait()
+            if process.returncode:
+                raise RuntimeError(
+                    f"Cannot configure cpu.shares: {process.stderr.read()}"
+                )
+            return
         self.sandbox.filesystem.write_text(content, file_path)
 
     mod.ModalSandboxRuntime.write_file = write_file

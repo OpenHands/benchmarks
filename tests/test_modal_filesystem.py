@@ -22,3 +22,24 @@ def test_runtime_writes_using_supported_filesystem_api(monkeypatch):
     filesystem.write_text.assert_called_once_with(
         "patch contents\n", "/root/patch.diff"
     )
+
+
+def test_cgroup_write_runs_inside_sandbox(monkeypatch):
+    runtime = object.__new__(ModalSandboxRuntime)
+    process = Mock(returncode=0)
+    runtime.sandbox = Mock(spec=Sandbox)
+    runtime.sandbox.exec.return_value = process
+    monkeypatch.setattr(
+        ModalSandboxRuntime, "write_file", ModalSandboxRuntime.write_file
+    )
+    _patch_modal_sandbox_filesystem()
+    runtime.write_file("/sys/fs/cgroup/cpu/cpu.shares", "2048")
+    runtime.sandbox.exec.assert_called_once_with(
+        "sh",
+        "-c",
+        'printf %s "$1" > "$2"',
+        "sh",
+        "2048",
+        "/sys/fs/cgroup/cpu/cpu.shares",
+    )
+    process.wait.assert_called_once()
