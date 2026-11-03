@@ -52,6 +52,17 @@ class BuildOutput(BaseModel):
     duration_seconds: float | None = None
     remote_check_seconds: float | None = None
     build_seconds: float | None = None
+    push_seconds: float | None = None
+    rmi_seconds: float | None = None
+    rmi_returncode: int | None = None
+    rmi_timed_out: bool | None = None
+    system_prune_seconds: float | None = None
+    system_prune_returncode: int | None = None
+    system_prune_timed_out: bool | None = None
+    builder_prune_seconds: float | None = None
+    builder_prune_returncode: int | None = None
+    builder_prune_timed_out: bool | None = None
+    cleanup_ok: bool | None = None
     post_build_seconds: float | None = None
     sdk_build_context_seconds: float | None = None
     sdk_buildx_wall_clock_seconds: float | None = None

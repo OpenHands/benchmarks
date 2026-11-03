@@ -37,6 +37,10 @@ class BuildManifestSummary(BaseModel):
     cumulative_duration_seconds: float = 0.0
     cumulative_remote_check_seconds: float = 0.0
     cumulative_build_seconds: float = 0.0
+    cumulative_push_seconds: float = 0.0
+    cumulative_rmi_seconds: float = 0.0
+    cumulative_system_prune_seconds: float = 0.0
+    cumulative_builder_prune_seconds: float = 0.0
     cumulative_post_build_seconds: float = 0.0
     cumulative_sdk_build_context_seconds: float = 0.0
     cumulative_sdk_buildx_wall_clock_seconds: float = 0.0
@@ -48,6 +52,14 @@ class BuildManifestSummary(BaseModel):
     cumulative_sdk_export_manifest_seconds: float = 0.0
     cumulative_sdk_cache_import_misses: int = 0
     cumulative_sdk_cached_steps: int = 0
+    cleanup_failures: int = 0
+    cleanup_timeouts: int = 0
+    rmi_failures: int = 0
+    rmi_timeouts: int = 0
+    system_prune_failures: int = 0
+    system_prune_timeouts: int = 0
+    builder_prune_failures: int = 0
+    builder_prune_timeouts: int = 0
     average_build_seconds: float | None = None
     median_build_seconds: float | None = None
     max_build_seconds: float | None = None
@@ -84,6 +96,15 @@ def _sum_float_field(records: list[dict[str, Any]], field_name: str) -> float:
         if value is not None:
             total += value
     return total
+
+
+def _is_nonzero_returncode(value: Any) -> bool:
+    if value is None:
+        return False
+    try:
+        return int(value) != 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _sum_int_field(records: list[dict[str, Any]], field_name: str) -> int:
@@ -136,6 +157,14 @@ def summarize_build_records(
     failed_builds: list[FailedBuild] = []
 
     cumulative_duration = 0.0
+    cleanup_failures = 0
+    cleanup_timeouts = 0
+    cleanup_failure_counts = {
+        phase: 0 for phase in ("rmi", "system_prune", "builder_prune")
+    }
+    cleanup_timeout_counts = {
+        phase: 0 for phase in ("rmi", "system_prune", "builder_prune")
+    }
     retried = 0
 
     for record in records:
@@ -161,6 +190,21 @@ def summarize_build_records(
         duration_seconds = _normalize_float(record.get("duration_seconds"))
         if duration_seconds is not None:
             cumulative_duration += duration_seconds
+
+        record_has_failure = False
+        record_has_timeout = False
+        for phase in ("rmi", "system_prune", "builder_prune"):
+            if record.get(f"{phase}_timed_out") is True:
+                record_has_timeout = True
+                cleanup_timeouts += 1
+                cleanup_timeout_counts[phase] += 1
+            if _is_nonzero_returncode(record.get(f"{phase}_returncode")):
+                record_has_failure = True
+                cleanup_failure_counts[phase] += 1
+        if record.get("cleanup_ok") is False and not record_has_timeout:
+            record_has_failure = True
+        if record_has_failure:
+            cleanup_failures += 1
 
         if status == "built" and duration_seconds is not None:
             build_durations.append(duration_seconds)
@@ -229,6 +273,14 @@ def summarize_build_records(
             records, "remote_check_seconds"
         ),
         cumulative_build_seconds=_sum_float_field(records, "build_seconds"),
+        cumulative_push_seconds=_sum_float_field(records, "push_seconds"),
+        cumulative_rmi_seconds=_sum_float_field(records, "rmi_seconds"),
+        cumulative_system_prune_seconds=_sum_float_field(
+            records, "system_prune_seconds"
+        ),
+        cumulative_builder_prune_seconds=_sum_float_field(
+            records, "builder_prune_seconds"
+        ),
         cumulative_post_build_seconds=_sum_float_field(records, "post_build_seconds"),
         cumulative_sdk_build_context_seconds=_sum_float_field(
             records, "sdk_build_context_seconds"
@@ -256,6 +308,14 @@ def summarize_build_records(
             records, "sdk_cache_import_miss_count"
         ),
         cumulative_sdk_cached_steps=_sum_int_field(records, "sdk_cached_step_count"),
+        cleanup_failures=cleanup_failures,
+        cleanup_timeouts=cleanup_timeouts,
+        rmi_failures=cleanup_failure_counts["rmi"],
+        rmi_timeouts=cleanup_timeout_counts["rmi"],
+        system_prune_failures=cleanup_failure_counts["system_prune"],
+        system_prune_timeouts=cleanup_timeout_counts["system_prune"],
+        builder_prune_failures=cleanup_failure_counts["builder_prune"],
+        builder_prune_timeouts=cleanup_timeout_counts["builder_prune"],
         average_build_seconds=average_build_seconds,
         median_build_seconds=median_build_seconds,
         max_build_seconds=max_build_seconds,
@@ -321,6 +381,10 @@ def render_build_summary_markdown(
     phase_lines = [
         ("Remote Checks", summary.cumulative_remote_check_seconds),
         ("Build Wrapper Time", summary.cumulative_build_seconds),
+        ("Push", summary.cumulative_push_seconds),
+        ("RMI", summary.cumulative_rmi_seconds),
+        ("System Prune", summary.cumulative_system_prune_seconds),
+        ("Builder Prune", summary.cumulative_builder_prune_seconds),
         ("Post-Build Hooks", summary.cumulative_post_build_seconds),
         ("SDK Build Context", summary.cumulative_sdk_build_context_seconds),
         ("SDK Buildx Wall Clock", summary.cumulative_sdk_buildx_wall_clock_seconds),
@@ -352,6 +416,33 @@ def render_build_summary_markdown(
             lines.append(
                 f"- **SDK Cached Steps:** {summary.cumulative_sdk_cached_steps}"
             )
+
+    cleanup_counts = (
+        summary.cleanup_failures,
+        summary.cleanup_timeouts,
+        summary.rmi_failures,
+        summary.rmi_timeouts,
+        summary.system_prune_failures,
+        summary.system_prune_timeouts,
+        summary.builder_prune_failures,
+        summary.builder_prune_timeouts,
+    )
+    if any(cleanup_counts):
+        lines.extend(["", "### Cleanup Health", ""])
+        lines.append(
+            f"- Cleanup failures (excluding timeouts): {summary.cleanup_failures}"
+        )
+        lines.append(f"- Cleanup timeouts: {summary.cleanup_timeouts}")
+        for label, count in (
+            ("RMI failures", summary.rmi_failures),
+            ("RMI timeouts", summary.rmi_timeouts),
+            ("System prune failures", summary.system_prune_failures),
+            ("System prune timeouts", summary.system_prune_timeouts),
+            ("Builder prune failures", summary.builder_prune_failures),
+            ("Builder prune timeouts", summary.builder_prune_timeouts),
+        ):
+            if count:
+                lines.append(f"- {label}: {count}")
 
     if summary.average_build_seconds is not None:
         lines.append(

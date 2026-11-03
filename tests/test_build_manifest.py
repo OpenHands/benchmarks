@@ -199,3 +199,54 @@ def test_render_eval_env_summary_markdown_includes_batch_details(tmp_path):
         "Batch 1: 6 unique images in 9m 06s (attempts=1), selected_instances=10"
         in markdown
     )
+
+
+def test_summary_aggregates_assembly_cleanup_telemetry():
+    summary = summarize_build_records(
+        [
+            {
+                "base_image": "repo/image-a",
+                "status": "built",
+                "tags": ["tag-a"],
+                "duration_seconds": 10.0,
+                "build_seconds": 6.0,
+                "push_seconds": 2.0,
+                "rmi_seconds": 0.1,
+                "rmi_returncode": 0,
+                "rmi_timed_out": False,
+                "system_prune_seconds": 0.2,
+                "system_prune_returncode": 1,
+                "system_prune_timed_out": False,
+                "builder_prune_seconds": 0.3,
+                "builder_prune_returncode": None,
+                "builder_prune_timed_out": True,
+                "cleanup_ok": False,
+            },
+            {
+                "base_image": "repo/image-timeout-only",
+                "status": "built",
+                "tags": ["tag-timeout"],
+                "duration_seconds": 5.0,
+                "system_prune_timed_out": True,
+                "cleanup_ok": False,
+            },
+        ],
+        manifest_files=1,
+    )
+
+    assert summary.cumulative_push_seconds == 2.0
+    assert summary.cumulative_rmi_seconds == 0.1
+    assert summary.cumulative_system_prune_seconds == 0.2
+    assert summary.cumulative_builder_prune_seconds == 0.3
+    assert summary.cleanup_failures == 1
+    assert summary.cleanup_timeouts == 2
+    assert summary.rmi_failures == 0
+    assert summary.system_prune_failures == 1
+    assert summary.builder_prune_timeouts == 1
+
+    markdown = render_build_summary_markdown(summary, "Assembly Summary")
+    assert "### Phase Totals" in markdown
+    assert "**Push:** 2s" in markdown
+    assert "**System Prune:** 0s" in markdown
+    assert "Cleanup failures (excluding timeouts): 1" in markdown
+    assert "Cleanup timeouts: 2" in markdown
