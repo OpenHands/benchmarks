@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "scenario_id": "swebench-reliability-example",
+  "task": {
+    "benchmark": "swebench",
+    "instance_id": "owner__project-123"
+  },
+  "agent": {
+    "config": "default"
+  },
+  "seed": 81321,
+  "faults": [
+    {
+      "fault_id": "restart-1",
+      "kind": "sandbox_restart",
+      "trigger": {
+        "event": {
+          "event_type": "ActionEvent",
+          "ordinal": 1
+        }
+      },
+      "parameters": {
+        "restart_mode": "hard"
+      }
+    },
+    {
+      "fault_id": "lost-response-1",
+      "kind": "lost_dispatch_response",
+      "trigger": {
+        "event": {
+          "event_type": "ActionEvent",
+          "ordinal": 2
+        }
+      },
+      "parameters": {
+        "boundary": "tool-result-before-observation"
+      }
+    },
+    {
+      "fault_id": "sigkill-1",
+      "kind": "sigkill_mid_tool_call",
+      "trigger": {
+        "event": {
+          "event_type": "ActionEvent",
+          "ordinal": 3
+        }
+      },
+      "parameters": {
+        "signal": "SIGKILL"
+      }
+    },
+    {
+      "fault_id": "partition-1",
+      "kind": "network_partition",
+      "trigger": {
+        "event": {
+          "event_type": "ActionEvent",
+          "ordinal": 4
+        }
+      },
+      "parameters": {
+        "endpoint_class": "conversation_transport",
+        "direction": "both",
+        "failure_mode": "drop"
+      }
+    }
+  ]
+}

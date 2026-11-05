@@ -93,6 +93,7 @@ swesmith-infer = "benchmarks.swesmith.run_infer:main"
 swesmith-eval = "benchmarks.swesmith.eval_infer:main"
 programbench-infer = "benchmarks.programbench.run_infer:main"
 programbench-eval = "benchmarks.programbench.eval_infer:main"
+reliability-eval = "benchmarks.reliability.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
