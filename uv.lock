@@ -2611,6 +2611,7 @@ name = "openhands-benchmarks"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "commit0" },
     { name = "datasets" },
     { name = "deprecation" },
@@ -2667,6 +2668,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2026.10.19" },
     { name = "commit0" },
     { name = "datasets" },
     { name = "deprecation", specifier = ">=2.1.0" },
