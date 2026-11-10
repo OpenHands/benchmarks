@@ -51,13 +51,16 @@ def process_commit0_results(input_file: str, output_file: str) -> None:
         "total_instances": 16,
         "submitted_instances": 16,
         "completed_instances": 16,
+        "incomplete_instances": 0,
         "resolved_instances": 5,
         "unresolved_instances": 11,
         "empty_patch_instances": 0,
         "error_instances": 0,
         "total_tests": 500,
         "total_passed_tests": 400,
+        "submitted_ids": [...],
         "completed_ids": [...],
+        "incomplete_ids": [...],
         "resolved_ids": [...],
         "unresolved_ids": [...]
     }
@@ -67,6 +70,7 @@ def process_commit0_results(input_file: str, output_file: str) -> None:
     completed_ids = []
     resolved_ids = []
     unresolved_ids = []
+    incomplete_ids = []
     total_tests = 0
     total_passed_tests = 0
 
@@ -118,18 +122,51 @@ def process_commit0_results(input_file: str, output_file: str) -> None:
             except Exception as e:
                 logger.error(f"Line {line_num}: Unexpected error - {e}")
 
+    completed_seen = set(completed_ids)
+    incomplete_seen = set()
+    error_path = Path(input_file).with_name(f"{Path(input_file).stem}_errors.jsonl")
+    if error_path.exists():
+        with open(error_path, "r") as error_file:
+            for line_num, line in enumerate(error_file, 1):
+                try:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    data = json.loads(line)
+                    instance_id = data.get("instance_id")
+                    if not instance_id:
+                        logger.warning(
+                            f"Error file line {line_num}: Missing instance_id"
+                        )
+                        continue
+                    if instance_id in completed_seen or instance_id in incomplete_seen:
+                        continue
+
+                    incomplete_ids.append(instance_id)
+                    incomplete_seen.add(instance_id)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error file line {line_num}: Invalid JSON - {e}")
+                except Exception as e:
+                    logger.error(f"Error file line {line_num}: Unexpected error - {e}")
+
+    submitted_ids = completed_ids + incomplete_ids
+
     # Generate report
     report = {
         "total_instances": 16,  # Fixed as per requirement
-        "submitted_instances": len(completed_ids),
+        "submitted_instances": len(submitted_ids),
         "completed_instances": len(completed_ids),
+        "incomplete_instances": len(incomplete_ids),
         "resolved_instances": len(resolved_ids),
         "unresolved_instances": len(unresolved_ids),
         "empty_patch_instances": 0,  # Always 0 as per requirement
-        "error_instances": 0,  # Always 0 as per requirement
+        "error_instances": len(incomplete_ids),
         "total_tests": total_tests,
         "total_passed_tests": total_passed_tests,
+        "submitted_ids": submitted_ids,
         "completed_ids": completed_ids,
+        "incomplete_ids": incomplete_ids,
         "resolved_ids": resolved_ids,
         "unresolved_ids": unresolved_ids,
     }
