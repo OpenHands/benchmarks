@@ -262,6 +262,21 @@ Examples:
     )
 
     parser.add_argument(
+        "--reuse-local-agent-images",
+        action="store_true",
+        help=(
+            "Before --no-modal evaluation, alias any already-built local "
+            "eval-agent-server images (with ENTRYPOINT cleared) under the "
+            "official SWE-Bench grading image tags, so grading reuses them "
+            "instead of pulling the official images from Docker Hub. "
+            "Purely a local speed/bandwidth optimization; instances "
+            "without a local eval-agent-server image fall back to "
+            "SWE-Bench's normal pull/build behavior. No effect on --modal "
+            "or --apptainer runs."
+        ),
+    )
+
+    parser.add_argument(
         "--apptainer",
         action="store_true",
         help="Use local Apptainer sandboxes for SWE-bench evaluation",
@@ -338,6 +353,26 @@ Examples:
                     apptainer_cache=args.apptainer_cache,
                 )
             else:
+                if args.reuse_local_agent_images and not args.modal:
+                    from benchmarks.swebench.build_images import (
+                        prepare_local_grading_images_for_predictions,
+                    )
+
+                    logger.info(
+                        "Preparing local grading images from already-built "
+                        "eval-agent-server images..."
+                    )
+                    prep_results = prepare_local_grading_images_for_predictions(
+                        output_file
+                    )
+                    prepared = sum(1 for v in prep_results.values() if v)
+                    logger.info(
+                        f"Prepared {prepared}/{len(prep_results)} local "
+                        "grading images (instances without a local "
+                        "eval-agent-server image fall back to the normal "
+                        "SWE-Bench pull/build)."
+                    )
+
                 # Run evaluation
                 run_swebench_evaluation(
                     str(output_file),
