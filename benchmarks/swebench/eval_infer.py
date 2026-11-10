@@ -26,6 +26,7 @@ from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.laminar import LaminarService
 from benchmarks.utils.patch_utils import remove_files_from_patch
 from benchmarks.utils.report_costs import generate_cost_report
+from benchmarks.utils.swebench_reports import ensure_swebench_run_report
 from openhands.sdk import get_logger
 
 
@@ -349,10 +350,13 @@ Examples:
                     timeout=args.timeout,
                 )
 
-                # Move report file to input file directory with .report.json extension
-                # SWE-Bench creates: {MODEL_NAME_OR_PATH}.{run_id}.json
-                report_filename = f"{MODEL_NAME_OR_PATH}.{args.run_id}.json"
-                report_path = output_file.parent / report_filename
+                report_path = ensure_swebench_run_report(
+                    output_file,
+                    dataset=args.dataset,
+                    split=args.split,
+                    run_id=args.run_id,
+                    modal=args.modal,
+                )
 
                 shutil.move(str(report_path), str(dest_report_path))
                 logger.info(f"Moved report file to: {dest_report_path}")
