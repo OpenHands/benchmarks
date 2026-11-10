@@ -445,7 +445,7 @@ def test_passed_instances_not_retried_in_later_attempts():
         )
 
 
-def test_get_completed_instances_tolerates_stale_archive_schema():
+def test_completed_instances_tolerate_stale_schema_and_skip_runner_errors():
     """
     Resume must skip instances that were completed by an older SDK whose
     EvalOutput schema has since drifted (e.g. browser tool/observation
@@ -454,6 +454,8 @@ def test_get_completed_instances_tolerates_stale_archive_schema():
     Reading instance_id from raw JSON avoids treating those rows as
     "never completed" and re-running them from scratch. Regression test
     for evaluation#515.
+
+    Rows with a top-level runner error must remain eligible for retry.
     """
     from benchmarks.utils.critics import get_completed_instances
 
@@ -492,13 +494,24 @@ def test_get_completed_instances_tolerates_stale_archive_schema():
             )
             f.write(fresh.model_dump_json() + "\n")
 
-            # 3) Blank line: must be tolerated, not counted.
+            # 3) Runner error: must be retried rather than counted as complete.
+            errored = EvalOutput(
+                instance_id="instance_error",
+                test_result={},
+                instruction=None,
+                error="Runtime timed out",
+                history=[],
+                instance={"x": 3},
+            )
+            f.write(errored.model_dump_json() + "\n")
+
+            # 4) Blank line: must be tolerated, not counted.
             f.write("\n")
 
-            # 4) Malformed JSON: must be skipped with a warning, not raise.
+            # 5) Malformed JSON: must be skipped with a warning, not raise.
             f.write("{not valid json}\n")
 
-            # 5) JSON object missing instance_id: must be skipped.
+            # 6) JSON object missing instance_id: must be skipped.
             f.write(json.dumps({"foo": "bar"}) + "\n")
 
         completed = get_completed_instances(path)
