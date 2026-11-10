@@ -199,14 +199,45 @@ class TestEnsureLocalImage:
                 custom_tag="mytag",
             )
 
+    @patch("benchmarks.utils.build_utils.subprocess.run")
     @patch("benchmarks.utils.build_utils.local_image_exists", return_value=False)
     @patch("benchmarks.utils.build_utils.build_image")
-    def test_raises_on_tag_mismatch(self, mock_build, _mock_exists):
+    def test_aliases_tag_on_mismatch(self, mock_build, _mock_exists, mock_run):
+        """The SDK's build tags don't include the benchmarks-side content
+        hash used by get_phased_image_tag_prefix() for phased-build
+        benchmarks. Rather than fail a successful build over the naming
+        mismatch, ensure_local_image should alias the built image under the
+        expected tag with `docker tag`.
+        """
         from benchmarks.utils.build_utils import ensure_local_image
 
         mock_build.return_value = BuildOutput(
             base_image="base:latest",
-            tags=["server:wrong-tag"],
+            tags=["server:actual-tag"],
+            error=None,
+        )
+        result = ensure_local_image(
+            agent_server_image="server:v1",
+            base_image="base:latest",
+            custom_tag="mytag",
+        )
+        assert result is True
+        mock_run.assert_called_once_with(
+            ["docker", "tag", "server:actual-tag", "server:v1"], check=True
+        )
+
+    @patch("benchmarks.utils.build_utils.local_image_exists", return_value=False)
+    @patch("benchmarks.utils.build_utils.build_image")
+    def test_raises_when_build_produces_no_tags(self, mock_build, _mock_exists):
+        """A build that reports no error but also produced no tags at all
+        (nothing to alias) should still raise, distinct from the tag-mismatch
+        case above.
+        """
+        from benchmarks.utils.build_utils import ensure_local_image
+
+        mock_build.return_value = BuildOutput(
+            base_image="base:latest",
+            tags=[],
             error=None,
         )
         with pytest.raises(RuntimeError, match="do not include expected tag"):
