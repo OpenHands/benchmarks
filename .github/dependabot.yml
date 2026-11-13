@@ -7,6 +7,8 @@ version: 2
 updates:
   - package-ecosystem: "uv"
     directory: "/"
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 1
