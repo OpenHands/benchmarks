@@ -13,7 +13,9 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Callable
 
+from benchmarks.utils.iterative import _is_agent_error
 from openhands.sdk import get_logger
+from openhands.sdk.conversation.exceptions import ConversationRunError
 from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.event import ActionEvent, Event, MessageEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
@@ -145,7 +147,15 @@ def run_conversation_with_fake_user_response(
 
     while True:
         # Run the conversation
-        conversation.run(timeout=run_timeout)
+        try:
+            conversation.run(timeout=run_timeout)
+        except ConversationRunError as e:
+            if _is_agent_error(str(e)):
+                logger.warning(
+                    "Conversation ended with agent error (no retry): %s", str(e)
+                )
+                break
+            raise
 
         # Check the execution status
         status = conversation.state.execution_status
