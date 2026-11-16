@@ -7,6 +7,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
+from benchmarks.utils.evaluation import _PROXY_SPEND_POLL_ATTEMPTS as POLL_ATTEMPTS
 from benchmarks.utils.models import EvalInstance, EvalMetadata, EvalOutput
 from openhands.sdk import LLM
 from openhands.sdk.critic import PassCritic
@@ -121,15 +122,15 @@ def test_proxy_cost_retries_after_initial_zero_spend(tmp_path):
         patch("benchmarks.utils.evaluation.delete_key"),
         patch(
             "benchmarks.utils.evaluation.get_key_spend",
-            side_effect=[0.0, 0.125],
+            side_effect=[0.0, 0.125, 0.125],
         ) as mock_get_key_spend,
         patch("benchmarks.utils.evaluation.time.sleep") as mock_sleep,
     ):
         _, result_output = evaluator._process_one_sync(instance, critic_attempt=1)
 
     assert result_output.test_result["proxy_cost"] == 0.125
-    assert mock_get_key_spend.call_count == 2
-    mock_sleep.assert_called_once_with(2)
+    assert mock_get_key_spend.call_count == 3
+    assert mock_sleep.call_args_list == [call(5), call(5)]
 
 
 def test_proxy_cost_retries_after_initial_none_spend(tmp_path):
@@ -141,15 +142,15 @@ def test_proxy_cost_retries_after_initial_none_spend(tmp_path):
         patch("benchmarks.utils.evaluation.delete_key"),
         patch(
             "benchmarks.utils.evaluation.get_key_spend",
-            side_effect=[None, None, 0.25],
+            side_effect=[None, None, 0.25, 0.25],
         ) as mock_get_key_spend,
         patch("benchmarks.utils.evaluation.time.sleep") as mock_sleep,
     ):
         _, result_output = evaluator._process_one_sync(instance, critic_attempt=1)
 
     assert result_output.test_result["proxy_cost"] == 0.25
-    assert mock_get_key_spend.call_count == 3
-    assert mock_sleep.call_args_list == [call(2), call(4)]
+    assert mock_get_key_spend.call_count == 4
+    assert mock_sleep.call_args_list == [call(5), call(5), call(5)]
 
 
 def test_final_failure_persists_proxy_cost_and_recovered_metrics(tmp_path):
@@ -171,7 +172,7 @@ def test_final_failure_persists_proxy_cost_and_recovered_metrics(tmp_path):
         patch("benchmarks.utils.evaluation.delete_key"),
         patch(
             "benchmarks.utils.evaluation.get_key_spend",
-            side_effect=[0.0, 0.5],
+            side_effect=[0.0, 0.5, 0.5],
         ) as mock_get_key_spend,
         patch("benchmarks.utils.evaluation.time.sleep") as mock_sleep,
     ):
@@ -185,11 +186,11 @@ def test_final_failure_persists_proxy_cost_and_recovered_metrics(tmp_path):
     assert result_output.metrics.accumulated_token_usage.prompt_tokens == 100
     assert result_output.metrics.accumulated_token_usage.completion_tokens == 25
     assert result_output.metrics.accumulated_token_usage.cache_read_tokens == 10
-    assert mock_get_key_spend.call_count == 2
-    mock_sleep.assert_called_once_with(2)
+    assert mock_get_key_spend.call_count == 3
+    assert mock_sleep.call_args_list == [call(5), call(5)]
 
 
-def test_proxy_cost_retry_uses_full_backoff_when_spend_never_appears(tmp_path):
+def test_proxy_cost_polls_full_budget_when_spend_never_appears(tmp_path):
     instance = EvalInstance(id="test_instance", data={"test": "data"})
     evaluator = _build_evaluator(instance, tmp_path)
 
@@ -198,12 +199,52 @@ def test_proxy_cost_retry_uses_full_backoff_when_spend_never_appears(tmp_path):
         patch("benchmarks.utils.evaluation.delete_key"),
         patch(
             "benchmarks.utils.evaluation.get_key_spend",
-            side_effect=[0.0, 0.0, 0.0, 0.0, 0.0],
+            side_effect=[0.0] * (POLL_ATTEMPTS + 1),
         ) as mock_get_key_spend,
         patch("benchmarks.utils.evaluation.time.sleep") as mock_sleep,
     ):
         _, result_output = evaluator._process_one_sync(instance, critic_attempt=1)
 
     assert result_output.test_result["proxy_cost"] == 0.0
-    assert mock_get_key_spend.call_count == 5
-    assert mock_sleep.call_args_list == [call(2), call(4), call(8), call(16)]
+    assert mock_get_key_spend.call_count == POLL_ATTEMPTS + 1
+    assert mock_sleep.call_count == POLL_ATTEMPTS
+
+
+def test_proxy_cost_waits_for_partially_committed_spend_to_settle(tmp_path):
+    """A non-zero read can still be climbing; the settled total is what counts."""
+    instance = EvalInstance(id="test_instance", data={"test": "data"})
+    evaluator = _build_evaluator(instance, tmp_path)
+
+    with (
+        patch("benchmarks.utils.evaluation.create_virtual_key", return_value="sk-test"),
+        patch("benchmarks.utils.evaluation.delete_key"),
+        patch(
+            "benchmarks.utils.evaluation.get_key_spend",
+            side_effect=[0.0, 0.025362, 0.077144, 0.077144],
+        ) as mock_get_key_spend,
+        patch("benchmarks.utils.evaluation.time.sleep"),
+    ):
+        _, result_output = evaluator._process_one_sync(instance, critic_attempt=1)
+
+    assert result_output.test_result["proxy_cost"] == 0.077144
+    assert mock_get_key_spend.call_count == 4
+
+
+def test_proxy_cost_returns_last_read_when_spend_never_settles(tmp_path):
+    instance = EvalInstance(id="test_instance", data={"test": "data"})
+    evaluator = _build_evaluator(instance, tmp_path)
+    climbing = [float(i + 1) for i in range(POLL_ATTEMPTS + 1)]
+
+    with (
+        patch("benchmarks.utils.evaluation.create_virtual_key", return_value="sk-test"),
+        patch("benchmarks.utils.evaluation.delete_key"),
+        patch(
+            "benchmarks.utils.evaluation.get_key_spend",
+            side_effect=climbing,
+        ) as mock_get_key_spend,
+        patch("benchmarks.utils.evaluation.time.sleep"),
+    ):
+        _, result_output = evaluator._process_one_sync(instance, critic_attempt=1)
+
+    assert result_output.test_result["proxy_cost"] == climbing[-1]
+    assert mock_get_key_spend.call_count == POLL_ATTEMPTS + 1
