@@ -14,6 +14,7 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 | [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
 | [ProgramBench](benchmarks/programbench/) | Rebuild a program from scratch given only its compiled binary and docs | ✅ Active |
+| [TraceTrial-Bench](benchmarks/tracetrialbench/) | AI agent harness reliability and failure attribution across 95 tasks and 7 mechanism dimensions | ✅ Active |
 
 See the individual benchmark directories for detailed usage instructions.
 
