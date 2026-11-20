@@ -204,3 +204,8 @@ When converting between OpenHands format and benchmark-specific formats:
 Use uv >= 0.9.20 for this policy; older versions cannot enforce all of
 the configured release-age settings. `tool.uv.required-version` also guards
 direct `uv sync` and `uv lock` use outside Make.
+# TraceTrial-Bench Notes
+- Upstream repository is `https://github.com/TraceLite-AI/TraceTrial-Bench` (pinned commit in `benchmarks/tracetrialbench/config.py`).
+- Clones and caches the pinned snapshot under `benchmarks/tracetrialbench/data/` on first run (matching the `skillsbench` pattern; no extra root dependencies).
+- By default (`--use-vendor-sdk`), `tracetrialbench-infer` overlays `vendor/software-agent-sdk` (`openhands-sdk` and `openhands-tools`) into the evaluation container image; pass `--no-use-vendor-sdk` to evaluate the published PyPI `openhands` release.
+- For smoke runs, pass `--n-limit <count>` or `--select <file>` to `tracetrialbench-infer`.
