@@ -76,7 +76,7 @@ jobs:
           fi
 
       - name: Checkout benchmarks repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OpenHands/benchmarks
           ref: ${{ steps.ref.outputs.ref }}
