@@ -147,8 +147,7 @@ def evaluate_output(critic: CriticBase, eval_output: EvalOutput) -> bool:
 
 def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
     """
-    Get all instance IDs present in output file
-    (completed, regardless of success/failure).
+    Get instance IDs that produced output without a runner error.
 
     Reads ``instance_id`` directly from each JSON line WITHOUT validating the
     full ``EvalOutput`` model. Resume must recognise prior completion across
@@ -183,6 +182,8 @@ def get_completed_instances(output_file: str) -> Set[EvalInstanceID]:
                     logger.warning(
                         f"Missing 'instance_id' on line {line_num} in {output_file}"
                     )
+                    continue
+                if isinstance(data, dict) and data.get("error") is not None:
                     continue
                 completed_instances.add(instance_id)
 
