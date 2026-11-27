@@ -518,15 +518,31 @@ def assemble_agent_image(
     """
     import time
 
+    overall_started = time.monotonic()
+    push_seconds = 0.0
+
     if not AGENT_LAYER_DOCKERFILE.exists():
         return BuildOutput(
             base_image=base_tag,
             tags=[],
             error=f"Agent layer Dockerfile not found at {AGENT_LAYER_DOCKERFILE}",
+            status="failed",
+            duration_seconds=round(time.monotonic() - overall_started, 3),
+            build_seconds=0.0,
+            push_seconds=push_seconds,
         )
 
     tag_label = final_tags[0] if final_tags else base_tag
-    overall_started = time.monotonic()
+    if not final_tags:
+        return BuildOutput(
+            base_image=base_tag,
+            tags=[],
+            error="No final tags provided for agent image assembly",
+            status="failed",
+            duration_seconds=round(time.monotonic() - overall_started, 3),
+            build_seconds=0.0,
+            push_seconds=push_seconds,
+        )
 
     # Step 1: docker build (local daemon, no remote driver)
     build_cmd = [
@@ -547,7 +563,24 @@ def assemble_agent_image(
 
     logger.info("[assembly] Building: %s", " ".join(build_cmd))
     build_started = time.monotonic()
-    proc, timeout_error = _run_docker_command(build_cmd)
+    try:
+        proc, timeout_error = _run_docker_command(build_cmd)
+    except Exception as exc:
+        build_seconds = round(time.monotonic() - build_started, 3)
+        error = f"docker build raised: {exc!r}"
+        logger.warning("[assembly] %s: %s", error, tag_label)
+        return BuildOutput(
+            base_image=base_tag,
+            tags=[],
+            error=error,
+            status="failed",
+            duration_seconds=round(
+                max(time.monotonic() - overall_started, build_seconds + push_seconds),
+                3,
+            ),
+            build_seconds=build_seconds,
+            push_seconds=push_seconds,
+        )
     build_seconds = round(time.monotonic() - build_started, 3)
     if timeout_error:
         logger.info(
@@ -556,7 +589,18 @@ def assemble_agent_image(
             build_seconds,
             timeout_error[:200],
         )
-        return BuildOutput(base_image=base_tag, tags=[], error=timeout_error)
+        return BuildOutput(
+            base_image=base_tag,
+            tags=[],
+            error=timeout_error,
+            status="failed",
+            duration_seconds=round(
+                max(time.monotonic() - overall_started, build_seconds + push_seconds),
+                3,
+            ),
+            build_seconds=build_seconds,
+            push_seconds=push_seconds,
+        )
     assert proc is not None
 
     if proc.returncode != 0:
@@ -571,10 +615,20 @@ def assemble_agent_image(
             build_seconds,
             error[:200],
         )
-        return BuildOutput(base_image=base_tag, tags=[], error=error)
+        return BuildOutput(
+            base_image=base_tag,
+            tags=[],
+            error=error,
+            status="failed",
+            duration_seconds=round(
+                max(time.monotonic() - overall_started, build_seconds + push_seconds),
+                3,
+            ),
+            build_seconds=build_seconds,
+            push_seconds=push_seconds,
+        )
 
     # Step 2: docker push each tag (collect partial failures)
-    push_seconds = 0.0
     pushed_tags: list[str] = []
     failed_pushes: list[tuple[str, str]] = []
     if push:
@@ -582,7 +636,12 @@ def assemble_agent_image(
             push_cmd = ["docker", "push", t]
             logger.info("[assembly] Pushing: %s", t)
             push_started = time.monotonic()
-            push_proc, timeout_error = _run_docker_command(push_cmd)
+            try:
+                push_proc, timeout_error = _run_docker_command(push_cmd)
+            except Exception as exc:
+                push_seconds += time.monotonic() - push_started
+                failed_pushes.append((t, f"docker push raised: {exc!r}"[:200]))
+                continue
             push_seconds += time.monotonic() - push_started
             if timeout_error:
                 failed_pushes.append((t, timeout_error[:200]))
@@ -613,18 +672,54 @@ def assemble_agent_image(
             len(final_tags),
             error_summary[:300],
         )
-        return BuildOutput(base_image=base_tag, tags=pushed_tags, error=error_summary)
+        return BuildOutput(
+            base_image=base_tag,
+            tags=pushed_tags,
+            error=error_summary,
+            status="failed",
+            duration_seconds=round(
+                max(time.monotonic() - overall_started, build_seconds + push_seconds),
+                3,
+            ),
+            build_seconds=build_seconds,
+            push_seconds=push_seconds,
+        )
 
     push_seconds = round(push_seconds, 3)
+    rmi_seconds: float | None = None
+    rmi_returncode: int | None = None
+    rmi_timed_out: bool | None = None
+    system_prune_seconds: float | None = None
+    system_prune_returncode: int | None = None
+    system_prune_timed_out: bool | None = None
+    builder_prune_seconds: float | None = None
+    builder_prune_returncode: int | None = None
+    builder_prune_timed_out: bool | None = None
+    cleanup_ok: bool | None = None
 
     # Release disk after successful pushes. Full cold SWE/SWT-bench builds on
     # ubuntu-latest-8core otherwise keep every final image and BuildKit ingest
     # blob in the local daemon until the runner runs out of disk.
     if push and pushed_tags:
         rmi_targets = list(dict.fromkeys([*pushed_tags, base_tag]))
-        rmi_proc, rmi_timeout = _run_docker_command(
-            ["docker", "rmi", "-f", *rmi_targets]
+        cleanup_ok = True
+        rmi_started = time.monotonic()
+        try:
+            rmi_proc, rmi_timeout = _run_docker_command(
+                ["docker", "rmi", "-f", *rmi_targets]
+            )
+        except Exception as exc:
+            rmi_proc, rmi_timeout = None, None
+            logger.warning("[assembly] rmi cleanup raised for %s: %s", tag_label, exc)
+        rmi_seconds = round(time.monotonic() - rmi_started, 3)
+        rmi_returncode = rmi_proc.returncode if rmi_proc is not None else None
+        rmi_timed_out = (
+            True if rmi_timeout is not None else (None if rmi_proc is None else False)
         )
+        rmi_ok = (
+            rmi_proc is not None and rmi_timeout is None and rmi_proc.returncode == 0
+        )
+        cleanup_ok = cleanup_ok and rmi_ok
         if rmi_timeout:
             logger.warning("[assembly] rmi timed out for %s", tag_label)
         elif rmi_proc is not None and rmi_proc.returncode != 0:
@@ -635,9 +730,33 @@ def assemble_agent_image(
                 (rmi_proc.stderr or rmi_proc.stdout or "").strip()[:200],
             )
 
-        sys_prune_proc, sys_prune_timeout = _run_docker_command(
-            ["docker", "system", "prune", "-f"]
+        system_prune_started = time.monotonic()
+        try:
+            sys_prune_proc, sys_prune_timeout = _run_docker_command(
+                ["docker", "system", "prune", "-f"]
+            )
+        except Exception as exc:
+            sys_prune_proc, sys_prune_timeout = None, None
+            logger.warning(
+                "[assembly] system prune cleanup raised for %s: %s",
+                tag_label,
+                exc,
+            )
+        system_prune_seconds = round(time.monotonic() - system_prune_started, 3)
+        system_prune_returncode = (
+            sys_prune_proc.returncode if sys_prune_proc is not None else None
         )
+        system_prune_timed_out = (
+            True
+            if sys_prune_timeout is not None
+            else (None if sys_prune_proc is None else False)
+        )
+        system_prune_ok = (
+            sys_prune_proc is not None
+            and sys_prune_timeout is None
+            and sys_prune_proc.returncode == 0
+        )
+        cleanup_ok = cleanup_ok and system_prune_ok
         if sys_prune_timeout:
             logger.warning("[assembly] system prune timed out for %s", tag_label)
         elif sys_prune_proc is not None and sys_prune_proc.returncode != 0:
@@ -647,17 +766,35 @@ def assemble_agent_image(
                 sys_prune_proc.returncode,
             )
 
-        buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
-        bp_proc, bp_timeout = _run_docker_command(
-            [
-                "docker",
-                "builder",
-                "prune",
-                "-af",
-                "--keep-storage",
-                f"{buildkit_cap_gb}g",
-            ]
+        builder_prune_started = time.monotonic()
+        try:
+            buildkit_cap_gb = int(os.getenv("OPENHANDS_BUILDKIT_KEEP_STORAGE_GB", "30"))
+            bp_proc, bp_timeout = _run_docker_command(
+                [
+                    "docker",
+                    "builder",
+                    "prune",
+                    "-af",
+                    "--keep-storage",
+                    f"{buildkit_cap_gb}g",
+                ]
+            )
+        except Exception as exc:
+            bp_proc, bp_timeout = None, None
+            logger.warning(
+                "[assembly] builder prune cleanup raised for %s: %s",
+                tag_label,
+                exc,
+            )
+        builder_prune_seconds = round(time.monotonic() - builder_prune_started, 3)
+        builder_prune_returncode = bp_proc.returncode if bp_proc is not None else None
+        builder_prune_timed_out = (
+            True if bp_timeout is not None else (None if bp_proc is None else False)
         )
+        builder_prune_ok = (
+            bp_proc is not None and bp_timeout is None and bp_proc.returncode == 0
+        )
+        cleanup_ok = cleanup_ok and builder_prune_ok
         if bp_timeout:
             logger.warning("[assembly] buildkit prune timed out for %s", tag_label)
         elif bp_proc is not None and bp_proc.returncode != 0:
@@ -667,7 +804,17 @@ def assemble_agent_image(
                 bp_proc.returncode,
             )
 
-    total_seconds = round(time.monotonic() - overall_started, 3)
+    total_seconds = round(
+        max(
+            time.monotonic() - overall_started,
+            build_seconds
+            + push_seconds
+            + (rmi_seconds or 0.0)
+            + (system_prune_seconds or 0.0)
+            + (builder_prune_seconds or 0.0),
+        ),
+        3,
+    )
 
     logger.info(
         "[assembly] OK %s: total=%.1fs build=%.1fs push=%.1fs",
@@ -677,7 +824,25 @@ def assemble_agent_image(
         push_seconds,
     )
 
-    return BuildOutput(base_image=base_tag, tags=final_tags, error=None)
+    return BuildOutput(
+        base_image=base_tag,
+        tags=final_tags,
+        error=None,
+        status="built",
+        duration_seconds=total_seconds,
+        build_seconds=build_seconds,
+        push_seconds=push_seconds,
+        rmi_seconds=rmi_seconds,
+        rmi_returncode=rmi_returncode,
+        rmi_timed_out=rmi_timed_out,
+        system_prune_seconds=system_prune_seconds,
+        system_prune_returncode=system_prune_returncode,
+        system_prune_timed_out=system_prune_timed_out,
+        builder_prune_seconds=builder_prune_seconds,
+        builder_prune_returncode=builder_prune_returncode,
+        builder_prune_timed_out=builder_prune_timed_out,
+        cleanup_ok=cleanup_ok,
+    )
 
 
 def _assemble_with_logging(
@@ -697,6 +862,7 @@ def _assemble_with_logging(
 ) -> BuildOutput:
     """Assemble a single agent image with logging and retry."""
     import time
+    from datetime import UTC, datetime
 
     base_tag = base_image_tag(custom_tag, content_hash=content_hash)
     # Include content_hash so Dockerfile changes invalidate cached assemblies.
@@ -706,8 +872,31 @@ def _assemble_with_logging(
         logger.info("Agent image %s already exists. Skipping.", final_tag)
         return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
 
+    overall_started_at = datetime.now(UTC).isoformat()
+    overall_started_monotonic = time.monotonic()
+    phase_fields = (
+        "build_seconds",
+        "push_seconds",
+        "rmi_seconds",
+        "system_prune_seconds",
+        "builder_prune_seconds",
+        "post_build_seconds",
+    )
+    phase_totals = {field: 0.0 for field in phase_fields}
+    phase_seen = {field: False for field in phase_fields}
+    cleanup_phases = ("rmi", "system_prune", "builder_prune")
+    cleanup_returncodes: dict[str, int | None] = {
+        phase: None for phase in cleanup_phases
+    }
+    cleanup_timeouts: dict[str, bool | None] = {phase: None for phase in cleanup_phases}
+    cleanup_metadata_seen = {phase: False for phase in cleanup_phases}
+    cleanup_ok_seen = False
+    cleanup_ok_total = True
+    final_result: BuildOutput | None = None
+    attempts_used = 0
     assert max_retries >= 1
     for attempt in range(max_retries):
+        attempts_used = attempt + 1
         with capture_output(base_image, log_dir) as log_path:
             if attempt > 0:
                 logger.info(
@@ -717,6 +906,7 @@ def _assemble_with_logging(
                     max_retries,
                 )
                 time.sleep(2 + attempt * 2)
+            attempt_started_monotonic = time.monotonic()
             try:
                 result = assemble_agent_image(
                     base_tag=base_tag,
@@ -725,18 +915,52 @@ def _assemble_with_logging(
                     push=push,
                     git_sha=sdk_full_sha,
                 )
-            except Exception as e:
+            except Exception as exc:
                 result = BuildOutput(
                     base_image=base_image,
                     tags=[],
-                    error=repr(e),
+                    error=repr(exc),
+                    status="failed",
                     log_path=str(log_path),
+                    duration_seconds=round(
+                        time.monotonic() - attempt_started_monotonic, 3
+                    ),
                 )
             result.log_path = str(log_path)
+            for field in phase_fields:
+                value = getattr(result, field, None)
+                if value is not None:
+                    phase_totals[field] += value
+                    phase_seen[field] = True
+
+            result_cleanup_ok = result.cleanup_ok
+            if result_cleanup_ok is not None:
+                cleanup_ok_seen = True
+                cleanup_ok_total = cleanup_ok_total and result_cleanup_ok
+
+            for phase in cleanup_phases:
+                returncode = getattr(result, f"{phase}_returncode", None)
+                timed_out = getattr(result, f"{phase}_timed_out", None)
+                if returncode is None and timed_out is None:
+                    continue
+                previously_seen = cleanup_metadata_seen[phase]
+                cleanup_metadata_seen[phase] = True
+                if timed_out is True:
+                    cleanup_timeouts[phase] = True
+                    cleanup_returncodes[phase] = None
+                elif cleanup_timeouts[phase] is not True:
+                    if returncode is not None and returncode != 0:
+                        cleanup_returncodes[phase] = returncode
+                        cleanup_timeouts[phase] = False
+                    elif not previously_seen:
+                        cleanup_returncodes[phase] = returncode
+                        cleanup_timeouts[phase] = timed_out
+
             if result.error:
                 logger.error("Assembly error for %s: %s", base_image, result.error)
+                final_result = result
                 if attempt == max_retries - 1:
-                    return result
+                    break
                 continue
 
             # Apply wrapping for repos that need docutils/roman (e.g. sphinx-doc)
@@ -747,21 +971,76 @@ def _assemble_with_logging(
 
             if should_wrap_custom_tag(custom_tag):
                 logger.info("Wrapping %s with docutils/roman", final_tag)
-                wrap_result = wrap_image(final_tag, push=push)
-                if wrap_result.error:
-                    result = BuildOutput(
-                        base_image=base_image,
-                        tags=result.tags,
-                        error=f"Wrapping failed: {wrap_result.error}",
-                        log_path=str(log_path),
+                wrapper_started = time.monotonic()
+                wrap_result = None
+                try:
+                    wrap_result = wrap_image(final_tag, push=push)
+                except Exception as exc:
+                    result = result.model_copy(
+                        update={
+                            "error": f"Wrapping failed: {exc!r}",
+                            "status": "failed",
+                            "log_path": str(log_path),
+                        }
                     )
+                else:
+                    if wrap_result.error:
+                        result = result.model_copy(
+                            update={
+                                "error": f"Wrapping failed: {wrap_result.error}",
+                                "status": "failed",
+                                "log_path": str(log_path),
+                            }
+                        )
+                wrapper_seconds = time.monotonic() - wrapper_started
+                if wrap_result is not None and wrap_result.duration_seconds is not None:
+                    wrapper_seconds = max(wrapper_seconds, wrap_result.duration_seconds)
+                phase_totals["post_build_seconds"] += wrapper_seconds
+                phase_seen["post_build_seconds"] = True
+                if result.error:
+                    final_result = result
                     if attempt == max_retries - 1:
-                        return result
+                        break
                     continue
 
-            return result
+            final_result = result
+            break
 
-    raise RuntimeError("Unreachable")
+    if final_result is None:
+        raise RuntimeError("Unreachable")
+
+    final_result.attempt_count = attempts_used
+    final_result.started_at = overall_started_at
+    final_result.finished_at = datetime.now(UTC).isoformat()
+    final_result.duration_seconds = round(
+        max(
+            time.monotonic() - overall_started_monotonic,
+            sum(phase_totals.values()),
+        ),
+        3,
+    )
+    for field in phase_fields:
+        if phase_seen[field]:
+            setattr(final_result, field, round(phase_totals[field], 3))
+    for phase in cleanup_phases:
+        if cleanup_metadata_seen[phase]:
+            setattr(
+                final_result,
+                f"{phase}_returncode",
+                cleanup_returncodes[phase],
+            )
+            setattr(
+                final_result,
+                f"{phase}_timed_out",
+                cleanup_timeouts[phase],
+            )
+    if cleanup_ok_seen:
+        final_result.cleanup_ok = cleanup_ok_total
+    if final_result.error:
+        final_result.status = "failed"
+    else:
+        final_result.status = "built"
+    return final_result
 
 
 def assemble_all_agent_images(

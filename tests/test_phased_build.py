@@ -332,6 +332,9 @@ class TestAssembleAgentImage:
         assert result.error is not None
         assert "Failed to push 1/2 tags" in result.error
         assert result.tags == ["tag-1"]
+        assert result.build_seconds is not None
+        assert result.push_seconds is not None
+        assert mock_run.call_count == 3
 
     def test_build_failure_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -358,6 +361,8 @@ class TestAssembleAgentImage:
         assert result.error is not None
         assert "docker build failed" in result.error
         assert result.tags == []
+        assert result.build_seconds is not None
+        assert result.duration_seconds is not None
 
     def test_all_pushes_succeed(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -383,6 +388,30 @@ class TestAssembleAgentImage:
 
         assert result.error is None
         assert result.tags == ["tag-1", "tag-2"]
+        assert result.duration_seconds is not None
+        assert result.build_seconds is not None
+        assert result.push_seconds is not None
+        assert result.rmi_seconds is not None
+        assert result.rmi_returncode == 0
+        assert result.rmi_timed_out is False
+        assert result.system_prune_seconds is not None
+        assert result.system_prune_returncode == 0
+        assert result.system_prune_timed_out is False
+        assert result.builder_prune_seconds is not None
+        assert result.builder_prune_returncode == 0
+        assert result.builder_prune_timed_out is False
+        assert result.cleanup_ok is True
+        assert result.duration_seconds >= sum(
+            phase_seconds
+            for phase_seconds in (
+                result.build_seconds,
+                result.push_seconds,
+                result.rmi_seconds,
+                result.system_prune_seconds,
+                result.builder_prune_seconds,
+            )
+            if phase_seconds is not None
+        )
         commands = [call.args[0] for call in mock_run.call_args_list]
         assert commands[-3:] == [
             [
@@ -404,6 +433,153 @@ class TestAssembleAgentImage:
             ],
         ]
 
+    def test_no_push_skips_cleanup_telemetry(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.subprocess.run",
+                return_value=_ok_proc(),
+            ) as mock_run,
+        ):
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=False,
+            )
+
+        assert result.error is None
+        assert result.push_seconds == 0.0
+        assert result.rmi_seconds is None
+        assert result.system_prune_seconds is None
+        assert result.builder_prune_seconds is None
+        assert result.cleanup_ok is None
+        mock_run.assert_called_once()
+
+    def test_cleanup_nonzero_does_not_fail_assembly(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch("benchmarks.swebench.build_base_images.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = [
+                _ok_proc(),  # docker build
+                _ok_proc(),  # docker push
+                _ok_proc(),  # docker rmi
+                _fail_proc("prune locked"),  # docker system prune
+                _ok_proc(),  # docker builder prune
+            ]
+
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=True,
+            )
+
+        assert result.error is None
+        assert result.tags == ["tag-1"]
+        assert result.status == "built"
+        assert result.cleanup_ok is False
+        assert result.system_prune_returncode == 1
+        assert result.system_prune_timed_out is False
+
+    def test_cleanup_exception_does_not_fail_assembly_or_skip_builder_prune(
+        self, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch("benchmarks.swebench.build_base_images.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = [
+                _ok_proc(),  # docker build
+                _ok_proc(),  # docker push
+                _ok_proc(),  # docker rmi
+                RuntimeError("prune crashed"),  # docker system prune
+                _ok_proc(),  # docker builder prune
+            ]
+
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=True,
+            )
+
+        assert result.error is None
+        assert result.status == "built"
+        assert result.tags == ["tag-1"]
+        assert result.cleanup_ok is False
+        assert result.system_prune_returncode is None
+        assert result.system_prune_timed_out is None
+        assert result.builder_prune_returncode == 0
+        assert result.builder_prune_timed_out is False
+        assert [call.args[0] for call in mock_run.call_args_list][-1] == [
+            "docker",
+            "builder",
+            "prune",
+            "-af",
+            "--keep-storage",
+            "30g",
+        ]
+
+    def test_cleanup_timeout_does_not_fail_assembly(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch("benchmarks.swebench.build_base_images.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = [
+                _ok_proc(),  # docker build
+                _ok_proc(),  # docker push
+                _ok_proc(),  # docker rmi
+                _timeout_exc(stderr="prune stalled"),  # docker system prune
+                _ok_proc(),  # docker builder prune
+            ]
+
+            result = assemble_agent_image(
+                base_tag="ghcr.io/openhands/eval-base:abc",
+                builder_tag="ghcr.io/openhands/eval-builder:def",
+                final_tags=["tag-1"],
+                push=True,
+            )
+
+        assert result.error is None
+        assert result.tags == ["tag-1"]
+        assert result.cleanup_ok is False
+        assert result.system_prune_returncode is None
+        assert result.system_prune_timed_out is True
+
     def test_missing_dockerfile_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
 
@@ -418,6 +594,9 @@ class TestAssembleAgentImage:
             )
         assert result.error is not None
         assert "not found" in result.error
+        assert result.status == "failed"
+        assert result.duration_seconds is not None
+        assert result.build_seconds == 0.0
 
     def test_build_timeout_returns_error(self, tmp_path):
         from benchmarks.swebench.build_base_images import assemble_agent_image
@@ -445,6 +624,273 @@ class TestAssembleAgentImage:
         assert result.tags == []
         assert result.error is not None
         assert "timed out" in result.error
+        assert result.build_seconds is not None
+        assert result.duration_seconds is not None
+
+    def test_empty_final_tags_are_not_reported_as_success(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.subprocess.run",
+                return_value=_ok_proc(),
+            ) as mock_run,
+        ):
+            result = assemble_agent_image(
+                base_tag="base:tag",
+                builder_tag="builder:tag",
+                final_tags=[],
+                push=False,
+            )
+
+        assert result.tags == []
+        assert result.error is not None
+        assert result.status == "failed"
+        assert result.build_seconds is not None
+        assert result.push_seconds == 0.0
+        assert result.duration_seconds is not None
+        mock_run.assert_not_called()
+
+    def test_build_exception_preserves_elapsed_timing(self, tmp_path):
+        from benchmarks.swebench.build_base_images import assemble_agent_image
+
+        dockerfile = tmp_path / "Dockerfile.agent-layer"
+        dockerfile.write_text("FROM scratch\n")
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.AGENT_LAYER_DOCKERFILE",
+                dockerfile,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.subprocess.run",
+                side_effect=RuntimeError("docker unavailable"),
+            ),
+        ):
+            result = assemble_agent_image(
+                base_tag="base:tag",
+                builder_tag="builder:tag",
+                final_tags=["final:tag"],
+                push=False,
+            )
+
+        assert result.tags == []
+        assert result.error is not None
+        assert "docker unavailable" in result.error
+        assert result.status == "failed"
+        assert result.build_seconds is not None
+        assert result.duration_seconds is not None
+
+
+class TestAssembleWithLogging:
+    def test_retries_accumulate_assembly_telemetry(self, tmp_path):
+        from benchmarks.swebench.build_base_images import _assemble_with_logging
+
+        first = BuildOutput(
+            base_image="base",
+            tags=[],
+            error="transient build failure",
+            status="failed",
+            duration_seconds=1.2,
+            build_seconds=1.0,
+            push_seconds=0.2,
+        )
+        second = BuildOutput(
+            base_image="base",
+            tags=["final"],
+            error=None,
+            status="built",
+            build_seconds=3.0,
+            push_seconds=0.4,
+            rmi_seconds=0.1,
+            rmi_returncode=0,
+            rmi_timed_out=False,
+            system_prune_seconds=0.2,
+            system_prune_returncode=0,
+            system_prune_timed_out=False,
+            builder_prune_seconds=0.3,
+            builder_prune_returncode=0,
+            builder_prune_timed_out=False,
+            cleanup_ok=True,
+        )
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.remote_image_exists",
+                return_value=False,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.capture_output"
+            ) as mock_capture,
+            patch(
+                "benchmarks.swebench.build_base_images.assemble_agent_image",
+                side_effect=[first, second],
+            ) as mock_assemble,
+            patch(
+                "benchmarks.swebench.build_images.should_wrap_custom_tag",
+                return_value=False,
+            ),
+            patch("time.sleep"),
+        ):
+            mock_capture.return_value.__enter__.side_effect = [
+                tmp_path / "attempt-1.log",
+                tmp_path / "attempt-2.log",
+            ]
+            mock_capture.return_value.__exit__.return_value = False
+
+            result = _assemble_with_logging(
+                log_dir=tmp_path,
+                base_image="base",
+                custom_tag="tag",
+                builder_tag="builder",
+                target_image="target",
+                sdk_short_sha="sdk",
+                sdk_full_sha="sdk-full",
+                target="source-minimal",
+                max_retries=2,
+                force_build=True,
+                content_hash="hash",
+            )
+
+        assert mock_assemble.call_count == 2
+        assert result.tags == ["final"]
+        assert result.error is None
+        assert result.status == "built"
+        assert result.attempt_count == 2
+        assert result.started_at is not None
+        assert result.finished_at is not None
+        assert result.build_seconds == 4.0
+        assert result.push_seconds == 0.6
+        assert result.rmi_seconds == 0.1
+        assert result.system_prune_seconds == 0.2
+        assert result.builder_prune_seconds == 0.3
+        assert result.cleanup_ok is True
+        assert result.duration_seconds is not None
+        assert result.duration_seconds >= 5.2
+
+    def test_wrapper_retry_preserves_cleanup_timeout_and_records_wrapper_time(
+        self, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import _assemble_with_logging
+
+        first = BuildOutput(
+            base_image="base",
+            tags=["final"],
+            error=None,
+            status="built",
+            build_seconds=1.0,
+            push_seconds=0.5,
+            rmi_seconds=0.1,
+            rmi_returncode=0,
+            rmi_timed_out=False,
+            system_prune_seconds=0.2,
+            system_prune_returncode=None,
+            system_prune_timed_out=True,
+            builder_prune_seconds=0.3,
+            builder_prune_returncode=0,
+            builder_prune_timed_out=False,
+            cleanup_ok=False,
+        )
+        second = BuildOutput(
+            base_image="base",
+            tags=["final"],
+            error=None,
+            status="built",
+            build_seconds=2.0,
+            push_seconds=0.4,
+            rmi_seconds=0.1,
+            rmi_returncode=0,
+            rmi_timed_out=False,
+            system_prune_seconds=0.2,
+            system_prune_returncode=0,
+            system_prune_timed_out=False,
+            builder_prune_seconds=0.3,
+            builder_prune_returncode=0,
+            builder_prune_timed_out=False,
+            cleanup_ok=True,
+        )
+        wrapper_failure = BuildOutput(
+            base_image="final",
+            tags=[],
+            error="wrapper failed",
+            status="failed",
+            duration_seconds=0.7,
+        )
+        wrapper_success = BuildOutput(
+            base_image="final",
+            tags=["final"],
+            error=None,
+            duration_seconds=0.4,
+        )
+
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.remote_image_exists",
+                return_value=False,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.capture_output"
+            ) as mock_capture,
+            patch(
+                "benchmarks.swebench.build_base_images.assemble_agent_image",
+                side_effect=[first, second],
+            ),
+            patch(
+                "benchmarks.swebench.build_images.should_wrap_custom_tag",
+                return_value=True,
+            ),
+            patch(
+                "benchmarks.swebench.build_images.wrap_image",
+                side_effect=[wrapper_failure, wrapper_success],
+            ) as mock_wrap,
+            patch("time.sleep"),
+        ):
+            mock_capture.return_value.__enter__.side_effect = [
+                tmp_path / "attempt-1.log",
+                tmp_path / "attempt-2.log",
+            ]
+            mock_capture.return_value.__exit__.return_value = False
+
+            result = _assemble_with_logging(
+                log_dir=tmp_path,
+                base_image="base",
+                custom_tag="wrapped",
+                builder_tag="builder",
+                target_image="target",
+                sdk_short_sha="sdk",
+                sdk_full_sha="sdk-full",
+                target="source-minimal",
+                push=True,
+                max_retries=2,
+                force_build=True,
+                content_hash="hash",
+            )
+
+        assert mock_wrap.call_count == 2
+        assert result.error is None
+        assert result.status == "built"
+        assert result.attempt_count == 2
+        assert result.system_prune_returncode is None
+        assert result.system_prune_timed_out is True
+        assert result.cleanup_ok is False
+        assert result.post_build_seconds is not None
+        assert result.duration_seconds is not None
+        phase_total = (
+            result.build_seconds
+            + result.push_seconds
+            + result.rmi_seconds
+            + result.system_prune_seconds
+            + result.builder_prune_seconds
+            + result.post_build_seconds
+        )
+        assert result.duration_seconds >= phase_total
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +987,25 @@ class TestAssembleAllAgentImages:
     ):
         from benchmarks.swebench.build_base_images import assemble_all_agent_images
 
-        ok = BuildOutput(base_image="img-a", tags=["final-tag"], error=None)
+        ok = BuildOutput(
+            base_image="img-a",
+            tags=["final-tag"],
+            error=None,
+            duration_seconds=3.0,
+            build_seconds=2.0,
+            push_seconds=0.5,
+            rmi_seconds=0.1,
+            rmi_returncode=0,
+            rmi_timed_out=False,
+            system_prune_seconds=0.2,
+            system_prune_returncode=0,
+            system_prune_timed_out=False,
+            builder_prune_seconds=0.3,
+            builder_prune_returncode=0,
+            builder_prune_timed_out=False,
+            cleanup_ok=True,
+            post_build_seconds=0.4,
+        )
         mock_assemble.return_value = ok
 
         rc = assemble_all_agent_images(
@@ -559,6 +1023,17 @@ class TestAssembleAllAgentImages:
         ]
         assert len(records) == 1
         assert records[0]["tags"] == ["final-tag"]
+        assert records[0]["duration_seconds"] == 3.0
+        assert records[0]["build_seconds"] == 2.0
+        assert records[0]["push_seconds"] == 0.5
+        assert records[0]["rmi_seconds"] == 0.1
+        assert records[0]["rmi_returncode"] == 0
+        assert records[0]["system_prune_seconds"] == 0.2
+        assert records[0]["system_prune_returncode"] == 0
+        assert records[0]["builder_prune_seconds"] == 0.3
+        assert records[0]["builder_prune_returncode"] == 0
+        assert records[0]["post_build_seconds"] == 0.4
+        assert records[0]["cleanup_ok"] is True
         mock_docker_command.assert_called_once_with(
             ["docker", "buildx", "prune", "-af"]
         )
