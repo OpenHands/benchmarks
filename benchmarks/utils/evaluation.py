@@ -59,6 +59,12 @@ from openhands.workspace import APIRemoteWorkspace
 
 logger = get_logger(__name__)
 
+# LiteLLM commits virtual-key spend asynchronously; a read taken right after the
+# last request can catch a partially committed total. Measured commit latency is
+# 5-10s, so poll on that scale and cap the wait at one minute.
+_PROXY_SPEND_POLL_INTERVAL = 5
+_PROXY_SPEND_POLL_ATTEMPTS = 12
+
 # Interval in seconds between checking for per-instance timeouts
 TIMEOUT_CHECK_INTERVAL_SECONDS = 60
 
@@ -307,28 +313,39 @@ class Evaluation(ABC, BaseModel):
         instance_id: str,
         virtual_key: str | None,
     ) -> float | None:
-        """Query exact per-instance spend from the LiteLLM proxy."""
+        """Query exact per-instance spend from the LiteLLM proxy.
+
+        The proxy commits spend a few seconds after each request returns, so an
+        early read can be non-zero yet still climbing; poll until two
+        consecutive reads agree before trusting the value.
+        """
         if virtual_key is None:
             return None
 
         proxy_cost = get_key_spend(virtual_key)
-        if proxy_cost is None or proxy_cost == 0.0:
-            logger.info(
-                "[worker] proxy spend not yet available for %s, retrying...",
-                instance_id,
-            )
-            for delay in (2, 4, 8, 16):
-                time.sleep(delay)
-                retry_cost = get_key_spend(virtual_key)
-                if retry_cost is not None and retry_cost > 0:
-                    proxy_cost = retry_cost
-                    break
+        settled = False
+        for _ in range(_PROXY_SPEND_POLL_ATTEMPTS):
+            time.sleep(_PROXY_SPEND_POLL_INTERVAL)
+            retry_cost = get_key_spend(virtual_key)
+            if retry_cost is None:
+                continue
+            settled = retry_cost > 0.0 and retry_cost == proxy_cost
+            proxy_cost = retry_cost
+            if settled:
+                break
 
         if proxy_cost is not None and proxy_cost == 0.0:
             logger.warning(
                 "[worker] proxy cost still $0 for %s after retries — "
                 "spend may not have been committed by the proxy",
                 instance_id,
+            )
+        elif not settled:
+            logger.warning(
+                "[worker] proxy spend for %s never settled (last read $%s) — "
+                "the recorded cost may be incomplete",
+                instance_id,
+                proxy_cost,
             )
 
         return proxy_cost
