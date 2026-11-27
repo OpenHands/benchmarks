@@ -7,7 +7,7 @@ GAIA uses a single universal image for all instances since they share the same P
 
 Example:
   uv run benchmarks/gaia/build_images.py \
-    --image ghcr.io/openhands/eval-agent-server --target binary-minimal --push
+    --image ghcr.io/openhands/eval-agent-server --target binary --push
 """
 
 import sys
