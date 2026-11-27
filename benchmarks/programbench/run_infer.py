@@ -216,14 +216,10 @@ class ProgramBenchEvaluation(Evaluation):
         * ``--network none`` blocks the SDK from reaching the agent-server
           because Docker port mappings need a network interface.
         * ``docker network create --internal`` blocks ``-p`` port mappings.
-        * The robust answer is in-container egress filtering (iptables in an
-          init step), which needs ``CAP_NET_ADMIN`` and is **future work**.
 
-        For now we leave ``network=None`` (default bridge). The system prompt
-        explicitly tells the agent it has no internet, and the cleanroom image
-        ships with everything the task needs locally. Agents that try to call
-        out anyway will produce non-leaderboard-faithful runs — that limitation
-        is documented in the README and tracked in AGENTS.md.
+        The SDK's ``network_isolation="offline"`` bridge keeps the local
+        control port available while disabling Docker's outbound masquerading.
+        The cleanroom image ships with everything the task needs locally.
         """
         details = self.metadata.details or {}
         forward_env = get_acp_forward_env(self.metadata.agent_type, forward_env)
@@ -243,9 +239,9 @@ class ProgramBenchEvaluation(Evaluation):
                 ),
                 target=target,  # type: ignore[arg-type]
                 forward_env=forward_env or [],
-                # See docstring above. Strict offline isolation is follow-up
-                # work; today we rely on the prompt + cleanroom image.
-                network=None,
+                # Keep the control port reachable while disabling bridge
+                # masquerading so the agent cannot reach the public internet.
+                network_isolation="offline",
             )
         elif self.metadata.workspace_type == "remote":
             raise NotImplementedError(
