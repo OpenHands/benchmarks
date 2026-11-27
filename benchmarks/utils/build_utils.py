@@ -514,9 +514,25 @@ def ensure_local_image(
     if output.error is not None:
         raise RuntimeError(f"Image build failed: {output.error}")
     if agent_server_image not in output.tags:
-        raise RuntimeError(
+        if not output.tags:
+            raise RuntimeError(
+                f"Built image tags {output.tags} do not include expected tag "
+                f"{agent_server_image}"
+            )
+        # The SDK's own tagging (BuildOptions.all_tags) doesn't know about
+        # the benchmarks-side content-hash prefix that
+        # get_phased_image_tag_prefix() adds for phased-build benchmarks
+        # (swebench, swebenchmultimodal, swtbench), so the tag it produces
+        # never matches what callers expect for those benchmarks. Alias the
+        # image we actually built under the expected tag instead of failing
+        # a successful build over a tagging-scheme mismatch.
+        logger.warning(
             f"Built image tags {output.tags} do not include expected tag "
+            f"{agent_server_image}; aliasing {output.tags[0]} -> "
             f"{agent_server_image}"
+        )
+        subprocess.run(
+            ["docker", "tag", output.tags[0], agent_server_image], check=True
         )
     return True
 
