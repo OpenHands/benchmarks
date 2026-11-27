@@ -1,6 +1,7 @@
 """Tests for SWE-Bench eval_infer functionality."""
 
 import json
+import sys
 import tempfile
 from types import SimpleNamespace
 
@@ -12,7 +13,7 @@ from swebench.harness.constants import (
     TESTS_TIMEOUT,
 )
 
-from benchmarks.swebench import apptainer_eval
+from benchmarks.swebench import apptainer_eval, eval_infer
 from benchmarks.swebench.eval_infer import convert_to_swebench_format
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 
@@ -233,3 +234,142 @@ class TestApptainerEvaluation:
         assert report["resolved"] == 1
         assert report["resolved_ids"] == ["django__django-1"]
         assert report["unresolved_ids"] == ["django__django-2"]
+
+
+class TestReuseLocalAgentImagesFlag:
+    """Tests for the --reuse-local-agent-images CLI flag wiring in main().
+
+    The flag should trigger prepare_local_grading_images_for_predictions()
+    before the SWE-Bench harness subprocess runs (--no-modal only), and
+    should be a no-op when omitted.
+    """
+
+    def _write_input_file(self, tmp_path):
+        input_file = tmp_path / "output.jsonl"
+        input_file.write_text(
+            json.dumps(
+                {
+                    "instance_id": "django__django-1",
+                    "test_result": {"git_patch": "diff"},
+                }
+            )
+            + "\n"
+        )
+        return input_file
+
+    def _patch_common(self, monkeypatch, tmp_path, calls):
+        def fake_run_eval(predictions_file, run_id, *args, **kwargs):
+            calls["run_eval"] = True
+            report_filename = f"{MODEL_NAME_OR_PATH}.{run_id}.json"
+            (tmp_path / report_filename).write_text("{}")
+
+        monkeypatch.setattr(eval_infer, "run_swebench_evaluation", fake_run_eval)
+        monkeypatch.setattr(eval_infer, "generate_cost_report", lambda *a, **k: None)
+        monkeypatch.setattr(
+            eval_infer.LaminarService,
+            "get",
+            classmethod(
+                lambda cls: SimpleNamespace(
+                    update_evaluation_scores=lambda *a, **k: None
+                )
+            ),
+        )
+
+    def test_reuse_flag_triggers_local_image_prep(self, tmp_path, monkeypatch):
+        input_file = self._write_input_file(tmp_path)
+        calls: dict = {}
+        self._patch_common(monkeypatch, tmp_path, calls)
+
+        def fake_prepare(predictions_file):
+            calls["prepared"] = predictions_file
+            return {"django__django-1": True}
+
+        monkeypatch.setattr(
+            "benchmarks.swebench.build_images."
+            "prepare_local_grading_images_for_predictions",
+            fake_prepare,
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "swebench-eval",
+                str(input_file),
+                "--run-id",
+                "test-run",
+                "--no-modal",
+                "--reuse-local-agent-images",
+            ],
+        )
+
+        eval_infer.main()
+
+        assert "prepared" in calls
+        assert calls["run_eval"] is True
+
+    def test_no_reuse_flag_skips_local_image_prep(self, tmp_path, monkeypatch):
+        input_file = self._write_input_file(tmp_path)
+        calls: dict = {}
+        self._patch_common(monkeypatch, tmp_path, calls)
+
+        def fake_prepare(predictions_file):
+            calls["prepared"] = predictions_file
+            return {}
+
+        monkeypatch.setattr(
+            "benchmarks.swebench.build_images."
+            "prepare_local_grading_images_for_predictions",
+            fake_prepare,
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "swebench-eval",
+                str(input_file),
+                "--run-id",
+                "test-run",
+                "--no-modal",
+            ],
+        )
+
+        eval_infer.main()
+
+        assert "prepared" not in calls
+        assert calls["run_eval"] is True
+
+    def test_reuse_flag_has_no_effect_with_modal(self, tmp_path, monkeypatch):
+        """--reuse-local-agent-images is meaningless for --modal runs (Modal
+        sandboxes don't go through swebench.harness.docker_build at all), so
+        it should not trigger local image prep in that mode.
+        """
+        input_file = self._write_input_file(tmp_path)
+        calls: dict = {}
+        self._patch_common(monkeypatch, tmp_path, calls)
+
+        def fake_prepare(predictions_file):
+            calls["prepared"] = predictions_file
+            return {}
+
+        monkeypatch.setattr(
+            "benchmarks.swebench.build_images."
+            "prepare_local_grading_images_for_predictions",
+            fake_prepare,
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "swebench-eval",
+                str(input_file),
+                "--run-id",
+                "test-run",
+                "--modal",
+                "--reuse-local-agent-images",
+            ],
+        )
+
+        eval_infer.main()
+
+        assert "prepared" not in calls
+        assert calls["run_eval"] is True

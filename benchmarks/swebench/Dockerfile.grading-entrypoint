@@ -1,0 +1,24 @@
+ARG SDK_IMAGE
+FROM ${SDK_IMAGE}
+
+# SWE-Bench's grading harness (swebench.harness.docker_build.build_container)
+# creates the instance container with `command="tail -f /dev/null"` and does
+# NOT override `entrypoint`. Docker only replaces a container's command with
+# the caller-supplied one when the image itself has no ENTRYPOINT; if an
+# ENTRYPOINT is set, the supplied command is appended as arguments to it
+# instead.
+#
+# The eval-agent-server image's ENTRYPOINT starts the OpenHands agent server
+# (`tini -- python -m openhands.agent_server`), so when that image is reused
+# as a SWE-Bench grading image, the harness's `tail -f /dev/null` ends up
+# appended as bogus argv to the agent server rather than replacing it. The
+# agent server then runs as PID 1 with unexpected arguments outside its
+# normal SDK-orchestrated lifecycle, which can exit or crash, taking the
+# whole container down mid-grading (typically right after the test script
+# finishes, when the harness issues a follow-up `docker exec` for a
+# post-test `git diff` that then fails with "container is not running").
+#
+# Clearing ENTRYPOINT here lets the harness's plain `tail -f /dev/null`
+# command run standalone as the container's real PID 1, exactly as a
+# regular SWE-Bench grading image expects.
+ENTRYPOINT []

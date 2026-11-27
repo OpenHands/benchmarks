@@ -14,7 +14,9 @@ Example:
 """
 
 import argparse
+import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,12 +28,16 @@ from benchmarks.utils.build_utils import (
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import get_logger
 
 
 logger = get_logger(__name__)
 WRAPPER_DOCKERFILE = Path(__file__).with_name("Dockerfile.swebench-deps")
+GRADING_ENTRYPOINT_DOCKERFILE = Path(__file__).with_name(
+    "Dockerfile.grading-entrypoint"
+)
 
 
 def get_official_docker_image(
@@ -136,6 +142,141 @@ def wrap_image(agent_image: str, push: bool = False) -> BuildOutput:
         platform="linux/amd64",
         load=not push,
     )
+
+
+def prepare_local_grading_image(agent_image: str, grading_image: str) -> BuildOutput:
+    """
+    Alias a locally-built agent-server image under the official SWE-Bench
+    grading image tag, with its ENTRYPOINT cleared.
+
+    This lets `swebench-eval --no-modal` reuse an already-built local
+    eval-agent-server image as the SWE-Bench grading image for that
+    instance, instead of pulling/building the (functionally equivalent)
+    official image from Docker Hub. See Dockerfile.grading-entrypoint for
+    why the ENTRYPOINT needs clearing.
+
+    Requires `agent_image` to already exist locally; this function never
+    builds or pulls the agent-server image itself.
+
+    Deliberately uses plain `docker build` rather than
+    run_docker_build_layer()'s `docker buildx build`: this is a local-only
+    alias (never pushed), and buildx builds route through whichever buildx
+    builder instance is currently active. A `docker-container` driver
+    instance (e.g. this repo's "openhands-builder", used for the phased
+    image pipeline) runs BuildKit in its own container with its own image
+    store, isolated from the host Docker daemon, so it can't resolve a
+    locally-built-only base image as FROM. Plain `docker build` always uses
+    the host daemon's own image store and has no such isolation.
+    """
+    if not local_image_exists(agent_image):
+        return BuildOutput(
+            base_image=agent_image,
+            tags=[],
+            error=f"Agent-server image {agent_image} not found locally.",
+            status="failed",
+        )
+
+    if not GRADING_ENTRYPOINT_DOCKERFILE.exists():
+        return BuildOutput(
+            base_image=agent_image,
+            tags=[],
+            error=(
+                "Grading entrypoint Dockerfile not found at "
+                f"{GRADING_ENTRYPOINT_DOCKERFILE}"
+            ),
+        )
+
+    logger.info("Preparing local grading image %s from %s", grading_image, agent_image)
+
+    cmd = [
+        "docker",
+        "build",
+        "--file",
+        str(GRADING_ENTRYPOINT_DOCKERFILE),
+        "--build-arg",
+        f"SDK_IMAGE={agent_image}",
+        "--tag",
+        grading_image,
+        str(GRADING_ENTRYPOINT_DOCKERFILE.parent),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return BuildOutput(
+            base_image=agent_image,
+            tags=[],
+            error=(
+                f"docker build failed (exit {result.returncode}): "
+                f"{result.stderr.strip()}"
+            ),
+            status="failed",
+        )
+
+    return BuildOutput(base_image=agent_image, tags=[grading_image], error=None)
+
+
+def prepare_local_grading_images_for_predictions(
+    predictions_file: Path,
+) -> dict[str, bool]:
+    """
+    Prepare local SWE-Bench grading images for every instance in a
+    predictions file, reusing already-built local eval-agent-server images
+    where available.
+
+    For each instance:
+      - If the official SWE-Bench grading image already exists locally,
+        nothing to do (skipped, counted as not-prepared).
+      - Else, if a matching local eval-agent-server image exists (same tag
+        prefix / build target run_infer.py would have built), alias it
+        under the official grading image tag via
+        prepare_local_grading_image().
+      - Else, nothing to prepare; the instance is left for SWE-Bench's
+        normal pull/build behavior during grading.
+
+    This is purely a local speed/bandwidth optimization for `swebench-eval
+    --no-modal`; it has no effect on correctness, since the grading
+    environment itself (everything but ENTRYPOINT) is identical to the
+    official image the eval-agent-server image was built from.
+
+    Returns a dict mapping instance_id -> whether an image was prepared.
+    """
+    prefix = get_phased_image_tag_prefix()
+    target = constants.DEFAULT_BUILD_TARGET
+    suffix = f"-{target}" if target != constants.BUILD_TARGET_BINARY else ""
+
+    instance_ids: list[str] = []
+    with open(predictions_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            data = json.loads(line)
+            instance_id = data.get("instance_id")
+            if instance_id:
+                instance_ids.append(instance_id)
+
+    results: dict[str, bool] = {}
+    for instance_id in instance_ids:
+        grading_image = get_official_docker_image(instance_id)
+        if local_image_exists(grading_image):
+            results[instance_id] = False
+            continue
+
+        custom_tag = extract_custom_tag(grading_image)
+        agent_image = f"{EVAL_AGENT_SERVER_IMAGE}:{prefix}-{custom_tag}{suffix}"
+        if not local_image_exists(agent_image):
+            results[instance_id] = False
+            continue
+
+        output = prepare_local_grading_image(agent_image, grading_image)
+        results[instance_id] = output.error is None
+        if output.error:
+            logger.warning(
+                "Failed to prepare local grading image for %s: %s",
+                instance_id,
+                output.error,
+            )
+
+    return results
 
 
 def get_parser() -> argparse.ArgumentParser:

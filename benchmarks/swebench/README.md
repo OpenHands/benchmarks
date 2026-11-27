@@ -254,6 +254,21 @@ uv run swebench-eval output.jsonl \
 uv run swebench-eval output.jsonl --skip-evaluation
 ```
 
+**Reusing local agent-server images for `--no-modal` grading:**
+
+```bash
+uv run swebench-eval output.jsonl --no-modal --reuse-local-agent-images
+```
+
+If you already built local eval-agent-server images for inference
+(`--workspace docker`), pass `--reuse-local-agent-images` to alias them
+under the official SWE-Bench grading image tags before evaluation starts,
+instead of pulling/building the (functionally equivalent) official images
+from Docker Hub. Instances without a matching local eval-agent-server image
+fall back to SWE-Bench's normal pull/build behavior, so this is safe to
+leave on. Has no effect with `--modal` or `--apptainer`, since neither goes
+through `swebench.harness.docker_build`.
+
 **Local Apptainer evaluation:**
 
 ```bash
